@@ -180,38 +180,48 @@ export function AppProvider({ session, children }) {
     return () => { if (clockInSyncTimer.current) clearTimeout(clockInSyncTimer.current); };
   }, [clockIn, session?.user?.id]);
 
-  // ── Re-sync clock state from DB (cross-device) ──
-  // Poll every 10s so two open browsers stay in sync without needing a tab switch.
+  // ── Real-time clock sync (cross-device) ──
+  // Supabase Realtime pushes clock state instantly. visibilitychange is a reconnection fallback.
   // { stopped: true } sentinel means explicit clock-out (vs null = not yet synced).
   useEffect(() => {
     if (!session?.user?.id) return;
-    async function syncFromDB() {
-      const { data } = await supabase.from("user_settings").select("active_clock").eq("user_id", session.user.id).single();
-      const dbClock = data?.active_clock ?? null;
+
+    function applyRemoteClock(dbClock) {
       const localClock = clockInRef.current;
       if (dbClock?.stopped === true) {
-        // Explicitly stopped on another device
         if (localClock !== null) {
           clockInFromDBRef.current = true;
           setClockIn(null);
           localStorage.removeItem("ql_clock_in");
         }
       } else if (dbClock !== null && JSON.stringify(dbClock) !== JSON.stringify(localClock)) {
-        // Active session from another device
         clockInFromDBRef.current = true;
         setClockIn(dbClock);
         localStorage.setItem("ql_clock_in", JSON.stringify(dbClock));
       }
-      // dbClock === null → unknown/not yet synced, leave local state alone
     }
-    function onVisible() {
-      if (!document.hidden) syncFromDB();
+
+    // Fallback: re-sync on tab focus (e.g. after laptop lid close/open)
+    async function syncFromDB() {
+      const { data } = await supabase.from("user_settings").select("active_clock").eq("user_id", session.user.id).single();
+      applyRemoteClock(data?.active_clock ?? null);
     }
+    function onVisible() { if (!document.hidden) syncFromDB(); }
     document.addEventListener("visibilitychange", onVisible);
-    const pollInterval = setInterval(syncFromDB, 10_000);
+
+    // Realtime subscription — instant cross-device sync
+    const channel = supabase
+      .channel(`clock:${session.user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "user_settings", filter: `user_id=eq.${session.user.id}` },
+        (payload) => { applyRemoteClock(payload.new?.active_clock ?? null); }
+      )
+      .subscribe();
+
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
-      clearInterval(pollInterval);
+      supabase.removeChannel(channel);
     };
   }, [session?.user?.id]);
 

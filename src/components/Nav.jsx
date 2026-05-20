@@ -3,7 +3,7 @@ import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
-import { Sun, Moon, LogOut, Loader2, Timer } from "lucide-react";
+import { Sun, Moon, LogOut, Loader2, Timer, Users } from "lucide-react";
 
 export default function Nav({ onOpenPomodoro }) {
   const { settings, todayMins, exportMsg, dataSyncing, openSettings } = useApp();
@@ -96,6 +96,10 @@ export default function Nav({ onOpenPomodoro }) {
             </NavLink>
             <NavLink to="/planner" className={navLinkClass}>
               Planner
+            </NavLink>
+            <NavLink to="/team" className={navLinkClass}>
+              <span className="sm:hidden"><Users className="w-4 h-4" /></span>
+              <span className="hidden sm:inline">Team</span>
             </NavLink>
           </nav>
 

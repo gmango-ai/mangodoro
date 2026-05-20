@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../context/ThemeContext";
-import { X, RotateCcw, PictureInPicture2, ChevronDown, ChevronUp } from "lucide-react";
+import { X, RotateCcw, PictureInPicture2, ChevronDown, ChevronUp, Users, LogOut, Copy } from "lucide-react";
 import { supabase } from "../supabase";
 import {
   loadPomodoroSoundSettings,
   savePomodoroSoundSettings,
   playCompletionSound,
 } from "../lib/pomodoroSound";
+import SyncParticipantList from "./SyncParticipantList";
 
 const DURATIONS = {
   work: 25 * 60,
@@ -69,7 +70,9 @@ function PipFace({
   );
 }
 
-export default function PomodoroTimer({ open, onClose, userId }) {
+export default function PomodoroTimer({ open, onClose, userId, syncSession, syncParticipants, presenceMap, onOpenSync, onLeaveSync, onEndSync }) {
+  const isSynced = !!syncSession;
+  const isLeader = isSynced && syncSession.leader_id === userId;
   const { theme } = useTheme();
   const dark = theme === "dark";
 
@@ -101,28 +104,51 @@ export default function PomodoroTimer({ open, onClose, userId }) {
     async (override = {}) => {
       if (!userId) return null;
       const base = latestRef.current;
-      const payload = {
-        user_id: userId,
-        mode: override.mode ?? base.mode,
-        sessions: override.sessions ?? base.sessions,
-        is_running: override.is_running ?? base.isRunning,
-        remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
-      };
       suppressRemoteUntilRef.current = Date.now() + 450;
-      const { data, error } = await supabase
-        .from("user_pomodoro_state")
-        .upsert(payload, { onConflict: "user_id" })
-        .select()
-        .single();
-      if (error) {
-        console.warn("pomodoro sync:", error.message);
-        return null;
+
+      // Sync mode: write to sync_sessions (leader only)
+      if (syncSession && syncSession.leader_id === userId) {
+        const payload = {
+          mode: override.mode ?? base.mode,
+          sessions: override.sessions ?? base.sessions,
+          is_running: override.is_running ?? base.isRunning,
+          remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
+        };
+        const { data, error } = await supabase
+          .from("sync_sessions")
+          .update(payload)
+          .eq("id", syncSession.id)
+          .select()
+          .single();
+        if (error) { console.warn("sync session flush:", error.message); return null; }
+        if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
+        else endsAtMsRef.current = null;
+        return data;
       }
-      if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
-      else endsAtMsRef.current = null;
-      return data;
+
+      // Solo mode: write to user_pomodoro_state
+      if (!syncSession) {
+        const payload = {
+          user_id: userId,
+          mode: override.mode ?? base.mode,
+          sessions: override.sessions ?? base.sessions,
+          is_running: override.is_running ?? base.isRunning,
+          remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
+        };
+        const { data, error } = await supabase
+          .from("user_pomodoro_state")
+          .upsert(payload, { onConflict: "user_id" })
+          .select()
+          .single();
+        if (error) { console.warn("pomodoro sync:", error.message); return null; }
+        if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
+        else endsAtMsRef.current = null;
+        return data;
+      }
+
+      return null; // participant in sync — no writes
     },
-    [userId]
+    [userId, syncSession]
   );
 
   const applyRemoteRow = useCallback((row) => {
@@ -141,9 +167,9 @@ export default function PomodoroTimer({ open, onClose, userId }) {
     }
   }, []);
 
-  // Hydrate from server when logged in
+  // Hydrate from server when logged in (solo mode)
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || syncSession) return;
     let cancelled = false;
     (async () => {
       const { data, error } = await supabase
@@ -156,34 +182,57 @@ export default function PomodoroTimer({ open, onClose, userId }) {
       applyRemoteRow(data);
       suppressRemoteUntilRef.current = Date.now() + 400;
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, applyRemoteRow]);
+    return () => { cancelled = true; };
+  }, [userId, applyRemoteRow, syncSession]);
 
-  // Realtime subscription
+  // Hydrate from sync session
   useEffect(() => {
-    if (!userId) return;
+    if (!syncSession) return;
+    suppressRemoteUntilRef.current = 0;
+    applyRemoteRow(syncSession);
+    suppressRemoteUntilRef.current = Date.now() + 400;
+  }, [syncSession?.id]);
+
+  // Realtime subscription — solo mode
+  useEffect(() => {
+    if (!userId || syncSession) return;
     const channel = supabase
       .channel(`pomodoro:${userId}`)
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "user_pomodoro_state",
-          filter: `user_id=eq.${userId}`,
-        },
+        { event: "*", schema: "public", table: "user_pomodoro_state", filter: `user_id=eq.${userId}` },
         (payload) => {
           const row = payload.new;
           if (row && typeof row === "object") applyRemoteRow(row);
         }
       )
       .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [userId, applyRemoteRow]);
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, applyRemoteRow, syncSession]);
+
+  // Realtime subscription — sync mode
+  useEffect(() => {
+    if (!syncSession?.id) return;
+    const channel = supabase
+      .channel(`sync-session:${syncSession.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sync_sessions", filter: `id=eq.${syncSession.id}` },
+        (payload) => {
+          const row = payload.new;
+          if (row && typeof row === "object") {
+            if (row.status === "ended") {
+              // session ended by leader
+              onLeaveSync?.();
+              return;
+            }
+            applyRemoteRow(row);
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [syncSession?.id, applyRemoteRow, onLeaveSync]);
 
   // Countdown tick
   useEffect(() => {
@@ -215,11 +264,14 @@ export default function PomodoroTimer({ open, onClose, userId }) {
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification(
         currentMode === "work"
-          ? "Pomodoro done! Time for a break."
-          : "Break over — back to focus!",
+          ? isSynced ? "Sync session: Time for a break!" : "Pomodoro done! Time for a break."
+          : isSynced ? "Sync session: Break over — back to focus!" : "Break over — back to focus!",
         { icon: "/icon-192.png", tag: "pomodoro" }
       );
     }
+
+    // In sync mode, only the leader writes the mode transition
+    if (isSynced && !isLeader) return;
 
     if (currentMode === "work") {
       const next = currentSessions + 1;
@@ -246,7 +298,7 @@ export default function PomodoroTimer({ open, onClose, userId }) {
         remaining_seconds: DURATIONS.work,
       });
     }
-  }, [secondsLeft, isRunning, flushToServer]);
+  }, [secondsLeft, isRunning, flushToServer, isSynced, isLeader]);
 
   // Tab title
   useEffect(() => {
@@ -316,7 +368,10 @@ export default function PomodoroTimer({ open, onClose, userId }) {
     });
   }
 
+  const canControl = !isSynced || isLeader;
+
   function switchMode(newMode) {
+    if (!canControl) return;
     const dur = DURATIONS[newMode];
     setMode(newMode);
     setSecondsLeft(dur);
@@ -330,6 +385,7 @@ export default function PomodoroTimer({ open, onClose, userId }) {
   }
 
   function reset() {
+    if (!canControl) return;
     const dur = DURATIONS[mode];
     setSecondsLeft(dur);
     setIsRunning(false);
@@ -338,6 +394,7 @@ export default function PomodoroTimer({ open, onClose, userId }) {
   }
 
   async function toggleRun() {
+    if (!canControl) return;
     if (!isRunning && "Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
@@ -401,12 +458,35 @@ export default function PomodoroTimer({ open, onClose, userId }) {
             dark ? "border-slate-700/50" : "border-slate-100"
           }`}
         >
-          <span
-            className={`text-xs font-semibold uppercase tracking-widest ${dark ? "text-slate-400" : "text-slate-500"}`}
-          >
-            Pomodoro
-          </span>
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs font-semibold uppercase tracking-widest ${dark ? "text-slate-400" : "text-slate-500"}`}
+            >
+              {isSynced ? "Sync" : "Pomodoro"}
+            </span>
+            {isSynced && (
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                dark ? "bg-cyan-500/15 text-cyan-400" : "bg-teal-50 text-teal-600"
+              }`}>
+                {syncSession.join_code}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-0.5">
+            {!isSynced && (
+              <button
+                type="button"
+                onClick={onOpenSync}
+                title="Sync with coworker"
+                className={`p-1 rounded-md transition-colors ${
+                  dark
+                    ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+              </button>
+            )}
             {pipSupported && (
               <button
                 type="button"
@@ -436,6 +516,47 @@ export default function PomodoroTimer({ open, onClose, userId }) {
         </div>
 
         <div className="px-4 pt-3 pb-4 space-y-4">
+          {/* Sync participants */}
+          {isSynced && syncParticipants?.length > 0 && (
+            <div className="flex items-center justify-between">
+              <SyncParticipantList
+                participants={syncParticipants}
+                leaderId={syncSession.leader_id}
+                presenceMap={presenceMap}
+              />
+              <div className="flex gap-1">
+                {isLeader ? (
+                  <button
+                    type="button"
+                    onClick={onEndSync}
+                    className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
+                      dark ? "text-red-400 hover:bg-red-500/15" : "text-red-500 hover:bg-red-50"
+                    }`}
+                  >
+                    End
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onLeaveSync}
+                    className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
+                      dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"
+                    }`}
+                  >
+                    <LogOut className="w-3 h-3 inline mr-0.5" /> Leave
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Not-leader hint */}
+          {isSynced && !isLeader && (
+            <p className={`text-center text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              The session leader controls the timer
+            </p>
+          )}
+
           <div className={`flex rounded-lg p-0.5 ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
             {[
               ["work", "Focus"],
@@ -446,7 +567,10 @@ export default function PomodoroTimer({ open, onClose, userId }) {
                 key={m}
                 type="button"
                 onClick={() => switchMode(m)}
+                disabled={!canControl}
                 className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                  !canControl ? "cursor-default" : ""
+                } ${
                   mode === m
                     ? dark
                       ? "bg-slate-700 text-white"
@@ -504,8 +628,11 @@ export default function PomodoroTimer({ open, onClose, userId }) {
             <button
               type="button"
               onClick={reset}
+              disabled={!canControl}
               title="Reset"
               className={`p-2 rounded-full transition-colors ${
+                !canControl ? "opacity-30 cursor-default" : ""
+              } ${
                 dark
                   ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
                   : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
@@ -516,7 +643,10 @@ export default function PomodoroTimer({ open, onClose, userId }) {
             <button
               type="button"
               onClick={toggleRun}
-              className={`px-7 py-2 rounded-full text-sm font-bold text-white shadow-lg transition-all ${startBtnCls}`}
+              disabled={!canControl}
+              className={`px-7 py-2 rounded-full text-sm font-bold text-white shadow-lg transition-all ${
+                !canControl ? "opacity-40 cursor-default" : ""
+              } ${startBtnCls}`}
             >
               {startLabel}
             </button>

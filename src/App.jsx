@@ -1,22 +1,112 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { supabase } from "./supabase";
 import AuthPage from "./AuthPage";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
-import { AppProvider } from "./context/AppContext";
+import { AppProvider, useApp } from "./context/AppContext";
+import { TeamProvider } from "./context/TeamContext";
 import Nav from "./components/Nav";
 import SettingsModal from "./components/SettingsModal";
 import InvoiceModal from "./components/InvoiceModal";
 import ClockBanner from "./components/ClockBanner";
 import PomodoroTimer from "./components/PomodoroTimer";
+import SyncSessionModal from "./components/SyncSessionModal";
 import LogPage from "./pages/LogPage";
 import OverviewPage from "./pages/OverviewPage";
 import PlannerPage from "./pages/PlannerPage";
+import TeamPage from "./pages/TeamPage";
+import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
+import { leaveSyncSession, endSyncSession, fetchSyncParticipants } from "./lib/syncSession";
 
 function AppLayout({ session }) {
   const { theme } = useTheme();
   const darkMode = theme === "dark";
+  const { settings } = useApp();
   const [showPomodoro, setShowPomodoro] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+
+  // Sync pomodoro state
+  const [syncSession, setSyncSession] = useState(null);
+  const [syncParticipants, setSyncParticipants] = useState([]);
+  const [presenceMap, setPresenceMap] = useState({});
+
+  // Rehydrate sync session from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem("ql_sync_session");
+    if (!stored) return;
+    try {
+      const { sessionId } = JSON.parse(stored);
+      if (!sessionId) return;
+      supabase.from("sync_sessions").select("*").eq("id", sessionId).eq("status", "active").maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            setSyncSession(data);
+            fetchSyncParticipants(data.id).then(({ data: p }) => setSyncParticipants(p || []));
+          } else {
+            localStorage.removeItem("ql_sync_session");
+          }
+        });
+    } catch { localStorage.removeItem("ql_sync_session"); }
+  }, []);
+
+  // Presence + participant subscription for sync session
+  useEffect(() => {
+    if (!syncSession?.id) return;
+    const channel = supabase.channel(`sync-presence:${syncSession.id}`);
+
+    // Presence
+    channel.on("presence", { event: "sync" }, () => {
+      const state = channel.presenceState();
+      const map = {};
+      for (const key of Object.keys(state)) {
+        for (const p of state[key]) { map[p.user_id] = true; }
+      }
+      setPresenceMap(map);
+    });
+
+    // Participant changes
+    channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "sync_session_participants", filter: `session_id=eq.${syncSession.id}` },
+      () => { fetchSyncParticipants(syncSession.id).then(({ data: p }) => setSyncParticipants(p || [])); }
+    );
+
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.track({ user_id: session.user.id });
+      }
+    });
+
+    return () => { supabase.removeChannel(channel); };
+  }, [syncSession?.id, session.user.id]);
+
+  function handleSessionJoined(sess) {
+    setSyncSession(sess);
+    setShowSyncModal(false);
+    setShowPomodoro(true);
+    localStorage.setItem("ql_sync_session", JSON.stringify({ sessionId: sess.id }));
+    fetchSyncParticipants(sess.id).then(({ data: p }) => setSyncParticipants(p || []));
+  }
+
+  const handleLeaveSync = useCallback(async () => {
+    if (syncSession) {
+      await leaveSyncSession(syncSession.id, session.user.id);
+    }
+    setSyncSession(null);
+    setSyncParticipants([]);
+    setPresenceMap({});
+    localStorage.removeItem("ql_sync_session");
+  }, [syncSession, session.user.id]);
+
+  async function handleEndSync() {
+    if (syncSession) {
+      await endSyncSession(syncSession.id);
+    }
+    setSyncSession(null);
+    setSyncParticipants([]);
+    setPresenceMap({});
+    localStorage.removeItem("ql_sync_session");
+  }
 
   return (
     <div className={darkMode ? 'dark' : ''}>
@@ -56,11 +146,26 @@ function AppLayout({ session }) {
             open={showPomodoro}
             onClose={() => setShowPomodoro(false)}
             userId={session.user.id}
+            syncSession={syncSession}
+            syncParticipants={syncParticipants}
+            presenceMap={presenceMap}
+            onOpenSync={() => setShowSyncModal(true)}
+            onLeaveSync={handleLeaveSync}
+            onEndSync={handleEndSync}
+          />
+          <SyncSessionModal
+            open={showSyncModal}
+            onClose={() => setShowSyncModal(false)}
+            userId={session.user.id}
+            displayName={settings?.name || ""}
+            onSessionJoined={handleSessionJoined}
           />
           <Routes>
             <Route path="/" element={<LogPage />} />
             <Route path="/overview" element={<OverviewPage />} />
             <Route path="/planner" element={<PlannerPage />} />
+            <Route path="/team" element={<TeamPage />} />
+            <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
           </Routes>
         </div>
       </div>
@@ -91,7 +196,9 @@ export default function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AppProvider session={session}>
-          <AppLayout session={session} />
+          <TeamProvider session={session}>
+            <AppLayout session={session} />
+          </TeamProvider>
         </AppProvider>
       </BrowserRouter>
     </ThemeProvider>
