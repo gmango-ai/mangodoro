@@ -83,7 +83,7 @@ export function AppProvider({ session, children }) {
         const [entriesRes, templatesRes, settingsRes, projectsRes] = await Promise.all([
           supabase.from("entries").select("*").order("date", { ascending: false }),
           supabase.from("templates").select("*").order("created_at"),
-          supabase.from("user_settings").select("*").single(),
+          supabase.from("user_settings").select("*").eq("user_id", session.user.id).maybeSingle(),
           supabase.from("projects").select("*").order("created_at"),
         ]);
         // Sync clock-in state from DB (handles cross-device tracking).
@@ -120,7 +120,7 @@ export function AppProvider({ session, children }) {
             user_id: session.user.id,
             google_access_token: session.provider_token,
             google_token_expiry: expiry,
-          });
+          }, { onConflict: "user_id" });
         } else {
           setGoogleToken(settingsRes.data?.google_access_token ?? null);
           setGoogleTokenExpiry(settingsRes.data?.google_token_expiry ?? 0);
@@ -203,7 +203,7 @@ export function AppProvider({ session, children }) {
 
     // Fallback: re-sync on tab focus (e.g. after laptop lid close/open)
     async function syncFromDB() {
-      const { data } = await supabase.from("user_settings").select("active_clock").eq("user_id", session.user.id).single();
+      const { data } = await supabase.from("user_settings").select("active_clock").eq("user_id", session.user.id).maybeSingle();
       applyRemoteClock(data?.active_clock ?? null);
     }
     function onVisible() { if (!document.hidden) syncFromDB(); }
@@ -237,7 +237,7 @@ export function AppProvider({ session, children }) {
       user_id: session.user.id,
       google_access_token: session.provider_token,
       google_token_expiry: expiry,
-    }).then();
+    }, { onConflict: "user_id" }).then();
   }, [session?.provider_token]);
 
   // ── Clock tick ───────────────────────────────────────────────
@@ -456,7 +456,10 @@ export function AppProvider({ session, children }) {
     const existingUUIDs = templates.map((t) => t.id).filter(isUUID);
     const draftUUIDs = draftTemplates.map((t) => t.id).filter(isUUID);
     const removed = existingUUIDs.filter((id) => !draftUUIDs.includes(id));
-    if (removed.length) await supabase.from("templates").delete().in("id", removed);
+    if (removed.length) {
+      const { error } = await supabase.from("templates").delete().in("id", removed);
+      if (error) { console.error("delete templates:", error); flash(`✗ Failed to remove templates: ${error.message}`); return; }
+    }
 
     let finalDefaultTemplateId = rest.defaultTemplateId;
     if (draftTemplates.length > 0) {
@@ -465,7 +468,8 @@ export function AppProvider({ session, children }) {
         if (isUUID(t.id)) obj.id = t.id;
         return obj;
       });
-      const { data: saved } = await supabase.from("templates").upsert(toUpsert).select();
+      const { data: saved, error } = await supabase.from("templates").upsert(toUpsert).select();
+      if (error) { console.error("upsert templates:", error); flash(`✗ Failed to save templates: ${error.message}`); return; }
       const normalizedSaved = (saved || []).map(normalizeTemplate);
       setTemplates(normalizedSaved);
       if (finalDefaultTemplateId && !isUUID(finalDefaultTemplateId)) {
@@ -480,20 +484,24 @@ export function AppProvider({ session, children }) {
     const existingProjectUUIDs = projects.map((p) => p.id).filter(isUUID);
     const draftProjectUUIDs = draftProjects.map((p) => p.id).filter(isUUID);
     const removedProjects = existingProjectUUIDs.filter((id) => !draftProjectUUIDs.includes(id));
-    if (removedProjects.length) await supabase.from("projects").delete().in("id", removedProjects);
+    if (removedProjects.length) {
+      const { error } = await supabase.from("projects").delete().in("id", removedProjects);
+      if (error) { console.error("delete projects:", error); flash(`✗ Failed to remove projects: ${error.message}`); return; }
+    }
     if (draftProjects.length > 0) {
       const toUpsert = draftProjects.map((p) => {
         const obj = { user_id: session.user.id, name: p.name, client_name: p.client_name || "", color: p.color || "#14b8a6" };
         if (isUUID(p.id)) obj.id = p.id;
         return obj;
       });
-      const { data: savedProjects } = await supabase.from("projects").upsert(toUpsert).select();
+      const { data: savedProjects, error } = await supabase.from("projects").upsert(toUpsert).select();
+      if (error) { console.error("upsert projects:", error); flash(`✗ Failed to save projects: ${error.message}`); return; }
       setProjects(savedProjects ?? draftProjects);
     } else {
       setProjects([]);
     }
 
-    await supabase.from("user_settings").upsert({
+    const { error: settingsError } = await supabase.from("user_settings").upsert({
       user_id: session.user.id,
       name: rest.name || null,
       default_start: rest.defaultStart || null,
@@ -507,7 +515,12 @@ export function AppProvider({ session, children }) {
       weekly_target: weekly,
       default_entry_mode: entryMode,
       updated_at: new Date().toISOString(),
-    });
+    }, { onConflict: "user_id" });
+    if (settingsError) {
+      console.error("upsert user_settings:", settingsError);
+      flash(`✗ Failed to save settings: ${settingsError.message}`);
+      return;
+    }
 
     const newSettings = { ...rest, defaultTemplateId: finalDefaultTemplateId };
     setSettings(newSettings);
@@ -519,6 +532,7 @@ export function AppProvider({ session, children }) {
     setWeeklyTarget(weekly);
     setDefaultEntryMode(entryMode);
     setShowSettings(false);
+    flash("✓ Settings saved");
   }
 
   // ── Template draft helpers ───────────────────────────────────
@@ -842,7 +856,7 @@ export function AppProvider({ session, children }) {
         const { data: savedTmpl } = await supabase.from("templates").insert(rows).select();
         if (savedTmpl) setTemplates((prev) => [...prev, ...savedTmpl.map(normalizeTemplate)]);
       }
-      await supabase.from("user_settings").upsert({ user_id: session.user.id, name: oldSettings.name || null, default_start: oldSettings.defaultStart || null, default_end: oldSettings.defaultEnd || null, hourly_rate: oldRate, deepseek_key: oldKey, updated_at: new Date().toISOString() });
+      await supabase.from("user_settings").upsert({ user_id: session.user.id, name: oldSettings.name || null, default_start: oldSettings.defaultStart || null, default_end: oldSettings.defaultEnd || null, hourly_rate: oldRate, deepseek_key: oldKey, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
       ["worklog_entries_v2", "worklog_templates_v1", "worklog_settings_v1", "worklog_hourly_rate", "worklog_deepseek_key"].forEach((k) => localStorage.removeItem(k));
       setLocalImportBanner(null);
       flash(`✓ Imported ${oldEntries.length} ${oldEntries.length === 1 ? "entry" : "entries"} from local storage`);
@@ -1171,6 +1185,7 @@ export function AppProvider({ session, children }) {
     // data
     session, entries, projects, settings, templates, dataSyncing,
     hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode,
+    setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget,
     // ui
     form, setForm, exportMsg, flash,
     localImportBanner, setLocalImportBanner,

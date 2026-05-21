@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../context/ThemeContext";
-import { X, RotateCcw, PictureInPicture2, ChevronDown, ChevronUp, Users, LogOut, Copy } from "lucide-react";
+import { X, RotateCcw, PictureInPicture2, ChevronDown, ChevronUp, Users, LogOut, Copy, Pencil, Check } from "lucide-react";
 import { supabase } from "../supabase";
 import {
   loadPomodoroSoundSettings,
@@ -10,11 +10,30 @@ import {
 } from "../lib/pomodoroSound";
 import SyncParticipantList from "./SyncParticipantList";
 
-const DURATIONS = {
+const DEFAULT_DURATIONS = {
   work: 25 * 60,
   shortBreak: 5 * 60,
   longBreak: 15 * 60,
 };
+
+const DURATION_KEY = "ql_pomodoro_durations";
+
+function loadStoredDurations() {
+  try {
+    const raw = localStorage.getItem(DURATION_KEY);
+    if (!raw) return { ...DEFAULT_DURATIONS };
+    const parsed = JSON.parse(raw);
+    return {
+      work: Number.isFinite(parsed.work) && parsed.work > 0 ? parsed.work : DEFAULT_DURATIONS.work,
+      shortBreak: Number.isFinite(parsed.shortBreak) && parsed.shortBreak > 0 ? parsed.shortBreak : DEFAULT_DURATIONS.shortBreak,
+      longBreak: Number.isFinite(parsed.longBreak) && parsed.longBreak > 0 ? parsed.longBreak : DEFAULT_DURATIONS.longBreak,
+    };
+  } catch { return { ...DEFAULT_DURATIONS }; }
+}
+
+function saveStoredDurations(d) {
+  try { localStorage.setItem(DURATION_KEY, JSON.stringify(d)); } catch { /* ignore */ }
+}
 
 const MODE_LABELS = {
   work: "Focus",
@@ -70,16 +89,24 @@ function PipFace({
   );
 }
 
-export default function PomodoroTimer({ open, onClose, userId, syncSession, syncParticipants, presenceMap, onOpenSync, onLeaveSync, onEndSync }) {
+export default function PomodoroTimer({ open, onClose, userId, syncSession, syncParticipants, presenceMap, onOpenSync, onLeaveSync, onEndSync, onTransferLeader, onKickParticipant, onSetStatus, currentTaskHint }) {
   const isSynced = !!syncSession;
   const isLeader = isSynced && syncSession.leader_id === userId;
   const { theme } = useTheme();
   const dark = theme === "dark";
 
   const [mode, setMode] = useState("work");
-  const [secondsLeft, setSecondsLeft] = useState(DURATIONS.work);
+  const [durations, setDurations] = useState(() => loadStoredDurations());
+  const [secondsLeft, setSecondsLeft] = useState(() => loadStoredDurations().work);
   const [isRunning, setIsRunning] = useState(false);
   const [sessions, setSessions] = useState(0);
+  const [editingDuration, setEditingDuration] = useState(false);
+  const [draftMinutes, setDraftMinutes] = useState("");
+  const [statusDraft, setStatusDraft] = useState("");
+  const [statusEditing, setStatusEditing] = useState(false);
+
+  const durationsRef = useRef(durations);
+  durationsRef.current = durations;
 
   const [soundSettings, setSoundSettings] = useState(() => loadPomodoroSoundSettings());
   const [soundOpen, setSoundOpen] = useState(false);
@@ -273,10 +300,11 @@ export default function PomodoroTimer({ open, onClose, userId, syncSession, sync
     // In sync mode, only the leader writes the mode transition
     if (isSynced && !isLeader) return;
 
+    const d = durationsRef.current;
     if (currentMode === "work") {
       const next = currentSessions + 1;
       const nextMode = next % 4 === 0 ? "longBreak" : "shortBreak";
-      const nextSecs = DURATIONS[nextMode];
+      const nextSecs = d[nextMode];
       setSessions(next);
       setMode(nextMode);
       setSecondsLeft(nextSecs);
@@ -289,13 +317,13 @@ export default function PomodoroTimer({ open, onClose, userId, syncSession, sync
       });
     } else {
       setMode("work");
-      setSecondsLeft(DURATIONS.work);
+      setSecondsLeft(d.work);
       endsAtMsRef.current = null;
       flushToServer({
         mode: "work",
         sessions: currentSessions,
         is_running: false,
-        remaining_seconds: DURATIONS.work,
+        remaining_seconds: d.work,
       });
     }
   }, [secondsLeft, isRunning, flushToServer, isSynced, isLeader]);
@@ -372,11 +400,12 @@ export default function PomodoroTimer({ open, onClose, userId, syncSession, sync
 
   function switchMode(newMode) {
     if (!canControl) return;
-    const dur = DURATIONS[newMode];
+    const dur = durations[newMode];
     setMode(newMode);
     setSecondsLeft(dur);
     setIsRunning(false);
     endsAtMsRef.current = null;
+    setEditingDuration(false);
     flushToServer({
       mode: newMode,
       remaining_seconds: dur,
@@ -386,11 +415,31 @@ export default function PomodoroTimer({ open, onClose, userId, syncSession, sync
 
   function reset() {
     if (!canControl) return;
-    const dur = DURATIONS[mode];
+    const dur = durations[mode];
     setSecondsLeft(dur);
     setIsRunning(false);
     endsAtMsRef.current = null;
+    setEditingDuration(false);
     flushToServer({ remaining_seconds: dur, is_running: false });
+  }
+
+  function applyCustomDuration(minutesStr, persist) {
+    if (!canControl) return;
+    const m = parseFloat(minutesStr);
+    if (!Number.isFinite(m) || m <= 0) return;
+    const secs = Math.max(1, Math.round(m * 60));
+    if (persist) {
+      const next = { ...durations, [mode]: secs };
+      setDurations(next);
+      saveStoredDurations(next);
+    } else {
+      setDurations((prev) => ({ ...prev, [mode]: secs }));
+    }
+    setSecondsLeft(secs);
+    setIsRunning(false);
+    endsAtMsRef.current = null;
+    setEditingDuration(false);
+    flushToServer({ remaining_seconds: secs, is_running: false });
   }
 
   async function toggleRun() {
@@ -409,7 +458,7 @@ export default function PomodoroTimer({ open, onClose, userId, syncSession, sync
   const mins = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secs = String(secondsLeft % 60).padStart(2, "0");
 
-  const total = DURATIONS[mode];
+  const total = durations[mode];
   const progress = secondsLeft === total ? 0 : (total - secondsLeft) / total;
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
@@ -445,7 +494,7 @@ export default function PomodoroTimer({ open, onClose, userId, syncSession, sync
   return (
     <>
       <div
-        className={`fixed bottom-6 right-6 z-[60] w-72 rounded-2xl border shadow-2xl transition-all ${
+        className={`fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-72 max-h-[calc(100vh-1.5rem)] sm:max-h-none overflow-y-auto rounded-2xl border shadow-2xl transition-all ${
           !open ? "hidden" : ""
         } ${
           dark
@@ -516,45 +565,204 @@ export default function PomodoroTimer({ open, onClose, userId, syncSession, sync
         </div>
 
         <div className="px-4 pt-3 pb-4 space-y-4">
-          {/* Sync participants */}
-          {isSynced && syncParticipants?.length > 0 && (
-            <div className="flex items-center justify-between">
-              <SyncParticipantList
-                participants={syncParticipants}
-                leaderId={syncSession.leader_id}
-                presenceMap={presenceMap}
-              />
-              <div className="flex gap-1">
-                {isLeader ? (
+          {/* Sync management — always render when synced */}
+          {isSynced && (
+            <div className={`rounded-lg border p-2.5 space-y-2 ${
+              dark ? "bg-slate-800/40 border-slate-700/60" : "bg-slate-50 border-slate-200"
+            }`}>
+              {/* Join code + copy (leader-prominent, visible to all) */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                    Code
+                  </span>
+                  <span className={`font-mono text-sm font-bold tracking-[0.2em] ${dark ? "text-cyan-300" : "text-teal-700"}`}>
+                    {syncSession.join_code}
+                  </span>
                   <button
                     type="button"
-                    onClick={onEndSync}
-                    className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
-                      dark ? "text-red-400 hover:bg-red-500/15" : "text-red-500 hover:bg-red-50"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(syncSession.join_code);
+                    }}
+                    title="Copy code"
+                    className={`p-1 rounded transition-colors ${
+                      dark ? "text-slate-500 hover:text-slate-300 hover:bg-slate-700" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200"
                     }`}
                   >
-                    End
+                    <Copy className="w-3 h-3" />
                   </button>
-                ) : (
+                </div>
+                <div className="flex gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={onLeaveSync}
+                    title={isLeader ? "Leave — leadership transfers automatically" : "Leave session"}
                     className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
                       dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"
                     }`}
                   >
                     <LogOut className="w-3 h-3 inline mr-0.5" /> Leave
                   </button>
-                )}
+                  {isLeader && (
+                    <button
+                      type="button"
+                      onClick={onEndSync}
+                      title="End session for everyone"
+                      className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
+                        dark ? "text-red-400 hover:bg-red-500/15" : "text-red-500 hover:bg-red-50"
+                      }`}
+                    >
+                      End
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
 
-          {/* Not-leader hint */}
-          {isSynced && !isLeader && (
-            <p className={`text-center text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              The session leader controls the timer
-            </p>
+              {/* Participants */}
+              {syncParticipants?.length > 0 ? (
+                <SyncParticipantList
+                  participants={syncParticipants}
+                  leaderId={syncSession.leader_id}
+                  presenceMap={presenceMap}
+                  currentUserId={userId}
+                  onTransferLeader={onTransferLeader}
+                  onKickParticipant={onKickParticipant}
+                />
+              ) : (
+                <p className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                  Waiting for members to join…
+                </p>
+              )}
+
+              {/* What everyone is working on */}
+              {syncParticipants?.some((p) => p.status && p.status.trim()) && (
+                <div className={`rounded-md border p-2 space-y-1 ${
+                  dark ? "bg-slate-900/40 border-slate-700/60" : "bg-white border-slate-200"
+                }`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                    Working on
+                  </p>
+                  {syncParticipants
+                    .filter((p) => p.status && p.status.trim())
+                    .map((p) => (
+                      <div key={p.user_id} className="flex items-baseline gap-1.5 text-[11px]">
+                        <span className={`shrink-0 font-semibold ${dark ? "text-slate-300" : "text-slate-700"}`}>
+                          {p.user_id === userId ? "You" : (p.display_name || "Member")}:
+                        </span>
+                        <span className={`truncate ${dark ? "text-slate-400" : "text-slate-600"}`}>
+                          {p.status}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* My status setter */}
+              {(() => {
+                const me = syncParticipants?.find((p) => p.user_id === userId);
+                const myStatus = me?.status || "";
+                if (statusEditing) {
+                  return (
+                    <div className={`rounded-md border p-2 space-y-1.5 ${
+                      dark ? "bg-slate-900/40 border-slate-700/60" : "bg-white border-slate-200"
+                    }`}>
+                      <input
+                        type="text"
+                        value={statusDraft}
+                        onChange={(e) => setStatusDraft(e.target.value)}
+                        placeholder="What are you working on?"
+                        maxLength={80}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { onSetStatus?.(statusDraft); setStatusEditing(false); }
+                          if (e.key === "Escape") setStatusEditing(false);
+                        }}
+                        className={`w-full h-8 px-2 rounded-md border text-[11px] ${
+                          dark
+                            ? "bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500"
+                            : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
+                        }`}
+                      />
+                      <div className="flex items-center gap-1">
+                        {currentTaskHint && (
+                          <button
+                            type="button"
+                            onClick={() => setStatusDraft(currentTaskHint)}
+                            title="Use what you're clocked into"
+                            className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
+                              dark ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                            }`}
+                          >
+                            Use current task
+                          </button>
+                        )}
+                        <div className="flex-1" />
+                        <button
+                          type="button"
+                          onClick={() => setStatusEditing(false)}
+                          className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
+                            dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"
+                          }`}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { onSetStatus?.(statusDraft); setStatusEditing(false); }}
+                          className={`text-[10px] font-semibold px-2 py-1 rounded-md text-white ${startBtnCls}`}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <button
+                    type="button"
+                    onClick={() => { setStatusDraft(myStatus); setStatusEditing(true); }}
+                    className={`w-full text-left text-[11px] px-2 py-1.5 rounded-md border transition-colors ${
+                      myStatus
+                        ? dark
+                          ? "bg-slate-900/40 border-slate-700/60 text-slate-300 hover:border-cyan-500/40"
+                          : "bg-white border-slate-200 text-slate-700 hover:border-teal-300"
+                        : dark
+                          ? "bg-slate-900/40 border-dashed border-slate-700/60 text-slate-500 hover:text-slate-300 hover:border-cyan-500/40"
+                          : "bg-white border-dashed border-slate-200 text-slate-400 hover:text-slate-600 hover:border-teal-300"
+                    }`}
+                  >
+                    {myStatus
+                      ? <><span className="font-semibold">Your status:</span> {myStatus}</>
+                      : <>+ Set your status</>}
+                    {myStatus && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); onSetStatus?.(""); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onSetStatus?.(""); } }}
+                        className={`ml-2 inline-block text-[10px] ${
+                          dark ? "text-slate-500 hover:text-red-300" : "text-slate-400 hover:text-red-500"
+                        }`}
+                      >
+                        clear
+                      </span>
+                    )}
+                  </button>
+                );
+              })()}
+
+              {/* Hints */}
+              {isLeader && syncParticipants?.length > 1 && (
+                <p className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                  Tap a member's avatar to manage them
+                </p>
+              )}
+              {!isLeader && (
+                <p className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                  The session leader controls the timer
+                </p>
+              )}
+            </div>
           )}
 
           <div className={`flex rounded-lg p-0.5 ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
@@ -650,8 +858,92 @@ export default function PomodoroTimer({ open, onClose, userId, syncSession, sync
             >
               {startLabel}
             </button>
-            <div className="w-8" />
+            <button
+              type="button"
+              onClick={() => {
+                if (!canControl) return;
+                setDraftMinutes(String(Math.max(1, Math.round(durations[mode] / 60))));
+                setEditingDuration((v) => !v);
+              }}
+              disabled={!canControl}
+              title="Set duration"
+              className={`p-2 rounded-full transition-colors ${
+                !canControl ? "opacity-30 cursor-default" : ""
+              } ${
+                editingDuration
+                  ? dark ? "text-cyan-300 bg-slate-800" : "text-teal-700 bg-slate-100"
+                  : dark
+                    ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
           </div>
+
+          {editingDuration && canControl && (
+            <div className={`rounded-lg border p-2.5 space-y-2 ${
+              dark ? "bg-slate-800/50 border-slate-700/60" : "bg-slate-50 border-slate-200"
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                  Set {MODE_LABELS[mode]} length
+                </span>
+                <div className="flex gap-1">
+                  {[5, 10, 15, 25, 45].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setDraftMinutes(String(m))}
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors ${
+                        dark ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-700" : "text-slate-500 hover:text-teal-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  max="240"
+                  step="1"
+                  value={draftMinutes}
+                  onChange={(e) => setDraftMinutes(e.target.value)}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyCustomDuration(draftMinutes, false);
+                    if (e.key === "Escape") setEditingDuration(false);
+                  }}
+                  className={`flex-1 h-8 px-2 rounded-md border text-sm font-mono ${
+                    dark
+                      ? "bg-slate-900 border-slate-700 text-slate-100"
+                      : "bg-white border-slate-200 text-slate-800"
+                  }`}
+                />
+                <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>min</span>
+                <button
+                  type="button"
+                  onClick={() => applyCustomDuration(draftMinutes, false)}
+                  title="Apply to this cycle"
+                  className={`h-8 px-3 rounded-md text-xs font-bold text-white ${startBtnCls}`}
+                >
+                  <Check className="w-3.5 h-3.5 inline" />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => applyCustomDuration(draftMinutes, true)}
+                className={`w-full text-[10px] font-semibold py-1 rounded transition-colors ${
+                  dark ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-700/50" : "text-slate-500 hover:text-teal-700 hover:bg-slate-200/60"
+                }`}
+              >
+                Apply & save as default
+              </button>
+            </div>
+          )}
 
           <button
             type="button"

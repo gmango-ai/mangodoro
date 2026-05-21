@@ -11,19 +11,37 @@ import InvoiceModal from "./components/InvoiceModal";
 import ClockBanner from "./components/ClockBanner";
 import PomodoroTimer from "./components/PomodoroTimer";
 import SyncSessionModal from "./components/SyncSessionModal";
+import OnboardingModal from "./components/OnboardingModal";
+import PWAUpdater from "./components/PWAUpdater";
 import LogPage from "./pages/LogPage";
 import OverviewPage from "./pages/OverviewPage";
 import PlannerPage from "./pages/PlannerPage";
 import TeamPage from "./pages/TeamPage";
 import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
-import { leaveSyncSession, endSyncSession, fetchSyncParticipants } from "./lib/syncSession";
+import { leaveSyncSession, endSyncSession, fetchSyncParticipants, transferSyncLeader, kickSyncParticipant, setSyncParticipantStatus } from "./lib/syncSession";
 
 function AppLayout({ session }) {
   const { theme } = useTheme();
   const darkMode = theme === "dark";
-  const { settings } = useApp();
+  const { settings, dataSyncing, clockIn, projects } = useApp();
+
+  // Suggest a status based on the user's current clock-in (project + description).
+  const currentTaskHint = (() => {
+    if (!clockIn) return "";
+    const projId = clockIn.projectIds?.[0];
+    const proj = projId ? projects?.find((p) => p.id === projId)?.name : null;
+    const desc = (clockIn.description || "").trim();
+    if (proj && desc) return `${proj} — ${desc}`;
+    if (proj) return proj;
+    if (desc) return desc;
+    return "";
+  })();
   const [showPomodoro, setShowPomodoro] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+
+  // Show onboarding once on first login (no name set), after initial data load.
+  const showOnboarding = !onboardingDismissed && !dataSyncing && !settings.name;
 
   // Sync pomodoro state
   const [syncSession, setSyncSession] = useState(null);
@@ -52,9 +70,28 @@ function AppLayout({ session }) {
   // Presence + participant subscription for sync session
   useEffect(() => {
     if (!syncSession?.id) return;
-    const channel = supabase.channel(`sync-presence:${syncSession.id}`);
+    const sessionId = syncSession.id;
+    const refetch = async () => {
+      const { data: p } = await fetchSyncParticipants(sessionId);
+      const list = p || [];
+      setSyncParticipants(list);
+      // Self-heal: if I'm in this session but not in the participants list,
+      // re-insert myself via the security-definer RPC. Otherwise RLS on
+      // sync_session_participants blocks me from seeing anyone else.
+      const meMissing = !list.some((row) => row.user_id === session.user.id);
+      if (meMissing && syncSession.join_code) {
+        await supabase.rpc("join_sync_session", {
+          p_join_code: syncSession.join_code,
+          p_display_name: settings?.name || "",
+        });
+        const { data: p2 } = await fetchSyncParticipants(sessionId);
+        setSyncParticipants(p2 || []);
+      }
+    };
+    const channel = supabase.channel(`sync-presence:${sessionId}`);
 
-    // Presence
+    // Presence — also drives participant refetch as a fallback
+    // for cases where postgres_changes events don't reach the leader.
     channel.on("presence", { event: "sync" }, () => {
       const state = channel.presenceState();
       const map = {};
@@ -62,13 +99,16 @@ function AppLayout({ session }) {
         for (const p of state[key]) { map[p.user_id] = true; }
       }
       setPresenceMap(map);
+      refetch();
     });
+    channel.on("presence", { event: "join" }, refetch);
+    channel.on("presence", { event: "leave" }, refetch);
 
     // Participant changes
     channel.on(
       "postgres_changes",
-      { event: "*", schema: "public", table: "sync_session_participants", filter: `session_id=eq.${syncSession.id}` },
-      () => { fetchSyncParticipants(syncSession.id).then(({ data: p }) => setSyncParticipants(p || [])); }
+      { event: "*", schema: "public", table: "sync_session_participants", filter: `session_id=eq.${sessionId}` },
+      refetch
     );
 
     channel.subscribe(async (status) => {
@@ -77,7 +117,13 @@ function AppLayout({ session }) {
       }
     });
 
-    return () => { supabase.removeChannel(channel); };
+    // Polling fallback: 15s refetch in case realtime drops.
+    const pollId = setInterval(refetch, 15000);
+
+    return () => {
+      clearInterval(pollId);
+      supabase.removeChannel(channel);
+    };
   }, [syncSession?.id, session.user.id]);
 
   function handleSessionJoined(sess) {
@@ -90,13 +136,43 @@ function AppLayout({ session }) {
 
   const handleLeaveSync = useCallback(async () => {
     if (syncSession) {
-      await leaveSyncSession(syncSession.id, session.user.id);
+      await leaveSyncSession(syncSession.id);
     }
     setSyncSession(null);
     setSyncParticipants([]);
     setPresenceMap({});
     localStorage.removeItem("ql_sync_session");
-  }, [syncSession, session.user.id]);
+  }, [syncSession]);
+
+  async function handleTransferLeader(newLeaderId) {
+    if (!syncSession) return;
+    const { data, error } = await transferSyncLeader(syncSession.id, newLeaderId);
+    if (error) {
+      console.warn("transfer leader:", error.message);
+      return;
+    }
+    if (data?.session) {
+      setSyncSession(data.session);
+    }
+    fetchSyncParticipants(syncSession.id).then(({ data: p }) => setSyncParticipants(p || []));
+  }
+
+  async function handleSetStatus(status) {
+    if (!syncSession) return;
+    const { error } = await setSyncParticipantStatus(syncSession.id, status);
+    if (error) { console.warn("set status:", error.message); return; }
+    fetchSyncParticipants(syncSession.id).then(({ data: p }) => setSyncParticipants(p || []));
+  }
+
+  async function handleKickParticipant(userIdToKick) {
+    if (!syncSession) return;
+    const { error } = await kickSyncParticipant(syncSession.id, userIdToKick);
+    if (error) {
+      console.warn("kick participant:", error.message);
+      return;
+    }
+    fetchSyncParticipants(syncSession.id).then(({ data: p }) => setSyncParticipants(p || []));
+  }
 
   async function handleEndSync() {
     if (syncSession) {
@@ -152,6 +228,10 @@ function AppLayout({ session }) {
             onOpenSync={() => setShowSyncModal(true)}
             onLeaveSync={handleLeaveSync}
             onEndSync={handleEndSync}
+            onTransferLeader={handleTransferLeader}
+            onKickParticipant={handleKickParticipant}
+            onSetStatus={handleSetStatus}
+            currentTaskHint={currentTaskHint}
           />
           <SyncSessionModal
             open={showSyncModal}
@@ -160,6 +240,12 @@ function AppLayout({ session }) {
             displayName={settings?.name || ""}
             onSessionJoined={handleSessionJoined}
           />
+          <OnboardingModal
+            open={showOnboarding}
+            onClose={() => setOnboardingDismissed(true)}
+            userId={session.user.id}
+          />
+          <PWAUpdater />
           <Routes>
             <Route path="/" element={<LogPage />} />
             <Route path="/overview" element={<OverviewPage />} />
