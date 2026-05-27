@@ -5,6 +5,7 @@ import { supabase } from "../supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sparkles } from "lucide-react";
+import AvatarUploader from "./AvatarUploader";
 
 export default function OnboardingModal({ open, onClose, userId }) {
   const { setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget, flash } = useApp();
@@ -13,6 +14,8 @@ export default function OnboardingModal({ open, onClose, userId }) {
 
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [uploadError, setUploadError] = useState("");
   const [payType, setPayType] = useState("hourly");
   const [hourly, setHourly] = useState("");
   const [annual, setAnnual] = useState("");
@@ -39,6 +42,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
       hourly_rate: rate,
       daily_target: daily,
       weekly_target: weekly,
+      avatar_url: avatarUrl || null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" });
     setSaving(false);
@@ -50,7 +54,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
     }
 
     // Mirror to local context state so UI updates immediately.
-    setSettings((s) => ({ ...s, name: name.trim() }));
+    setSettings((s) => ({ ...s, name: name.trim(), avatarUrl }));
     setHourlyRate(rate);
     setDailyTarget(daily);
     setWeeklyTarget(weekly);
@@ -90,9 +94,25 @@ export default function OnboardingModal({ open, onClose, userId }) {
         {step === 0 && (
           <div className="space-y-5">
             <div>
+              <label className={labelCls}>Profile picture</label>
+              <div className="mt-1.5">
+                <AvatarUploader
+                  userId={userId}
+                  value={avatarUrl}
+                  displayName={name}
+                  size={72}
+                  onChange={(url) => { setAvatarUrl(url); setUploadError(""); }}
+                  onError={setUploadError}
+                />
+              </div>
+              {uploadError && (
+                <p className={`text-xs mt-1 ${dark ? "text-red-400" : "text-red-500"}`}>{uploadError}</p>
+              )}
+            </div>
+
+            <div>
               <label className={labelCls}>Your name</label>
               <Input
-                autoFocus
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Alex Smith"

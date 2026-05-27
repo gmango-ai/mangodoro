@@ -29,6 +29,13 @@ export function normalizeSettings(row) {
     dailyTarget: row.daily_target ?? 0,
     weeklyTarget: row.weekly_target ?? 0,
     defaultEntryMode: row.default_entry_mode || "manual",
+    avatarUrl: row.avatar_url || "",
+    status: row.status || "",
+    presenceState: row.presence_state || "active",
+    statusUpdatedAt: row.status_updated_at || null,
+    isGuest: !!row.is_guest,
+    pomodoroSoundUrl: row.pomodoro_sound_url || "",
+    pomodoroSoundName: row.pomodoro_sound_name || "",
   };
 }
 

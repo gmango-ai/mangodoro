@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { supabase } from "./supabase";
 import AuthPage from "./AuthPage";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
@@ -18,12 +18,19 @@ import OverviewPage from "./pages/OverviewPage";
 import PlannerPage from "./pages/PlannerPage";
 import TeamPage from "./pages/TeamPage";
 import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
+import PomodoroPage from "./pages/PomodoroPage";
+import JoinSyncPage from "./pages/JoinSyncPage";
 import { leaveSyncSession, endSyncSession, fetchSyncParticipants, transferSyncLeader, kickSyncParticipant, setSyncParticipantStatus } from "./lib/syncSession";
 
 function AppLayout({ session }) {
   const { theme } = useTheme();
   const darkMode = theme === "dark";
   const { settings, dataSyncing, clockIn, projects } = useApp();
+  const location = useLocation();
+  // The /pomodoro page renders its own embedded PomodoroTimer. Skip the
+  // floating one on that route so two instances don't fight over the same
+  // Supabase Realtime channel.
+  const onPomodoroPage = location.pathname.startsWith("/pomodoro");
 
   // Suggest a status based on the user's current clock-in (project + description).
   const currentTaskHint = (() => {
@@ -72,14 +79,35 @@ function AppLayout({ session }) {
     if (!syncSession?.id) return;
     const sessionId = syncSession.id;
     const refetch = async () => {
+      // First, check our own row directly to see if we've been removed
+      // (kicked, or we left from another tab). The "Read own participant
+      // row" RLS policy (20260527170000) lets us read our row even when
+      // left_at IS NOT NULL. If left_at is set, drop local state instead
+      // of self-healing — otherwise the self-heal below would silently
+      // re-join us right after a kick.
+      const { data: myRow } = await supabase
+        .from("sync_session_participants")
+        .select("left_at")
+        .eq("session_id", sessionId)
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      if (myRow?.left_at) {
+        setSyncSession(null);
+        setSyncParticipants([]);
+        setPresenceMap({});
+        localStorage.removeItem("ql_sync_session");
+        try { new BroadcastChannel("pomodoro").postMessage({ type: "sync-changed" }); } catch { /* ignore */ }
+        return;
+      }
+
       const { data: p } = await fetchSyncParticipants(sessionId);
       const list = p || [];
       setSyncParticipants(list);
-      // Self-heal: if I'm in this session but not in the participants list,
-      // re-insert myself via the security-definer RPC. Otherwise RLS on
-      // sync_session_participants blocks me from seeing anyone else.
+      // Self-heal: if I'm in this session but not in the participants list
+      // AND there's no `left_at` row for me (handled above), it's likely a
+      // transient RLS race. Re-insert myself.
       const meMissing = !list.some((row) => row.user_id === session.user.id);
-      if (meMissing && syncSession.join_code) {
+      if (meMissing && syncSession.join_code && myRow == null) {
         await supabase.rpc("join_sync_session", {
           p_join_code: syncSession.join_code,
           p_display_name: settings?.name || "",
@@ -111,6 +139,27 @@ function AppLayout({ session }) {
       refetch
     );
 
+    // Session row changes — propagates leader_id transfers, status='ended', etc.
+    channel.on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "sync_sessions", filter: `id=eq.${sessionId}` },
+      (payload) => {
+        const row = payload.new;
+        if (!row) return;
+        if (row.status === "ended") {
+          // Session was ended (e.g. last leader left). Drop local state.
+          setSyncSession(null);
+          setSyncParticipants([]);
+          setPresenceMap({});
+          localStorage.removeItem("ql_sync_session");
+          return;
+        }
+        // Merge new session fields (leader_id, etc.) without clobbering timer
+        // state already applied by PomodoroTimer's separate subscription.
+        setSyncSession((prev) => (prev ? { ...prev, ...row } : row));
+      }
+    );
+
     channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
         await channel.track({ user_id: session.user.id });
@@ -131,8 +180,24 @@ function AppLayout({ session }) {
     setShowSyncModal(false);
     setShowPomodoro(true);
     localStorage.setItem("ql_sync_session", JSON.stringify({ sessionId: sess.id }));
+    try { new BroadcastChannel("pomodoro").postMessage({ type: "sync-changed" }); } catch { /* ignore */ }
     fetchSyncParticipants(sess.id).then(({ data: p }) => setSyncParticipants(p || []));
   }
+
+  // Listen for sync-session join events fired from elsewhere in the app
+  // (e.g. TeamPage's "Join active session" button). BroadcastChannel is
+  // cross-tab only — for the same tab we use a window CustomEvent.
+  useEffect(() => {
+    function onJoined(ev) {
+      const sess = ev.detail?.session;
+      if (sess?.id) handleSessionJoined(sess);
+    }
+    window.addEventListener("ql-sync-session-joined", onJoined);
+    return () => window.removeEventListener("ql-sync-session-joined", onJoined);
+    // handleSessionJoined uses functional setters + stable refs — safe to
+    // omit from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLeaveSync = useCallback(async () => {
     if (syncSession) {
@@ -142,6 +207,7 @@ function AppLayout({ session }) {
     setSyncParticipants([]);
     setPresenceMap({});
     localStorage.removeItem("ql_sync_session");
+    try { new BroadcastChannel("pomodoro").postMessage({ type: "sync-changed" }); } catch { /* ignore */ }
   }, [syncSession]);
 
   async function handleTransferLeader(newLeaderId) {
@@ -182,7 +248,19 @@ function AppLayout({ session }) {
     setSyncParticipants([]);
     setPresenceMap({});
     localStorage.removeItem("ql_sync_session");
+    try { new BroadcastChannel("pomodoro").postMessage({ type: "sync-changed" }); } catch { /* ignore */ }
   }
+
+  const syncState = {
+    syncSession, syncParticipants, presenceMap,
+    onOpenSync: () => setShowSyncModal(true),
+    onLeaveSync: handleLeaveSync,
+    onEndSync: handleEndSync,
+    onTransferLeader: handleTransferLeader,
+    onKickParticipant: handleKickParticipant,
+    onSetStatus: handleSetStatus,
+    currentTaskHint,
+  };
 
   return (
     <div className={darkMode ? 'dark' : ''}>
@@ -218,21 +296,23 @@ function AppLayout({ session }) {
           <SettingsModal />
           <InvoiceModal />
           <ClockBanner />
-          <PomodoroTimer
-            open={showPomodoro}
-            onClose={() => setShowPomodoro(false)}
-            userId={session.user.id}
-            syncSession={syncSession}
-            syncParticipants={syncParticipants}
-            presenceMap={presenceMap}
-            onOpenSync={() => setShowSyncModal(true)}
-            onLeaveSync={handleLeaveSync}
-            onEndSync={handleEndSync}
-            onTransferLeader={handleTransferLeader}
-            onKickParticipant={handleKickParticipant}
-            onSetStatus={handleSetStatus}
-            currentTaskHint={currentTaskHint}
-          />
+          {!onPomodoroPage && (
+            <PomodoroTimer
+              open={showPomodoro}
+              onClose={() => setShowPomodoro(false)}
+              userId={session.user.id}
+              syncSession={syncSession}
+              syncParticipants={syncParticipants}
+              presenceMap={presenceMap}
+              onOpenSync={() => setShowSyncModal(true)}
+              onLeaveSync={handleLeaveSync}
+              onEndSync={handleEndSync}
+              onTransferLeader={handleTransferLeader}
+              onKickParticipant={handleKickParticipant}
+              onSetStatus={handleSetStatus}
+              currentTaskHint={currentTaskHint}
+            />
+          )}
           <SyncSessionModal
             open={showSyncModal}
             onClose={() => setShowSyncModal(false)}
@@ -252,6 +332,7 @@ function AppLayout({ session }) {
             <Route path="/planner" element={<PlannerPage />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
+            <Route path="/pomodoro" element={<PomodoroPage session={session} syncState={syncState} />} />
           </Routes>
         </div>
       </div>
@@ -276,16 +357,29 @@ export default function App() {
     );
   }
 
-  if (!session) return <AuthPage />;
-
+  // The popout window and the public join page render outside the auth gate
+  // and the AppLayout — popout has its own provider stack inside, and the
+  // join page handles the auth/guest flow itself.
   return (
     <ThemeProvider>
       <BrowserRouter>
-        <AppProvider session={session}>
-          <TeamProvider session={session}>
-            <AppLayout session={session} />
-          </TeamProvider>
-        </AppProvider>
+        <Routes>
+          <Route path="/pomodoro/join/:code" element={<JoinSyncPage />} />
+          <Route
+            path="/*"
+            element={
+              session ? (
+                <AppProvider session={session}>
+                  <TeamProvider session={session}>
+                    <AppLayout session={session} />
+                  </TeamProvider>
+                </AppProvider>
+              ) : (
+                <AuthPage />
+              )
+            }
+          />
+        </Routes>
       </BrowserRouter>
     </ThemeProvider>
   );

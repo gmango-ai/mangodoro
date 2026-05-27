@@ -8,6 +8,7 @@ import {
   ChevronLeft, ChevronRight, ArrowLeft, Download, FileSpreadsheet,
   FileText, ChevronDown, ChevronUp,
 } from "lucide-react";
+import UserAvatar from "../components/UserAvatar";
 import {
   formatMonthLabel, formatDuration, toDisplayTime, unpaidBreakMins, weekStart, weekRangeLabel,
 } from "../lib/utils";
@@ -186,11 +187,7 @@ export default function TeamTimesheetsPage() {
               className="w-full flex items-center justify-between cursor-pointer"
             >
               <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                  dark ? "bg-cyan-500/20 text-cyan-400" : "bg-teal-100 text-teal-700"
-                }`}>
-                  {(member.name || "?")[0].toUpperCase()}
-                </div>
+                <UserAvatar url={member.avatar_url} name={member.name} size={32} className="shrink-0" />
                 <div className="text-left">
                   <p className={`text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{member.name}</p>
                   <p className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>

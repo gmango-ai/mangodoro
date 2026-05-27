@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import {
   isUUID, normalizeEntry, normalizeTemplate, normalizeSettings, normalizeTime,
@@ -215,7 +215,23 @@ export function AppProvider({ session, children }) {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "user_settings", filter: `user_id=eq.${session.user.id}` },
-        (payload) => { applyRemoteClock(payload.new?.active_clock ?? null); }
+        (payload) => {
+          applyRemoteClock(payload.new?.active_clock ?? null);
+          // Also pick up status / presence_state changes from other devices.
+          const row = payload.new;
+          if (row && typeof row === "object") {
+            setSettings((prev) => ({
+              ...prev,
+              status: row.status ?? prev.status ?? "",
+              presenceState: row.presence_state ?? prev.presenceState ?? "active",
+              statusUpdatedAt: row.status_updated_at ?? prev.statusUpdatedAt ?? null,
+              avatarUrl: row.avatar_url ?? prev.avatarUrl ?? "",
+              name: row.name ?? prev.name ?? "",
+              pomodoroSoundUrl: row.pomodoro_sound_url ?? prev.pomodoroSoundUrl ?? "",
+              pomodoroSoundName: row.pomodoro_sound_name ?? prev.pomodoroSoundName ?? "",
+            }));
+          }
+        }
       )
       .subscribe();
 
@@ -223,6 +239,23 @@ export function AppProvider({ session, children }) {
       document.removeEventListener("visibilitychange", onVisible);
       supabase.removeChannel(channel);
     };
+  }, [session?.user?.id]);
+
+  // ── Fire-and-forget status setter usable from anywhere in the app ──
+  const updateStatus = useCallback(async ({ status, presenceState } = {}) => {
+    if (!session?.user?.id) return;
+    // Optimistic update so the UI reflects the change instantly.
+    setSettings((prev) => ({
+      ...prev,
+      status: status != null ? status : (prev.status ?? ""),
+      presenceState: presenceState ?? prev.presenceState ?? "active",
+      statusUpdatedAt: new Date().toISOString(),
+    }));
+    const { error } = await supabase.rpc("set_user_status", {
+      p_status: status ?? null,
+      p_presence_state: presenceState ?? null,
+    });
+    if (error) console.warn("set_user_status:", error.message);
   }, [session?.user?.id]);
 
   // ── Capture Google provider_token when user was already signed in ──
@@ -514,6 +547,11 @@ export function AppProvider({ session, children }) {
       daily_target: daily,
       weekly_target: weekly,
       default_entry_mode: entryMode,
+      avatar_url: rest.avatarUrl || null,
+      status: rest.status ?? null,
+      presence_state: rest.presenceState || null,
+      pomodoro_sound_url: rest.pomodoroSoundUrl || null,
+      pomodoro_sound_name: rest.pomodoroSoundName || null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" });
     if (settingsError) {
@@ -533,6 +571,8 @@ export function AppProvider({ session, children }) {
     setDefaultEntryMode(entryMode);
     setShowSettings(false);
     flash("✓ Settings saved");
+    // Best-effort: push the new avatar/name into any active sync sessions.
+    supabase.rpc("refresh_my_sync_avatar").then(() => {}, () => {});
   }
 
   // ── Template draft helpers ───────────────────────────────────
@@ -1186,6 +1226,7 @@ export function AppProvider({ session, children }) {
     session, entries, projects, settings, templates, dataSyncing,
     hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode,
     setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget,
+    updateStatus,
     // ui
     form, setForm, exportMsg, flash,
     localImportBanner, setLocalImportBanner,

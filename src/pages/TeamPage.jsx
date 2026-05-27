@@ -1,21 +1,33 @@
-import { useState, useEffect } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useTeam } from "../context/TeamContext";
+import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
-  ChevronDown, FileSpreadsheet, ArrowRight,
+  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check,
 } from "lucide-react";
+import UserAvatar from "../components/UserAvatar";
+import { joinSyncSession } from "../lib/syncSession";
+import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
+import { supabase } from "../supabase";
+
+const TEAM_COLORS = [
+  "#14b8a6", "#0ea5e9", "#6366f1", "#8b5cf6", "#ec4899",
+  "#f43f5e", "#f59e0b", "#84cc16", "#10b981", "#64748b",
+];
 
 export default function TeamPage() {
   const {
     teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin,
-    switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam,
+    switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
     removeMember, changeMemberRole, regenerateInviteCode,
+    activeTeamSessions, loadActiveTeamSessions,
   } = useTeam();
+  const { settings } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -121,6 +133,39 @@ export default function TeamPage() {
     setTimeout(() => setSuccess(""), 3000);
   }
 
+  async function handleJoinTeamSession(s) {
+    const name = (settings?.name || "").trim();
+    if (!name) {
+      setError("Set a display name in Settings before joining a sync session.");
+      return;
+    }
+    setLoading(true); setError("");
+    const { data, error: err } = await joinSyncSession(s.join_code, name);
+    setLoading(false);
+    if (err) {
+      const msg = err.message?.includes("display_name_required")
+        ? "A display name is required."
+        : err.message || "Could not join session.";
+      setError(msg);
+      return;
+    }
+    if (data?.session) {
+      // Notify AppLayout (same tab) and any open popout (different tab).
+      window.dispatchEvent(new CustomEvent("ql-sync-session-joined", { detail: { session: data.session } }));
+      try { new BroadcastChannel("pomodoro").postMessage({ type: "sync-changed" }); } catch { /* ignore */ }
+      navigate("/pomodoro");
+    }
+  }
+
+  function fmtTimeLeft(s) {
+    if (!s) return "";
+    if (!s.is_running || !s.ends_at) return `${Math.ceil((s.remaining_seconds || 0) / 60)}m left`;
+    const ms = new Date(s.ends_at).getTime() - Date.now();
+    const minsLeft = Math.max(0, Math.ceil(ms / 60000));
+    return `${minsLeft}m left`;
+  }
+  const modeLabel = (m) => m === "shortBreak" ? "Short break" : m === "longBreak" ? "Long break" : "Focus";
+
   const cardCls = `rounded-xl border p-5 ${
     dark
       ? "bg-slate-900/60 border-slate-700/50 shadow-lg shadow-black/20"
@@ -222,9 +267,11 @@ export default function TeamPage() {
                 variant={t.id === activeTeamId ? "default" : "outline"}
                 size="sm"
                 onClick={() => switchTeam(t.id)}
+                className="flex items-center gap-1.5"
               >
+                <TeamIcon team={t} size={18} />
                 {t.name}
-                {t.role === "admin" && <Crown className="w-3 h-3 ml-1.5 opacity-60" />}
+                {t.role === "admin" && <Crown className="w-3 h-3 ml-1 opacity-60" />}
               </Button>
             ))}
           </div>
@@ -234,6 +281,56 @@ export default function TeamPage() {
       {/* Active Team Details */}
       {activeTeam && tab === "manage" && (
         <>
+          {/* Active pomodoro sessions */}
+          {activeTeamSessions.length > 0 && (
+            <div className={cardCls}>
+              <div className="flex items-center justify-between mb-3">
+                <p className={labelCls}>Active pomodoros</p>
+                <Timer className={`w-4 h-4 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+              </div>
+              <div className="space-y-2">
+                {activeTeamSessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${
+                      dark ? "bg-slate-800/40" : "bg-slate-50"
+                    }`}
+                  >
+                    <UserAvatar url={s.leader_avatar} name={s.leader_name} size={32} className="shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate ${dark ? "text-slate-200" : "text-slate-700"}`}>
+                        {s.leader_name}
+                      </p>
+                      <p className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                        {modeLabel(s.mode)} · {s.participant_count}/{s.max_participants} · {fmtTimeLeft(s)}
+                      </p>
+                    </div>
+                    <Button size="sm" onClick={() => handleJoinTeamSession(s)} disabled={loading}>
+                      Join
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Team Settings (admin only) — name, icon, accent color */}
+          {isAdmin && (
+            <TeamSettingsCard
+              key={activeTeam.id}
+              team={activeTeam}
+              dark={dark}
+              cardCls={cardCls}
+              labelCls={labelCls}
+              inputCls={inputCls}
+              onSave={(patch) => updateTeam(activeTeam.id, patch)}
+              onUploadIcon={async (file) => uploadTeamIcon(file, activeTeam.id)}
+              onDeleteIcon={async (url) => deleteTeamIcon(url)}
+              onSuccess={(msg) => { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }}
+              onError={(msg) => setError(msg)}
+            />
+          )}
+
           {/* Invite Code Card (admin only) */}
           {isAdmin && (
             <div className={cardCls}>
@@ -290,19 +387,23 @@ export default function TeamPage() {
                     dark ? "bg-slate-800/40" : "bg-slate-50"
                   }`}
                 >
-                  {/* Avatar */}
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                    dark ? "bg-cyan-500/20 text-cyan-400" : "bg-teal-100 text-teal-700"
-                  }`}>
-                    {(m.name || "?")[0].toUpperCase()}
-                  </div>
+                  <UserAvatar url={m.avatar_url} name={m.name} size={32} className="shrink-0" />
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${dark ? "text-slate-200" : "text-slate-700"}`}>
+                    <p className={`text-sm font-medium truncate flex items-center gap-1.5 ${dark ? "text-slate-200" : "text-slate-700"}`}>
+                      <span
+                        className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
+                          m.presence_state === "in_meeting" ? "bg-rose-500"
+                          : m.presence_state === "heads_down" ? "bg-violet-500"
+                          : m.presence_state === "away" ? "bg-amber-500"
+                          : "bg-emerald-500"
+                        }`}
+                        title={m.presence_state}
+                      />
                       {m.name}
                     </p>
-                    <p className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                      Joined {new Date(m.joined_at).toLocaleDateString()}
+                    <p className={`text-xs truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                      {m.status ? m.status : `Joined ${new Date(m.joined_at).toLocaleDateString()}`}
                     </p>
                   </div>
                   {/* Role badge */}
@@ -379,5 +480,194 @@ export default function TeamPage() {
         </div>
       )}
     </main>
+  );
+}
+
+function TeamIcon({ team, size = 32 }) {
+  const px = `${size}px`;
+  const initial = (team?.name || "?")[0].toUpperCase();
+  if (team?.icon_url) {
+    return (
+      <img
+        src={team.icon_url}
+        alt=""
+        style={{ width: px, height: px }}
+        className="rounded-md object-cover shrink-0"
+      />
+    );
+  }
+  return (
+    <span
+      style={{
+        width: px,
+        height: px,
+        background: team?.color || "#14b8a6",
+        fontSize: Math.max(10, Math.round(size / 2.4)),
+      }}
+      className="rounded-md flex items-center justify-center font-bold text-white shrink-0"
+    >
+      {initial}
+    </span>
+  );
+}
+
+function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onUploadIcon, onDeleteIcon, onSuccess, onError }) {
+  const fileId = useId();
+  const fileRef = useRef(null);
+  const [nameDraft, setNameDraft] = useState(team.name || "");
+  const [colorDraft, setColorDraft] = useState(team.color || "#14b8a6");
+  const [iconUrl, setIconUrl] = useState(team.icon_url || "");
+  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Re-sync drafts when switching teams.
+  useEffect(() => {
+    setNameDraft(team.name || "");
+    setColorDraft(team.color || "#14b8a6");
+    setIconUrl(team.icon_url || "");
+  }, [team.id]);
+
+  const dirty =
+    nameDraft.trim() !== (team.name || "").trim()
+    || colorDraft !== (team.color || "#14b8a6")
+    || iconUrl !== (team.icon_url || "");
+
+  async function handlePickIcon(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    // Best-effort cleanup of the previous one.
+    if (iconUrl) await onDeleteIcon?.(iconUrl);
+    const { data, error } = await onUploadIcon(file);
+    setUploading(false);
+    if (error) { onError?.(error.message || "Upload failed"); return; }
+    setIconUrl(data.url);
+  }
+
+  async function handleRemoveIcon() {
+    if (iconUrl) await onDeleteIcon?.(iconUrl);
+    setIconUrl("");
+  }
+
+  async function handleSave() {
+    const cleanName = nameDraft.trim();
+    if (!cleanName) { onError?.("Team name can't be empty."); return; }
+    setBusy(true);
+    const { error } = await onSave({
+      name: cleanName,
+      color: colorDraft,
+      icon_url: iconUrl || null,
+    });
+    setBusy(false);
+    if (error) { onError?.(error.message || "Could not save team settings."); return; }
+    onSuccess?.("Team settings saved");
+  }
+
+  return (
+    <div className={cardCls}>
+      <div className="flex items-center justify-between mb-3">
+        <p className={labelCls}>Team Settings</p>
+        <Palette className={`w-4 h-4 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+      </div>
+
+      <div className="space-y-4">
+        {/* Identity row: icon + preview */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <TeamIcon team={{ name: nameDraft || team.name, color: colorDraft, icon_url: iconUrl }} size={56} />
+            <div className="flex flex-col gap-1">
+              <input
+                id={fileId}
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+                onChange={handlePickIcon}
+                disabled={uploading}
+                className="sr-only"
+              />
+              <label
+                htmlFor={fileId}
+                aria-disabled={uploading}
+                className={`inline-flex items-center justify-center text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer ${uploading ? "opacity-60 cursor-wait" : ""}`}
+                style={{
+                  background: "var(--color-accent-light)",
+                  color: "var(--color-accent)",
+                  border: "1px solid var(--color-accent-border)",
+                }}
+              >
+                {uploading ? "Uploading…" : iconUrl ? "Replace icon" : "Upload icon"}
+              </label>
+              {iconUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemoveIcon}
+                  className={`text-[11px] text-left ${dark ? "text-slate-500 hover:text-red-300" : "text-slate-500 hover:text-red-500"}`}
+                >
+                  Remove icon
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Name editor */}
+        <div>
+          <p className={labelCls}>Name</p>
+          <Input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value.slice(0, 60))}
+            placeholder="Team name"
+            maxLength={60}
+            className={`${inputCls} mt-1 max-w-sm`}
+          />
+        </div>
+
+        {/* Color picker */}
+        <div>
+          <p className={labelCls}>Accent color</p>
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {TEAM_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColorDraft(c)}
+                title={c}
+                aria-label={`Use color ${c}`}
+                className="w-7 h-7 rounded-md transition-transform hover:scale-110 shrink-0 flex items-center justify-center"
+                style={{
+                  background: c,
+                  outline: colorDraft.toLowerCase() === c.toLowerCase()
+                    ? `2px solid ${dark ? "#fff" : "#0f172a"}`
+                    : "2px solid transparent",
+                  outlineOffset: "1px",
+                }}
+              >
+                {colorDraft.toLowerCase() === c.toLowerCase() && (
+                  <Check className="w-3.5 h-3.5 text-white drop-shadow" />
+                )}
+              </button>
+            ))}
+            {/* Hex input for free-form color */}
+            <label className={`inline-flex items-center gap-1.5 text-xs font-medium ${dark ? "text-slate-400" : "text-slate-500"}`}>
+              <input
+                type="color"
+                value={colorDraft}
+                onChange={(e) => setColorDraft(e.target.value)}
+                className="w-7 h-7 rounded-md cursor-pointer p-0 border-none bg-transparent"
+                aria-label="Custom color"
+              />
+              Custom
+            </label>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button size="sm" onClick={handleSave} disabled={!dirty || busy}>
+            {busy ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

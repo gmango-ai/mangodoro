@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useApp } from "../context/AppContext";
 import TimeSelect from "./TimeSelect";
 import { toDisplayTime } from "../lib/utils";
@@ -9,6 +9,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import AvatarUploader from "./AvatarUploader";
+import { uploadCustomSound, deleteCustomSound } from "../lib/customSound";
+import {
+  loadPomodoroSoundSettings, savePomodoroSoundSettings,
+  playCompletionSound, stopCompletionSound, CUSTOM_PRESET_ID,
+} from "../lib/pomodoroSound";
 
 function FieldRow({ label, children, hint }) {
   return (
@@ -120,6 +126,7 @@ export default function SettingsModal() {
     importEntriesRef, importProfileRef,
     exportAllXLSX, exportProfile, setShowInvoice,
     googleToken, googleTokenExpiry, connectGoogleSheets, disconnectGoogleSheets,
+    session,
   } = useApp();
 
   const [tab, setTab] = useState("profile");
@@ -168,8 +175,55 @@ export default function SettingsModal() {
           {/* ── PROFILE TAB ── */}
           {tab === "profile" && (
             <>
+              <FieldRow label="Profile picture" hint="Shown in nav and sync sessions">
+                <AvatarUploader
+                  userId={session?.user?.id}
+                  value={draftSettings.avatarUrl || ""}
+                  displayName={draftSettings.name || ""}
+                  size={64}
+                  onChange={(url) => setDraftSettings((d) => ({ ...d, avatarUrl: url }))}
+                  onError={(msg) => alert(msg)}
+                />
+              </FieldRow>
               <FieldRow label="Your name" hint="Shown in title & exports">
                 <Input value={draftSettings.name || ""} onChange={(e) => setDraftSettings((d) => ({ ...d, name: e.target.value }))} placeholder="e.g. Alex Smith" className={`${inputCls} h-10 max-w-xs`} />
+              </FieldRow>
+              <FieldRow label="Status" hint="What you're up to — visible to teammates">
+                <div className="space-y-2 max-w-md">
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { key: "active", label: "Active", color: "bg-emerald-500" },
+                      { key: "available", label: "Available", color: "bg-sky-500" },
+                      { key: "heads_down", label: "Heads-down", color: "bg-violet-500" },
+                      { key: "in_meeting", label: "In meeting", color: "bg-rose-500" },
+                      { key: "away", label: "Away", color: "bg-amber-500" },
+                    ].map((opt) => {
+                      const active = (draftSettings.presenceState || "active") === opt.key;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => setDraftSettings((d) => ({ ...d, presenceState: opt.key }))}
+                          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
+                            active
+                              ? "bg-[var(--color-accent)] text-white"
+                              : "bg-[var(--color-surface-raised)] text-[var(--color-secondary)] hover:bg-[var(--color-surface-hover)]"
+                          }`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${opt.color}`} />
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Input
+                    value={draftSettings.status ?? ""}
+                    onChange={(e) => setDraftSettings((d) => ({ ...d, status: e.target.value.slice(0, 80) }))}
+                    placeholder="What are you working on? (optional)"
+                    maxLength={80}
+                    className={`${inputCls} h-10`}
+                  />
+                </div>
               </FieldRow>
               <FieldRow label="Hourly rate" hint="Used to calculate earnings">
                 <div className="flex items-center gap-2">
@@ -193,6 +247,16 @@ export default function SettingsModal() {
                     <span style={{ fontSize: 11, color: "var(--color-success)" }}>✓ Allowed</span>
                   )}
                 </div>
+              </FieldRow>
+
+              <p style={{ fontSize: 11, fontWeight: 600, color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 20, marginBottom: 0 }}>Pomodoro alarm</p>
+              <FieldRow label="Custom sound" hint="Upload your own alarm and set it as the default">
+                <CustomSoundSection
+                  userId={session?.user?.id}
+                  url={draftSettings.pomodoroSoundUrl || ""}
+                  name={draftSettings.pomodoroSoundName || ""}
+                  onChange={({ url, name }) => setDraftSettings((d) => ({ ...d, pomodoroSoundUrl: url, pomodoroSoundName: name }))}
+                />
               </FieldRow>
 
               <p style={{ fontSize: 11, fontWeight: 600, color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 20, marginBottom: 0 }}>Integrations</p>
@@ -421,6 +485,156 @@ export default function SettingsModal() {
           <Button size="sm" onClick={saveSettings} className="h-9 px-5 text-sm font-semibold" style={{ background: "var(--color-accent)", color: "#fff" }}>Save</Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CustomSoundSection({ userId, url, name, onChange }) {
+  const inputId = useId();
+  const audioRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const [playing, setPlaying] = useState(false);
+  const [defaultBump, setDefaultBump] = useState(0); // re-read prefs on toggle
+
+  // Read the current per-event sound prefs so we know whether the upload
+  // is already "the default" alarm.
+  const soundPrefs = loadPomodoroSoundSettings();
+  const isDefaultWork = soundPrefs.workEndPreset === CUSTOM_PRESET_ID;
+  const isDefaultBreak = soundPrefs.breakEndPreset === CUSTOM_PRESET_ID;
+  const isDefault = url && isDefaultWork && isDefaultBreak;
+
+  async function handlePick(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true); setError("");
+    if (url) await deleteCustomSound(url);
+    const { data, error: err } = await uploadCustomSound(file, userId);
+    setUploading(false);
+    if (err) { setError(err.message || "Upload failed"); return; }
+    onChange({ url: data.url, name: data.name });
+  }
+
+  async function handleRemove() {
+    if (url) await deleteCustomSound(url);
+    onChange({ url: "", name: "" });
+    if (isDefaultWork || isDefaultBreak) {
+      savePomodoroSoundSettings({
+        ...soundPrefs,
+        workEndPreset: isDefaultWork ? "chime" : soundPrefs.workEndPreset,
+        breakEndPreset: isDefaultBreak ? "beep" : soundPrefs.breakEndPreset,
+      });
+      setDefaultBump((n) => n + 1);
+    }
+  }
+
+  function handlePreview() {
+    if (!url) return;
+    if (playing) {
+      stopCompletionSound();
+      if (audioRef.current) { try { audioRef.current.pause(); } catch { /* ignore */ } }
+      setPlaying(false);
+      return;
+    }
+    const a = new Audio(url);
+    audioRef.current = a;
+    a.addEventListener("ended", () => setPlaying(false));
+    a.play().then(() => setPlaying(true)).catch(() => setError("Couldn't play sound"));
+  }
+
+  function toggleDefault() {
+    const next = isDefault
+      ? { ...soundPrefs, workEndPreset: "chime", breakEndPreset: "beep" }
+      : { ...soundPrefs, workEndPreset: CUSTOM_PRESET_ID, breakEndPreset: CUSTOM_PRESET_ID };
+    savePomodoroSoundSettings(next);
+    setDefaultBump((n) => n + 1);
+  }
+
+  // Reference defaultBump so the lint rule sees it; it forces a re-render
+  // that re-reads loadPomodoroSoundSettings() above.
+  void defaultBump;
+
+  return (
+    <div className="flex flex-col gap-2 max-w-md">
+      <input
+        id={inputId}
+        type="file"
+        accept="audio/*"
+        onChange={handlePick}
+        disabled={uploading}
+        className="sr-only"
+      />
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <label
+          htmlFor={inputId}
+          aria-disabled={uploading}
+          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer transition-colors ${
+            uploading ? "opacity-60 cursor-wait" : ""
+          }`}
+          style={{
+            background: "var(--color-accent-light)",
+            color: "var(--color-accent)",
+            border: "1px solid var(--color-accent-border)",
+          }}
+        >
+          {uploading ? "Uploading…" : url ? "Replace sound" : "Upload sound"}
+        </label>
+
+        {url && (
+          <>
+            <button
+              type="button"
+              onClick={handlePreview}
+              className="text-xs font-semibold px-3 py-1.5 rounded-md"
+              style={{
+                background: "var(--color-surface-raised)",
+                color: "var(--color-secondary)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              {playing ? "Stop" : "Preview"}
+            </button>
+            <button
+              type="button"
+              onClick={handleRemove}
+              className="text-xs font-medium px-2 py-1.5 rounded-md hover:text-red-500"
+              style={{ background: "none", color: "var(--color-muted)", border: "none" }}
+            >
+              Remove
+            </button>
+          </>
+        )}
+      </div>
+
+      {url && (
+        <p style={{ fontSize: 12, color: "var(--color-secondary)" }} className="truncate">
+          {name || "Custom sound"}
+        </p>
+      )}
+
+      {url && (
+        <label className="inline-flex items-center gap-2 text-xs cursor-pointer" style={{ color: "var(--color-secondary)" }}>
+          <input
+            type="checkbox"
+            checked={isDefault}
+            onChange={toggleDefault}
+            className="h-3.5 w-3.5 accent-teal-600"
+          />
+          Use as my default alarm (focus end + break end)
+        </label>
+      )}
+
+      {!url && (
+        <p style={{ fontSize: 11, color: "var(--color-muted)" }}>
+          MP3 / WAV / OGG / M4A / FLAC · up to 5 MB. Syncs across your devices.
+        </p>
+      )}
+
+      {error && (
+        <p style={{ fontSize: 12, color: "#dc2626" }}>{error}</p>
+      )}
     </div>
   );
 }

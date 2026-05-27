@@ -1,13 +1,26 @@
 import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useApp } from "../context/AppContext";
+import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
 import { Sun, Moon, LogOut, Loader2, Timer, Users, Settings as SettingsIcon, Menu, X } from "lucide-react";
+import UserAvatar from "./UserAvatar";
+
+const PRESENCE_DOT_COLOR = {
+  active: "bg-emerald-500",
+  available: "bg-sky-500",
+  heads_down: "bg-violet-500",
+  in_meeting: "bg-rose-500",
+  away: "bg-amber-500",
+};
 
 export default function Nav({ onOpenPomodoro }) {
   const { settings, todayMins, exportMsg, dataSyncing, openSettings } = useApp();
+  const { activeTeamSessions } = useTeam();
+  const hasTeamSessions = (activeTeamSessions?.length || 0) > 0;
+  const presenceDot = PRESENCE_DOT_COLOR[settings.presenceState] || PRESENCE_DOT_COLOR.active;
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === "dark";
   const location = useLocation();
@@ -106,11 +119,25 @@ export default function Nav({ onOpenPomodoro }) {
 
           {/* Logo + title */}
           <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
-            <img
-              src="/logo.svg"
-              alt="QuestLogger"
-              className={`h-6 sm:h-8 shrink-0 ${darkMode ? "brightness-0 invert" : ""}`}
-            />
+            <div className="relative shrink-0">
+              {settings.avatarUrl ? (
+                <UserAvatar url={settings.avatarUrl} name={settings.name} size={32} />
+              ) : (
+                <img
+                  src="/logo.svg"
+                  alt="QuestLogger"
+                  className={`h-6 sm:h-8 ${darkMode ? "brightness-0 invert" : ""}`}
+                />
+              )}
+              {settings.avatarUrl && (
+                <span
+                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ${presenceDot} ${
+                    darkMode ? "ring-slate-900" : "ring-white"
+                  }`}
+                  title={`Status: ${settings.presenceState || "active"}${settings.status ? ` — ${settings.status}` : ""}`}
+                />
+              )}
+            </div>
             <div className="min-w-0">
               <h1
                 className={`text-xs sm:text-sm font-semibold truncate ${darkMode ? "text-white" : "text-slate-800"}`}
@@ -134,20 +161,24 @@ export default function Nav({ onOpenPomodoro }) {
               <NavLink to="/overview" className={desktopNavLink}>Overview</NavLink>
               <NavLink to="/planner" className={desktopNavLink}>Planner</NavLink>
               <NavLink to="/team" className={desktopNavLink}>Team</NavLink>
+              <NavLink to="/pomodoro" className={desktopNavLink}>Pomodoro</NavLink>
             </nav>
 
             <div className="flex items-center gap-2">
               <button
                 onClick={onOpenPomodoro}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                   darkMode
                     ? "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
                     : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
                 }`}
-                title="Pomodoro timer"
+                title={hasTeamSessions ? "Pomodoro — a teammate has a session running" : "Pomodoro timer"}
               >
                 <Timer className="w-4 h-4" />
-                <span>Pomodoro</span>
+                <span>Timer</span>
+                {hasTeamSessions && (
+                  <span className={`absolute top-1 right-1.5 w-2 h-2 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
+                )}
               </button>
 
               <button onClick={toggleTheme} className={themeBtnCls} title={darkMode ? "Light mode" : "Dark mode"}>
@@ -204,11 +235,15 @@ export default function Nav({ onOpenPomodoro }) {
           darkMode ? "border-slate-700/60" : "border-slate-200"
         }`}>
           <div className="flex items-center gap-2 min-w-0">
-            <img
-              src="/logo.svg"
-              alt="QuestLogger"
-              className={`h-6 shrink-0 ${darkMode ? "brightness-0 invert" : ""}`}
-            />
+            {settings.avatarUrl ? (
+              <UserAvatar url={settings.avatarUrl} name={settings.name} size={28} className="shrink-0" />
+            ) : (
+              <img
+                src="/logo.svg"
+                alt="QuestLogger"
+                className={`h-6 shrink-0 ${darkMode ? "brightness-0 invert" : ""}`}
+              />
+            )}
             <span className={`text-sm font-semibold truncate ${darkMode ? "text-slate-100" : "text-slate-800"}`}>
               {settings.name ? `${settings.name}` : "QuestLogger"}
             </span>
@@ -237,6 +272,12 @@ export default function Nav({ onOpenPomodoro }) {
           </NavLink>
           <NavLink to="/team" className={sidebarNavLink}>
             <Users className="w-5 h-5" /> Team
+          </NavLink>
+          <NavLink to="/pomodoro" className={sidebarNavLink}>
+            <Timer className="w-5 h-5" /> Pomodoro
+            {hasTeamSessions && (
+              <span className={`ml-auto w-2 h-2 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
+            )}
           </NavLink>
 
           <div className={`my-3 border-t ${darkMode ? "border-slate-800" : "border-slate-100"}`} />

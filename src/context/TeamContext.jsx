@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "../supabase";
 import {
   formatDuration, formatMoney, formatMonthLabel, weekStart, weekRangeLabel,
   toDisplayTime, downloadFile, unpaidBreakMins,
 } from "../lib/utils";
+import { listActiveTeamSessions } from "../lib/syncSession";
 
 const TeamContext = createContext(null);
 
@@ -14,32 +15,74 @@ export function TeamProvider({ session, children }) {
   );
   const [teamMembers, setTeamMembers] = useState([]);
   const [teamLoading, setTeamLoading] = useState(false);
+  const [activeTeamSessions, setActiveTeamSessions] = useState([]);
 
   const userId = session?.user?.id;
+  // Read the latest activeTeamId without retriggering loadTeams.
+  const activeTeamIdRef = useRef(activeTeamId);
+  activeTeamIdRef.current = activeTeamId;
 
-  // ── Load teams on mount ────────────────────────────────────
+  // ── Load teams ──────────────────────────────────────────────
+  // Important: this callback intentionally does NOT depend on activeTeamId.
+  // The previous version did, which caused the load effect to re-fire on
+  // every active-team change and could race with an in-flight initial load
+  // — sometimes the racing fetch returned 0 rows (auth not yet warm),
+  // which cleared the user's persisted active team and left the UI empty.
   const loadTeams = useCallback(async () => {
     if (!userId) return;
     setTeamLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("team_members")
-      .select("team_id, role, teams(id, name, invite_code, created_by, created_at)")
+      .select("team_id, role, teams(id, name, invite_code, created_by, created_at, icon_url, color)")
       .eq("user_id", userId);
-    const loaded = (data || []).map((m) => ({
-      ...m.teams,
-      role: m.role,
-    }));
-    setTeams(loaded);
-    // if active team no longer valid, reset
-    if (activeTeamId && !loaded.find((t) => t.id === activeTeamId)) {
-      const next = loaded[0]?.id || null;
-      setActiveTeamId(next);
-      localStorage.setItem("ql_active_team", next || "");
-    }
     setTeamLoading(false);
-  }, [userId, activeTeamId]);
+
+    // Network / auth / RLS error: bail without clobbering state. A follow-up
+    // load (focus, auth refresh, manual retry) can recover.
+    if (error) {
+      console.warn("loadTeams:", error.message);
+      return;
+    }
+
+    const loaded = (data || [])
+      .map((m) => (m.teams ? { ...m.teams, role: m.role } : null))
+      .filter(Boolean);
+    setTeams(loaded);
+
+    const current = activeTeamIdRef.current;
+    if (loaded.length === 0) {
+      // Genuinely no memberships — drop any stale local active team.
+      if (current) {
+        setActiveTeamId(null);
+        localStorage.removeItem("ql_active_team");
+      }
+      return;
+    }
+    // Auto-select if we have none, or if the stored one is no longer valid.
+    if (!current || !loaded.find((t) => t.id === current)) {
+      const next = loaded[0].id;
+      setActiveTeamId(next);
+      localStorage.setItem("ql_active_team", next);
+    }
+  }, [userId]);
 
   useEffect(() => { loadTeams(); }, [loadTeams]);
+
+  // Self-heal: re-fetch teams when the tab regains focus or when supabase
+  // refreshes/restores the auth token. Covers the laptop-lid case where
+  // the initial load fired before the access token was warm.
+  useEffect(() => {
+    if (!userId) return;
+    function onVisible() { if (!document.hidden) loadTeams(); }
+    document.addEventListener("visibilitychange", onVisible);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "TOKEN_REFRESHED" || event === "SIGNED_IN") loadTeams();
+    });
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      subscription.unsubscribe();
+    };
+  }, [userId, loadTeams]);
 
   // ── Load members when active team changes ──────────────────
   const loadMembers = useCallback(async () => {
@@ -49,20 +92,58 @@ export function TeamProvider({ session, children }) {
       .select("user_id, role, joined_at")
       .eq("team_id", activeTeamId);
     if (!data) { setTeamMembers([]); return; }
-    // fetch display names from user_settings
+    // fetch display names + avatars from user_settings
     const userIds = data.map((m) => m.user_id);
     const { data: settingsData } = await supabase
       .from("user_settings")
-      .select("user_id, name")
+      .select("user_id, name, avatar_url, status, presence_state, status_updated_at")
       .in("user_id", userIds);
-    const nameMap = new Map((settingsData || []).map((s) => [s.user_id, s.name]));
+    const settingsMap = new Map((settingsData || []).map((s) => [s.user_id, s]));
     setTeamMembers(data.map((m) => ({
       ...m,
-      name: nameMap.get(m.user_id) || "Team Member",
+      name: settingsMap.get(m.user_id)?.name || "Team Member",
+      avatar_url: settingsMap.get(m.user_id)?.avatar_url || "",
+      status: settingsMap.get(m.user_id)?.status || "",
+      presence_state: settingsMap.get(m.user_id)?.presence_state || "active",
+      status_updated_at: settingsMap.get(m.user_id)?.status_updated_at || null,
     })));
   }, [activeTeamId]);
 
   useEffect(() => { loadMembers(); }, [loadMembers]);
+
+  // ── Active team pomodoro sessions ──────────────────────────
+  const loadActiveTeamSessions = useCallback(async () => {
+    if (!activeTeamId) { setActiveTeamSessions([]); return; }
+    const { data } = await listActiveTeamSessions(activeTeamId);
+    setActiveTeamSessions(data || []);
+  }, [activeTeamId]);
+
+  useEffect(() => { loadActiveTeamSessions(); }, [loadActiveTeamSessions]);
+
+  // Realtime: refresh when team sessions change.
+  useEffect(() => {
+    if (!activeTeamId) return;
+    const channel = supabase
+      .channel(`team-sessions:${activeTeamId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sync_sessions", filter: `team_id=eq.${activeTeamId}` },
+        loadActiveTeamSessions,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sync_session_participants" },
+        loadActiveTeamSessions,
+      )
+      .subscribe();
+    // Lightweight polling fallback every 30s; the timer derives from
+    // ends_at so the UI stays smooth even without fresh rows.
+    const pollId = setInterval(loadActiveTeamSessions, 30000);
+    return () => {
+      clearInterval(pollId);
+      supabase.removeChannel(channel);
+    };
+  }, [activeTeamId, loadActiveTeamSessions]);
 
   // ── Team CRUD ──────────────────────────────────────────────
   async function createTeam(name) {
@@ -130,6 +211,23 @@ export function TeamProvider({ session, children }) {
     await loadMembers();
   }
 
+  // Patch team metadata (name, icon_url, color). Admin-only by RLS.
+  async function updateTeam(teamId, patch) {
+    const allowed = {};
+    if (patch.name !== undefined) allowed.name = patch.name;
+    if (patch.icon_url !== undefined) allowed.icon_url = patch.icon_url;
+    if (patch.color !== undefined) allowed.color = patch.color;
+    if (Object.keys(allowed).length === 0) return { data: null };
+    const { data, error } = await supabase
+      .from("teams")
+      .update(allowed)
+      .eq("id", teamId)
+      .select()
+      .single();
+    if (!error) await loadTeams();
+    return { data, error };
+  }
+
   async function regenerateInviteCode(teamId) {
     const newCode = [...crypto.getRandomValues(new Uint8Array(6))]
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -174,12 +272,12 @@ export function TeamProvider({ session, children }) {
       .lte("date", endDate)
       .order("date", { ascending: true });
 
-    // fetch names
+    // fetch names + avatars
     const { data: settingsData } = await supabase
       .from("user_settings")
-      .select("user_id, name")
+      .select("user_id, name, avatar_url")
       .in("user_id", memberIds);
-    const nameMap = new Map((settingsData || []).map((s) => [s.user_id, s.name || "Team Member"]));
+    const settingsMap = new Map((settingsData || []).map((s) => [s.user_id, s]));
 
     // fetch projects
     const { data: projectsData } = await supabase
@@ -198,7 +296,8 @@ export function TeamProvider({ session, children }) {
 
     return memberIds.map((uid) => ({
       userId: uid,
-      name: nameMap.get(uid) || "Team Member",
+      name: settingsMap.get(uid)?.name || "Team Member",
+      avatar_url: settingsMap.get(uid)?.avatar_url || "",
       entries: byMember[uid] || [],
       projectMap,
     }));
@@ -358,9 +457,10 @@ export function TeamProvider({ session, children }) {
       value={{
         teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin,
         loadTeams, loadMembers, switchTeam,
-        createTeam, joinTeam, leaveTeam, deleteTeam,
+        createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
         removeMember, changeMemberRole, regenerateInviteCode,
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
+        activeTeamSessions, loadActiveTeamSessions,
       }}
     >
       {children}
