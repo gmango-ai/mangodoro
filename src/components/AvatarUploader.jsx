@@ -1,13 +1,11 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { uploadAvatar } from "../lib/avatar";
-import { Camera, Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
+import FileDropZone from "./FileDropZone";
 
-// Triggers the OS file picker via a native <label htmlFor> instead of
-// inputRef.current.click(). Programmatic .click() on a file input inside a
-// portal modal can deadlock the renderer when password manager extensions
-// (1Password / LastPass / Bitwarden) hook click events. The native label
-// path bypasses those hooks entirely.
+const MAX_BYTES = 2 * 1024 * 1024;
+
 export default function AvatarUploader({
   userId,
   value,
@@ -18,28 +16,37 @@ export default function AvatarUploader({
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const inputId = useId();
   const [uploading, setUploading] = useState(false);
-
+  const [error, setError] = useState("");
   const initial = (displayName || "?")[0].toUpperCase();
 
-  async function handlePick(e) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
+  async function processFile(file) {
     if (!file) return;
-    setUploading(true);
-    const { data, error } = await uploadAvatar(file, userId);
-    setUploading(false);
-    if (error) {
-      onError?.(error.message || "Upload failed");
-      return;
+    setUploading(true); setError("");
+    try {
+      const { data, error: err } = await uploadAvatar(file, userId);
+      if (err) {
+        const msg = err.message || "Upload failed";
+        setError(msg);
+        onError?.(msg);
+        return;
+      }
+      onChange?.(data.url);
+    } catch (err) {
+      const msg = err?.message || "Upload failed";
+      setError(msg);
+      onError?.(msg);
+    } finally {
+      setUploading(false);
     }
-    onChange?.(data.url);
   }
 
-  function handleClear(e) {
-    e.stopPropagation();
-    e.preventDefault();
+  function handleReject(msg) {
+    setError(msg);
+    onError?.(msg);
+  }
+
+  function handleClear() {
     onChange?.("");
   }
 
@@ -47,35 +54,35 @@ export default function AvatarUploader({
   const fontSize = Math.max(14, Math.round(size / 2.5));
 
   return (
-    <div className="flex items-center gap-3">
-      {/* Hidden input — kept outside the label/button tree so it's not
-          double-triggered. Extensions can still hook it, but since we
-          activate it via the native label/htmlFor pairing they get no
-          synthetic click event to intercept. */}
-      <input
-        id={inputId}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
-        onChange={handlePick}
-        disabled={uploading}
-        className="sr-only"
-      />
-
-      <label
-        htmlFor={inputId}
-        aria-disabled={uploading}
-        title="Upload profile picture"
-        className={`relative rounded-full overflow-hidden border-2 transition-colors cursor-pointer ${
-          uploading ? "opacity-80 cursor-wait" : ""
-        } ${
-          dark
-            ? "border-slate-700 hover:border-cyan-500/60 bg-slate-800"
-            : "border-slate-200 hover:border-teal-400 bg-slate-100"
+    <FileDropZone
+      accept={{ "image/*": [] }}
+      maxSize={MAX_BYTES}
+      uploading={uploading}
+      buttonLabel={value ? "Change photo" : "Upload photo"}
+      hint="Click or drop an image · max 2 MB"
+      error={error}
+      onFile={processFile}
+      onReject={handleReject}
+      actions={value ? (
+        <button
+          type="button"
+          onClick={handleClear}
+          className={`text-[11px] font-medium px-2 py-1 rounded ${
+            dark ? "text-slate-500 hover:text-red-300" : "text-slate-500 hover:text-red-500"
+          }`}
+        >
+          <X className="w-3 h-3 inline" /> Remove
+        </button>
+      ) : null}
+    >
+      <div
+        className={`relative rounded-full overflow-hidden border-2 ${
+          dark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-100"
         }`}
         style={{ width: px, height: px }}
       >
         {value ? (
-          <img src={value} alt="" className="w-full h-full object-cover" />
+          <img src={value} alt="" className="w-full h-full object-cover" draggable={false} />
         ) : (
           <span
             className={`flex items-center justify-center w-full h-full font-bold ${
@@ -86,46 +93,7 @@ export default function AvatarUploader({
             {initial}
           </span>
         )}
-        <span
-          className={`absolute inset-0 flex items-center justify-center transition-opacity ${
-            uploading ? "opacity-100" : "opacity-0 hover:opacity-100"
-          } bg-black/50`}
-        >
-          {uploading ? (
-            <Loader2 className="w-5 h-5 text-white animate-spin" />
-          ) : (
-            <Camera className="w-5 h-5 text-white" />
-          )}
-        </span>
-      </label>
-
-      <div className="flex flex-col gap-1 text-xs">
-        <label
-          htmlFor={inputId}
-          aria-disabled={uploading}
-          className={`cursor-pointer text-left font-semibold ${
-            uploading ? "opacity-60 cursor-wait" : ""
-          } ${
-            dark ? "text-cyan-400 hover:text-cyan-300" : "text-teal-700 hover:text-teal-600"
-          }`}
-        >
-          {value ? "Change photo" : "Upload photo"}
-        </label>
-        {value && (
-          <button
-            type="button"
-            onClick={handleClear}
-            className={`text-left ${
-              dark ? "text-slate-500 hover:text-red-300" : "text-slate-400 hover:text-red-500"
-            }`}
-          >
-            <X className="w-3 h-3 inline" /> Remove
-          </button>
-        )}
-        <span className={dark ? "text-slate-500" : "text-slate-400"}>
-          JPG / PNG / WebP · max 2 MB
-        </span>
       </div>
-    </div>
+    </FileDropZone>
   );
 }

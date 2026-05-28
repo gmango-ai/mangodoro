@@ -11,6 +11,17 @@ const ALLOWED = [
   "audio/flac",
 ];
 
+const UPLOAD_TIMEOUT_MS = 120_000; // audio can be larger; give it more headroom
+
+function withTimeout(promise, ms, label = "Upload") {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms),
+    ),
+  ]);
+}
+
 export async function uploadCustomSound(file, userId) {
   if (!file) return { error: { message: "No file selected" } };
   if (!userId) return { error: { message: "Not signed in" } };
@@ -23,17 +34,22 @@ export async function uploadCustomSound(file, userId) {
   const ext = (file.name.split(".").pop() || "mp3").toLowerCase().slice(0, 5);
   const path = `${userId}/sound-${Date.now()}.${ext}`;
 
-  const { error: upErr } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, file, {
-      cacheControl: "3600",
-      upsert: true,
-      contentType: file.type || "audio/mpeg",
-    });
-  if (upErr) return { error: upErr };
-
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  return { data: { url: data.publicUrl, path, name: file.name } };
+  try {
+    const { error: upErr } = await withTimeout(
+      supabase.storage.from(BUCKET).upload(path, file, {
+        cacheControl: "3600",
+        upsert: true,
+        contentType: file.type || "audio/mpeg",
+      }),
+      UPLOAD_TIMEOUT_MS,
+      "Sound upload",
+    );
+    if (upErr) return { error: upErr };
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    return { data: { url: data.publicUrl, path, name: file.name } };
+  } catch (e) {
+    return { error: { message: e?.message || "Upload failed" } };
+  }
 }
 
 export async function deleteCustomSound(url) {

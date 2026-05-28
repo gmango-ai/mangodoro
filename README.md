@@ -1,4 +1,4 @@
-# QuestLogger
+# Mangodoro
 
 A clean, fast time tracking app for freelancers and anyone who bills by the hour. Log work sessions, manage breaks, track earnings, and export professional timesheets — all from the browser with no account required.
 
@@ -31,7 +31,7 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ## AI Features
 
-QuestLogger uses the DeepSeek API for two features:
+Mangodoro uses the DeepSeek API for two features:
 
 - **✦ Rewrite** — polishes a raw entry description into clean, client-ready language
 - **✦ Summarise** — generates a narrative summary of a month's work

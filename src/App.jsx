@@ -20,6 +20,7 @@ import TeamPage from "./pages/TeamPage";
 import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
 import PomodoroPage from "./pages/PomodoroPage";
 import JoinSyncPage from "./pages/JoinSyncPage";
+import AccountPage from "./pages/AccountPage";
 import { leaveSyncSession, endSyncSession, fetchSyncParticipants, transferSyncLeader, kickSyncParticipant, setSyncParticipantStatus } from "./lib/syncSession";
 
 function AppLayout({ session }) {
@@ -27,6 +28,20 @@ function AppLayout({ session }) {
   const darkMode = theme === "dark";
   const { settings, dataSyncing, clockIn, projects } = useApp();
   const location = useLocation();
+
+  // Prevent the browser from navigating to / loading a dropped file when the
+  // user misses an active drop zone. Without this, dropping a 5MB audio on
+  // the page body causes Chromium to try to render the binary, which can
+  // OOM-crash the renderer.
+  useEffect(() => {
+    const prevent = (e) => { e.preventDefault(); };
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
+    };
+  }, []);
   // The /pomodoro page renders its own embedded PomodoroTimer. Skip the
   // floating one on that route so two instances don't fight over the same
   // Supabase Realtime channel.
@@ -333,6 +348,7 @@ function AppLayout({ session }) {
             <Route path="/team" element={<TeamPage />} />
             <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
             <Route path="/pomodoro" element={<PomodoroPage session={session} syncState={syncState} />} />
+            <Route path="/account" element={<AccountPage session={session} />} />
           </Routes>
         </div>
       </div>

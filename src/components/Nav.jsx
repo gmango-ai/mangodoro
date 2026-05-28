@@ -125,7 +125,7 @@ export default function Nav({ onOpenPomodoro }) {
               ) : (
                 <img
                   src="/logo.svg"
-                  alt="QuestLogger"
+                  alt="Mangodoro"
                   className={`h-6 sm:h-8 ${darkMode ? "brightness-0 invert" : ""}`}
                 />
               )}
@@ -142,7 +142,7 @@ export default function Nav({ onOpenPomodoro }) {
               <h1
                 className={`text-xs sm:text-sm font-semibold truncate ${darkMode ? "text-white" : "text-slate-800"}`}
               >
-                {settings.name ? `${settings.name}'s Quest Log` : "QuestLogger"}
+                {settings.name ? `${settings.name}'s Mangodoro` : "Mangodoro"}
               </h1>
               <p
                 className={`text-[11px] sm:text-xs font-mono tracking-tight truncate ${darkMode ? "text-slate-500" : "text-slate-500"}`}
@@ -240,12 +240,12 @@ export default function Nav({ onOpenPomodoro }) {
             ) : (
               <img
                 src="/logo.svg"
-                alt="QuestLogger"
+                alt="Mangodoro"
                 className={`h-6 shrink-0 ${darkMode ? "brightness-0 invert" : ""}`}
               />
             )}
             <span className={`text-sm font-semibold truncate ${darkMode ? "text-slate-100" : "text-slate-800"}`}>
-              {settings.name ? `${settings.name}` : "QuestLogger"}
+              {settings.name ? `${settings.name}` : "Mangodoro"}
             </span>
           </div>
           <button

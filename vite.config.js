@@ -13,9 +13,9 @@ export default defineConfig({
       injectRegister: false,
       includeAssets: ["favicon.ico", "logo.svg", "apple-touch-icon-180x180.png"],
       manifest: {
-        name: "QuestLogger",
-        short_name: "QuestLogger",
-        description: "Track your work hours and log time entries.",
+        name: "Mangodoro",
+        short_name: "Mangodoro",
+        description: "Synced pomodoros and time tracking for remote teams.",
         theme_color: "#0d9488",
         background_color: "#f5f7ff",
         display: "standalone",
@@ -36,7 +36,20 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/clmmljondpxiwyvcqrjg\.supabase\.co\/.*/i,
+            // Cache GET requests to Supabase REST/PostgREST only.
+            // Explicitly skip /storage/, /auth/, and /realtime/ — uploads,
+            // multipart POSTs, and websocket upgrades must reach the
+            // network unmodified. The handler routes also default to
+            // GET-only, but we double-gate here for safety.
+            urlPattern: ({ url, request }) => {
+              if (!url.host.endsWith(".supabase.co")) return false;
+              if (request.method !== "GET") return false;
+              const p = url.pathname;
+              if (p.startsWith("/auth/")) return false;
+              if (p.startsWith("/storage/")) return false;
+              if (p.startsWith("/realtime/")) return false;
+              return true;
+            },
             handler: "NetworkFirst",
             options: {
               cacheName: "supabase-cache",

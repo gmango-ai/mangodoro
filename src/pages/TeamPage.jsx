@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useTeam } from "../context/TeamContext";
 import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
+import FileDropZone from "../components/FileDropZone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -43,14 +44,39 @@ export default function TeamPage() {
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Auto-join from URL
+  // Auto-join from URL. Used to just pre-fill the field; now actually
+  // performs the join so a one-click invite link works without the user
+  // having to find the Join tab and press the button.
+  const autoJoinedRef = useRef(false);
   useEffect(() => {
+    if (autoJoinedRef.current) return;
     const code = searchParams.get("join");
-    if (code) {
-      setJoinCode(code);
-      setTab("join");
+    if (!code || teamLoading) return;
+    const codeNormalized = code.trim().toLowerCase();
+    // Already a member? Just switch to that team and clear the URL.
+    const existing = teams.find((t) => (t.invite_code || "").toLowerCase() === codeNormalized);
+    if (existing) {
+      autoJoinedRef.current = true;
+      switchTeam(existing.id);
+      navigate("/team", { replace: true });
+      return;
     }
-  }, [searchParams]);
+    autoJoinedRef.current = true;
+    setJoinCode(code);
+    setLoading(true);
+    joinTeam(code).then(({ error: err }) => {
+      setLoading(false);
+      if (err) {
+        setError(err.message || "Invalid invite code");
+        autoJoinedRef.current = false; // allow retry via the form
+        return;
+      }
+      setSuccess("Joined team!");
+      setTab("manage");
+      navigate("/team", { replace: true });
+      setTimeout(() => setSuccess(""), 3000);
+    });
+  }, [searchParams, teamLoading, teams, joinTeam, switchTeam, navigate]);
 
   // Show create/join if no teams
   useEffect(() => {
@@ -512,8 +538,6 @@ function TeamIcon({ team, size = 32 }) {
 }
 
 function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onUploadIcon, onDeleteIcon, onSuccess, onError }) {
-  const fileId = useId();
-  const fileRef = useRef(null);
   const [nameDraft, setNameDraft] = useState(team.name || "");
   const [colorDraft, setColorDraft] = useState(team.color || "#14b8a6");
   const [iconUrl, setIconUrl] = useState(team.icon_url || "");
@@ -527,23 +551,25 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
     setIconUrl(team.icon_url || "");
   }, [team.id]);
 
+  async function processFile(file) {
+    if (!file) return;
+    setUploading(true);
+    try {
+      if (iconUrl) await onDeleteIcon?.(iconUrl);
+      const { data, error } = await onUploadIcon(file);
+      if (error) { onError?.(error.message || "Upload failed"); return; }
+      setIconUrl(data.url);
+    } catch (err) {
+      onError?.(err?.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   const dirty =
     nameDraft.trim() !== (team.name || "").trim()
     || colorDraft !== (team.color || "#14b8a6")
     || iconUrl !== (team.icon_url || "");
-
-  async function handlePickIcon(e) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setUploading(true);
-    // Best-effort cleanup of the previous one.
-    if (iconUrl) await onDeleteIcon?.(iconUrl);
-    const { data, error } = await onUploadIcon(file);
-    setUploading(false);
-    if (error) { onError?.(error.message || "Upload failed"); return; }
-    setIconUrl(data.url);
-  }
 
   async function handleRemoveIcon() {
     if (iconUrl) await onDeleteIcon?.(iconUrl);
@@ -572,44 +598,28 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
       </div>
 
       <div className="space-y-4">
-        {/* Identity row: icon + preview */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <TeamIcon team={{ name: nameDraft || team.name, color: colorDraft, icon_url: iconUrl }} size={56} />
-            <div className="flex flex-col gap-1">
-              <input
-                id={fileId}
-                ref={fileRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
-                onChange={handlePickIcon}
-                disabled={uploading}
-                className="sr-only"
-              />
-              <label
-                htmlFor={fileId}
-                aria-disabled={uploading}
-                className={`inline-flex items-center justify-center text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer ${uploading ? "opacity-60 cursor-wait" : ""}`}
-                style={{
-                  background: "var(--color-accent-light)",
-                  color: "var(--color-accent)",
-                  border: "1px solid var(--color-accent-border)",
-                }}
-              >
-                {uploading ? "Uploading…" : iconUrl ? "Replace icon" : "Upload icon"}
-              </label>
-              {iconUrl && (
-                <button
-                  type="button"
-                  onClick={handleRemoveIcon}
-                  className={`text-[11px] text-left ${dark ? "text-slate-500 hover:text-red-300" : "text-slate-500 hover:text-red-500"}`}
-                >
-                  Remove icon
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <FileDropZone
+          accept={{ "image/*": [] }}
+          maxSize={2 * 1024 * 1024}
+          uploading={uploading}
+          buttonLabel={iconUrl ? "Replace icon" : "Upload icon"}
+          hint="Click or drop an image · max 2 MB"
+          onFile={processFile}
+          onReject={(msg) => onError?.(msg)}
+          actions={iconUrl ? (
+            <button
+              type="button"
+              onClick={handleRemoveIcon}
+              className={`text-[11px] font-medium px-2 py-1 rounded ${
+                dark ? "text-slate-500 hover:text-red-300" : "text-slate-500 hover:text-red-500"
+              }`}
+            >
+              Remove
+            </button>
+          ) : null}
+        >
+          <TeamIcon team={{ name: nameDraft || team.name, color: colorDraft, icon_url: iconUrl }} size={56} />
+        </FileDropZone>
 
         {/* Name editor */}
         <div>

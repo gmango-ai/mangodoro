@@ -70,7 +70,7 @@ export default function AuthPage() {
             color: "#0f172a",
             margin: 0,
           }}>
-            QuestLogger
+            Mangodoro
           </h1>
           <p style={{ color: "#64748b", fontSize: 14, marginTop: 6 }}>
             {mode === "signin" ? "Sign in to your account" : "Create a new account"}

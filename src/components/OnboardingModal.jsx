@@ -58,7 +58,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
     setHourlyRate(rate);
     setDailyTarget(daily);
     setWeeklyTarget(weekly);
-    flash("✓ Welcome to QuestLogger!");
+    flash("✓ Welcome to Mangodoro!");
     onClose();
   }
 
@@ -84,7 +84,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
         <div className="flex items-center gap-2 mb-1">
           <Sparkles className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
           <h2 className={`text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
-            Welcome to QuestLogger
+            Welcome to Mangodoro
           </h2>
         </div>
         <p className={`text-sm mb-6 ${dark ? "text-slate-400" : "text-slate-500"}`}>

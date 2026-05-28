@@ -546,7 +546,7 @@ export default function PomodoroTimer({
   // Honors a window-level marker so we only manage the title in one place
   // (the dedicated /pomodoro and /pomodoro/popout pages set this too).
   useEffect(() => {
-    const baseTitle = "QuestLogger";
+    const baseTitle = "Mangodoro";
     if (isRunning) {
       const title = formatTimerTitle(secondsLeft, mode);
       if (title) document.title = `${title} · ${baseTitle}`;

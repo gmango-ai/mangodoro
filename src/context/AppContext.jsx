@@ -150,7 +150,7 @@ export function AppProvider({ session, children }) {
       const todayLogged = entries.some((e) => e.date === todayStr());
       const alreadyNotifiedKey = `ql_notified_${todayStr()}`;
       if (now >= reminderDate && !todayLogged && !localStorage.getItem(alreadyNotifiedKey)) {
-        new Notification("QuestLogger reminder", {
+        new Notification("Mangodoro reminder", {
           body: "You haven't logged any hours today. Tap to open.",
           icon: "/icon-192.png",
           badge: "/icon-192.png",
@@ -918,8 +918,8 @@ export function AppProvider({ session, children }) {
   }
 
   function exportProfile() {
-    const profile = { version: 1, type: "questlogger-profile", settings: { name: settings.name || "", defaultStart: settings.defaultStart || "", defaultEnd: settings.defaultEnd || "", hourlyRate }, templates: templates.map(({ name, start, end, breaks }) => ({ name, start, end, breaks })) };
-    downloadFile(new Blob([JSON.stringify(profile, null, 2)], { type: "application/json" }), "questlogger-profile.json");
+    const profile = { version: 1, type: "mangodoro-profile", settings: { name: settings.name || "", defaultStart: settings.defaultStart || "", defaultEnd: settings.defaultEnd || "", hourlyRate }, templates: templates.map(({ name, start, end, breaks }) => ({ name, start, end, breaks })) };
+    downloadFile(new Blob([JSON.stringify(profile, null, 2)], { type: "application/json" }), "mangodoro-profile.json");
     flash("✓ Profile exported");
   }
 
@@ -928,7 +928,11 @@ export function AppProvider({ session, children }) {
     reader.onload = (ev) => {
       try {
         const profile = JSON.parse(ev.target.result);
-        if (profile.type !== "questlogger-profile") { flash("✗ Not a QuestLogger profile file"); return; }
+        // Accept both the new "mangodoro-profile" and the legacy
+        // "questlogger-profile" identifier so older exports still import.
+        if (profile.type !== "mangodoro-profile" && profile.type !== "questlogger-profile") {
+          flash("✗ Not a Mangodoro profile file"); return;
+        }
         if (profile.settings) {
           setDraftSettings((d) => ({ ...d, name: profile.settings.name || d.name, defaultStart: profile.settings.defaultStart || d.defaultStart, defaultEnd: profile.settings.defaultEnd || d.defaultEnd, hourlyRate: profile.settings.hourlyRate ?? d.hourlyRate }));
         }
@@ -1034,7 +1038,7 @@ export function AppProvider({ session, children }) {
     const projectMap = new Map(projects.map((p) => [p.id, p]));
     const monthDate = new Date(monthStr + "-01");
     const monthLabel = monthDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    const title = `QuestLogger${settings.name ? ` — ${settings.name}` : ""} — ${monthLabel}`;
+    const title = `Mangodoro${settings.name ? ` — ${settings.name}` : ""} — ${monthLabel}`;
     const numCols = hasRate ? 11 : 9;
 
     // Sheets API colors: {red, green, blue} 0-1

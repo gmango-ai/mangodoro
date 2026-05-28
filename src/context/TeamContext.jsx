@@ -85,31 +85,40 @@ export function TeamProvider({ session, children }) {
   }, [userId, loadTeams]);
 
   // ── Load members when active team changes ──────────────────
+  // Uses a security-definer RPC because `user_settings` RLS only exposes
+  // co-member rows to team admins. A direct join-to-user_settings returned
+  // nothing for regular members, so member names + avatars never showed.
   const loadMembers = useCallback(async () => {
     if (!activeTeamId) { setTeamMembers([]); return; }
-    const { data } = await supabase
-      .from("team_members")
-      .select("user_id, role, joined_at")
-      .eq("team_id", activeTeamId);
-    if (!data) { setTeamMembers([]); return; }
-    // fetch display names + avatars from user_settings
-    const userIds = data.map((m) => m.user_id);
-    const { data: settingsData } = await supabase
-      .from("user_settings")
-      .select("user_id, name, avatar_url, status, presence_state, status_updated_at")
-      .in("user_id", userIds);
-    const settingsMap = new Map((settingsData || []).map((s) => [s.user_id, s]));
-    setTeamMembers(data.map((m) => ({
-      ...m,
-      name: settingsMap.get(m.user_id)?.name || "Team Member",
-      avatar_url: settingsMap.get(m.user_id)?.avatar_url || "",
-      status: settingsMap.get(m.user_id)?.status || "",
-      presence_state: settingsMap.get(m.user_id)?.presence_state || "active",
-      status_updated_at: settingsMap.get(m.user_id)?.status_updated_at || null,
-    })));
+    const { data, error } = await supabase.rpc("get_team_member_profiles", {
+      p_team_id: activeTeamId,
+    });
+    if (error) { console.warn("loadMembers:", error.message); return; }
+    setTeamMembers(data || []);
   }, [activeTeamId]);
 
   useEffect(() => { loadMembers(); }, [loadMembers]);
+
+  // Realtime: refresh the member list whenever someone joins or leaves
+  // the active team. Also refresh on user_settings updates so name /
+  // avatar / status changes propagate without a reload.
+  useEffect(() => {
+    if (!activeTeamId) return;
+    const channel = supabase
+      .channel(`team-members:${activeTeamId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "team_members", filter: `team_id=eq.${activeTeamId}` },
+        () => { loadMembers(); loadTeams(); },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "user_settings" },
+        () => loadMembers(),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeTeamId, loadMembers, loadTeams]);
 
   // ── Active team pomodoro sessions ──────────────────────────
   const loadActiveTeamSessions = useCallback(async () => {
