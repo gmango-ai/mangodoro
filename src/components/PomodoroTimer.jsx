@@ -139,11 +139,54 @@ function PipAvatar({ participant, dark, isLeader }) {
   );
 }
 
+const PIP_CONFIRM_EXTRA_H = 56;
+
+function PomodoroConfirmPrompts({
+  dark,
+  pendingAction,
+  pendingRemoteRow,
+  outboundPrompt,
+  outboundConfirmLabel,
+  onConfirmOutbound,
+  onCancelOutbound,
+  onConfirmRemote,
+  onCancelRemote,
+  className = "",
+}) {
+  if (!pendingAction && !pendingRemoteRow) return null;
+  return (
+    <div className={`space-y-1.5 ${className}`}>
+      {pendingAction && (
+        <ConfirmRow
+          dark={dark}
+          prompt={outboundPrompt}
+          confirmLabel={outboundConfirmLabel}
+          confirmTone={pendingAction.type === "reset" ? "danger" : "primary"}
+          onConfirm={onConfirmOutbound}
+          onCancel={onCancelOutbound}
+        />
+      )}
+      {pendingRemoteRow && (
+        <ConfirmRow
+          dark={dark}
+          prompt="Your timer was updated while you were away. Replace your current session?"
+          confirmLabel="Use updated timer"
+          confirmTone="primary"
+          onConfirm={onConfirmRemote}
+          onCancel={onCancelRemote}
+        />
+      )}
+    </div>
+  );
+}
+
 function PipFace({
   // display
   mins, secs, modeLabel, dark, timeColor, startBtnCls, startLabel,
   // controls
-  isRunning, onToggleRun, onReset, canControl,
+  isRunning, onToggleRun, onReset, canControl, controlsLocked,
+  // confirmation
+  confirmProps,
   // view
   viewMode, onViewModeChange,
   // sync (for "full" view)
@@ -188,25 +231,29 @@ function PipFace({
         <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>{modeLabel}</span>
       </div>
 
+      {controlsLocked && confirmProps && (
+        <PomodoroConfirmPrompts {...confirmProps} className="px-3 pb-2" />
+      )}
+
       {/* Controls — shown in "controls" and "full" */}
       {viewMode !== "timer" && (
         <div className="flex items-center justify-center gap-2 pb-2 px-3">
           <button
             type="button"
             onClick={onReset}
-            disabled={!canControl}
+            disabled={!canControl || controlsLocked}
             title="Reset"
             className={`p-1.5 rounded-full ${
-              !canControl ? "opacity-30 cursor-default" : ""
+              !canControl || controlsLocked ? "opacity-30 cursor-default" : ""
             } ${dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"}`}
             aria-label="Reset"
           >↺</button>
           <button
             type="button"
             onClick={onToggleRun}
-            disabled={!canControl}
+            disabled={!canControl || controlsLocked}
             className={`px-6 py-1.5 rounded-full text-xs font-bold text-white shadow-md ${
-              !canControl ? "opacity-40 cursor-default" : ""
+              !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
             } ${startBtnCls}`}
           >
             {startLabel}
@@ -348,8 +395,9 @@ export default function PomodoroTimer({
     const pipWin = pipWinRef.current;
     if (!pipWin) return;
     const { w, h } = PIP_VIEW_SIZES[pipViewMode] || PIP_VIEW_SIZES.controls;
-    try { pipWin.resizeTo(w, h); } catch { /* some implementations reject; ignore */ }
-  }, [pipViewMode, pipMountEl]);
+    const confirmExtra = pendingAction || pendingRemoteRow ? PIP_CONFIRM_EXTRA_H : 0;
+    try { pipWin.resizeTo(w, h + confirmExtra); } catch { /* some implementations reject; ignore */ }
+  }, [pipViewMode, pipMountEl, pendingAction, pendingRemoteRow]);
 
   const modeRef = useRef(mode);
   const sessionsRef = useRef(sessions);
@@ -840,6 +888,19 @@ export default function PomodoroTimer({
     outboundConfirmLabel = "Apply";
   }
 
+  const showConfirmInMain = controlsLocked && (embedded || open || !pipMountEl);
+  const confirmProps = controlsLocked ? {
+    dark,
+    pendingAction,
+    pendingRemoteRow,
+    outboundPrompt,
+    outboundConfirmLabel,
+    onConfirmOutbound: confirmPendingAction,
+    onCancelOutbound: () => setPendingAction(null),
+    onConfirmRemote: () => applyRemoteRow(pendingRemoteRow, { force: true }),
+    onCancelRemote: () => setPendingRemoteRow(null),
+  } : null;
+
   const pipSupported = typeof window !== "undefined" && "documentPictureInPicture" in window;
 
   return (
@@ -855,7 +916,7 @@ export default function PomodoroTimer({
                     : "bg-white/95 backdrop-blur-xl border-slate-200 shadow-slate-900/10"
                 }`
               : `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-[22rem] max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border shadow-2xl transition-all ${
-                  !open ? "hidden" : ""
+                  !open && !(controlsLocked && !pipMountEl) ? "hidden" : ""
                 } ${
                   dark
                     ? "bg-slate-900/95 backdrop-blur-xl border-slate-700/60"
@@ -1207,26 +1268,8 @@ export default function PomodoroTimer({
           </div>
           )}
 
-          {showControls && pendingAction && (
-            <ConfirmRow
-              dark={dark}
-              prompt={outboundPrompt}
-              confirmLabel={outboundConfirmLabel}
-              confirmTone={pendingAction.type === "reset" ? "danger" : "primary"}
-              onConfirm={confirmPendingAction}
-              onCancel={() => setPendingAction(null)}
-            />
-          )}
-
-          {showControls && pendingRemoteRow && (
-            <ConfirmRow
-              dark={dark}
-              prompt="Your timer was updated while you were away. Replace your current session?"
-              confirmLabel="Use updated timer"
-              confirmTone="primary"
-              onConfirm={() => applyRemoteRow(pendingRemoteRow, { force: true })}
-              onCancel={() => setPendingRemoteRow(null)}
-            />
+          {showControls && showConfirmInMain && confirmProps && (
+            <PomodoroConfirmPrompts {...confirmProps} />
           )}
 
           <div className="flex justify-center">
@@ -1540,8 +1583,10 @@ export default function PomodoroTimer({
             startLabel={startLabel}
             isRunning={isRunning}
             onToggleRun={toggleRun}
-            onReset={reset}
+            onReset={requestReset}
             canControl={canControl}
+            controlsLocked={controlsLocked}
+            confirmProps={confirmProps}
             viewMode={pipViewMode}
             onViewModeChange={setPipViewMode}
             syncSession={syncSession}
