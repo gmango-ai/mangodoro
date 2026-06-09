@@ -14,6 +14,7 @@ import {
 import { setBadge, clearBadge, formatTimerTitle } from "../lib/badge";
 import { setSyncControlMode, setSyncVisibility } from "../lib/syncSession";
 import SyncParticipantList from "./SyncParticipantList";
+import ConfirmRow from "./ConfirmRow";
 
 const DEFAULT_DURATIONS = {
   work: 25 * 60,
@@ -45,6 +46,39 @@ const MODE_LABELS = {
   shortBreak: "Short Break",
   longBreak: "Long Break",
 };
+
+function hasTimerProgress({ mode, durations, secondsLeft, isRunning }) {
+  if (isRunning) return true;
+  return secondsLeft < durations[mode];
+}
+
+function remoteRemainingSeconds(row) {
+  if (row.is_running && row.ends_at) {
+    return Math.max(0, Math.ceil((new Date(row.ends_at).getTime() - Date.now()) / 1000));
+  }
+  return Math.max(0, row.remaining_seconds ?? 0);
+}
+
+function rowsConflict(local, remoteRow, durations, localEndsAtMs) {
+  if (!hasTimerProgress({
+    mode: local.mode,
+    durations,
+    secondsLeft: local.secondsLeft,
+    isRunning: local.isRunning,
+  })) {
+    return false;
+  }
+
+  const localRemaining = local.isRunning && localEndsAtMs
+    ? Math.max(0, Math.ceil((localEndsAtMs - Date.now()) / 1000))
+    : local.secondsLeft;
+  const remoteRemaining = remoteRemainingSeconds(remoteRow);
+
+  if (remoteRow.mode !== local.mode) return true;
+  if (remoteRow.is_running !== local.isRunning) return true;
+  if (Math.abs(remoteRemaining - localRemaining) > 3) return true;
+  return false;
+}
 
 const SOUND_CATEGORY_LABELS = {
   calm: "Calm",
@@ -291,6 +325,12 @@ export default function PomodoroTimer({
   const [draftMinutes, setDraftMinutes] = useState("");
   const [statusDraft, setStatusDraft] = useState("");
   const [statusEditing, setStatusEditing] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [pendingRemoteRow, setPendingRemoteRow] = useState(null);
+
+  const canControl = !isSynced || isLeader || (isOpenMode && isParticipant);
+  const canControlRef = useRef(canControl);
+  canControlRef.current = canControl;
 
   const durationsRef = useRef(durations);
   durationsRef.current = durations;
@@ -388,8 +428,22 @@ export default function PomodoroTimer({
     [userId, syncSession, syncParticipants]
   );
 
-  const applyRemoteRow = useCallback((row) => {
+  const applyRemoteRow = useCallback((row, { force = false } = {}) => {
     if (!row || Date.now() < suppressRemoteUntilRef.current) return;
+
+    const local = latestRef.current;
+    const durs = durationsRef.current;
+    if (
+      !force
+      && canControlRef.current
+      && rowsConflict(local, row, durs, endsAtMsRef.current)
+    ) {
+      setPendingRemoteRow(row);
+      setPendingAction(null);
+      return;
+    }
+
+    setPendingRemoteRow(null);
     setMode(row.mode);
     setSessions(row.sessions);
     setIsRunning(row.is_running);
@@ -470,6 +524,37 @@ export default function PomodoroTimer({
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [syncSession?.id, applyRemoteRow, onLeaveSync]);
+
+  // Re-sync on tab focus (fallback when Realtime missed events while backgrounded)
+  useEffect(() => {
+    if (!userId) return;
+
+    async function syncFromDB() {
+      if (syncSession?.id) {
+        const { data } = await supabase
+          .from("sync_sessions")
+          .select("*")
+          .eq("id", syncSession.id)
+          .eq("status", "active")
+          .maybeSingle();
+        if (data) applyRemoteRow(data);
+      } else {
+        const { data } = await supabase
+          .from("user_pomodoro_state")
+          .select("*")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (data) applyRemoteRow(data);
+      }
+    }
+
+    function onVisible() {
+      if (!document.hidden) syncFromDB();
+    }
+
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [userId, syncSession?.id, applyRemoteRow]);
 
   // Countdown tick
   useEffect(() => {
@@ -605,8 +690,6 @@ export default function PomodoroTimer({
     });
   }
 
-  const canControl = !isSynced || isLeader || (isOpenMode && isParticipant);
-
   function switchMode(newMode) {
     if (!canControl) return;
     const dur = durations[newMode];
@@ -615,6 +698,7 @@ export default function PomodoroTimer({
     setIsRunning(false);
     endsAtMsRef.current = null;
     setEditingDuration(false);
+    setPendingAction(null);
     flushToServer({
       mode: newMode,
       remaining_seconds: dur,
@@ -629,6 +713,7 @@ export default function PomodoroTimer({
     setIsRunning(false);
     endsAtMsRef.current = null;
     setEditingDuration(false);
+    setPendingAction(null);
     flushToServer({ remaining_seconds: dur, is_running: false });
   }
 
@@ -648,7 +733,48 @@ export default function PomodoroTimer({
     setIsRunning(false);
     endsAtMsRef.current = null;
     setEditingDuration(false);
+    setPendingAction(null);
     flushToServer({ remaining_seconds: secs, is_running: false });
+  }
+
+  function requestSwitchMode(newMode) {
+    if (!canControl || newMode === mode) return;
+    if (pendingAction || pendingRemoteRow) return;
+    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
+      setPendingAction({ type: "switchMode", newMode });
+    } else {
+      switchMode(newMode);
+    }
+  }
+
+  function requestReset() {
+    if (!canControl) return;
+    if (pendingAction || pendingRemoteRow) return;
+    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
+      setPendingAction({ type: "reset" });
+    } else {
+      reset();
+    }
+  }
+
+  function requestApplyCustomDuration(minutesStr, persist) {
+    if (!canControl) return;
+    if (pendingAction || pendingRemoteRow) return;
+    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
+      setPendingAction({ type: "applyCustomDuration", minutesStr, persist });
+    } else {
+      applyCustomDuration(minutesStr, persist);
+    }
+  }
+
+  function confirmPendingAction() {
+    if (!pendingAction) return;
+    if (pendingAction.type === "switchMode") switchMode(pendingAction.newMode);
+    else if (pendingAction.type === "reset") reset();
+    else if (pendingAction.type === "applyCustomDuration") {
+      applyCustomDuration(pendingAction.minutesStr, pendingAction.persist);
+    }
+    setPendingAction(null);
   }
 
   async function toggleRun() {
@@ -697,6 +823,22 @@ export default function PomodoroTimer({
       : "bg-teal-600 hover:bg-teal-500 shadow-teal-600/25";
 
   const startLabel = isRunning ? "Pause" : secondsLeft < total ? "Resume" : "Start";
+
+  const syncSuffix = isSynced ? " for everyone in this session." : ".";
+  const controlsLocked = !!pendingAction || !!pendingRemoteRow;
+
+  let outboundPrompt = "";
+  let outboundConfirmLabel = "Confirm";
+  if (pendingAction?.type === "switchMode") {
+    outboundPrompt = `Switch to ${MODE_LABELS[pendingAction.newMode]}? This will stop the current timer${syncSuffix}`;
+    outboundConfirmLabel = "Switch";
+  } else if (pendingAction?.type === "reset") {
+    outboundPrompt = `Reset the timer? Current progress will be lost${syncSuffix}`;
+    outboundConfirmLabel = "Reset";
+  } else if (pendingAction?.type === "applyCustomDuration") {
+    outboundPrompt = `Change the duration? This will stop the current timer${syncSuffix}`;
+    outboundConfirmLabel = "Apply";
+  }
 
   const pipSupported = typeof window !== "undefined" && "documentPictureInPicture" in window;
 
@@ -1045,10 +1187,10 @@ export default function PomodoroTimer({
               <button
                 key={m}
                 type="button"
-                onClick={() => switchMode(m)}
-                disabled={!canControl}
+                onClick={() => requestSwitchMode(m)}
+                disabled={!canControl || controlsLocked}
                 className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                  !canControl ? "cursor-default" : ""
+                  !canControl || controlsLocked ? "cursor-default opacity-60" : ""
                 } ${
                   mode === m
                     ? dark
@@ -1063,6 +1205,28 @@ export default function PomodoroTimer({
               </button>
             ))}
           </div>
+          )}
+
+          {showControls && pendingAction && (
+            <ConfirmRow
+              dark={dark}
+              prompt={outboundPrompt}
+              confirmLabel={outboundConfirmLabel}
+              confirmTone={pendingAction.type === "reset" ? "danger" : "primary"}
+              onConfirm={confirmPendingAction}
+              onCancel={() => setPendingAction(null)}
+            />
+          )}
+
+          {showControls && pendingRemoteRow && (
+            <ConfirmRow
+              dark={dark}
+              prompt="Your timer was updated while you were away. Replace your current session?"
+              confirmLabel="Use updated timer"
+              confirmTone="primary"
+              onConfirm={() => applyRemoteRow(pendingRemoteRow, { force: true })}
+              onCancel={() => setPendingRemoteRow(null)}
+            />
           )}
 
           <div className="flex justify-center">
@@ -1108,11 +1272,11 @@ export default function PomodoroTimer({
           <div className="flex items-center justify-center gap-3">
             <button
               type="button"
-              onClick={reset}
-              disabled={!canControl}
+              onClick={requestReset}
+              disabled={!canControl || controlsLocked}
               title="Reset"
               className={`p-2 rounded-full transition-colors ${
-                !canControl ? "opacity-30 cursor-default" : ""
+                !canControl || controlsLocked ? "opacity-30 cursor-default" : ""
               } ${
                 dark
                   ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
@@ -1188,7 +1352,7 @@ export default function PomodoroTimer({
                   onChange={(e) => setDraftMinutes(e.target.value)}
                   autoFocus
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") applyCustomDuration(draftMinutes, false);
+                    if (e.key === "Enter") requestApplyCustomDuration(draftMinutes, false);
                     if (e.key === "Escape") setEditingDuration(false);
                   }}
                   className={`flex-1 h-8 px-2 rounded-md border text-sm font-mono ${
@@ -1200,7 +1364,7 @@ export default function PomodoroTimer({
                 <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>min</span>
                 <button
                   type="button"
-                  onClick={() => applyCustomDuration(draftMinutes, false)}
+                  onClick={() => requestApplyCustomDuration(draftMinutes, false)}
                   title="Apply to this cycle"
                   className={`h-8 px-3 rounded-md text-xs font-bold text-white ${startBtnCls}`}
                 >
@@ -1209,7 +1373,7 @@ export default function PomodoroTimer({
               </div>
               <button
                 type="button"
-                onClick={() => applyCustomDuration(draftMinutes, true)}
+                onClick={() => requestApplyCustomDuration(draftMinutes, true)}
                 className={`w-full text-[10px] font-semibold py-1 rounded transition-colors ${
                   dark ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-700/50" : "text-slate-500 hover:text-teal-700 hover:bg-slate-200/60"
                 }`}
