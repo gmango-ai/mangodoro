@@ -23,6 +23,25 @@ const DEFAULT_DURATIONS = {
 };
 
 const DURATION_KEY = "ql_pomodoro_durations";
+const AUTO_TRANSITION_KEY = "ql_pomodoro_auto_transition";
+const TRANSITION_SECONDS = 5;
+const WORK_STREAK_FOR_LONG = 3;
+
+function loadAutoTransition() {
+  try {
+    const raw = localStorage.getItem(AUTO_TRANSITION_KEY);
+    if (raw === null) return true;
+    return raw !== "false";
+  } catch { return true; }
+}
+
+function saveAutoTransition(enabled) {
+  try { localStorage.setItem(AUTO_TRANSITION_KEY, enabled ? "true" : "false"); } catch { /* ignore */ }
+}
+
+function defaultBreakForStreak(streak) {
+  return streak >= WORK_STREAK_FOR_LONG ? "longBreak" : "shortBreak";
+}
 
 function loadStoredDurations() {
   try {
@@ -60,12 +79,14 @@ function remoteRemainingSeconds(row) {
 }
 
 function rowsConflict(local, remoteRow, durations, localEndsAtMs) {
+  if ((local.pendingMode ?? null) !== (remoteRow.pending_mode ?? null)) return true;
+
   if (!hasTimerProgress({
     mode: local.mode,
     durations,
     secondsLeft: local.secondsLeft,
     isRunning: local.isRunning,
-  })) {
+  }) && !local.pendingMode) {
     return false;
   }
 
@@ -98,7 +119,7 @@ function cloneDocStyles(targetDoc) {
 
 const PIP_VIEW_SIZES = {
   timer:    { w: 260, h: 220 },
-  controls: { w: 320, h: 320 },
+  controls: { w: 260, h: 220 },
   full:     { w: 360, h: 520 },
 };
 
@@ -183,8 +204,11 @@ function PomodoroConfirmPrompts({
 function PipFace({
   // display
   mins, secs, modeLabel, dark, timeColor, startBtnCls, startLabel,
+  timeSizeClass = "text-5xl",
   // controls
   isRunning, onToggleRun, onReset, canControl, controlsLocked,
+  isInTransition, onSkipTransition,
+  showAlternateBreak, alternateBreakLabel, onSwitchAlternateBreak,
   // confirmation
   confirmProps,
   // view
@@ -194,11 +218,13 @@ function PipFace({
   onTransferLeader, onKickParticipant,
 }) {
   const segBtn = (active) =>
-    `flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold px-2 py-1.5 rounded-md transition-colors ${
+    `flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-1.5 py-1 rounded-md transition-colors ${
       active
         ? dark ? "bg-cyan-500 text-white shadow" : "bg-teal-600 text-white shadow"
         : dark ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-100"
     }`;
+
+  const compact = viewMode !== "full";
 
   return (
     <div
@@ -207,18 +233,20 @@ function PipFace({
       }`}
     >
       {/* 3-view toggle */}
-      <div className={`flex gap-1 p-1 m-2 rounded-md ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
+      <div className={`flex gap-0.5 p-0.5 m-1 rounded-md ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
         <button type="button" onClick={() => onViewModeChange("timer")}    className={segBtn(viewMode === "timer")}>Time</button>
         <button type="button" onClick={() => onViewModeChange("controls")} className={segBtn(viewMode === "controls")}>Controls</button>
         <button type="button" onClick={() => onViewModeChange("full")}     className={segBtn(viewMode === "full")}>Users</button>
       </div>
 
-      {/* Timer face — always present. Inline style enforces tabular-nums
-          even when the cloned PiP stylesheet hasn't fully applied
-          Tailwind's utility, so each digit reserves the same width. */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-1 px-3">
+      {/* Timer face */}
+      <div
+        className={`flex flex-col items-center justify-center gap-0.5 px-2 ${
+          compact ? "py-1" : "flex-1"
+        }`}
+      >
         <span
-          className={`text-5xl font-bold ${timeColor}`}
+          className={`${timeSizeClass} font-bold ${timeColor}`}
           style={{
             fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
             fontVariantNumeric: "tabular-nums",
@@ -228,36 +256,63 @@ function PipFace({
         >
           {mins}:{secs}
         </span>
-        <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>{modeLabel}</span>
+        <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{modeLabel}</span>
       </div>
 
       {controlsLocked && confirmProps && (
-        <PomodoroConfirmPrompts {...confirmProps} className="px-3 pb-2" />
+        <PomodoroConfirmPrompts {...confirmProps} className="px-2 pb-1" />
       )}
 
       {/* Controls — shown in "controls" and "full" */}
       {viewMode !== "timer" && (
-        <div className="flex items-center justify-center gap-2 pb-2 px-3">
-          <button
-            type="button"
-            onClick={onReset}
-            disabled={!canControl || controlsLocked}
-            title="Reset"
-            className={`p-1.5 rounded-full ${
-              !canControl || controlsLocked ? "opacity-30 cursor-default" : ""
-            } ${dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"}`}
-            aria-label="Reset"
-          >↺</button>
-          <button
-            type="button"
-            onClick={onToggleRun}
-            disabled={!canControl || controlsLocked}
-            className={`px-6 py-1.5 rounded-full text-xs font-bold text-white shadow-md ${
-              !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
-            } ${startBtnCls}`}
-          >
-            {startLabel}
-          </button>
+        <div className="flex flex-col items-center gap-0.5 pb-1 px-2">
+          {isInTransition ? (
+            <button
+              type="button"
+              onClick={onSkipTransition}
+              disabled={!canControl || controlsLocked}
+              className={`px-4 py-1 rounded-full text-[10px] font-bold text-white shadow-md ${
+                !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
+              } ${startBtnCls}`}
+            >
+              Start now
+            </button>
+          ) : (
+            <div className="flex items-center justify-center gap-1.5">
+              <button
+                type="button"
+                onClick={onReset}
+                disabled={!canControl || controlsLocked || isInTransition}
+                title="Reset"
+                className={`p-1 rounded-full ${
+                  !canControl || controlsLocked ? "opacity-30 cursor-default" : ""
+                } ${dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"}`}
+                aria-label="Reset"
+              >↺</button>
+              <button
+                type="button"
+                onClick={onToggleRun}
+                disabled={!canControl || controlsLocked || isInTransition}
+                className={`px-4 py-1 rounded-full text-[10px] font-bold text-white shadow-md ${
+                  !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
+                } ${startBtnCls}`}
+              >
+                {startLabel}
+              </button>
+            </div>
+          )}
+          {showAlternateBreak && !isInTransition && (
+            <button
+              type="button"
+              onClick={onSwitchAlternateBreak}
+              disabled={!canControl || controlsLocked}
+              className={`text-[10px] font-semibold py-0.5 ${
+                !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
+              } ${dark ? "text-purple-300 hover:text-purple-200" : "text-purple-600 hover:text-purple-700"}`}
+            >
+              {alternateBreakLabel}
+            </button>
+          )}
         </div>
       )}
 
@@ -368,6 +423,8 @@ export default function PomodoroTimer({
   const [secondsLeft, setSecondsLeft] = useState(() => loadStoredDurations().work);
   const [isRunning, setIsRunning] = useState(false);
   const [sessions, setSessions] = useState(0);
+  const [pendingMode, setPendingMode] = useState(null);
+  const [autoTransition, setAutoTransition] = useState(() => loadAutoTransition());
   const [editingDuration, setEditingDuration] = useState(false);
   const [draftMinutes, setDraftMinutes] = useState("");
   const [statusDraft, setStatusDraft] = useState("");
@@ -401,14 +458,16 @@ export default function PomodoroTimer({
 
   const modeRef = useRef(mode);
   const sessionsRef = useRef(sessions);
+  const pendingModeRef = useRef(pendingMode);
   modeRef.current = mode;
   sessionsRef.current = sessions;
+  pendingModeRef.current = pendingMode;
 
   const soundRef = useRef(soundSettings);
   soundRef.current = soundSettings;
 
-  const latestRef = useRef({ mode, sessions, isRunning, secondsLeft });
-  latestRef.current = { mode, sessions, isRunning, secondsLeft };
+  const latestRef = useRef({ mode, sessions, isRunning, secondsLeft, pendingMode });
+  latestRef.current = { mode, sessions, isRunning, secondsLeft, pendingMode };
 
   const endsAtMsRef = useRef(null);
   const suppressRemoteUntilRef = useRef(0);
@@ -438,6 +497,9 @@ export default function PomodoroTimer({
           sessions: override.sessions ?? base.sessions,
           is_running: override.is_running ?? base.isRunning,
           remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
+          pending_mode: Object.prototype.hasOwnProperty.call(override, "pending_mode")
+            ? override.pending_mode
+            : base.pendingMode,
         };
         const { data, error } = await supabase
           .from("sync_sessions")
@@ -459,6 +521,9 @@ export default function PomodoroTimer({
           sessions: override.sessions ?? base.sessions,
           is_running: override.is_running ?? base.isRunning,
           remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
+          pending_mode: Object.prototype.hasOwnProperty.call(override, "pending_mode")
+            ? override.pending_mode
+            : base.pendingMode,
         };
         const { data, error } = await supabase
           .from("user_pomodoro_state")
@@ -494,6 +559,7 @@ export default function PomodoroTimer({
     setPendingRemoteRow(null);
     setMode(row.mode);
     setSessions(row.sessions);
+    setPendingMode(row.pending_mode ?? null);
     setIsRunning(row.is_running);
     if (row.is_running && row.ends_at) {
       endsAtMsRef.current = new Date(row.ends_at).getTime();
@@ -604,7 +670,50 @@ export default function PomodoroTimer({
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [userId, syncSession?.id, applyRemoteRow]);
 
-  // Countdown tick
+  const autoTransitionRef = useRef(autoTransition);
+  autoTransitionRef.current = autoTransition;
+
+  const commitToPhase = useCallback(async (nextMode, sessionsVal, autoStart) => {
+    const d = durationsRef.current;
+    const secs = d[nextMode];
+    setMode(nextMode);
+    setPendingMode(null);
+    setSecondsLeft(secs);
+    setIsRunning(autoStart);
+    endsAtMsRef.current = null;
+    await flushToServer({
+      mode: nextMode,
+      pending_mode: null,
+      remaining_seconds: secs,
+      is_running: autoStart,
+      sessions: sessionsVal,
+    });
+  }, [flushToServer]);
+
+  const beginTransition = useCallback(async (nextBreak, sessionsVal) => {
+    setPendingMode(nextBreak);
+    setSecondsLeft(TRANSITION_SECONDS);
+    setIsRunning(true);
+    endsAtMsRef.current = null;
+    await flushToServer({
+      pending_mode: nextBreak,
+      remaining_seconds: TRANSITION_SECONDS,
+      is_running: true,
+      sessions: sessionsVal,
+    });
+  }, [flushToServer]);
+
+  const commitTransition = useCallback(async () => {
+    const target = pendingModeRef.current;
+    if (!target) return;
+    const sessionsVal = sessionsRef.current;
+    await commitToPhase(target, sessionsVal, true);
+  }, [commitToPhase]);
+
+  const skipTransition = useCallback(async () => {
+    if (!canControl || !pendingMode) return;
+    await commitTransition();
+  }, [canControl, pendingMode, commitTransition]);
   useEffect(() => {
     if (!isRunning) return;
     const interval = setInterval(() => {
@@ -621,9 +730,17 @@ export default function PomodoroTimer({
     return () => clearInterval(interval);
   }, [isRunning, userId]);
 
-  // Completion
+  // Completion + transition countdown end
   useEffect(() => {
     if (!isRunning || secondsLeft > 0) return;
+
+    const currentPending = pendingModeRef.current;
+
+    if (currentPending) {
+      commitTransition();
+      return;
+    }
+
     setIsRunning(false);
 
     const currentMode = modeRef.current;
@@ -643,37 +760,24 @@ export default function PomodoroTimer({
       );
     }
 
-    // In sync mode, only the leader writes the mode transition when
-    // control_mode is 'leader'. In 'open' mode anyone present can.
     if (isSynced && !isLeader && !isOpenMode) return;
 
     const d = durationsRef.current;
     if (currentMode === "work") {
-      const next = currentSessions + 1;
-      const nextMode = next % 4 === 0 ? "longBreak" : "shortBreak";
-      const nextSecs = d[nextMode];
-      setSessions(next);
-      setMode(nextMode);
-      setSecondsLeft(nextSecs);
-      endsAtMsRef.current = null;
-      flushToServer({
-        mode: nextMode,
-        sessions: next,
-        is_running: false,
-        remaining_seconds: nextSecs,
-      });
+      const nextStreak = currentSessions + 1;
+      const nextBreak = defaultBreakForStreak(nextStreak);
+      setSessions(nextStreak);
+      if (autoTransitionRef.current) {
+        beginTransition(nextBreak, nextStreak);
+      } else {
+        commitToPhase(nextBreak, nextStreak, true);
+      }
     } else {
-      setMode("work");
-      setSecondsLeft(d.work);
-      endsAtMsRef.current = null;
-      flushToServer({
-        mode: "work",
-        sessions: currentSessions,
-        is_running: false,
-        remaining_seconds: d.work,
-      });
+      const nextSessions = currentMode === "longBreak" ? 0 : currentSessions;
+      setSessions(nextSessions);
+      commitToPhase("work", nextSessions, false);
     }
-  }, [secondsLeft, isRunning, flushToServer, isSynced, isLeader]);
+  }, [secondsLeft, isRunning, customSoundUrl, isSynced, isLeader, isOpenMode, beginTransition, commitToPhase, commitTransition]);
 
   // Tab title + macOS dock badge.
   // Honors a window-level marker so we only manage the title in one place
@@ -681,7 +785,7 @@ export default function PomodoroTimer({
   useEffect(() => {
     const baseTitle = "Mangodoro";
     if (isRunning) {
-      const title = formatTimerTitle(secondsLeft, mode);
+      const title = formatTimerTitle(secondsLeft, isInTransition ? pendingMode : mode);
       if (title) document.title = `${title} · ${baseTitle}`;
       setBadge(Math.ceil(secondsLeft / 60));
     } else {
@@ -695,7 +799,7 @@ export default function PomodoroTimer({
         clearBadge();
       }
     };
-  }, [isRunning, secondsLeft, mode]);
+  }, [isRunning, secondsLeft, mode, pendingMode, isInTransition]);
 
   // PiP window theme class on html
   useEffect(() => {
@@ -738,31 +842,48 @@ export default function PomodoroTimer({
     });
   }
 
-  function switchMode(newMode) {
+  function switchMode(newMode, { resetStreak = false } = {}) {
     if (!canControl) return;
     const dur = durations[newMode];
     setMode(newMode);
+    setPendingMode(null);
     setSecondsLeft(dur);
     setIsRunning(false);
     endsAtMsRef.current = null;
     setEditingDuration(false);
     setPendingAction(null);
+    const nextSessions = resetStreak ? 0 : sessions;
+    if (resetStreak) setSessions(0);
     flushToServer({
       mode: newMode,
+      pending_mode: null,
       remaining_seconds: dur,
       is_running: false,
+      sessions: nextSessions,
     });
+  }
+
+  function switchAlternateBreak() {
+    if (!canControl || pendingMode) return;
+    if (mode !== "shortBreak" && mode !== "longBreak") return;
+    const alt = mode === "shortBreak" ? "longBreak" : "shortBreak";
+    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
+      setPendingAction({ type: "switchAlternateBreak", newMode: alt });
+      return;
+    }
+    switchMode(alt, { resetStreak: true });
   }
 
   function reset() {
     if (!canControl) return;
     const dur = durations[mode];
     setSecondsLeft(dur);
+    setPendingMode(null);
     setIsRunning(false);
     endsAtMsRef.current = null;
     setEditingDuration(false);
     setPendingAction(null);
-    flushToServer({ remaining_seconds: dur, is_running: false });
+    flushToServer({ remaining_seconds: dur, is_running: false, pending_mode: null });
   }
 
   function applyCustomDuration(minutesStr, persist) {
@@ -778,11 +899,12 @@ export default function PomodoroTimer({
       setDurations((prev) => ({ ...prev, [mode]: secs }));
     }
     setSecondsLeft(secs);
+    setPendingMode(null);
     setIsRunning(false);
     endsAtMsRef.current = null;
     setEditingDuration(false);
     setPendingAction(null);
-    flushToServer({ remaining_seconds: secs, is_running: false });
+    flushToServer({ remaining_seconds: secs, is_running: false, pending_mode: null });
   }
 
   function requestSwitchMode(newMode) {
@@ -818,6 +940,7 @@ export default function PomodoroTimer({
   function confirmPendingAction() {
     if (!pendingAction) return;
     if (pendingAction.type === "switchMode") switchMode(pendingAction.newMode);
+    else if (pendingAction.type === "switchAlternateBreak") switchMode(pendingAction.newMode, { resetStreak: true });
     else if (pendingAction.type === "reset") reset();
     else if (pendingAction.type === "applyCustomDuration") {
       applyCustomDuration(pendingAction.minutesStr, pendingAction.persist);
@@ -841,13 +964,17 @@ export default function PomodoroTimer({
   const mins = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secs = String(secondsLeft % 60).padStart(2, "0");
 
-  const total = durations[mode];
-  const progress = secondsLeft === total ? 0 : (total - secondsLeft) / total;
+  const isInTransition = !!pendingMode;
+  const displayMode = isInTransition ? pendingMode : mode;
+  const total = isInTransition ? TRANSITION_SECONDS : durations[mode];
+  const progress = isInTransition
+    ? (TRANSITION_SECONDS - secondsLeft) / TRANSITION_SECONDS
+    : secondsLeft === total ? 0 : (total - secondsLeft) / total;
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - progress);
 
-  const isBreak = mode !== "work";
+  const isBreak = displayMode !== "work";
   const accentHex = isBreak
     ? dark
       ? "#a78bfa"
@@ -871,6 +998,15 @@ export default function PomodoroTimer({
       : "bg-teal-600 hover:bg-teal-500 shadow-teal-600/25";
 
   const startLabel = isRunning ? "Pause" : secondsLeft < total ? "Resume" : "Start";
+  const displayLabel = isInTransition
+    ? `${MODE_LABELS[pendingMode]} in…`
+    : MODE_LABELS[mode];
+  const showAlternateBreak = !isInTransition && (mode === "shortBreak" || mode === "longBreak");
+  const alternateBreakLabel = mode === "shortBreak"
+    ? "Take long break instead"
+    : mode === "longBreak"
+      ? "Take short break instead"
+      : "";
 
   const syncSuffix = isSynced ? " for everyone in this session." : ".";
   const controlsLocked = !!pendingAction || !!pendingRemoteRow;
@@ -886,6 +1022,9 @@ export default function PomodoroTimer({
   } else if (pendingAction?.type === "applyCustomDuration") {
     outboundPrompt = `Change the duration? This will stop the current timer${syncSuffix}`;
     outboundConfirmLabel = "Apply";
+  } else if (pendingAction?.type === "switchAlternateBreak") {
+    outboundPrompt = `Switch to ${MODE_LABELS[pendingAction.newMode]}? Your focus streak will reset${syncSuffix}`;
+    outboundConfirmLabel = "Switch";
   }
 
   const showConfirmInMain = controlsLocked && (embedded || open || !pipMountEl);
@@ -1249,7 +1388,7 @@ export default function PomodoroTimer({
                 key={m}
                 type="button"
                 onClick={() => requestSwitchMode(m)}
-                disabled={!canControl || controlsLocked}
+                disabled={!canControl || controlsLocked || isInTransition}
                 className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-all ${
                   !canControl || controlsLocked ? "cursor-default opacity-60" : ""
                 } ${
@@ -1305,14 +1444,27 @@ export default function PomodoroTimer({
                 <span
                   className={`text-[11px] mt-1 ${dark ? "text-slate-500" : "text-slate-400"}`}
                 >
-                  {MODE_LABELS[mode]}
+                  {displayLabel}
                 </span>
               </div>
             </div>
           </div>
 
           {showControls && (
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex flex-col items-center gap-2">
+            {isInTransition ? (
+              <button
+                type="button"
+                onClick={skipTransition}
+                disabled={!canControl || controlsLocked}
+                className={`px-7 py-2 rounded-full text-sm font-bold text-white shadow-lg transition-all ${
+                  !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
+                } ${startBtnCls}`}
+              >
+                Start now
+              </button>
+            ) : (
+            <div className="flex items-center justify-center gap-3">
             <button
               type="button"
               onClick={requestReset}
@@ -1331,9 +1483,9 @@ export default function PomodoroTimer({
             <button
               type="button"
               onClick={toggleRun}
-              disabled={!canControl}
+              disabled={!canControl || controlsLocked}
               className={`px-7 py-2 rounded-full text-sm font-bold text-white shadow-lg transition-all ${
-                !canControl ? "opacity-40 cursor-default" : ""
+                !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
               } ${startBtnCls}`}
             >
               {startLabel}
@@ -1345,10 +1497,10 @@ export default function PomodoroTimer({
                 setDraftMinutes(String(Math.max(1, Math.round(durations[mode] / 60))));
                 setEditingDuration((v) => !v);
               }}
-              disabled={!canControl}
+              disabled={!canControl || controlsLocked}
               title="Set duration"
               className={`p-2 rounded-full transition-colors ${
-                !canControl ? "opacity-30 cursor-default" : ""
+                !canControl || controlsLocked ? "opacity-30 cursor-default" : ""
               } ${
                 editingDuration
                   ? dark ? "text-cyan-300 bg-slate-800" : "text-teal-700 bg-slate-100"
@@ -1359,6 +1511,20 @@ export default function PomodoroTimer({
             >
               <Pencil className="w-4 h-4" />
             </button>
+            </div>
+            )}
+            {showAlternateBreak && (
+              <button
+                type="button"
+                onClick={switchAlternateBreak}
+                disabled={!canControl || controlsLocked || isInTransition}
+                className={`text-[11px] font-semibold ${
+                  !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
+                } ${dark ? "text-purple-300 hover:text-purple-200" : "text-purple-600 hover:text-purple-700"}`}
+              >
+                {alternateBreakLabel}
+              </button>
+            )}
           </div>
           )}
 
@@ -1529,6 +1695,30 @@ export default function PomodoroTimer({
                   <option value={0}>Until I dismiss it</option>
                 </select>
               </label>
+              <label className={`flex items-center justify-between gap-2 ${dark ? "text-slate-400" : "text-slate-600"}`}>
+                <span>5-second countdown before breaks</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoTransition}
+                  onClick={() => {
+                    const next = !autoTransition;
+                    setAutoTransition(next);
+                    saveAutoTransition(next);
+                  }}
+                  className={`shrink-0 w-9 h-5 rounded-full relative transition-colors ${
+                    autoTransition
+                      ? dark ? "bg-cyan-500" : "bg-teal-600"
+                      : dark ? "bg-slate-600" : "bg-slate-300"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                      autoTransition ? "translate-x-4" : ""
+                    }`}
+                  />
+                </button>
+              </label>
               <button
                 type="button"
                 onClick={stopCompletionSound}
@@ -1547,11 +1737,11 @@ export default function PomodoroTimer({
 
           {showFull && (
           <div className="flex items-center justify-center gap-1.5">
-            {[0, 1, 2, 3].map((i) => (
+            {[0, 1, 2].map((i) => (
               <div
                 key={i}
                 className={`w-2 h-2 rounded-full transition-colors ${
-                  i < sessions % 4
+                  i < Math.min(sessions, WORK_STREAK_FOR_LONG)
                     ? dark
                       ? "bg-cyan-400"
                       : "bg-teal-500"
@@ -1564,7 +1754,7 @@ export default function PomodoroTimer({
             <span
               className={`text-[11px] ml-1 font-mono ${dark ? "text-slate-500" : "text-slate-400"}`}
             >
-              {sessions} {sessions === 1 ? "session" : "sessions"}
+              {Math.min(sessions, WORK_STREAK_FOR_LONG)}/{WORK_STREAK_FOR_LONG}
             </span>
           </div>
           )}
@@ -1576,16 +1766,22 @@ export default function PomodoroTimer({
           <PipFace
             mins={mins}
             secs={secs}
-            modeLabel={MODE_LABELS[mode]}
+            modeLabel={displayLabel}
             dark={dark}
             timeColor={timeColor}
             startBtnCls={startBtnCls}
             startLabel={startLabel}
+            timeSizeClass={pipViewMode === "timer" ? "text-5xl" : "text-4xl"}
             isRunning={isRunning}
             onToggleRun={toggleRun}
             onReset={requestReset}
             canControl={canControl}
             controlsLocked={controlsLocked}
+            isInTransition={isInTransition}
+            onSkipTransition={skipTransition}
+            showAlternateBreak={showAlternateBreak}
+            alternateBreakLabel={alternateBreakLabel}
+            onSwitchAlternateBreak={switchAlternateBreak}
             confirmProps={confirmProps}
             viewMode={pipViewMode}
             onViewModeChange={setPipViewMode}
