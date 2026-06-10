@@ -786,8 +786,9 @@ export default function PomodoroTimer({
   // (the dedicated /pomodoro and /pomodoro/popout pages set this too).
   useEffect(() => {
     const baseTitle = "Mangodoro";
+    const inTransition = !!pendingMode;
     if (isRunning) {
-      const title = formatTimerTitle(secondsLeft, isInTransition ? pendingMode : mode);
+      const title = formatTimerTitle(secondsLeft, inTransition ? pendingMode : mode);
       if (title) document.title = `${title} · ${baseTitle}`;
       setBadge(Math.ceil(secondsLeft / 60));
     } else {
@@ -801,7 +802,7 @@ export default function PomodoroTimer({
         clearBadge();
       }
     };
-  }, [isRunning, secondsLeft, mode, pendingMode, isInTransition]);
+  }, [isRunning, secondsLeft, mode, pendingMode]);
 
   // PiP window theme class on html
   useEffect(() => {
