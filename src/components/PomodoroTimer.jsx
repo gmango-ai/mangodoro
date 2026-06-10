@@ -25,7 +25,7 @@ const DEFAULT_DURATIONS = {
 const DURATION_KEY = "ql_pomodoro_durations";
 const AUTO_TRANSITION_KEY = "ql_pomodoro_auto_transition";
 const TRANSITION_SECONDS = 5;
-const WORK_STREAK_FOR_LONG = 3;
+const WORK_SESSIONS_PER_CYCLE = 4;
 
 function loadAutoTransition() {
   try {
@@ -39,8 +39,10 @@ function saveAutoTransition(enabled) {
   try { localStorage.setItem(AUTO_TRANSITION_KEY, enabled ? "true" : "false"); } catch { /* ignore */ }
 }
 
-function defaultBreakForStreak(streak) {
-  return streak >= WORK_STREAK_FOR_LONG ? "longBreak" : "shortBreak";
+function defaultBreakForStreak(completedCount) {
+  return completedCount > 0 && completedCount % WORK_SESSIONS_PER_CYCLE === 0
+    ? "longBreak"
+    : "shortBreak";
 }
 
 function loadStoredDurations() {
@@ -1737,11 +1739,11 @@ export default function PomodoroTimer({
 
           {showFull && (
           <div className="flex items-center justify-center gap-1.5">
-            {[0, 1, 2].map((i) => (
+            {[0, 1, 2, 3].map((i) => (
               <div
                 key={i}
                 className={`w-2 h-2 rounded-full transition-colors ${
-                  i < Math.min(sessions, WORK_STREAK_FOR_LONG)
+                  i < Math.min(sessions, WORK_SESSIONS_PER_CYCLE)
                     ? dark
                       ? "bg-cyan-400"
                       : "bg-teal-500"
@@ -1754,7 +1756,7 @@ export default function PomodoroTimer({
             <span
               className={`text-[11px] ml-1 font-mono ${dark ? "text-slate-500" : "text-slate-400"}`}
             >
-              {Math.min(sessions, WORK_STREAK_FOR_LONG)}/{WORK_STREAK_FOR_LONG}
+              {Math.min(sessions, WORK_SESSIONS_PER_CYCLE)}/{WORK_SESSIONS_PER_CYCLE}
             </span>
           </div>
           )}
