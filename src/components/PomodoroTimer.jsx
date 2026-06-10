@@ -24,8 +24,20 @@ const DEFAULT_DURATIONS = {
 
 const DURATION_KEY = "ql_pomodoro_durations";
 const AUTO_TRANSITION_KEY = "ql_pomodoro_auto_transition";
+const SYNC_SESSION_KEY = "ql_sync_session";
 const TRANSITION_SECONDS = 5;
 const WORK_SESSIONS_PER_CYCLE = 4;
+
+function readPendingSyncSessionId() {
+  try {
+    const raw = localStorage.getItem(SYNC_SESSION_KEY);
+    if (!raw) return null;
+    const { sessionId } = JSON.parse(raw);
+    return sessionId || null;
+  } catch {
+    return null;
+  }
+}
 
 function loadAutoTransition() {
   try {
@@ -559,24 +571,45 @@ export default function PomodoroTimer({
     }
 
     setPendingRemoteRow(null);
-    setMode(row.mode);
-    setSessions(row.sessions);
-    setPendingMode(row.pending_mode ?? null);
-    setIsRunning(row.is_running);
+    const nextMode = row.mode;
+    const nextSessions = row.sessions;
+    const nextPendingMode = row.pending_mode ?? null;
+    const nextIsRunning = row.is_running;
+    let nextSecondsLeft;
     if (row.is_running && row.ends_at) {
       endsAtMsRef.current = new Date(row.ends_at).getTime();
-      setSecondsLeft(
-        Math.max(0, Math.ceil((endsAtMsRef.current - Date.now()) / 1000))
+      nextSecondsLeft = Math.max(
+        0,
+        Math.ceil((endsAtMsRef.current - Date.now()) / 1000)
       );
     } else {
       endsAtMsRef.current = null;
-      setSecondsLeft(Math.max(0, row.remaining_seconds));
+      nextSecondsLeft = Math.max(0, row.remaining_seconds);
     }
+
+    // Keep latestRef in sync immediately so back-to-back remote events
+    // before the next render don't compare against stale local state.
+    latestRef.current = {
+      mode: nextMode,
+      sessions: nextSessions,
+      isRunning: nextIsRunning,
+      secondsLeft: nextSecondsLeft,
+      pendingMode: nextPendingMode,
+    };
+
+    setMode(nextMode);
+    setSessions(nextSessions);
+    setPendingMode(nextPendingMode);
+    setIsRunning(nextIsRunning);
+    setSecondsLeft(nextSecondsLeft);
   }, []);
 
   // Hydrate from server when logged in (solo mode)
   useEffect(() => {
-    if (!userId || syncSession) return;
+    // Skip while a sync session is active or still rehydrating from storage.
+    // Otherwise we briefly load personal user_pomodoro_state and then fight
+    // the shared session timer on every refresh/join.
+    if (!userId || syncSession || readPendingSyncSessionId()) return;
     let cancelled = false;
     (async () => {
       const { data, error } = await supabase
@@ -594,15 +627,15 @@ export default function PomodoroTimer({
 
   // Hydrate from sync session
   useEffect(() => {
-    if (!syncSession) return;
+    if (!syncSession?.id) return;
     suppressRemoteUntilRef.current = 0;
-    applyRemoteRow(syncSession);
+    applyRemoteRow(syncSession, { force: true });
     suppressRemoteUntilRef.current = Date.now() + 400;
-  }, [syncSession?.id]);
+  }, [syncSession?.id, applyRemoteRow]);
 
   // Realtime subscription — solo mode
   useEffect(() => {
-    if (!userId || syncSession) return;
+    if (!userId || syncSession || readPendingSyncSessionId()) return;
     const channel = supabase
       .channel(`pomodoro:${userId}:${channelSuffixRef.current}`)
       .on(
@@ -654,14 +687,27 @@ export default function PomodoroTimer({
           .eq("status", "active")
           .maybeSingle();
         if (data) applyRemoteRow(data);
-      } else {
-        const { data } = await supabase
-          .from("user_pomodoro_state")
-          .select("*")
-          .eq("user_id", userId)
-          .maybeSingle();
-        if (data) applyRemoteRow(data);
+        return;
       }
+
+      const pendingSessionId = readPendingSyncSessionId();
+      if (pendingSessionId) {
+        const { data } = await supabase
+          .from("sync_sessions")
+          .select("*")
+          .eq("id", pendingSessionId)
+          .eq("status", "active")
+          .maybeSingle();
+        if (data) applyRemoteRow(data, { force: true });
+        return;
+      }
+
+      const { data } = await supabase
+        .from("user_pomodoro_state")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (data) applyRemoteRow(data);
     }
 
     function onVisible() {
