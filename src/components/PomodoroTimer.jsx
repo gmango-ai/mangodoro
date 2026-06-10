@@ -120,8 +120,8 @@ function cloneDocStyles(targetDoc) {
 }
 
 const PIP_VIEW_SIZES = {
-  timer:    { w: 260, h: 220 },
-  controls: { w: 260, h: 220 },
+  timer:    { w: 260, h: 180 },
+  controls: { w: 260, h: 200 },
   full:     { w: 360, h: 520 },
 };
 
@@ -230,21 +230,21 @@ function PipFace({
 
   return (
     <div
-      className={`flex flex-col h-screen w-screen overflow-hidden ${
+      className={`flex flex-col h-full w-full min-h-0 overflow-hidden ${
         dark ? "bg-slate-900 text-slate-100" : "bg-white text-slate-800"
       }`}
     >
       {/* 3-view toggle */}
-      <div className={`flex gap-0.5 p-0.5 m-1 rounded-md ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
+      <div className={`shrink-0 flex gap-0.5 p-0.5 m-1 rounded-md ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
         <button type="button" onClick={() => onViewModeChange("timer")}    className={segBtn(viewMode === "timer")}>Time</button>
         <button type="button" onClick={() => onViewModeChange("controls")} className={segBtn(viewMode === "controls")}>Controls</button>
         <button type="button" onClick={() => onViewModeChange("full")}     className={segBtn(viewMode === "full")}>Users</button>
       </div>
 
-      {/* Timer face */}
+      {/* Timer face — flex-1 centers it between toggle and footer in compact views */}
       <div
-        className={`flex flex-col items-center justify-center gap-0.5 px-2 ${
-          compact ? "py-1" : "flex-1"
+        className={`flex flex-col items-center justify-center gap-0.5 px-2 min-h-0 ${
+          compact ? "flex-1" : "shrink-0 py-2"
         }`}
       >
         <span
@@ -262,12 +262,12 @@ function PipFace({
       </div>
 
       {controlsLocked && confirmProps && (
-        <PomodoroConfirmPrompts {...confirmProps} className="px-2 pb-1" />
+        <PomodoroConfirmPrompts {...confirmProps} className="shrink-0 px-2 pb-1" />
       )}
 
       {/* Controls — shown in "controls" and "full" */}
       {viewMode !== "timer" && (
-        <div className="flex flex-col items-center gap-0.5 pb-1 px-2">
+        <div className="shrink-0 flex flex-col items-center gap-0.5 pb-1 px-2">
           {isInTransition ? (
             <button
               type="button"
@@ -321,7 +321,7 @@ function PipFace({
       {/* Participants — shown only in "full". Each row is a fixed height
           (h-12) and the same internal layout so they line up cleanly. */}
       {viewMode === "full" && syncSession && (syncParticipants?.length > 0) && (
-        <div className={`border-t px-2 py-2 overflow-y-auto ${dark ? "border-slate-700" : "border-slate-200"}`}>
+        <div className={`flex-1 min-h-0 border-t px-2 py-2 overflow-y-auto ${dark ? "border-slate-700" : "border-slate-200"}`}>
           <ul className="space-y-1">
             {syncParticipants.map((p) => {
               const isLeader = p.user_id === syncSession.leader_id;
@@ -824,6 +824,8 @@ export default function PomodoroTimer({
       });
       pipWinRef.current = pipWin;
       cloneDocStyles(pipWin.document);
+      pipWin.document.documentElement.style.height = "100%";
+      pipWin.document.body.style.height = "100%";
       pipWin.document.body.style.margin = "0";
       pipWin.document.body.style.overflow = "hidden";
       pipWin.document.documentElement.classList.toggle("dark", dark);
