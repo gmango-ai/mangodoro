@@ -70,24 +70,62 @@ function AppLayout({ session }) {
   const [syncParticipants, setSyncParticipants] = useState([]);
   const [presenceMap, setPresenceMap] = useState({});
 
-  // Rehydrate sync session from localStorage on mount
-  useEffect(() => {
+  const rehydrateSyncSessionFromStorage = useCallback(async () => {
     const stored = localStorage.getItem("ql_sync_session");
-    if (!stored) return;
+    if (!stored) {
+      setSyncSession(null);
+      setSyncParticipants([]);
+      setPresenceMap({});
+      return;
+    }
     try {
       const { sessionId } = JSON.parse(stored);
-      if (!sessionId) return;
-      supabase.from("sync_sessions").select("*").eq("id", sessionId).eq("status", "active").maybeSingle()
-        .then(({ data }) => {
-          if (data) {
-            setSyncSession(data);
-            fetchSyncParticipants(data.id).then(({ data: p }) => setSyncParticipants(p || []));
-          } else {
-            localStorage.removeItem("ql_sync_session");
-          }
-        });
-    } catch { localStorage.removeItem("ql_sync_session"); }
+      if (!sessionId) {
+        setSyncSession(null);
+        setSyncParticipants([]);
+        setPresenceMap({});
+        return;
+      }
+      const { data } = await supabase
+        .from("sync_sessions")
+        .select("*")
+        .eq("id", sessionId)
+        .eq("status", "active")
+        .maybeSingle();
+      if (data) {
+        setSyncSession(data);
+        const { data: p } = await fetchSyncParticipants(data.id);
+        setSyncParticipants(p || []);
+      } else {
+        setSyncSession(null);
+        setSyncParticipants([]);
+        setPresenceMap({});
+        localStorage.removeItem("ql_sync_session");
+      }
+    } catch {
+      localStorage.removeItem("ql_sync_session");
+      setSyncSession(null);
+      setSyncParticipants([]);
+      setPresenceMap({});
+    }
   }, []);
+
+  // Rehydrate sync session from localStorage on mount
+  useEffect(() => {
+    rehydrateSyncSessionFromStorage();
+  }, [rehydrateSyncSessionFromStorage]);
+
+  // Cross-tab session sync — other tabs post "sync-changed" on join/leave/end
+  useEffect(() => {
+    let channel;
+    try {
+      channel = new BroadcastChannel("pomodoro");
+      channel.onmessage = (ev) => {
+        if (ev.data?.type === "sync-changed") rehydrateSyncSessionFromStorage();
+      };
+    } catch { /* unsupported */ }
+    return () => channel?.close();
+  }, [rehydrateSyncSessionFromStorage]);
 
   // Presence + participant subscription for sync session
   useEffect(() => {

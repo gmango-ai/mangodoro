@@ -67,64 +67,64 @@ The timer is mostly server-anchored (`ends_at` in Postgres + Supabase Realtime),
 
 ### 0.1 BroadcastChannel listener
 
-- [ ] Add a persistent `BroadcastChannel("pomodoro")` listener in `App.jsx`
-- [ ] On `{ type: "sync-changed" }`, re-read `ql_sync_session` from localStorage
-- [ ] Fetch active `sync_sessions` row and call `setSyncSession`
-- [ ] If session ID cleared or session ended, call existing leave/teardown path
+- [x] Add a persistent `BroadcastChannel("pomodoro")` listener in `App.jsx`
+- [x] On `{ type: "sync-changed" }`, re-read `ql_sync_session` from localStorage
+- [x] Fetch active `sync_sessions` row and call `setSyncSession`
+- [x] If session ID cleared or session ended, call existing leave/teardown path
 - [ ] Verify: join in tab B → tab A updates within ~1s without refresh
 
 **Files:** `src/App.jsx`
 
 ### 0.2 JoinSyncPage session event
 
-- [ ] After successful join in `JoinSyncPage`, dispatch `ql-sync-session-joined` with `{ session: data.session }` (match `TeamPage` / `PomodoroPage`)
-- [ ] Keep existing `localStorage.setItem("ql_sync_session", …)` and `navigate("/pomodoro")`
+- [x] After successful join in `JoinSyncPage`, dispatch `ql-sync-session-joined` with `{ session: data.session }` (match `TeamPage` / `PomodoroPage`)
+- [x] Keep existing `localStorage.setItem("ql_sync_session", …)` and `navigate("/pomodoro")`
 - [ ] Verify: open invite link in same tab while app is already open → session + participants appear immediately
 
 **Files:** `src/pages/JoinSyncPage.jsx`
 
 ### 0.3 Fix stale `secondsLeft` on pause/resume
 
-- [ ] In `toggleRun`, derive `remaining_seconds` from `endsAtMsRef` when running, else `latestRef.current.secondsLeft`
-- [ ] Audit other `flushToServer` call sites for stale closure values
+- [x] In `toggleRun`, derive `remaining_seconds` from `endsAtMsRef` when running, else `latestRef.current.secondsLeft`
+- [x] Audit other `flushToServer` call sites for stale closure values
 - [ ] Verify: rapid pause after background tab → server row matches UI
 
 **Files:** `src/components/PomodoroTimer.jsx`
 
 ### 0.4 Gate sync completion alerts
 
-- [ ] Only call `playCompletionSound` and `Notification` when `!isSynced || isController`
-- [ ] Followers still update phase via Realtime (no local sound)
+- [x] Only call `playCompletionSound` and `Notification` when `!isSynced || isController`
+- [x] Followers still update phase via Realtime (no local sound)
 - [ ] Verify: 3 participants in sync → only controller hears alarm
 
 **Files:** `src/components/PomodoroTimer.jsx`
 
 ### 0.5 Completion double-fire guard
 
-- [ ] Add `completionHandledRef` keyed on `(mode, sessions, ends_at)` or equivalent
-- [ ] Reset guard when a new phase starts or timer is reset
+- [x] Add `completionHandledRef` keyed on `(mode, sessions, ends_at)` or equivalent
+- [x] Reset guard when a new phase starts or timer is reset
 - [ ] Verify: completion effect does not fire twice on re-render at `secondsLeft === 0`
 
 **Files:** `src/components/PomodoroTimer.jsx`
 
 ### 0.6 Proactive poll while running
 
-- [ ] While `is_running`, refetch timer row every 30s (solo: `user_pomodoro_state`; sync: `sync_sessions`)
-- [ ] Apply via existing `applyRemoteRow` (no force unless drift > 3s)
-- [ ] Clear interval on pause/unmount
+- [x] While `is_running`, refetch timer row every 30s (solo: `user_pomodoro_state`; sync: `sync_sessions`)
+- [x] Apply via existing `applyRemoteRow` (no force unless drift > 3s)
+- [x] Clear interval on pause/unmount
 - [ ] Verify: disable WebSocket 30s → timer recovers without tab focus
 
 **Files:** `src/components/PomodoroTimer.jsx`
 
 ### Phase 0 sign-off
 
-- [ ] All 0.1–0.6 items checked
+- [x] All 0.1–0.6 items checked
 - [ ] Manual test: solo multi-tab (2 tabs, same user)
 - [ ] Manual test: invite join same tab
 - [ ] Manual test: invite join cross-tab
 - [ ] Manual test: sync session, 2 participants, controller backgrounds tab 2 min
 - [ ] No new console errors during a full 25-min solo pomodoro
-- [ ] `npm run build` passes
+- [x] `npm run build` passes
 
 ---
 
