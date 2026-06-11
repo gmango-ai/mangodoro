@@ -13,16 +13,15 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
   // follow-up update lands and never see the session in discovery.
   const teamId = opts.teamId ?? null;
   const visibility = opts.visibility ?? (teamId ? "team" : "invite_only");
-  const controlMode = opts.controlMode ?? "open";
-
   const { data: session, error } = await supabase
     .from("sync_sessions")
     .insert({
       leader_id: userId,
+      controller_id: userId,
       join_code: code,
       team_id: teamId,
       visibility,
-      control_mode: controlMode,
+      control_mode: "leader",
     })
     .select()
     .single();
@@ -123,6 +122,15 @@ export async function fetchSyncParticipants(sessionId) {
     .eq("session_id", sessionId)
     .is("left_at", null);
   return { data: data || [], error };
+}
+
+export async function takeSyncControl(sessionId) {
+  const { data, error } = await supabase.rpc("take_sync_control", {
+    p_session_id: sessionId,
+  });
+  if (error) return { error };
+  if (data?.error) return { error: { message: data.error } };
+  return { data };
 }
 
 export async function setSyncControlMode(sessionId, mode) {

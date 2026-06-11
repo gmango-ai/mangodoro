@@ -66,7 +66,7 @@ function Avatar({ participant, size = 36, dark, isLeader }) {
 export default function SyncParticipantList({
   participants,
   leaderId,
-  controlMode = "leader", // "open" | "leader"
+  controllerId,
   presenceMap,
   currentUserId,
   onTransferLeader,
@@ -97,7 +97,7 @@ export default function SyncParticipantList({
   if (!participants?.length) return null;
 
   const viewerIsLeader = currentUserId && currentUserId === leaderId;
-  const allowMakeLeader = controlMode === "leader";
+  const allowMakeLeader = true;
   const selected = participants.find((p) => p.user_id === selectedId) || null;
 
   function toggleSelect(userId) {
@@ -132,6 +132,7 @@ export default function SyncParticipantList({
         <CompactView
           participants={participants}
           leaderId={leaderId}
+          controllerId={controllerId}
           presenceMap={presenceMap}
           currentUserId={currentUserId}
           selectedId={selectedId}
@@ -142,6 +143,7 @@ export default function SyncParticipantList({
         <ListView
           participants={participants}
           leaderId={leaderId}
+          controllerId={controllerId}
           presenceMap={presenceMap}
           currentUserId={currentUserId}
           selectedId={selectedId}
@@ -156,6 +158,7 @@ export default function SyncParticipantList({
           participant={selected}
           dark={dark}
           isLeader={selected.user_id === leaderId}
+          isController={selected.user_id === controllerId}
           isSelf={selected.user_id === currentUserId}
           isOnline={presenceMap?.[selected.user_id] ?? false}
           viewerIsLeader={viewerIsLeader}
@@ -172,11 +175,12 @@ export default function SyncParticipantList({
   );
 }
 
-function ListView({ participants, leaderId, presenceMap, currentUserId, selectedId, onSelect, dark }) {
+function ListView({ participants, leaderId, controllerId, presenceMap, currentUserId, selectedId, onSelect, dark }) {
   return (
     <ul className="max-h-72 overflow-y-auto -mx-0.5 px-0.5 space-y-1">
       {participants.map((p) => {
         const isLeader = p.user_id === leaderId;
+        const isController = p.user_id === controllerId;
         const isSelf = p.user_id === currentUserId;
         const isOnline = presenceMap?.[p.user_id] ?? false;
         const presence = presenceOf(p);
@@ -207,10 +211,16 @@ function ListView({ participants, leaderId, presenceMap, currentUserId, selected
                     <Crown className={`w-2.5 h-2.5 ${dark ? "text-amber-300" : "text-amber-500"}`} fill="currentColor" />
                   </span>
                 )}
+                {isController && !isLeader && (
+                  <span className={`absolute -top-1 -left-1 rounded-full p-0.5 ${dark ? "bg-slate-900" : "bg-white"}`}>
+                    <Clock className={`w-2.5 h-2.5 ${dark ? "text-cyan-300" : "text-teal-600"}`} />
+                  </span>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
                   {isSelf ? `${p.display_name || "You"} (you)` : (p.display_name || "Member")}
+                  {isController && <span className={`ml-1 text-[10px] ${dark ? "text-cyan-300" : "text-teal-600"}`}>⏱</span>}
                 </p>
                 <p className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
                   {p.status?.trim()
@@ -226,11 +236,12 @@ function ListView({ participants, leaderId, presenceMap, currentUserId, selected
   );
 }
 
-function CompactView({ participants, leaderId, presenceMap, currentUserId, selectedId, onSelect, dark }) {
+function CompactView({ participants, leaderId, controllerId, presenceMap, currentUserId, selectedId, onSelect, dark }) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {participants.map((p) => {
         const isLeader = p.user_id === leaderId;
+        const isController = p.user_id === controllerId;
         const isSelf = p.user_id === currentUserId;
         const isOnline = presenceMap?.[p.user_id] ?? false;
         const presence = presenceOf(p);
@@ -242,7 +253,7 @@ function CompactView({ participants, leaderId, presenceMap, currentUserId, selec
             key={p.user_id}
             onClick={() => onSelect(p.user_id)}
             aria-pressed={isSelected}
-            title={`${isSelf ? "You" : (p.display_name || "Member")}${p.status?.trim() ? ` — ${p.status}` : ""}`}
+            title={`${isSelf ? "You" : (p.display_name || "Member")}${isController ? " · Controls timer" : ""}${p.status?.trim() ? ` — ${p.status}` : ""}`}
             className={`relative rounded-full ${isSelected ? "ring-2 ring-offset-1 " + (dark ? "ring-cyan-400 ring-offset-slate-900" : "ring-teal-500 ring-offset-white") : ""}`}
           >
             <Avatar participant={p} size={32} dark={dark} isLeader={isLeader} />
@@ -256,6 +267,11 @@ function CompactView({ participants, leaderId, presenceMap, currentUserId, selec
                 <Crown className={`w-2.5 h-2.5 ${dark ? "text-amber-300" : "text-amber-500"}`} fill="currentColor" />
               </span>
             )}
+            {isController && !isLeader && (
+              <span className={`absolute -top-1 -left-1 rounded-full p-0.5 ${dark ? "bg-slate-900" : "bg-white"}`}>
+                <Clock className={`w-2.5 h-2.5 ${dark ? "text-cyan-300" : "text-teal-600"}`} />
+              </span>
+            )}
           </button>
         );
       })}
@@ -264,7 +280,7 @@ function CompactView({ participants, leaderId, presenceMap, currentUserId, selec
 }
 
 function ParticipantDetail({
-  participant: p, dark, isLeader, isSelf, isOnline, viewerIsLeader, allowMakeLeader,
+  participant: p, dark, isLeader, isController, isSelf, isOnline, viewerIsLeader, allowMakeLeader,
   confirming, setConfirming,
   onTransferLeader, onKickParticipant, onEditMyStatus, onClose,
 }) {
@@ -291,6 +307,14 @@ function ParticipantDetail({
               }`}>
                 <Crown className="w-2.5 h-2.5" fill="currentColor" />
                 Leader
+              </span>
+            )}
+            {isController && (
+              <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-50 text-teal-700"
+              }`}>
+                <Clock className="w-2.5 h-2.5" />
+                Controls timer
               </span>
             )}
           </div>
