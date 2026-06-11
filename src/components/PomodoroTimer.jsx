@@ -500,6 +500,15 @@ export default function PomodoroTimer({
   const suppressRemoteUntilRef = useRef(0);
   const lastLocalWriteAtMsRef = useRef(null);
   const userHasMutatedRef = useRef(false);
+  const completionHandledRef = useRef(null);
+
+  function currentRemainingSeconds() {
+    const local = latestRef.current;
+    if (local.isRunning && endsAtMsRef.current) {
+      return Math.max(0, Math.ceil((endsAtMsRef.current - Date.now()) / 1000));
+    }
+    return local.secondsLeft;
+  }
 
   const markUserMutated = useCallback(() => {
     userHasMutatedRef.current = true;
@@ -609,6 +618,7 @@ export default function PomodoroTimer({
     }
 
     setPendingRemoteRow(null);
+    completionHandledRef.current = null;
     const nextMode = row.mode;
     const nextSessions = row.sessions;
     const nextPendingMode = row.pending_mode ?? null;
@@ -725,41 +735,55 @@ export default function PomodoroTimer({
     return () => { supabase.removeChannel(channel); };
   }, [syncSession?.id, applyRemoteRow, onLeaveSync]);
 
+  const syncFromDB = useCallback(async ({ skipIfSynced = false } = {}) => {
+    if (!userId) return;
+
+    function maybeApply(data, { force = false } = {}) {
+      if (!data) return;
+      if (
+        skipIfSynced
+        && !force
+        && Math.abs(remoteRemainingSeconds(data) - currentRemainingSeconds()) <= 3
+      ) {
+        return;
+      }
+      applyRemoteRow(data, { force });
+    }
+
+    if (syncSession?.id) {
+      const { data } = await supabase
+        .from("sync_sessions")
+        .select("*")
+        .eq("id", syncSession.id)
+        .eq("status", "active")
+        .maybeSingle();
+      maybeApply(data);
+      return;
+    }
+
+    const pendingSessionId = readPendingSyncSessionId();
+    if (pendingSessionId) {
+      const { data } = await supabase
+        .from("sync_sessions")
+        .select("*")
+        .eq("id", pendingSessionId)
+        .eq("status", "active")
+        .maybeSingle();
+      maybeApply(data, { force: true });
+      return;
+    }
+
+    const { data } = await supabase
+      .from("user_pomodoro_state")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+    maybeApply(data);
+  }, [userId, syncSession?.id, applyRemoteRow]);
+
   // Re-sync on tab focus (fallback when Realtime missed events while backgrounded)
   useEffect(() => {
     if (!userId) return;
-
-    async function syncFromDB() {
-      if (syncSession?.id) {
-        const { data } = await supabase
-          .from("sync_sessions")
-          .select("*")
-          .eq("id", syncSession.id)
-          .eq("status", "active")
-          .maybeSingle();
-        if (data) applyRemoteRow(data);
-        return;
-      }
-
-      const pendingSessionId = readPendingSyncSessionId();
-      if (pendingSessionId) {
-        const { data } = await supabase
-          .from("sync_sessions")
-          .select("*")
-          .eq("id", pendingSessionId)
-          .eq("status", "active")
-          .maybeSingle();
-        if (data) applyRemoteRow(data, { force: true });
-        return;
-      }
-
-      const { data } = await supabase
-        .from("user_pomodoro_state")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (data) applyRemoteRow(data);
-    }
 
     function onVisible() {
       if (!document.hidden) syncFromDB();
@@ -767,12 +791,20 @@ export default function PomodoroTimer({
 
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [userId, syncSession?.id, applyRemoteRow]);
+  }, [userId, syncFromDB]);
+
+  // Proactive poll while running (Realtime fallback when tab stays visible)
+  useEffect(() => {
+    if (!isRunning || !userId) return;
+    const id = setInterval(() => syncFromDB({ skipIfSynced: true }), 30_000);
+    return () => clearInterval(id);
+  }, [isRunning, userId, syncSession?.id, syncFromDB]);
 
   const autoTransitionRef = useRef(autoTransition);
   autoTransitionRef.current = autoTransition;
 
   const commitToPhase = useCallback(async (nextMode, sessionsVal, autoStart) => {
+    completionHandledRef.current = null;
     markUserMutated();
     const d = durationsRef.current;
     const secs = d[nextMode];
@@ -791,6 +823,7 @@ export default function PomodoroTimer({
   }, [flushToServer, markUserMutated]);
 
   const beginTransition = useCallback(async (nextBreak, sessionsVal) => {
+    completionHandledRef.current = null;
     markUserMutated();
     setPendingMode(nextBreak);
     setSecondsLeft(TRANSITION_SECONDS);
@@ -836,6 +869,10 @@ export default function PomodoroTimer({
   useEffect(() => {
     if (!isRunning || secondsLeft > 0) return;
 
+    const completionKey = `${modeRef.current}-${sessionsRef.current}-${pendingModeRef.current ?? "none"}-${endsAtMsRef.current ?? "paused"}`;
+    if (completionHandledRef.current === completionKey) return;
+    completionHandledRef.current = completionKey;
+
     const currentPending = pendingModeRef.current;
 
     if (currentPending) {
@@ -848,18 +885,20 @@ export default function PomodoroTimer({
     const currentMode = modeRef.current;
     const currentSessions = sessionsRef.current;
 
-    playCompletionSound(soundRef.current, {
-      event: currentMode === "work" ? "work" : "break",
-      customSoundUrl,
-    });
+    if (!isSynced || isController) {
+      playCompletionSound(soundRef.current, {
+        event: currentMode === "work" ? "work" : "break",
+        customSoundUrl,
+      });
 
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(
-        currentMode === "work"
-          ? isSynced ? "Sync session: Time for a break!" : "Pomodoro done! Time for a break."
-          : isSynced ? "Sync session: Break over — back to focus!" : "Break over — back to focus!",
-        { icon: "/icon-192.png", tag: "pomodoro" }
-      );
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(
+          currentMode === "work"
+            ? isSynced ? "Sync session: Time for a break!" : "Pomodoro done! Time for a break."
+            : isSynced ? "Sync session: Break over — back to focus!" : "Break over — back to focus!",
+          { icon: "/icon-192.png", tag: "pomodoro" }
+        );
+      }
     }
 
     if (isSynced && !isController) return;
@@ -949,6 +988,7 @@ export default function PomodoroTimer({
 
   function switchMode(newMode, { resetStreak = false } = {}) {
     if (!canControl) return;
+    completionHandledRef.current = null;
     markUserMutated();
     const dur = durations[newMode];
     setMode(newMode);
@@ -982,6 +1022,7 @@ export default function PomodoroTimer({
 
   function reset() {
     if (!canControl) return;
+    completionHandledRef.current = null;
     markUserMutated();
     const dur = durations[mode];
     setSecondsLeft(dur);
@@ -995,6 +1036,7 @@ export default function PomodoroTimer({
 
   function applyCustomDuration(minutesStr, persist) {
     if (!canControl) return;
+    completionHandledRef.current = null;
     markUserMutated();
     const m = parseFloat(minutesStr);
     if (!Number.isFinite(m) || m <= 0) return;
@@ -1066,7 +1108,7 @@ export default function PomodoroTimer({
     setIsRunning(willRun);
     await flushToServer({
       is_running: willRun,
-      remaining_seconds: secondsLeft,
+      remaining_seconds: currentRemainingSeconds(),
     });
   }
 
