@@ -21,7 +21,7 @@ import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
 import PomodoroPage from "./pages/PomodoroPage";
 import JoinSyncPage from "./pages/JoinSyncPage";
 import AccountPage from "./pages/AccountPage";
-import { leaveSyncSession, endSyncSession, fetchSyncParticipants, transferSyncLeader, kickSyncParticipant, setSyncParticipantStatus } from "./lib/syncSession";
+import { leaveSyncSession, endSyncSession, fetchSyncParticipants, transferSyncLeader, kickSyncParticipant, setSyncParticipantStatus, takeSyncControl } from "./lib/syncSession";
 
 function AppLayout({ session }) {
   const { theme } = useTheme();
@@ -245,6 +245,17 @@ function AppLayout({ session }) {
     fetchSyncParticipants(syncSession.id).then(({ data: p }) => setSyncParticipants(p || []));
   }
 
+  async function handleTakeControl(sessionId) {
+    const { data, error } = await takeSyncControl(sessionId);
+    if (error) {
+      console.warn("take control:", error.message);
+      return;
+    }
+    if (data?.session) {
+      setSyncSession(data.session);
+    }
+  }
+
   async function handleKickParticipant(userIdToKick) {
     if (!syncSession) return;
     const { error } = await kickSyncParticipant(syncSession.id, userIdToKick);
@@ -274,6 +285,7 @@ function AppLayout({ session }) {
     onTransferLeader: handleTransferLeader,
     onKickParticipant: handleKickParticipant,
     onSetStatus: handleSetStatus,
+    onTakeControl: handleTakeControl,
     currentTaskHint,
   };
 
@@ -325,6 +337,7 @@ function AppLayout({ session }) {
               onTransferLeader={handleTransferLeader}
               onKickParticipant={handleKickParticipant}
               onSetStatus={handleSetStatus}
+              onTakeControl={handleTakeControl}
               currentTaskHint={currentTaskHint}
             />
           )}

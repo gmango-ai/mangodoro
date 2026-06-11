@@ -21,7 +21,7 @@ export default function PomodoroPage({ session, syncState }) {
   const {
     syncSession, syncParticipants, presenceMap,
     onOpenSync, onLeaveSync, onEndSync,
-    onTransferLeader, onKickParticipant, onSetStatus,
+    onTransferLeader, onKickParticipant, onSetStatus, onTakeControl,
     currentTaskHint,
   } = syncState;
 
@@ -207,6 +207,7 @@ export default function PomodoroPage({ session, syncState }) {
               onTransferLeader={onTransferLeader}
               onKickParticipant={onKickParticipant}
               onSetStatus={onSetStatus}
+              onTakeControl={onTakeControl}
               currentTaskHint={currentTaskHint}
             />
           </div>

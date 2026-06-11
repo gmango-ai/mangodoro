@@ -22,7 +22,6 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [nameDraft, setNameDraft] = useState(displayName || "");
-  const [controlMode, setControlMode] = useState("open");
   const [visibility, setVisibility] = useState(activeTeamId ? "team" : "invite_only");
 
   // If settings (and therefore displayName) load after this modal mounts,
@@ -55,12 +54,11 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
     const desiredVis = activeTeamId ? visibility : "invite_only";
     const teamIdToSet = activeTeamId && desiredVis === "team" ? activeTeamId : null;
 
-    // Atomic create — sets team_id / visibility / control_mode at INSERT so
-    // teammates' discovery query matches as soon as the row is replicated.
+    // Atomic create — sets team_id / visibility at INSERT so teammates'
+    // discovery query matches as soon as the row is replicated.
     const { data, error: err } = await createSyncSession(userId, cleanName, {
       teamId: teamIdToSet,
       visibility: desiredVis,
-      controlMode,
     });
     if (err) { setError(err.message); setLoading(false); return; }
 
@@ -178,13 +176,9 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
                 onChange={(on) => setVisibility(on ? "team" : "invite_only")}
               />
             )}
-            <ToggleRow
-              dark={dark}
-              label="Anyone can control the timer"
-              hint="Off = only the leader can start, pause, or reset."
-              value={controlMode === "open"}
-              onChange={(on) => setControlMode(on ? "open" : "leader")}
-            />
+            <p className={`text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
+              You control the timer. Others can take control after joining.
+            </p>
 
             <Button onClick={handleCreate} disabled={loading || !hasName} className="w-full">
               {loading ? "Creating…" : "Create session"}
@@ -220,7 +214,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
             <p className={`text-[11px] text-center ${dark ? "text-slate-500" : "text-slate-400"}`}>
               {copied
                 ? "Code copied!"
-                : `Control: ${createdSession.control_mode === "leader" ? "leader only" : "anyone in session"} · Visibility: ${createdSession.visibility === "team" ? "team-visible" : "invite-only"}`}
+                : `You control the timer · Visibility: ${createdSession.visibility === "team" ? "team-visible" : "invite-only"}`}
             </p>
           </div>
         )}

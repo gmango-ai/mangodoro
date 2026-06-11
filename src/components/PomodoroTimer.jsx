@@ -12,7 +12,7 @@ import {
   POMODORO_SOUND_PRESETS,
 } from "../lib/pomodoroSound";
 import { setBadge, clearBadge, formatTimerTitle } from "../lib/badge";
-import { setSyncControlMode, setSyncVisibility } from "../lib/syncSession";
+import { setSyncVisibility } from "../lib/syncSession";
 import SyncParticipantList from "./SyncParticipantList";
 import ConfirmRow from "./ConfirmRow";
 
@@ -90,6 +90,14 @@ function remoteRemainingSeconds(row) {
     return Math.max(0, Math.ceil((new Date(row.ends_at).getTime() - Date.now()) / 1000));
   }
   return Math.max(0, row.remaining_seconds ?? 0);
+}
+
+const UPDATED_AT_SKEW_MS = 100;
+
+function remoteUpdatedAtMs(row) {
+  if (!row?.updated_at) return null;
+  const ms = new Date(row.updated_at).getTime();
+  return Number.isFinite(ms) ? ms : null;
 }
 
 function rowsConflict(local, remoteRow, durations, localEndsAtMs) {
@@ -178,6 +186,7 @@ const PIP_CONFIRM_EXTRA_H = 56;
 
 function PomodoroConfirmPrompts({
   dark,
+  isSynced,
   pendingAction,
   pendingRemoteRow,
   outboundPrompt,
@@ -204,7 +213,9 @@ function PomodoroConfirmPrompts({
       {pendingRemoteRow && (
         <ConfirmRow
           dark={dark}
-          prompt="Your timer was updated while you were away. Replace your current session?"
+          prompt={isSynced
+            ? "Someone else updated the timer. Replace your current session?"
+            : "Timer state differs on another tab or device. Use that version?"}
           confirmLabel="Use updated timer"
           confirmTone="primary"
           onConfirm={onConfirmRemote}
@@ -370,7 +381,7 @@ function PipFace({
                   </div>
                   {canModerate && (
                     <div className="flex items-center gap-0.5 shrink-0">
-                      {syncSession.control_mode === "leader" && (
+                      {syncSession.leader_id === currentUserId && (
                         <button
                           type="button"
                           onClick={() => onTransferLeader?.(p.user_id)}
@@ -403,7 +414,7 @@ function PipFace({
 export default function PomodoroTimer({
   open, onClose, userId, syncSession, syncParticipants, presenceMap,
   onOpenSync, onLeaveSync, onEndSync, onTransferLeader, onKickParticipant,
-  onSetStatus, currentTaskHint,
+  onSetStatus, onTakeControl, currentTaskHint,
   embedded = false,
   // When true, drop the rounded-2xl/border/bg card chrome so the timer
   // renders flat against the parent background (used by the popout).
@@ -424,7 +435,7 @@ export default function PomodoroTimer({
 
   const isSynced = !!syncSession;
   const isLeader = isSynced && syncSession.leader_id === userId;
-  const isOpenMode = isSynced && syncSession.control_mode === "open";
+  const isController = isSynced && syncSession.controller_id === userId;
   const isParticipant = isSynced && Array.isArray(syncParticipants)
     && syncParticipants.some((p) => p.user_id === userId);
   const showFull = viewMode === "full";
@@ -445,8 +456,9 @@ export default function PomodoroTimer({
   const [statusEditing, setStatusEditing] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const [pendingRemoteRow, setPendingRemoteRow] = useState(null);
+  const [pendingTakeControl, setPendingTakeControl] = useState(false);
 
-  const canControl = !isSynced || isLeader || (isOpenMode && isParticipant);
+  const canControl = !isSynced || isController;
   const canControlRef = useRef(canControl);
   canControlRef.current = canControl;
 
@@ -485,6 +497,12 @@ export default function PomodoroTimer({
 
   const endsAtMsRef = useRef(null);
   const suppressRemoteUntilRef = useRef(0);
+  const lastLocalWriteAtMsRef = useRef(null);
+  const userHasMutatedRef = useRef(false);
+
+  const markUserMutated = useCallback(() => {
+    userHasMutatedRef.current = true;
+  }, []);
   // Unique-per-mount channel suffix so that two PomodoroTimer instances
   // (e.g. the floating panel in AppLayout AND the embedded one on the
   // dedicated /pomodoro page) don't collide on the same Supabase Realtime
@@ -498,13 +516,8 @@ export default function PomodoroTimer({
       const base = latestRef.current;
       suppressRemoteUntilRef.current = Date.now() + 450;
 
-      // Sync mode: write to sync_sessions (leader, OR any active
-      // participant when control_mode === 'open').
-      const canWriteSync = syncSession && (
-        syncSession.leader_id === userId
-        || (syncSession.control_mode === "open"
-            && (syncParticipants || []).some((p) => p.user_id === userId))
-      );
+      // Sync mode: only the active controller writes timer fields.
+      const canWriteSync = syncSession && syncSession.controller_id === userId;
       if (canWriteSync) {
         const payload = {
           mode: override.mode ?? base.mode,
@@ -524,6 +537,8 @@ export default function PomodoroTimer({
         if (error) { console.warn("sync session flush:", error.message); return null; }
         if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
         else endsAtMsRef.current = null;
+        const writeMs = remoteUpdatedAtMs(data);
+        if (writeMs != null) lastLocalWriteAtMsRef.current = writeMs;
         return data;
       }
 
@@ -547,6 +562,8 @@ export default function PomodoroTimer({
         if (error) { console.warn("pomodoro sync:", error.message); return null; }
         if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
         else endsAtMsRef.current = null;
+        const writeMs = remoteUpdatedAtMs(data);
+        if (writeMs != null) lastLocalWriteAtMsRef.current = writeMs;
         return data;
       }
 
@@ -558,11 +575,31 @@ export default function PomodoroTimer({
   const applyRemoteRow = useCallback((row, { force = false } = {}) => {
     if (!row || Date.now() < suppressRemoteUntilRef.current) return;
 
-    const local = latestRef.current;
-    const durs = durationsRef.current;
+    const remoteUpdatedMs = remoteUpdatedAtMs(row);
+    const lastWriteMs = lastLocalWriteAtMsRef.current;
+
     if (
       !force
+      && remoteUpdatedMs != null
+      && lastWriteMs != null
+      && remoteUpdatedMs < lastWriteMs - UPDATED_AT_SKEW_MS
+    ) {
+      return;
+    }
+
+    const local = latestRef.current;
+    const durs = durationsRef.current;
+    const isSelfEcho = remoteUpdatedMs != null
+      && lastWriteMs != null
+      && Math.abs(remoteUpdatedMs - lastWriteMs) <= UPDATED_AT_SKEW_MS;
+
+    if (
+      !force
+      && !isSelfEcho
       && canControlRef.current
+      && remoteUpdatedMs != null
+      && lastWriteMs != null
+      && remoteUpdatedMs > lastWriteMs + UPDATED_AT_SKEW_MS
       && rowsConflict(local, row, durs, endsAtMsRef.current)
     ) {
       setPendingRemoteRow(row);
@@ -618,6 +655,12 @@ export default function PomodoroTimer({
         .eq("user_id", userId)
         .maybeSingle();
       if (cancelled || error || !data) return;
+      const remoteMs = remoteUpdatedAtMs(data);
+      const lastWriteMs = lastLocalWriteAtMsRef.current;
+      if (userHasMutatedRef.current) {
+        if (lastWriteMs == null) return;
+        if (remoteMs != null && remoteMs < lastWriteMs - UPDATED_AT_SKEW_MS) return;
+      }
       suppressRemoteUntilRef.current = 0;
       applyRemoteRow(data);
       suppressRemoteUntilRef.current = Date.now() + 400;
@@ -632,6 +675,12 @@ export default function PomodoroTimer({
     applyRemoteRow(syncSession, { force: true });
     suppressRemoteUntilRef.current = Date.now() + 400;
   }, [syncSession?.id, applyRemoteRow]);
+
+  // Clear stale conflict state when controller changes.
+  useEffect(() => {
+    setPendingRemoteRow(null);
+    setPendingTakeControl(false);
+  }, [syncSession?.controller_id]);
 
   // Realtime subscription — solo mode
   useEffect(() => {
@@ -722,6 +771,7 @@ export default function PomodoroTimer({
   autoTransitionRef.current = autoTransition;
 
   const commitToPhase = useCallback(async (nextMode, sessionsVal, autoStart) => {
+    markUserMutated();
     const d = durationsRef.current;
     const secs = d[nextMode];
     setMode(nextMode);
@@ -736,9 +786,10 @@ export default function PomodoroTimer({
       is_running: autoStart,
       sessions: sessionsVal,
     });
-  }, [flushToServer]);
+  }, [flushToServer, markUserMutated]);
 
   const beginTransition = useCallback(async (nextBreak, sessionsVal) => {
+    markUserMutated();
     setPendingMode(nextBreak);
     setSecondsLeft(TRANSITION_SECONDS);
     setIsRunning(true);
@@ -749,7 +800,7 @@ export default function PomodoroTimer({
       is_running: true,
       sessions: sessionsVal,
     });
-  }, [flushToServer]);
+  }, [flushToServer, markUserMutated]);
 
   const commitTransition = useCallback(async () => {
     const target = pendingModeRef.current;
@@ -760,8 +811,9 @@ export default function PomodoroTimer({
 
   const skipTransition = useCallback(async () => {
     if (!canControl || !pendingMode) return;
+    markUserMutated();
     await commitTransition();
-  }, [canControl, pendingMode, commitTransition]);
+  }, [canControl, pendingMode, commitTransition, markUserMutated]);
   useEffect(() => {
     if (!isRunning) return;
     const interval = setInterval(() => {
@@ -808,7 +860,7 @@ export default function PomodoroTimer({
       );
     }
 
-    if (isSynced && !isLeader && !isOpenMode) return;
+    if (isSynced && !isController) return;
 
     const d = durationsRef.current;
     if (currentMode === "work") {
@@ -825,7 +877,7 @@ export default function PomodoroTimer({
       setSessions(nextSessions);
       commitToPhase("work", nextSessions, false);
     }
-  }, [secondsLeft, isRunning, customSoundUrl, isSynced, isLeader, isOpenMode, beginTransition, commitToPhase, commitTransition]);
+  }, [secondsLeft, isRunning, customSoundUrl, isSynced, isController, beginTransition, commitToPhase, commitTransition]);
 
   // Tab title + macOS dock badge.
   // Honors a window-level marker so we only manage the title in one place
@@ -895,6 +947,7 @@ export default function PomodoroTimer({
 
   function switchMode(newMode, { resetStreak = false } = {}) {
     if (!canControl) return;
+    markUserMutated();
     const dur = durations[newMode];
     setMode(newMode);
     setPendingMode(null);
@@ -927,6 +980,7 @@ export default function PomodoroTimer({
 
   function reset() {
     if (!canControl) return;
+    markUserMutated();
     const dur = durations[mode];
     setSecondsLeft(dur);
     setPendingMode(null);
@@ -939,6 +993,7 @@ export default function PomodoroTimer({
 
   function applyCustomDuration(minutesStr, persist) {
     if (!canControl) return;
+    markUserMutated();
     const m = parseFloat(minutesStr);
     if (!Number.isFinite(m) || m <= 0) return;
     const secs = Math.max(1, Math.round(m * 60));
@@ -1001,6 +1056,7 @@ export default function PomodoroTimer({
 
   async function toggleRun() {
     if (!canControl) return;
+    markUserMutated();
     if (!isRunning && "Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
@@ -1060,7 +1116,13 @@ export default function PomodoroTimer({
       : "";
 
   const syncSuffix = isSynced ? " for everyone in this session." : ".";
-  const controlsLocked = !!pendingAction || !!pendingRemoteRow;
+  const controlsLocked = !!pendingAction || !!pendingRemoteRow || pendingTakeControl;
+
+  async function confirmTakeControl() {
+    if (!syncSession?.id || !onTakeControl) return;
+    setPendingTakeControl(false);
+    await onTakeControl(syncSession.id);
+  }
 
   let outboundPrompt = "";
   let outboundConfirmLabel = "Confirm";
@@ -1081,6 +1143,7 @@ export default function PomodoroTimer({
   const showConfirmInMain = controlsLocked && (embedded || open || !pipMountEl);
   const confirmProps = controlsLocked ? {
     dark,
+    isSynced,
     pendingAction,
     pendingRemoteRow,
     outboundPrompt,
@@ -1241,7 +1304,7 @@ export default function PomodoroTimer({
                 </div>
               </div>
 
-              {/* Leader-only: two simple toggles for session settings */}
+              {/* Leader-only: visibility toggle */}
               {isLeader && (
                 <div className="flex items-center gap-3 text-[11px]">
                   <button
@@ -1262,21 +1325,6 @@ export default function PomodoroTimer({
                     {syncSession.visibility === "team" ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                     {syncSession.visibility === "team" ? "Open to team" : "Closed (invite only)"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const next = isOpenMode ? "leader" : "open";
-                      await setSyncControlMode(syncSession.id, next);
-                    }}
-                    className={`flex items-center gap-1 px-2 py-1 rounded-md font-semibold transition-colors ${
-                      isOpenMode
-                        ? dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-50 text-teal-700"
-                        : dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
-                    }`}
-                    title={isOpenMode ? "Anyone in this session can start/stop the timer" : "Only the leader can start/stop the timer"}
-                  >
-                    {isOpenMode ? "Anyone controls" : "Leader controls"}
-                  </button>
                 </div>
               )}
 
@@ -1285,7 +1333,7 @@ export default function PomodoroTimer({
                 <SyncParticipantList
                   participants={syncParticipants}
                   leaderId={syncSession.leader_id}
-                  controlMode={syncSession.control_mode}
+                  controllerId={syncSession.controller_id}
                   presenceMap={presenceMap}
                   currentUserId={userId}
                   onTransferLeader={onTransferLeader}
@@ -1415,14 +1463,37 @@ export default function PomodoroTimer({
                   Hover or tap a member's avatar to see what they're doing
                 </p>
               )}
-              {!isLeader && !isOpenMode && (
-                <p className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                  The session leader controls the timer
-                </p>
+              {isSynced && isParticipant && !isController && !pendingTakeControl && (
+                <button
+                  type="button"
+                  onClick={() => setPendingTakeControl(true)}
+                  disabled={controlsLocked && !pendingTakeControl}
+                  className={`w-full text-[11px] font-semibold px-2 py-1.5 rounded-md transition-colors ${
+                    dark
+                      ? "bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25"
+                      : "bg-teal-50 text-teal-700 hover:bg-teal-100"
+                  }`}
+                >
+                  Take control of timer
+                </button>
               )}
-              {!isLeader && isOpenMode && (
+              {pendingTakeControl && (
+                <ConfirmRow
+                  dark={dark}
+                  prompt="Take control of the timer? Others will follow your start/pause/reset."
+                  confirmLabel="Take control"
+                  confirmTone="primary"
+                  onConfirm={confirmTakeControl}
+                  onCancel={() => setPendingTakeControl(false)}
+                />
+              )}
+              {isSynced && isParticipant && !isController && !pendingTakeControl && (
                 <p className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                  Anyone in this session can start, pause, or reset the timer
+                  {(() => {
+                    const controller = syncParticipants?.find((p) => p.user_id === syncSession.controller_id);
+                    const name = controller?.display_name || "Someone else";
+                    return `${name} controls the timer`;
+                  })()}
                 </p>
               )}
             </div>

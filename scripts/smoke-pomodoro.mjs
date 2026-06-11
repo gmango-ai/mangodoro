@@ -51,8 +51,8 @@ async function check(label, fn) {
     const { error } = await supabase.from("user_settings").select("status, presence_state, is_guest").eq("user_id", userId).limit(1);
     return !error;
   });
-  await check("sync_sessions has control_mode + visibility", async () => {
-    const { error } = await supabase.from("sync_sessions").select("control_mode, visibility").limit(1);
+  await check("sync_sessions has controller_id + visibility", async () => {
+    const { error } = await supabase.from("sync_sessions").select("controller_id, control_mode, visibility").limit(1);
     return !error;
   });
 
@@ -78,13 +78,13 @@ async function check(label, fn) {
     const code = "SMOKE" + String(Math.floor(Math.random() * 9));
     const { data, error } = await supabase
       .from("sync_sessions")
-      .insert({ leader_id: userId, join_code: code, visibility: "invite_only" })
+      .insert({ leader_id: userId, controller_id: userId, join_code: code, visibility: "invite_only" })
       .select()
       .single();
     if (error) throw error;
     sessionId = data.id;
     joinCode = data.join_code;
-    return !!data.id && data.control_mode === "open" && data.visibility === "invite_only";
+    return !!data.id && data.controller_id === userId && data.visibility === "invite_only";
   });
 
   await check("join_sync_session rejects empty display name", async () => {
@@ -104,6 +104,12 @@ async function check(label, fn) {
     });
     if (error) throw error;
     return !!data?.session?.id;
+  });
+
+  await check("take_sync_control returns session for active participant", async () => {
+    const { data, error } = await supabase.rpc("take_sync_control", { p_session_id: sessionId });
+    if (error) throw error;
+    return data?.session?.controller_id === userId;
   });
 
   await check("set_sync_control_mode requires leader and validates input", async () => {
