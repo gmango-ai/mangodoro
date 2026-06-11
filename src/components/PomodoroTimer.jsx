@@ -457,6 +457,7 @@ export default function PomodoroTimer({
   const [pendingAction, setPendingAction] = useState(null);
   const [pendingRemoteRow, setPendingRemoteRow] = useState(null);
   const [pendingTakeControl, setPendingTakeControl] = useState(false);
+  const [takeControlError, setTakeControlError] = useState("");
 
   const canControl = !isSynced || isController;
   const canControlRef = useRef(canControl);
@@ -680,6 +681,7 @@ export default function PomodoroTimer({
   useEffect(() => {
     setPendingRemoteRow(null);
     setPendingTakeControl(false);
+    setTakeControlError("");
   }, [syncSession?.controller_id]);
 
   // Realtime subscription — solo mode
@@ -1120,8 +1122,14 @@ export default function PomodoroTimer({
 
   async function confirmTakeControl() {
     if (!syncSession?.id || !onTakeControl) return;
+    setTakeControlError("");
+    const result = await onTakeControl(syncSession.id);
+    if (result?.error) {
+      setPendingTakeControl(false);
+      setTakeControlError(result.error.message || "Could not take control");
+      return;
+    }
     setPendingTakeControl(false);
-    await onTakeControl(syncSession.id);
   }
 
   let outboundPrompt = "";
@@ -1466,7 +1474,7 @@ export default function PomodoroTimer({
               {isSynced && isParticipant && !isController && !pendingTakeControl && (
                 <button
                   type="button"
-                  onClick={() => setPendingTakeControl(true)}
+                  onClick={() => { setTakeControlError(""); setPendingTakeControl(true); }}
                   disabled={controlsLocked && !pendingTakeControl}
                   className={`w-full text-[11px] font-semibold px-2 py-1.5 rounded-md transition-colors ${
                     dark
@@ -1484,8 +1492,13 @@ export default function PomodoroTimer({
                   confirmLabel="Take control"
                   confirmTone="primary"
                   onConfirm={confirmTakeControl}
-                  onCancel={() => setPendingTakeControl(false)}
+                  onCancel={() => { setPendingTakeControl(false); setTakeControlError(""); }}
                 />
+              )}
+              {takeControlError && (
+                <p className={`text-[11px] px-1 ${dark ? "text-red-400" : "text-red-600"}`}>
+                  {takeControlError}
+                </p>
               )}
               {isSynced && isParticipant && !isController && !pendingTakeControl && (
                 <p className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>

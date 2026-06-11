@@ -249,11 +249,12 @@ function AppLayout({ session }) {
     const { data, error } = await takeSyncControl(sessionId);
     if (error) {
       console.warn("take control:", error.message);
-      return;
+      return { error };
     }
     if (data?.session) {
       setSyncSession(data.session);
     }
+    return { error: null };
   }
 
   async function handleKickParticipant(userIdToKick) {
