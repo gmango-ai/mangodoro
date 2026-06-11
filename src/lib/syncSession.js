@@ -124,11 +124,24 @@ export async function fetchSyncParticipants(sessionId) {
   return { data: data || [], error };
 }
 
+function rpcUnavailableMessage(error) {
+  const code = error?.code || "";
+  const status = error?.status || error?.statusCode;
+  if (
+    code === "PGRST202"
+    || status === 404
+    || /function.*not found/i.test(error?.message || "")
+  ) {
+    return "Take control is not available yet. Apply the Supabase migration 20260611120000_sync_controller.sql (Dashboard → SQL, or run supabase db push).";
+  }
+  return error?.message || "Could not take control";
+}
+
 export async function takeSyncControl(sessionId) {
   const { data, error } = await supabase.rpc("take_sync_control", {
     p_session_id: sessionId,
   });
-  if (error) return { error };
+  if (error) return { error: { message: rpcUnavailableMessage(error) } };
   if (data?.error) return { error: { message: data.error } };
   return { data };
 }
