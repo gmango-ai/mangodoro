@@ -124,24 +124,34 @@ export async function fetchSyncParticipants(sessionId) {
   return { data: data || [], error };
 }
 
-function rpcUnavailableMessage(error) {
+function takeControlErrorMessage(error) {
   const code = error?.code || "";
   const status = error?.status || error?.statusCode;
+  const message = error?.message || "";
+
   if (
     code === "PGRST202"
     || status === 404
-    || /function.*not found/i.test(error?.message || "")
+    || /function.*not found/i.test(message)
   ) {
     return "Take control is not available yet. Apply the Supabase migration 20260611120000_sync_controller.sql (Dashboard → SQL, or run supabase db push).";
   }
-  return error?.message || "Could not take control";
+
+  // Prod hit this when 20260611120000 was applied but 20260611150000 was not:
+  // take_sync_control updates controller_id, which the guard trigger treated as
+  // metadata even though the caller is not yet the controller.
+  if (/Only the leader may change session metadata/i.test(message)) {
+    return "Take control needs a database update. Apply migration 20260611150000_fix_sync_controller_trigger.sql in Supabase (SQL Editor or supabase db push), then try again.";
+  }
+
+  return message || "Could not take control";
 }
 
 export async function takeSyncControl(sessionId) {
   const { data, error } = await supabase.rpc("take_sync_control", {
     p_session_id: sessionId,
   });
-  if (error) return { error: { message: rpcUnavailableMessage(error) } };
+  if (error) return { error: { message: takeControlErrorMessage(error) } };
   if (data?.error) return { error: { message: data.error } };
   return { data };
 }
