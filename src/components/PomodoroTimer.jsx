@@ -1,9 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../context/ThemeContext";
 import { useApp } from "../context/AppContext";
+import { useSyncSession } from "../context/SyncSessionContext";
+import { usePomodoro } from "../pomodoro/PomodoroContext";
+import {
+  MODE_LABELS,
+  TRANSITION_SECONDS,
+  WORK_SESSIONS_PER_CYCLE,
+} from "../pomodoro/constants";
 import { X, RotateCcw, PictureInPicture2, ChevronDown, ChevronUp, Users, LogOut, Copy, Pencil, Check, Link as LinkIcon, Lock, Unlock } from "lucide-react";
-import { supabase } from "../supabase";
 import {
   loadPomodoroSoundSettings,
   savePomodoroSoundSettings,
@@ -15,113 +21,13 @@ import { setBadge, clearBadge, formatTimerTitle } from "../lib/badge";
 import { setSyncVisibility } from "../lib/syncSession";
 import SyncParticipantList from "./SyncParticipantList";
 import ConfirmRow from "./ConfirmRow";
-
-const DEFAULT_DURATIONS = {
-  work: 25 * 60,
-  shortBreak: 5 * 60,
-  longBreak: 15 * 60,
-};
-
-const DURATION_KEY = "ql_pomodoro_durations";
-const AUTO_TRANSITION_KEY = "ql_pomodoro_auto_transition";
-const SYNC_SESSION_KEY = "ql_sync_session";
-const TRANSITION_SECONDS = 5;
-const WORK_SESSIONS_PER_CYCLE = 4;
-
-function readPendingSyncSessionId() {
-  try {
-    const raw = localStorage.getItem(SYNC_SESSION_KEY);
-    if (!raw) return null;
-    const { sessionId } = JSON.parse(raw);
-    return sessionId || null;
-  } catch {
-    return null;
-  }
-}
-
-function loadAutoTransition() {
-  try {
-    const raw = localStorage.getItem(AUTO_TRANSITION_KEY);
-    if (raw === null) return true;
-    return raw !== "false";
-  } catch { return true; }
-}
-
-function saveAutoTransition(enabled) {
-  try { localStorage.setItem(AUTO_TRANSITION_KEY, enabled ? "true" : "false"); } catch { /* ignore */ }
-}
-
-function defaultBreakForStreak(completedCount) {
-  return completedCount > 0 && completedCount % WORK_SESSIONS_PER_CYCLE === 0
-    ? "longBreak"
-    : "shortBreak";
-}
-
-function loadStoredDurations() {
-  try {
-    const raw = localStorage.getItem(DURATION_KEY);
-    if (!raw) return { ...DEFAULT_DURATIONS };
-    const parsed = JSON.parse(raw);
-    return {
-      work: Number.isFinite(parsed.work) && parsed.work > 0 ? parsed.work : DEFAULT_DURATIONS.work,
-      shortBreak: Number.isFinite(parsed.shortBreak) && parsed.shortBreak > 0 ? parsed.shortBreak : DEFAULT_DURATIONS.shortBreak,
-      longBreak: Number.isFinite(parsed.longBreak) && parsed.longBreak > 0 ? parsed.longBreak : DEFAULT_DURATIONS.longBreak,
-    };
-  } catch { return { ...DEFAULT_DURATIONS }; }
-}
-
-function saveStoredDurations(d) {
-  try { localStorage.setItem(DURATION_KEY, JSON.stringify(d)); } catch { /* ignore */ }
-}
-
-const MODE_LABELS = {
-  work: "Focus",
-  shortBreak: "Short Break",
-  longBreak: "Long Break",
-};
-
-function hasTimerProgress({ mode, durations, secondsLeft, isRunning }) {
-  if (isRunning) return true;
-  return secondsLeft < durations[mode];
-}
-
-function remoteRemainingSeconds(row) {
-  if (row.is_running && row.ends_at) {
-    return Math.max(0, Math.ceil((new Date(row.ends_at).getTime() - Date.now()) / 1000));
-  }
-  return Math.max(0, row.remaining_seconds ?? 0);
-}
-
-const UPDATED_AT_SKEW_MS = 100;
-
-function remoteUpdatedAtMs(row) {
-  if (!row?.updated_at) return null;
-  const ms = new Date(row.updated_at).getTime();
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function rowsConflict(local, remoteRow, durations, localEndsAtMs) {
-  if ((local.pendingMode ?? null) !== (remoteRow.pending_mode ?? null)) return true;
-
-  if (!hasTimerProgress({
-    mode: local.mode,
-    durations,
-    secondsLeft: local.secondsLeft,
-    isRunning: local.isRunning,
-  }) && !local.pendingMode) {
-    return false;
-  }
-
-  const localRemaining = local.isRunning && localEndsAtMs
-    ? Math.max(0, Math.ceil((localEndsAtMs - Date.now()) / 1000))
-    : local.secondsLeft;
-  const remoteRemaining = remoteRemainingSeconds(remoteRow);
-
-  if (remoteRow.mode !== local.mode) return true;
-  if (remoteRow.is_running !== local.isRunning) return true;
-  if (Math.abs(remoteRemaining - localRemaining) > 3) return true;
-  return false;
-}
+import {
+  cloneDocStyles,
+  PipFace,
+  PomodoroConfirmPrompts,
+  PIP_VIEW_SIZES,
+  PIP_CONFIRM_EXTRA_H,
+} from "./pomodoro/PomodoroPipParts";
 
 const SOUND_CATEGORY_LABELS = {
   calm: "Calm",
@@ -129,796 +35,107 @@ const SOUND_CATEGORY_LABELS = {
   aggressive: "Aggressive / loud",
 };
 
-function cloneDocStyles(targetDoc) {
-  document.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
-    try {
-      targetDoc.head.appendChild(node.cloneNode(true));
-    } catch {
-      /* ignore */
-    }
-  });
-}
-
-const PIP_VIEW_SIZES = {
-  timer:    { w: 260, h: 180 },
-  controls: { w: 260, h: 200 },
-  full:     { w: 360, h: 520 },
-};
-
-const PIP_PRESENCE = {
-  active:     { label: "Active",       light: "bg-emerald-500", dark: "bg-emerald-400" },
-  available:  { label: "Available",    light: "bg-sky-500",     dark: "bg-sky-400"     },
-  heads_down: { label: "Heads-down",   light: "bg-violet-500",  dark: "bg-violet-400"  },
-  in_meeting: { label: "In a meeting", light: "bg-rose-500",    dark: "bg-rose-400"    },
-  away:       { label: "Away",         light: "bg-amber-500",   dark: "bg-amber-400"   },
-};
-
-function PipAvatar({ participant, dark, isLeader }) {
-  const url = participant.avatar_url;
-  const initial = (participant.display_name || "?")[0].toUpperCase();
-  return (
-    <div
-      className={`relative rounded-full overflow-hidden border shrink-0 ${
-        isLeader
-          ? dark ? "border-cyan-400" : "border-teal-500"
-          : dark ? "border-slate-700" : "border-slate-300"
-      }`}
-      style={{ width: 28, height: 28 }}
-    >
-      {url ? (
-        <img src={url} alt="" className="w-full h-full object-cover" />
-      ) : (
-        <span
-          className={`flex items-center justify-center w-full h-full text-[11px] font-bold ${
-            isLeader
-              ? dark ? "bg-cyan-500/30 text-cyan-300" : "bg-teal-100 text-teal-700"
-              : dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
-          }`}
-        >
-          {initial}
-        </span>
-      )}
-    </div>
-  );
-}
-
-const PIP_CONFIRM_EXTRA_H = 56;
-
-function PomodoroConfirmPrompts({
-  dark,
-  isSynced,
-  pendingAction,
-  pendingRemoteRow,
-  outboundPrompt,
-  outboundConfirmLabel,
-  onConfirmOutbound,
-  onCancelOutbound,
-  onConfirmRemote,
-  onCancelRemote,
-  className = "",
-}) {
-  if (!pendingAction && !pendingRemoteRow) return null;
-  return (
-    <div className={`space-y-1.5 ${className}`}>
-      {pendingAction && (
-        <ConfirmRow
-          dark={dark}
-          prompt={outboundPrompt}
-          confirmLabel={outboundConfirmLabel}
-          confirmTone={pendingAction.type === "reset" ? "danger" : "primary"}
-          onConfirm={onConfirmOutbound}
-          onCancel={onCancelOutbound}
-        />
-      )}
-      {pendingRemoteRow && (
-        <ConfirmRow
-          dark={dark}
-          prompt={isSynced
-            ? "Someone else updated the timer. Replace your current session?"
-            : "Timer state differs on another tab or device. Use that version?"}
-          confirmLabel="Use updated timer"
-          confirmTone="primary"
-          onConfirm={onConfirmRemote}
-          onCancel={onCancelRemote}
-        />
-      )}
-    </div>
-  );
-}
-
-function PipFace({
-  // display
-  mins, secs, modeLabel, dark, timeColor, startBtnCls, startLabel,
-  timeSizeClass = "text-5xl",
-  // controls
-  isRunning, onToggleRun, onReset, canControl, controlsLocked,
-  isInTransition, onSkipTransition,
-  showAlternateBreak, alternateBreakLabel, onSwitchAlternateBreak,
-  // confirmation
-  confirmProps,
-  // view
-  viewMode, onViewModeChange,
-  // sync (for "full" view)
-  syncSession, syncParticipants, presenceMap, currentUserId,
-  onTransferLeader, onKickParticipant,
-}) {
-  const segBtn = (active) =>
-    `flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-1.5 py-1 rounded-md transition-colors ${
-      active
-        ? dark ? "bg-cyan-500 text-white shadow" : "bg-teal-600 text-white shadow"
-        : dark ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-100"
-    }`;
-
-  const compact = viewMode !== "full";
-
-  return (
-    <div
-      className={`flex flex-col h-full w-full min-h-0 overflow-hidden ${
-        dark ? "bg-slate-900 text-slate-100" : "bg-white text-slate-800"
-      }`}
-    >
-      {/* 3-view toggle */}
-      <div className={`shrink-0 flex gap-0.5 p-0.5 m-1 rounded-md ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
-        <button type="button" onClick={() => onViewModeChange("timer")}    className={segBtn(viewMode === "timer")}>Time</button>
-        <button type="button" onClick={() => onViewModeChange("controls")} className={segBtn(viewMode === "controls")}>Controls</button>
-        <button type="button" onClick={() => onViewModeChange("full")}     className={segBtn(viewMode === "full")}>Users</button>
-      </div>
-
-      {/* Timer face — flex-1 centers it between toggle and footer in compact views */}
-      <div
-        className={`flex flex-col items-center justify-center gap-0.5 px-2 min-h-0 ${
-          compact ? "flex-1" : "shrink-0 py-2"
-        }`}
-      >
-        <span
-          className={`${timeSizeClass} font-bold ${timeColor}`}
-          style={{
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-            letterSpacing: "0.02em",
-          }}
-        >
-          {mins}:{secs}
-        </span>
-        <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{modeLabel}</span>
-      </div>
-
-      {controlsLocked && confirmProps && (
-        <PomodoroConfirmPrompts {...confirmProps} className="shrink-0 px-2 pb-1" />
-      )}
-
-      {/* Controls — shown in "controls" and "full" */}
-      {viewMode !== "timer" && (
-        <div className="shrink-0 flex flex-col items-center gap-0.5 pb-1 px-2">
-          {isInTransition ? (
-            <button
-              type="button"
-              onClick={onSkipTransition}
-              disabled={!canControl || controlsLocked}
-              className={`px-4 py-1 rounded-full text-[10px] font-bold text-white shadow-md ${
-                !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
-              } ${startBtnCls}`}
-            >
-              Start now
-            </button>
-          ) : (
-            <div className="flex items-center justify-center gap-1.5">
-              <button
-                type="button"
-                onClick={onReset}
-                disabled={!canControl || controlsLocked || isInTransition}
-                title="Reset"
-                className={`p-1 rounded-full ${
-                  !canControl || controlsLocked ? "opacity-30 cursor-default" : ""
-                } ${dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"}`}
-                aria-label="Reset"
-              >↺</button>
-              <button
-                type="button"
-                onClick={onToggleRun}
-                disabled={!canControl || controlsLocked || isInTransition}
-                className={`px-4 py-1 rounded-full text-[10px] font-bold text-white shadow-md ${
-                  !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
-                } ${startBtnCls}`}
-              >
-                {startLabel}
-              </button>
-            </div>
-          )}
-          {showAlternateBreak && !isInTransition && (
-            <button
-              type="button"
-              onClick={onSwitchAlternateBreak}
-              disabled={!canControl || controlsLocked}
-              className={`text-[10px] font-semibold py-0.5 ${
-                !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
-              } ${dark ? "text-purple-300 hover:text-purple-200" : "text-purple-600 hover:text-purple-700"}`}
-            >
-              {alternateBreakLabel}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Participants — shown only in "full". Each row is a fixed height
-          (h-12) and the same internal layout so they line up cleanly. */}
-      {viewMode === "full" && syncSession && (syncParticipants?.length > 0) && (
-        <div className={`flex-1 min-h-0 border-t px-2 py-2 overflow-y-auto ${dark ? "border-slate-700" : "border-slate-200"}`}>
-          <ul className="space-y-1">
-            {syncParticipants.map((p) => {
-              const isLeader = p.user_id === syncSession.leader_id;
-              const isSelf = p.user_id === currentUserId;
-              const isOnline = presenceMap?.[p.user_id] ?? false;
-              const presence = PIP_PRESENCE[p.presence_state] || PIP_PRESENCE.active;
-              const dotCls = isOnline ? (dark ? presence.dark : presence.light) : "bg-slate-400";
-              const subtitle = p.status?.trim()
-                ? p.status
-                : `${presence.label}${!isOnline ? " · Offline" : ""}`;
-              const canModerate = !isSelf && !isLeader && syncSession.leader_id === currentUserId;
-              return (
-                <li
-                  key={p.user_id}
-                  className={`flex items-center gap-2 px-2 h-12 rounded ${dark ? "bg-slate-800/40" : "bg-slate-50"}`}
-                >
-                  <div className="relative">
-                    <PipAvatar participant={p} dark={dark} isLeader={isLeader} />
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 ${
-                        dark ? "border-slate-900" : "border-white"
-                      } ${dotCls}`}
-                      title={presence.label}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-xs font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
-                      {isSelf ? `${p.display_name || "You"} (you)` : (p.display_name || "Member")}
-                      {isLeader && <span className={`ml-1 ${dark ? "text-amber-300" : "text-amber-500"}`}>★</span>}
-                    </p>
-                    <p className={`text-[10px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                      {subtitle}
-                    </p>
-                  </div>
-                  {canModerate && (
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      {syncSession.leader_id === currentUserId && (
-                        <button
-                          type="button"
-                          onClick={() => onTransferLeader?.(p.user_id)}
-                          title="Make leader"
-                          className={`text-[11px] w-5 h-5 flex items-center justify-center rounded ${
-                            dark ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-700" : "text-slate-500 hover:text-teal-700 hover:bg-slate-200"
-                          }`}
-                        >★</button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onKickParticipant?.(p.user_id)}
-                        title="Remove"
-                        className={`text-[11px] w-5 h-5 flex items-center justify-center rounded ${
-                          dark ? "text-slate-400 hover:text-red-300 hover:bg-red-500/15" : "text-slate-500 hover:text-red-600 hover:bg-red-50"
-                        }`}
-                      >✕</button>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function PomodoroTimer({
-  open, onClose, userId, syncSession, syncParticipants, presenceMap,
-  onOpenSync, onLeaveSync, onEndSync, onTransferLeader, onKickParticipant,
-  onSetStatus, onTakeControl, currentTaskHint,
+  open, onClose, userId,
+  onOpenSync,
+  currentTaskHint,
   embedded = false,
-  // When true, drop the rounded-2xl/border/bg card chrome so the timer
-  // renders flat against the parent background (used by the popout).
   chromeless = false,
-  // "full" | "controls" | "timer"
-  //   full     = everything (default)
-  //   controls = timer + mode tabs + start/pause/reset/edit + sync header
-  //              (hides participants, status editor, sound, session dots)
-  //   timer    = bare timer face only (hides everything but the circle)
   viewMode = "full",
 }) {
-  // Custom alarm sound URL (synced via user_settings). AppContext's
-  // default is null when there's no provider, so this works both inside
-  // and outside the layout (the popout mounts its own AppProvider).
   const appCtx = useApp();
   const customSoundUrl = appCtx?.settings?.pomodoroSoundUrl || "";
   const customSoundName = appCtx?.settings?.pomodoroSoundName || "";
 
-  const isSynced = !!syncSession;
-  const isLeader = isSynced && syncSession.leader_id === userId;
-  const isController = isSynced && syncSession.controller_id === userId;
-  const isParticipant = isSynced && Array.isArray(syncParticipants)
-    && syncParticipants.some((p) => p.user_id === userId);
+  const {
+    syncSession,
+    syncParticipants,
+    presenceMap,
+    leaveSession,
+    endSession,
+    transferLeader,
+    kickParticipant,
+    setStatus,
+    takeControl,
+  } = useSyncSession();
+
+  const {
+    mode,
+    secondsLeft,
+    isRunning,
+    sessions,
+    pendingMode,
+    durations,
+    autoTransition,
+    isSynced,
+    isLeader,
+    isController,
+    canControl,
+    pendingAction,
+    pendingRemoteRow,
+    toggleRun,
+    resetTimer: requestReset,
+    switchMode: requestSwitchMode,
+    switchAlternateBreak,
+    skipTransition,
+    applyCustomDuration: requestApplyCustomDuration,
+    setAutoTransition,
+    confirmPendingAction,
+    cancelPendingAction,
+    confirmRemote,
+    cancelRemote,
+  } = usePomodoro();
+
+  const isParticipant =
+    isSynced &&
+    Array.isArray(syncParticipants) &&
+    syncParticipants.some((p) => p.user_id === userId);
   const showFull = viewMode === "full";
   const showControls = viewMode === "controls" || viewMode === "full";
   const { theme } = useTheme();
   const dark = theme === "dark";
 
-  const [mode, setMode] = useState("work");
-  const [durations, setDurations] = useState(() => loadStoredDurations());
-  const [secondsLeft, setSecondsLeft] = useState(() => loadStoredDurations().work);
-  const [isRunning, setIsRunning] = useState(false);
-  const [sessions, setSessions] = useState(0);
-  const [pendingMode, setPendingMode] = useState(null);
-  const [autoTransition, setAutoTransition] = useState(() => loadAutoTransition());
   const [editingDuration, setEditingDuration] = useState(false);
   const [draftMinutes, setDraftMinutes] = useState("");
   const [statusDraft, setStatusDraft] = useState("");
   const [statusEditing, setStatusEditing] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null);
-  const [pendingRemoteRow, setPendingRemoteRow] = useState(null);
   const [pendingTakeControl, setPendingTakeControl] = useState(false);
   const [takeControlError, setTakeControlError] = useState("");
-
-  const canControl = !isSynced || isController;
-  const canControlRef = useRef(canControl);
-  canControlRef.current = canControl;
-
-  const durationsRef = useRef(durations);
-  durationsRef.current = durations;
 
   const [soundSettings, setSoundSettings] = useState(() => loadPomodoroSoundSettings());
   const [soundOpen, setSoundOpen] = useState(false);
   const [pipMountEl, setPipMountEl] = useState(null);
   const pipWinRef = useRef(null);
   const [pipViewMode, setPipViewMode] = useState(() => {
-    try { return localStorage.getItem("ql_pip_view") || "controls"; } catch { return "controls"; }
+    try {
+      return localStorage.getItem("ql_pip_view") || "controls";
+    } catch {
+      return "controls";
+    }
   });
-  useEffect(() => { try { localStorage.setItem("ql_pip_view", pipViewMode); } catch { /* ignore */ } }, [pipViewMode]);
-  // Resize the PiP window whenever the view changes so it fits exactly.
+  useEffect(() => {
+    try {
+      localStorage.setItem("ql_pip_view", pipViewMode);
+    } catch {
+      /* ignore */
+    }
+  }, [pipViewMode]);
   useEffect(() => {
     const pipWin = pipWinRef.current;
     if (!pipWin) return;
     const { w, h } = PIP_VIEW_SIZES[pipViewMode] || PIP_VIEW_SIZES.controls;
     const confirmExtra = pendingAction || pendingRemoteRow ? PIP_CONFIRM_EXTRA_H : 0;
-    try { pipWin.resizeTo(w, h + confirmExtra); } catch { /* some implementations reject; ignore */ }
+    try {
+      pipWin.resizeTo(w, h + confirmExtra);
+    } catch {
+      /* ignore */
+    }
   }, [pipViewMode, pipMountEl, pendingAction, pendingRemoteRow]);
 
-  const modeRef = useRef(mode);
-  const sessionsRef = useRef(sessions);
-  const pendingModeRef = useRef(pendingMode);
-  modeRef.current = mode;
-  sessionsRef.current = sessions;
-  pendingModeRef.current = pendingMode;
-
-  const soundRef = useRef(soundSettings);
-  soundRef.current = soundSettings;
-
-  const latestRef = useRef({ mode, sessions, isRunning, secondsLeft, pendingMode });
-  latestRef.current = { mode, sessions, isRunning, secondsLeft, pendingMode };
-
-  const endsAtMsRef = useRef(null);
-  const suppressRemoteUntilRef = useRef(0);
-  const lastLocalWriteAtMsRef = useRef(null);
-  const userHasMutatedRef = useRef(false);
-  const completionHandledRef = useRef(null);
-
-  function currentRemainingSeconds() {
-    const local = latestRef.current;
-    if (local.isRunning && endsAtMsRef.current) {
-      return Math.max(0, Math.ceil((endsAtMsRef.current - Date.now()) / 1000));
-    }
-    return local.secondsLeft;
-  }
-
-  const markUserMutated = useCallback(() => {
-    userHasMutatedRef.current = true;
-  }, []);
-  // Unique-per-mount channel suffix so that two PomodoroTimer instances
-  // (e.g. the floating panel in AppLayout AND the embedded one on the
-  // dedicated /pomodoro page) don't collide on the same Supabase Realtime
-  // channel name — supabase.channel() returns the same instance for a
-  // repeated name, and calling `.on()` after `.subscribe()` throws.
-  const channelSuffixRef = useRef(`${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-
-  const flushToServer = useCallback(
-    async (override = {}) => {
-      if (!userId) return null;
-      const base = latestRef.current;
-      suppressRemoteUntilRef.current = Date.now() + 450;
-
-      // Sync mode: only the active controller writes timer fields.
-      const canWriteSync = syncSession && syncSession.controller_id === userId;
-      if (canWriteSync) {
-        const payload = {
-          mode: override.mode ?? base.mode,
-          sessions: override.sessions ?? base.sessions,
-          is_running: override.is_running ?? base.isRunning,
-          remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
-          pending_mode: Object.prototype.hasOwnProperty.call(override, "pending_mode")
-            ? override.pending_mode
-            : base.pendingMode,
-        };
-        const { data, error } = await supabase
-          .from("sync_sessions")
-          .update(payload)
-          .eq("id", syncSession.id)
-          .select()
-          .single();
-        if (error) { console.warn("sync session flush:", error.message); return null; }
-        if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
-        else endsAtMsRef.current = null;
-        const writeMs = remoteUpdatedAtMs(data);
-        if (writeMs != null) lastLocalWriteAtMsRef.current = writeMs;
-        return data;
-      }
-
-      // Solo mode: write to user_pomodoro_state
-      if (!syncSession) {
-        const payload = {
-          user_id: userId,
-          mode: override.mode ?? base.mode,
-          sessions: override.sessions ?? base.sessions,
-          is_running: override.is_running ?? base.isRunning,
-          remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
-          pending_mode: Object.prototype.hasOwnProperty.call(override, "pending_mode")
-            ? override.pending_mode
-            : base.pendingMode,
-        };
-        const { data, error } = await supabase
-          .from("user_pomodoro_state")
-          .upsert(payload, { onConflict: "user_id" })
-          .select()
-          .single();
-        if (error) { console.warn("pomodoro sync:", error.message); return null; }
-        if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
-        else endsAtMsRef.current = null;
-        const writeMs = remoteUpdatedAtMs(data);
-        if (writeMs != null) lastLocalWriteAtMsRef.current = writeMs;
-        return data;
-      }
-
-      return null; // participant in sync — no writes
-    },
-    [userId, syncSession, syncParticipants]
-  );
-
-  const applyRemoteRow = useCallback((row, { force = false } = {}) => {
-    if (!row || Date.now() < suppressRemoteUntilRef.current) return;
-
-    const remoteUpdatedMs = remoteUpdatedAtMs(row);
-    const lastWriteMs = lastLocalWriteAtMsRef.current;
-
-    if (
-      !force
-      && remoteUpdatedMs != null
-      && lastWriteMs != null
-      && remoteUpdatedMs < lastWriteMs - UPDATED_AT_SKEW_MS
-    ) {
-      return;
-    }
-
-    const local = latestRef.current;
-    const durs = durationsRef.current;
-    const isSelfEcho = remoteUpdatedMs != null
-      && lastWriteMs != null
-      && Math.abs(remoteUpdatedMs - lastWriteMs) <= UPDATED_AT_SKEW_MS;
-
-    if (
-      !force
-      && !isSelfEcho
-      && canControlRef.current
-      && remoteUpdatedMs != null
-      && lastWriteMs != null
-      && remoteUpdatedMs > lastWriteMs + UPDATED_AT_SKEW_MS
-      && rowsConflict(local, row, durs, endsAtMsRef.current)
-    ) {
-      setPendingRemoteRow(row);
-      setPendingAction(null);
-      return;
-    }
-
-    setPendingRemoteRow(null);
-    completionHandledRef.current = null;
-    const nextMode = row.mode;
-    const nextSessions = row.sessions;
-    const nextPendingMode = row.pending_mode ?? null;
-    const nextIsRunning = row.is_running;
-    let nextSecondsLeft;
-    if (row.is_running && row.ends_at) {
-      endsAtMsRef.current = new Date(row.ends_at).getTime();
-      nextSecondsLeft = Math.max(
-        0,
-        Math.ceil((endsAtMsRef.current - Date.now()) / 1000)
-      );
-    } else {
-      endsAtMsRef.current = null;
-      nextSecondsLeft = Math.max(0, row.remaining_seconds);
-    }
-
-    // Keep latestRef in sync immediately so back-to-back remote events
-    // before the next render don't compare against stale local state.
-    latestRef.current = {
-      mode: nextMode,
-      sessions: nextSessions,
-      isRunning: nextIsRunning,
-      secondsLeft: nextSecondsLeft,
-      pendingMode: nextPendingMode,
-    };
-
-    setMode(nextMode);
-    setSessions(nextSessions);
-    setPendingMode(nextPendingMode);
-    setIsRunning(nextIsRunning);
-    setSecondsLeft(nextSecondsLeft);
-  }, []);
-
-  // Hydrate from server when logged in (solo mode)
   useEffect(() => {
-    // Skip while a sync session is active or still rehydrating from storage.
-    // Otherwise we briefly load personal user_pomodoro_state and then fight
-    // the shared session timer on every refresh/join.
-    if (!userId || syncSession || readPendingSyncSessionId()) return;
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase
-        .from("user_pomodoro_state")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (cancelled || error || !data) return;
-      const remoteMs = remoteUpdatedAtMs(data);
-      const lastWriteMs = lastLocalWriteAtMsRef.current;
-      if (userHasMutatedRef.current) {
-        if (lastWriteMs == null) return;
-        if (remoteMs != null && remoteMs < lastWriteMs - UPDATED_AT_SKEW_MS) return;
-      }
-      suppressRemoteUntilRef.current = 0;
-      applyRemoteRow(data);
-      suppressRemoteUntilRef.current = Date.now() + 400;
-    })();
-    return () => { cancelled = true; };
-  }, [userId, applyRemoteRow, syncSession]);
-
-  // Hydrate from sync session
-  useEffect(() => {
-    if (!syncSession?.id) return;
-    suppressRemoteUntilRef.current = 0;
-    applyRemoteRow(syncSession, { force: true });
-    suppressRemoteUntilRef.current = Date.now() + 400;
-  }, [syncSession?.id, applyRemoteRow]);
-
-  // Clear stale conflict state when controller changes.
-  useEffect(() => {
-    setPendingRemoteRow(null);
     setPendingTakeControl(false);
     setTakeControlError("");
   }, [syncSession?.controller_id]);
-
-  // Realtime subscription — solo mode
-  useEffect(() => {
-    if (!userId || syncSession || readPendingSyncSessionId()) return;
-    const channel = supabase
-      .channel(`pomodoro:${userId}:${channelSuffixRef.current}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "user_pomodoro_state", filter: `user_id=eq.${userId}` },
-        (payload) => {
-          const row = payload.new;
-          if (row && typeof row === "object") applyRemoteRow(row);
-        }
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [userId, applyRemoteRow, syncSession]);
-
-  // Realtime subscription — sync mode
-  useEffect(() => {
-    if (!syncSession?.id) return;
-    const channel = supabase
-      .channel(`sync-session:${syncSession.id}:${channelSuffixRef.current}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sync_sessions", filter: `id=eq.${syncSession.id}` },
-        (payload) => {
-          const row = payload.new;
-          if (row && typeof row === "object") {
-            if (row.status === "ended") {
-              // session ended by leader
-              onLeaveSync?.();
-              return;
-            }
-            applyRemoteRow(row);
-          }
-        }
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [syncSession?.id, applyRemoteRow, onLeaveSync]);
-
-  const syncFromDB = useCallback(async ({ skipIfSynced = false } = {}) => {
-    if (!userId) return;
-
-    function maybeApply(data, { force = false } = {}) {
-      if (!data) return;
-      if (
-        skipIfSynced
-        && !force
-        && Math.abs(remoteRemainingSeconds(data) - currentRemainingSeconds()) <= 3
-      ) {
-        return;
-      }
-      applyRemoteRow(data, { force });
-    }
-
-    if (syncSession?.id) {
-      const { data } = await supabase
-        .from("sync_sessions")
-        .select("*")
-        .eq("id", syncSession.id)
-        .eq("status", "active")
-        .maybeSingle();
-      maybeApply(data);
-      return;
-    }
-
-    const pendingSessionId = readPendingSyncSessionId();
-    if (pendingSessionId) {
-      const { data } = await supabase
-        .from("sync_sessions")
-        .select("*")
-        .eq("id", pendingSessionId)
-        .eq("status", "active")
-        .maybeSingle();
-      maybeApply(data, { force: true });
-      return;
-    }
-
-    const { data } = await supabase
-      .from("user_pomodoro_state")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle();
-    maybeApply(data);
-  }, [userId, syncSession?.id, applyRemoteRow]);
-
-  // Re-sync on tab focus (fallback when Realtime missed events while backgrounded)
-  useEffect(() => {
-    if (!userId) return;
-
-    function onVisible() {
-      if (!document.hidden) syncFromDB();
-    }
-
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [userId, syncFromDB]);
-
-  // Proactive poll while running (Realtime fallback when tab stays visible)
-  useEffect(() => {
-    if (!isRunning || !userId) return;
-    const id = setInterval(() => syncFromDB({ skipIfSynced: true }), 30_000);
-    return () => clearInterval(id);
-  }, [isRunning, userId, syncSession?.id, syncFromDB]);
-
-  const autoTransitionRef = useRef(autoTransition);
-  autoTransitionRef.current = autoTransition;
-
-  const commitToPhase = useCallback(async (nextMode, sessionsVal, autoStart) => {
-    completionHandledRef.current = null;
-    markUserMutated();
-    const d = durationsRef.current;
-    const secs = d[nextMode];
-    setMode(nextMode);
-    setPendingMode(null);
-    setSecondsLeft(secs);
-    setIsRunning(autoStart);
-    endsAtMsRef.current = null;
-    await flushToServer({
-      mode: nextMode,
-      pending_mode: null,
-      remaining_seconds: secs,
-      is_running: autoStart,
-      sessions: sessionsVal,
-    });
-  }, [flushToServer, markUserMutated]);
-
-  const beginTransition = useCallback(async (nextBreak, sessionsVal) => {
-    completionHandledRef.current = null;
-    markUserMutated();
-    setPendingMode(nextBreak);
-    setSecondsLeft(TRANSITION_SECONDS);
-    setIsRunning(true);
-    endsAtMsRef.current = null;
-    await flushToServer({
-      pending_mode: nextBreak,
-      remaining_seconds: TRANSITION_SECONDS,
-      is_running: true,
-      sessions: sessionsVal,
-    });
-  }, [flushToServer, markUserMutated]);
-
-  const commitTransition = useCallback(async () => {
-    const target = pendingModeRef.current;
-    if (!target) return;
-    const sessionsVal = sessionsRef.current;
-    await commitToPhase(target, sessionsVal, true);
-  }, [commitToPhase]);
-
-  const skipTransition = useCallback(async () => {
-    if (!canControl || !pendingMode) return;
-    markUserMutated();
-    await commitTransition();
-  }, [canControl, pendingMode, commitTransition, markUserMutated]);
-  useEffect(() => {
-    if (!isRunning) return;
-    const interval = setInterval(() => {
-      setSecondsLeft((s) => {
-        if (userId && endsAtMsRef.current) {
-          return Math.max(
-            0,
-            Math.ceil((endsAtMsRef.current - Date.now()) / 1000)
-          );
-        }
-        return s <= 1 ? 0 : s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isRunning, userId]);
-
-  // Completion + transition countdown end
-  useEffect(() => {
-    if (!isRunning || secondsLeft > 0) return;
-
-    const completionKey = `${modeRef.current}-${sessionsRef.current}-${pendingModeRef.current ?? "none"}-${endsAtMsRef.current ?? "paused"}`;
-    if (completionHandledRef.current === completionKey) return;
-    completionHandledRef.current = completionKey;
-
-    const currentPending = pendingModeRef.current;
-
-    if (currentPending) {
-      commitTransition();
-      return;
-    }
-
-    setIsRunning(false);
-
-    const currentMode = modeRef.current;
-    const currentSessions = sessionsRef.current;
-
-    if (!isSynced || isController) {
-      playCompletionSound(soundRef.current, {
-        event: currentMode === "work" ? "work" : "break",
-        customSoundUrl,
-      });
-
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification(
-          currentMode === "work"
-            ? isSynced ? "Sync session: Time for a break!" : "Pomodoro done! Time for a break."
-            : isSynced ? "Sync session: Break over — back to focus!" : "Break over — back to focus!",
-          { icon: "/icon-192.png", tag: "pomodoro" }
-        );
-      }
-    }
-
-    if (isSynced && !isController) return;
-
-    const d = durationsRef.current;
-    if (currentMode === "work") {
-      const nextStreak = currentSessions + 1;
-      const nextBreak = defaultBreakForStreak(nextStreak);
-      setSessions(nextStreak);
-      if (autoTransitionRef.current) {
-        beginTransition(nextBreak, nextStreak);
-      } else {
-        commitToPhase(nextBreak, nextStreak, true);
-      }
-    } else {
-      const nextSessions = currentMode === "longBreak" ? 0 : currentSessions;
-      setSessions(nextSessions);
-      commitToPhase("work", nextSessions, false);
-    }
-  }, [secondsLeft, isRunning, customSoundUrl, isSynced, isController, beginTransition, commitToPhase, commitTransition]);
 
   // Tab title + macOS dock badge.
   // Honors a window-level marker so we only manage the title in one place
@@ -986,132 +203,6 @@ export default function PomodoroTimer({
     });
   }
 
-  function switchMode(newMode, { resetStreak = false } = {}) {
-    if (!canControl) return;
-    completionHandledRef.current = null;
-    markUserMutated();
-    const dur = durations[newMode];
-    setMode(newMode);
-    setPendingMode(null);
-    setSecondsLeft(dur);
-    setIsRunning(false);
-    endsAtMsRef.current = null;
-    setEditingDuration(false);
-    setPendingAction(null);
-    const nextSessions = resetStreak ? 0 : sessions;
-    if (resetStreak) setSessions(0);
-    flushToServer({
-      mode: newMode,
-      pending_mode: null,
-      remaining_seconds: dur,
-      is_running: false,
-      sessions: nextSessions,
-    });
-  }
-
-  function switchAlternateBreak() {
-    if (!canControl || pendingMode) return;
-    if (mode !== "shortBreak" && mode !== "longBreak") return;
-    const alt = mode === "shortBreak" ? "longBreak" : "shortBreak";
-    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
-      setPendingAction({ type: "switchAlternateBreak", newMode: alt });
-      return;
-    }
-    switchMode(alt, { resetStreak: true });
-  }
-
-  function reset() {
-    if (!canControl) return;
-    completionHandledRef.current = null;
-    markUserMutated();
-    const dur = durations[mode];
-    setSecondsLeft(dur);
-    setPendingMode(null);
-    setIsRunning(false);
-    endsAtMsRef.current = null;
-    setEditingDuration(false);
-    setPendingAction(null);
-    flushToServer({ remaining_seconds: dur, is_running: false, pending_mode: null });
-  }
-
-  function applyCustomDuration(minutesStr, persist) {
-    if (!canControl) return;
-    completionHandledRef.current = null;
-    markUserMutated();
-    const m = parseFloat(minutesStr);
-    if (!Number.isFinite(m) || m <= 0) return;
-    const secs = Math.max(1, Math.round(m * 60));
-    if (persist) {
-      const next = { ...durations, [mode]: secs };
-      setDurations(next);
-      saveStoredDurations(next);
-    } else {
-      setDurations((prev) => ({ ...prev, [mode]: secs }));
-    }
-    setSecondsLeft(secs);
-    setPendingMode(null);
-    setIsRunning(false);
-    endsAtMsRef.current = null;
-    setEditingDuration(false);
-    setPendingAction(null);
-    flushToServer({ remaining_seconds: secs, is_running: false, pending_mode: null });
-  }
-
-  function requestSwitchMode(newMode) {
-    if (!canControl || newMode === mode) return;
-    if (pendingAction || pendingRemoteRow) return;
-    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
-      setPendingAction({ type: "switchMode", newMode });
-    } else {
-      switchMode(newMode);
-    }
-  }
-
-  function requestReset() {
-    if (!canControl) return;
-    if (pendingAction || pendingRemoteRow) return;
-    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
-      setPendingAction({ type: "reset" });
-    } else {
-      reset();
-    }
-  }
-
-  function requestApplyCustomDuration(minutesStr, persist) {
-    if (!canControl) return;
-    if (pendingAction || pendingRemoteRow) return;
-    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
-      setPendingAction({ type: "applyCustomDuration", minutesStr, persist });
-    } else {
-      applyCustomDuration(minutesStr, persist);
-    }
-  }
-
-  function confirmPendingAction() {
-    if (!pendingAction) return;
-    if (pendingAction.type === "switchMode") switchMode(pendingAction.newMode);
-    else if (pendingAction.type === "switchAlternateBreak") switchMode(pendingAction.newMode, { resetStreak: true });
-    else if (pendingAction.type === "reset") reset();
-    else if (pendingAction.type === "applyCustomDuration") {
-      applyCustomDuration(pendingAction.minutesStr, pendingAction.persist);
-    }
-    setPendingAction(null);
-  }
-
-  async function toggleRun() {
-    if (!canControl) return;
-    markUserMutated();
-    if (!isRunning && "Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-    const willRun = !isRunning;
-    setIsRunning(willRun);
-    await flushToServer({
-      is_running: willRun,
-      remaining_seconds: currentRemainingSeconds(),
-    });
-  }
-
   const mins = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secs = String(secondsLeft % 60).padStart(2, "0");
 
@@ -1163,9 +254,9 @@ export default function PomodoroTimer({
   const controlsLocked = !!pendingAction || !!pendingRemoteRow || pendingTakeControl;
 
   async function confirmTakeControl() {
-    if (!syncSession?.id || !onTakeControl) return;
+    if (!syncSession?.id) return;
     setTakeControlError("");
-    const result = await onTakeControl(syncSession.id);
+    const result = await takeControl(syncSession.id);
     if (result?.error) {
       setPendingTakeControl(false);
       setTakeControlError(result.error.message || "Could not take control");
@@ -1199,9 +290,9 @@ export default function PomodoroTimer({
     outboundPrompt,
     outboundConfirmLabel,
     onConfirmOutbound: confirmPendingAction,
-    onCancelOutbound: () => setPendingAction(null),
-    onConfirmRemote: () => applyRemoteRow(pendingRemoteRow, { force: true }),
-    onCancelRemote: () => setPendingRemoteRow(null),
+    onCancelOutbound: cancelPendingAction,
+    onConfirmRemote: confirmRemote,
+    onCancelRemote: cancelRemote,
   } : null;
 
   const pipSupported = typeof window !== "undefined" && "documentPictureInPicture" in window;
@@ -1331,7 +422,7 @@ export default function PomodoroTimer({
                 <div className="flex gap-1 shrink-0">
                   <button
                     type="button"
-                    onClick={onLeaveSync}
+                    onClick={leaveSession}
                     title={isLeader ? "Leave — leadership transfers automatically" : "Leave session"}
                     className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
                       dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"
@@ -1342,7 +433,7 @@ export default function PomodoroTimer({
                   {isLeader && (
                     <button
                       type="button"
-                      onClick={onEndSync}
+                      onClick={endSession}
                       title="End session for everyone"
                       className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
                         dark ? "text-red-400 hover:bg-red-500/15" : "text-red-500 hover:bg-red-50"
@@ -1386,8 +477,8 @@ export default function PomodoroTimer({
                   controllerId={syncSession.controller_id}
                   presenceMap={presenceMap}
                   currentUserId={userId}
-                  onTransferLeader={onTransferLeader}
-                  onKickParticipant={onKickParticipant}
+                  onTransferLeader={transferLeader}
+                  onKickParticipant={kickParticipant}
                   onEditMyStatus={() => {
                     const me = syncParticipants?.find((p) => p.user_id === userId);
                     setStatusDraft(me?.status || "");
@@ -1420,7 +511,7 @@ export default function PomodoroTimer({
                           <button
                             key={opt.key}
                             type="button"
-                            onClick={() => onSetStatus?.({ presenceState: opt.key })}
+                            onClick={() => setStatus?.({ presenceState: opt.key })}
                             className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors ${
                               myPresence === opt.key
                                 ? dark ? "bg-slate-700 text-slate-100" : "bg-slate-100 text-slate-800 shadow-sm"
@@ -1440,7 +531,7 @@ export default function PomodoroTimer({
                         maxLength={80}
                         autoFocus
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") { onSetStatus?.({ status: statusDraft }); setStatusEditing(false); }
+                          if (e.key === "Enter") { setStatus?.({ status: statusDraft }); setStatusEditing(false); }
                           if (e.key === "Escape") setStatusEditing(false);
                         }}
                         className={`w-full h-8 px-2 rounded-md border text-[11px] ${
@@ -1474,7 +565,7 @@ export default function PomodoroTimer({
                         </button>
                         <button
                           type="button"
-                          onClick={() => { onSetStatus?.({ status: statusDraft }); setStatusEditing(false); }}
+                          onClick={() => { setStatus?.({ status: statusDraft }); setStatusEditing(false); }}
                           className={`text-[10px] font-semibold px-2 py-1 rounded-md text-white ${startBtnCls}`}
                         >
                           Save
@@ -1878,11 +969,7 @@ export default function PomodoroTimer({
                   type="button"
                   role="switch"
                   aria-checked={autoTransition}
-                  onClick={() => {
-                    const next = !autoTransition;
-                    setAutoTransition(next);
-                    saveAutoTransition(next);
-                  }}
+                  onClick={() => setAutoTransition(!autoTransition)}
                   className={`shrink-0 w-9 h-5 rounded-full relative transition-colors ${
                     autoTransition
                       ? dark ? "bg-cyan-500" : "bg-teal-600"
@@ -1966,8 +1053,8 @@ export default function PomodoroTimer({
             syncParticipants={syncParticipants}
             presenceMap={presenceMap}
             currentUserId={userId}
-            onTransferLeader={onTransferLeader}
-            onKickParticipant={onKickParticipant}
+            onTransferLeader={transferLeader}
+            onKickParticipant={kickParticipant}
           />,
           pipMountEl
         )}

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LogIn, UserPlus, User, ArrowLeft } from "lucide-react";
 import { getSyncSessionPreview, joinSyncSession } from "../lib/syncSession";
+import { notifySessionJoined } from "../sync/joinSession";
 import { signInAsGuest } from "../lib/auth";
 
 const MODE_LABELS = { work: "Focus", shortBreak: "Short break", longBreak: "Long break" };
@@ -61,12 +62,7 @@ export default function JoinSyncPage() {
       return;
     }
     if (data?.session) {
-      // Persist the active session for the rest of the app to pick up.
-      localStorage.setItem("ql_sync_session", JSON.stringify({ sessionId: data.session.id }));
-      window.dispatchEvent(
-        new CustomEvent("ql-sync-session-joined", { detail: { session: data.session } })
-      );
-      try { new BroadcastChannel("pomodoro").postMessage({ type: "sync-changed" }); } catch { /* ignore */ }
+      notifySessionJoined(data.session);
       navigate("/pomodoro");
     }
   }

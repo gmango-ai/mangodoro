@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { joinSyncSession } from "../lib/syncSession";
+import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
 import { supabase } from "../supabase";
 
@@ -176,9 +177,7 @@ export default function TeamPage() {
       return;
     }
     if (data?.session) {
-      // Notify AppLayout (same tab) and any open popout (different tab).
-      window.dispatchEvent(new CustomEvent("ql-sync-session-joined", { detail: { session: data.session } }));
-      try { new BroadcastChannel("pomodoro").postMessage({ type: "sync-changed" }); } catch { /* ignore */ }
+      notifySessionJoined(data.session);
       navigate("/pomodoro");
     }
   }
