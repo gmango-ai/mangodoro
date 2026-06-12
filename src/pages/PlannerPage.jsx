@@ -19,6 +19,7 @@ import {
   Trophy,
   X,
 } from "lucide-react";
+import { Skeleton, SkeletonCard } from "../components/Skeleton";
 
 const LS_PLANNER_COLLAPSED_GROUPS = "sw_planner_collapsed_project_groups";
 
@@ -1072,6 +1073,35 @@ export default function PlannerPage() {
   const inputCls = dark
     ? "bg-slate-900/50 border-slate-600 text-slate-100 placeholder:text-slate-500"
     : "bg-white border-slate-200 text-slate-900";
+
+  // First-load skeleton. Once items have ever populated, subsequent
+  // background re-syncs use the inline "Updating planner…" pill below
+  // instead of wiping the whole UI.
+  if (plannerSyncing && items.length === 0) {
+    return (
+      <div
+        className="max-w-3xl mx-auto px-5 sm:px-8 py-10 sm:py-14 pb-28"
+        aria-busy="true"
+        aria-label="Loading planner"
+      >
+        <Skeleton className="h-8 w-48 mb-4" />
+        <Skeleton className="h-3 w-full mb-2" />
+        <Skeleton className="h-3 w-4/5 mb-8" />
+        {[0, 1, 2].map((s) => (
+          <SkeletonCard key={s} className="mb-4 p-5 space-y-3">
+            <Skeleton className="h-4 w-24" />
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-3 flex-1" />
+                <Skeleton className="h-3 w-12" />
+              </div>
+            ))}
+          </SkeletonCard>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto px-5 sm:px-8 py-10 sm:py-14 pb-28">

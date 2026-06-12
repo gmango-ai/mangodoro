@@ -3,6 +3,7 @@ import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 import LogHoursForm from "../components/LogHoursForm";
 import EntryRow from "../components/EntryRow";
+import { Skeleton, SkeletonCard } from "../components/Skeleton";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatMonthLabel, formatDuration, formatMoney, weekRangeLabel, unpaidBreakMins } from "../lib/utils";
@@ -21,6 +22,7 @@ export default function LogPage() {
     generateMonthSummary, exportMonthXLSX, exportToGoogleSheets, googleToken, googleTokenExpiry, flash,
     localImportBanner, setLocalImportBanner, importFromLocalStorage,
     importEntriesRef, importProfileRef, importEntriesFromFile, importProfileFromFile,
+    dataLoaded,
   } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -99,8 +101,11 @@ export default function LogPage() {
         </div>
       )}
 
-      {/* Empty state */}
-      {grouped.length === 0 ? (
+      {/* Skeleton while first load is in flight — don't show "No entries
+          yet" until we're sure the user really has none. */}
+      {!dataLoaded ? (
+        <LogPageSkeleton />
+      ) : grouped.length === 0 ? (
         <div style={{ textAlign: "center", paddingTop: 64, paddingBottom: 64 }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>🗓</div>
           <p style={{ fontSize: 14, color: "var(--color-muted)" }}>No entries yet. Start logging your hours above.</p>
@@ -369,6 +374,34 @@ export default function LogPage() {
         onChange={(e) => { const f = e.target.files?.[0]; if (f) importEntriesFromFile(f); e.target.value = ""; }} />
       <input ref={importProfileRef} type="file" accept=".json" style={{ display: "none" }}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) importProfileFromFile(f); e.target.value = ""; }} />
+    </div>
+  );
+}
+
+function LogPageSkeleton() {
+  return (
+    <div className="space-y-4 mt-4" aria-busy="true" aria-label="Loading entries">
+      {[0, 1].map((m) => (
+        <SkeletonCard key={m} className="p-4 sm:p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 flex-1">
+              <Skeleton className="w-5 h-5 rounded" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+            </div>
+            <Skeleton className="h-5 w-16" />
+          </div>
+          <div className="mt-3 pt-3 border-t border-slate-800/20 flex items-center gap-2 flex-wrap">
+            <Skeleton className="h-3 w-20" />
+            <div className="ml-auto flex gap-2">
+              <Skeleton className="h-7 w-16 rounded-md" />
+              <Skeleton className="h-7 w-20 rounded-md" />
+            </div>
+          </div>
+        </SkeletonCard>
+      ))}
     </div>
   );
 }
