@@ -123,19 +123,31 @@ export function TeamProvider({ session, children }) {
   // Realtime: refresh the member list whenever someone joins or leaves
   // the active team. Also refresh on user_settings updates so name /
   // avatar / status changes propagate without a reload.
+  // Guard against the team switching after the channel was subscribed:
+  // a late event firing from the old channel would otherwise call into
+  // the (newly-rebuilt) loadMembers with the *new* team, applying the
+  // old team's data to the new team's UI for a tick.
   useEffect(() => {
     if (!activeTeamId) return;
+    const teamIdAtSub = activeTeamId;
     const channel = supabase
       .channel(`team-members:${activeTeamId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "team_members", filter: `team_id=eq.${activeTeamId}` },
-        () => { loadMembers(); loadTeams(); },
+        () => {
+          if (activeTeamIdRef.current !== teamIdAtSub) return;
+          loadMembers();
+          loadTeams();
+        },
       )
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "user_settings" },
-        () => loadMembers(),
+        () => {
+          if (activeTeamIdRef.current !== teamIdAtSub) return;
+          loadMembers();
+        },
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
