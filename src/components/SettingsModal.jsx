@@ -284,6 +284,17 @@ export default function SettingsModal() {
                 <Input type="password" value={draftSettings._deepseekKey ?? ""} onChange={(e) => setDraftSettings((d) => ({ ...d, _deepseekKey: e.target.value }))} placeholder="sk-…" className={`${inputCls} h-10 max-w-xs font-mono`} />
               </FieldRow>
 
+              <p style={{ fontSize: 11, fontWeight: 600, color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 20, marginBottom: 0 }}>App</p>
+              <FieldRow label="Default landing page" hint="Where opening the app drops you">
+                <Select value={draftSettings._defaultLandingPage || "pomodoro"} onValueChange={(v) => setDraftSettings((d) => ({ ...d, _defaultLandingPage: v }))}>
+                  <SelectTrigger className={`${inputCls} h-10 w-44`}><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text)]">
+                    <SelectItem value="pomodoro" className="focus:bg-[var(--color-accent-light)]">Pomodoro</SelectItem>
+                    <SelectItem value="log" className="focus:bg-[var(--color-accent-light)]">Time tracker</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FieldRow>
+
               <p style={{ fontSize: 11, fontWeight: 600, color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 20, marginBottom: 0 }}>Time tracking</p>
               <FieldRow label="Default entry mode" hint="Which tab opens by default on the log form">
                 <Select value={draftSettings._defaultEntryMode || "manual"} onValueChange={(v) => setDraftSettings((d) => ({ ...d, _defaultEntryMode: v }))}>

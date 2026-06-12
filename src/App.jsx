@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { supabase } from "./supabase";
 import AuthPage from "./AuthPage";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
@@ -132,7 +132,8 @@ function AppLayout({ session }) {
           />
           <PWAUpdater />
           <Routes>
-            <Route path="/" element={<LogPage />} />
+            <Route path="/" element={<LandingRedirector />} />
+            <Route path="/log" element={<LogPage />} />
             <Route path="/overview" element={<OverviewPage />} />
             <Route path="/planner" element={<PlannerPage />} />
             <Route path="/team" element={<TeamPage />} />
@@ -147,6 +148,18 @@ function AppLayout({ session }) {
       </div>
     </div>
   );
+}
+
+// Reads the user's preferred landing page and redirects `/` there. Uses a
+// localStorage cache so the redirect happens synchronously on initial
+// render — without it, /log fans would briefly land on /pomodoro before
+// the AppContext fetch completes and the redirect re-fires.
+function LandingRedirector() {
+  let target = "/pomodoro";
+  try {
+    if (localStorage.getItem("ql_default_landing") === "log") target = "/log";
+  } catch { /* ignore — Safari private mode etc. */ }
+  return <Navigate to={target} replace />;
 }
 
 function AuthenticatedApp({ session }) {

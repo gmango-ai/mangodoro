@@ -157,11 +157,16 @@ export default function Nav({ onOpenPomodoro }) {
           {/* Desktop: full nav + actions */}
           <div className="hidden sm:flex items-center gap-4">
             <nav className="flex items-center gap-1">
-              <NavLink to="/" end className={desktopNavLink}>Log</NavLink>
+              <NavLink to="/pomodoro" className={desktopNavLink}>
+                Pomodoro
+                {hasTeamSessions && (
+                  <span className={`ml-1.5 inline-block w-1.5 h-1.5 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse align-middle`} />
+                )}
+              </NavLink>
+              <NavLink to="/log" className={desktopNavLink}>Log</NavLink>
               <NavLink to="/overview" className={desktopNavLink}>Overview</NavLink>
               <NavLink to="/planner" className={desktopNavLink}>Planner</NavLink>
               <NavLink to="/team" className={desktopNavLink}>Team</NavLink>
-              <NavLink to="/pomodoro" className={desktopNavLink}>Pomodoro</NavLink>
             </nav>
 
             <div className="flex items-center gap-2">
@@ -261,7 +266,13 @@ export default function Nav({ onOpenPomodoro }) {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
-          <NavLink to="/" end className={sidebarNavLink}>
+          <NavLink to="/pomodoro" className={sidebarNavLink}>
+            <Timer className="w-5 h-5" /> Pomodoro
+            {hasTeamSessions && (
+              <span className={`ml-auto w-2 h-2 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
+            )}
+          </NavLink>
+          <NavLink to="/log" className={sidebarNavLink}>
             <span className="w-5 text-center">📋</span> Log
           </NavLink>
           <NavLink to="/overview" className={sidebarNavLink}>
@@ -272,12 +283,6 @@ export default function Nav({ onOpenPomodoro }) {
           </NavLink>
           <NavLink to="/team" className={sidebarNavLink}>
             <Users className="w-5 h-5" /> Team
-          </NavLink>
-          <NavLink to="/pomodoro" className={sidebarNavLink}>
-            <Timer className="w-5 h-5" /> Pomodoro
-            {hasTeamSessions && (
-              <span className={`ml-auto w-2 h-2 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
-            )}
           </NavLink>
 
           <div className={`my-3 border-t ${darkMode ? "border-slate-800" : "border-slate-100"}`} />
@@ -291,7 +296,7 @@ export default function Nav({ onOpenPomodoro }) {
                 : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"
             }`}
           >
-            <Timer className="w-5 h-5" /> Pomodoro
+            <Timer className="w-5 h-5" /> Quick timer
           </button>
 
           <button
