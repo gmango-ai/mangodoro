@@ -17,7 +17,9 @@ export default function AuthPage() {
     setLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      // Use the full current URL so deep-links like /team/join/:code survive
+      // the OAuth round-trip instead of dropping the user back at /.
+      options: { redirectTo: window.location.href },
     });
     if (error) {
       setError(error.message);

@@ -22,6 +22,7 @@ import TeamPage from "./pages/TeamPage";
 import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
 import PomodoroPage from "./pages/PomodoroPage";
 import JoinSyncPage from "./pages/JoinSyncPage";
+import JoinTeamPage from "./pages/JoinTeamPage";
 import AccountPage from "./pages/AccountPage";
 
 function AppLayout({ session }) {
@@ -195,6 +196,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/pomodoro/join/:code" element={<JoinSyncPage />} />
+          <Route path="/team/join/:code" element={<JoinTeamPage />} />
           <Route
             path="/*"
             element={session ? <AuthenticatedApp session={session} /> : <AuthPage />}

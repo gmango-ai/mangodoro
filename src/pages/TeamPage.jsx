@@ -119,7 +119,7 @@ export default function TeamPage() {
 
   async function handleCopyLink() {
     if (!activeTeam?.invite_code) return;
-    const link = `${window.location.origin}/team?join=${activeTeam.invite_code}`;
+    const link = `${window.location.origin}/team/join/${activeTeam.invite_code}`;
     await navigator.clipboard.writeText(link);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
