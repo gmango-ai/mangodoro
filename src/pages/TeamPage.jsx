@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
-  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check,
+  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Tag, X,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
@@ -27,7 +27,7 @@ export default function TeamPage() {
   const {
     teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin,
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
-    removeMember, changeMemberRole, regenerateInviteCode,
+    removeMember, changeMemberRole, regenerateInviteCode, updateMemberDepartments,
     activeTeamSessions, loadActiveTeamSessions,
   } = useTeam();
   const { settings } = useApp();
@@ -45,6 +45,15 @@ export default function TeamPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Which member's department-tag editor is open. Null = none.
+  const [tagEditorMemberId, setTagEditorMemberId] = useState(null);
+
+  async function handleToggleMemberDepartment(member, dept) {
+    if (!activeTeamId) return;
+    const current = Array.isArray(member.departments) ? member.departments : [];
+    const next = current.includes(dept) ? current.filter((d) => d !== dept) : [...current, dept];
+    await updateMemberDepartments(activeTeamId, member.user_id, next);
+  }
 
   // Auto-join from URL. Used to just pre-fill the field; now actually
   // performs the join so a one-click invite link works without the user
@@ -410,6 +419,21 @@ export default function TeamPage() {
             />
           )}
 
+          {/* Departments (admin only) — curated list members get tagged with */}
+          {isAdmin && (
+            <DepartmentsCard
+              key={`${activeTeam.id}-depts`}
+              team={activeTeam}
+              dark={dark}
+              cardCls={cardCls}
+              labelCls={labelCls}
+              inputCls={inputCls}
+              onSave={(departments) => updateTeam(activeTeam.id, { departments })}
+              onSuccess={(msg) => { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }}
+              onError={(msg) => setError(msg)}
+            />
+          )}
+
           {/* Invite Code Card (admin only) */}
           {isAdmin && (
             <div className={cardCls}>
@@ -462,35 +486,60 @@ export default function TeamPage() {
               {teamMembers.map((m) => (
                 <div
                   key={m.user_id}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${
-                    dark ? "bg-slate-800/40" : "bg-slate-50"
-                  }`}
+                  className={`rounded-lg ${dark ? "bg-slate-800/40" : "bg-slate-50"}`}
                 >
-                  <UserAvatar url={m.avatar_url} name={m.name} size={32} className="shrink-0" />
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate flex items-center gap-1.5 ${dark ? "text-slate-200" : "text-slate-700"}`}>
-                      <span
-                        className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
-                          m.presence_state === "in_meeting" ? "bg-rose-500"
-                          : m.presence_state === "heads_down" ? "bg-violet-500"
-                          : m.presence_state === "away" ? "bg-amber-500"
-                          : "bg-emerald-500"
-                        }`}
-                        title={m.presence_state}
-                      />
-                      {m.name}
-                    </p>
-                    <p className={`text-xs truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                      {m.status ? m.status : `Joined ${new Date(m.joined_at).toLocaleDateString()}`}
-                    </p>
-                  </div>
-                  {/* Role badge */}
-                  <Badge variant={m.role === "admin" ? "default" : "secondary"} className="text-[10px]">
-                    {m.role === "admin" ? "Admin" : "Member"}
-                  </Badge>
-                  {/* Admin actions */}
-                  {isAdmin && m.user_id !== activeTeam.created_by && (
+                  <div className="flex items-center gap-3 px-3 py-2.5">
+                    <UserAvatar url={m.avatar_url} name={m.name} size={32} className="shrink-0" />
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate flex items-center gap-1.5 ${dark ? "text-slate-200" : "text-slate-700"}`}>
+                        <span
+                          className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
+                            m.presence_state === "in_meeting" ? "bg-rose-500"
+                            : m.presence_state === "heads_down" ? "bg-violet-500"
+                            : m.presence_state === "away" ? "bg-amber-500"
+                            : "bg-emerald-500"
+                          }`}
+                          title={m.presence_state}
+                        />
+                        {m.name}
+                      </p>
+                      <p className={`text-xs truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                        {m.status ? m.status : `Joined ${new Date(m.joined_at).toLocaleDateString()}`}
+                      </p>
+                      {/* Department badges */}
+                      {Array.isArray(m.departments) && m.departments.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {m.departments.map((d) => (
+                            <span
+                              key={d}
+                              className={`text-[10px] font-semibold px-1.5 py-px rounded ${
+                                dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-50 text-teal-700"
+                              }`}
+                            >
+                              {d}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {/* Role badge */}
+                    <Badge variant={m.role === "admin" ? "default" : "secondary"} className="text-[10px]">
+                      {m.role === "admin" ? "Admin" : "Member"}
+                    </Badge>
+                    {/* Admin actions */}
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        onClick={() => setTagEditorMemberId(tagEditorMemberId === m.user_id ? null : m.user_id)}
+                        title="Edit department tags"
+                      >
+                        <Tag className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                    {isAdmin && m.user_id !== activeTeam.created_by && (
                     <div className="flex gap-1">
                       <Button
                         variant="ghost"
@@ -510,6 +559,50 @@ export default function TeamPage() {
                       >
                         <UserMinus className="w-3.5 h-3.5" />
                       </Button>
+                    </div>
+                  )}
+                  </div>
+                  {/* Inline tag editor — admin only, expanded per-member */}
+                  {isAdmin && tagEditorMemberId === m.user_id && (
+                    <div className={`px-3 pb-3 -mt-1 border-t ${dark ? "border-slate-700/40" : "border-slate-200/70"}`}>
+                      <div className="flex items-center justify-between mt-2.5 mb-2">
+                        <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                          Department tags
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setTagEditorMemberId(null)}
+                          className={`p-0.5 rounded ${dark ? "text-slate-500 hover:bg-slate-700/40" : "text-slate-400 hover:bg-slate-200"}`}
+                          aria-label="Close"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      {(activeTeam.departments || []).length === 0 ? (
+                        <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                          Add some departments to the team first.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {(activeTeam.departments || []).map((d) => {
+                            const on = (m.departments || []).includes(d);
+                            return (
+                              <button
+                                key={d}
+                                type="button"
+                                onClick={() => handleToggleMemberDepartment(m, d)}
+                                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
+                                  on
+                                    ? dark ? "bg-cyan-500/20 border-cyan-500/50 text-cyan-200" : "bg-teal-100 border-teal-300 text-teal-700"
+                                    : dark ? "border-slate-700 text-slate-400 hover:border-slate-600" : "border-slate-200 text-slate-500 hover:border-slate-300"
+                                }`}
+                              >
+                                {d}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -761,6 +854,96 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
             {busy ? "Saving…" : "Save changes"}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DepartmentsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onSuccess, onError }) {
+  const [items, setItems] = useState(team.departments || []);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setItems(team.departments || []);
+    setDraft("");
+  }, [team.id]);
+
+  const original = team.departments || [];
+  const dirty =
+    items.length !== original.length
+    || items.some((d, i) => d !== original[i]);
+
+  function addDept() {
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    if (items.includes(trimmed)) { setDraft(""); return; }
+    setItems([...items, trimmed]);
+    setDraft("");
+  }
+
+  function removeDept(d) {
+    setItems(items.filter((x) => x !== d));
+  }
+
+  async function handleSave() {
+    setBusy(true);
+    const { error } = await onSave(items);
+    setBusy(false);
+    if (error) { onError?.(error.message || "Could not save departments."); return; }
+    onSuccess?.("Departments saved");
+  }
+
+  return (
+    <div className={cardCls}>
+      <div className="flex items-center justify-between mb-1">
+        <p className={labelCls}>Departments</p>
+        <Tag className={`w-4 h-4 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+      </div>
+      <p className={`text-[11px] mb-3 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+        Curated list members get tagged with. Matching rooms surface first on /pomodoro.
+      </p>
+      <div className="flex flex-wrap gap-1.5 mb-3 min-h-[24px]">
+        {items.length === 0 && (
+          <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            No departments yet.
+          </span>
+        )}
+        {items.map((d) => (
+          <span
+            key={d}
+            className={`text-xs font-semibold pl-2 pr-1 py-0.5 rounded-full inline-flex items-center gap-1 ${
+              dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-50 text-teal-700"
+            }`}
+          >
+            {d}
+            <button
+              type="button"
+              onClick={() => removeDept(d)}
+              className={`p-0.5 rounded-full ${dark ? "hover:bg-cyan-500/20" : "hover:bg-teal-100"}`}
+              aria-label={`Remove ${d}`}
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value.slice(0, 30))}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addDept(); } }}
+          placeholder="e.g. SWE, PM, HR…"
+          className={`flex-1 ${inputCls}`}
+        />
+        <Button variant="outline" size="sm" onClick={addDept} disabled={!draft.trim()}>
+          <Plus className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+      <div className="flex justify-end mt-3">
+        <Button size="sm" onClick={handleSave} disabled={!dirty || busy}>
+          {busy ? "Saving…" : "Save changes"}
+        </Button>
       </div>
     </div>
   );

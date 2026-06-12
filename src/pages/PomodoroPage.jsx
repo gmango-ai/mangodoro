@@ -16,7 +16,7 @@ import { notifySessionJoined } from "../sync/joinSession";
 
 export default function PomodoroPage({ session, onOpenSync }) {
   const { settings, clockIn, projects, dataLoaded } = useApp();
-  const { activeTeam, activeTeamId, activeTeamSessions, rooms, isAdmin } = useTeam();
+  const { activeTeam, activeTeamId, activeTeamSessions, rooms, isAdmin, teamMembers } = useTeam();
   const { theme } = useTheme();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
   const dark = theme === "dark";
@@ -70,6 +70,20 @@ export default function PomodoroPage({ session, onOpenSync }) {
   }
   // Loose sessions (no room) keep working — surfaced separately for back-compat.
   const looseSessions = activeTeamSessions.filter((s) => !s.room_id);
+
+  // Suggested rooms: any room whose name matches one of my department tags
+  // (case-insensitive). Surfaces SWE/PM/HR rooms for the people who belong
+  // to them without changing the underlying rooms model.
+  const myDepartments = (
+    teamMembers.find((m) => m.user_id === session.user.id)?.departments || []
+  ).map((d) => d.toLowerCase());
+  const isSuggested = (room) =>
+    myDepartments.length > 0 && myDepartments.includes(room.name.trim().toLowerCase());
+  const sortedRooms = [...rooms].sort((a, b) => {
+    const aSug = isSuggested(a) ? 0 : 1;
+    const bSug = isSuggested(b) ? 0 : 1;
+    return aSug - bSug;
+  });
 
   const cleanName = (settings?.name || "").trim();
 
@@ -222,12 +236,13 @@ export default function PomodoroPage({ session, onOpenSync }) {
                   </p>
                 ) : (
                   <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
-                    {rooms.map((room) => (
+                    {sortedRooms.map((room) => (
                       <RoomTile
                         key={room.id}
                         room={room}
                         activeSession={sessionByRoomId.get(room.id) || null}
                         vibe={activeTeam?.office_vibe || "quiet"}
+                        suggested={isSuggested(room)}
                         busy={roomBusy}
                         onJoin={handleRoomClick}
                       />

@@ -1,7 +1,7 @@
 import { useTheme } from "../context/ThemeContext";
 import UserAvatar from "./UserAvatar";
 import { Button } from "@/components/ui/button";
-import { Briefcase, MessageSquare, Lock, Crown, Hash } from "lucide-react";
+import { Briefcase, MessageSquare, Lock, Crown, Hash, Star } from "lucide-react";
 
 const KIND_ICON = {
   department: Briefcase,
@@ -54,7 +54,7 @@ function OccupantAvatar({ occupant, isLeader }) {
 
 const MAX_VISIBLE_AVATARS = 6;
 
-export default function RoomTile({ room, activeSession, vibe, busy, onJoin }) {
+export default function RoomTile({ room, activeSession, vibe, suggested = false, busy, onJoin }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const Icon = KIND_ICON[room.kind] || Hash;
@@ -104,6 +104,13 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin }) {
             }`}
           >
             {room.name}
+            {suggested && (
+              <Star
+                className={`w-3 h-3 shrink-0 ${dark ? "text-amber-300" : "text-amber-500"}`}
+                fill="currentColor"
+                aria-label="Suggested for you"
+              />
+            )}
             {room.kind === "private" && (
               <span
                 className={`text-[9px] uppercase tracking-wider font-bold px-1 py-px rounded ${

@@ -38,7 +38,7 @@ export function TeamProvider({ session, children }) {
     setTeamLoading(true);
     const { data, error } = await supabase
       .from("team_members")
-      .select("team_id, role, teams(id, name, invite_code, created_by, created_at, icon_url, color, office_vibe)")
+      .select("team_id, role, teams(id, name, invite_code, created_by, created_at, icon_url, color, office_vibe, departments)")
       .eq("user_id", userId);
     setTeamLoading(false);
 
@@ -280,13 +280,27 @@ export function TeamProvider({ session, children }) {
     await loadMembers();
   }
 
-  // Patch team metadata (name, icon_url, color, office_vibe). Admin-only by RLS.
+  // Set a member's department tags. Admin-only by RLS on team_members.
+  // Caller passes the full list; we just write it.
+  async function updateMemberDepartments(teamId, memberId, departments) {
+    const { error } = await supabase
+      .from("team_members")
+      .update({ departments: departments ?? [] })
+      .eq("team_id", teamId)
+      .eq("user_id", memberId);
+    if (!error) await loadMembers();
+    return { error };
+  }
+
+  // Patch team metadata (name, icon_url, color, office_vibe, departments).
+  // Admin-only by RLS.
   async function updateTeam(teamId, patch) {
     const allowed = {};
     if (patch.name !== undefined) allowed.name = patch.name;
     if (patch.icon_url !== undefined) allowed.icon_url = patch.icon_url;
     if (patch.color !== undefined) allowed.color = patch.color;
     if (patch.office_vibe !== undefined) allowed.office_vibe = patch.office_vibe;
+    if (patch.departments !== undefined) allowed.departments = patch.departments;
     if (Object.keys(allowed).length === 0) return { data: null };
     const { data, error } = await supabase
       .from("teams")
@@ -528,7 +542,7 @@ export function TeamProvider({ session, children }) {
         teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin,
         loadTeams, loadMembers, switchTeam,
         createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
-        removeMember, changeMemberRole, regenerateInviteCode,
+        removeMember, changeMemberRole, regenerateInviteCode, updateMemberDepartments,
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
         rooms, loadRoomsForActiveTeam,
