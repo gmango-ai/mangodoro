@@ -4,15 +4,25 @@ import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Copy, Users, Plus, LogIn, Link as LinkIcon } from "lucide-react";
+import { X, Copy, Users, Plus, LogIn, Link as LinkIcon, Timer } from "lucide-react";
 import { supabase } from "../supabase";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
+import UserAvatar from "./UserAvatar";
+
+function modeLabel(m) {
+  return m === "shortBreak" ? "Short break" : m === "longBreak" ? "Long break" : "Focus";
+}
+function timeLeftLabel(s) {
+  if (!s) return "";
+  if (!s.is_running || !s.ends_at) return `${Math.ceil((s.remaining_seconds || 0) / 60)}m`;
+  return `${Math.max(0, Math.ceil((new Date(s.ends_at).getTime() - Date.now()) / 60000))}m left`;
+}
 
 export default function SyncSessionModal({ open, onClose, userId, displayName, onSessionJoined }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { setSettings } = useApp();
-  const { activeTeamId } = useTeam();
+  const { activeTeamId, activeTeamSessions } = useTeam();
 
   const [tab, setTab] = useState("create");
   const [joinCode, setJoinCode] = useState("");
@@ -85,6 +95,22 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
     if (data?.session) onSessionJoined(data.session);
   }
 
+  async function handleJoinActive(s) {
+    if (!hasName) { setError("Please enter a display name first."); return; }
+    setLoading(true); setError("");
+    if (!(await ensureNameSaved())) { setLoading(false); return; }
+    const { data, error: err } = await joinSyncSession(s.join_code, cleanName);
+    setLoading(false);
+    if (err) {
+      const msg = err.message?.includes("display_name_required")
+        ? "A display name is required to join."
+        : err.message || "Could not join.";
+      setError(msg);
+      return;
+    }
+    if (data?.session) onSessionJoined(data.session);
+  }
+
   async function handleCopy() {
     await navigator.clipboard.writeText(createdSession.join_code);
     setCopied(true);
@@ -98,12 +124,14 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
     setTimeout(() => setLinkCopied(false), 2000);
   }
 
-  const overlayCls = "fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm";
-  const modalCls = `relative w-full max-w-sm mx-4 rounded-2xl border p-6 ${
+  const overlayCls = "fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4";
+  const modalCls = `relative w-full max-w-sm rounded-2xl border p-5 sm:p-6 max-h-[calc(100dvh-1.5rem)] overflow-y-auto ${
     dark
       ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40"
       : "bg-white border-slate-200 shadow-xl"
   }`;
+
+  const showActive = !createdSession && activeTeamSessions?.length > 0;
 
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`;
 
@@ -126,7 +154,61 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
           </h2>
         </div>
 
-        <div className="flex gap-1 mb-5">
+        {!createdSession && (
+          <div className="mb-4">
+            <label className={labelCls}>Your display name</label>
+            <Input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value.slice(0, 60))}
+              placeholder="Required"
+              className={`mt-1 ${dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : ""}`}
+            />
+          </div>
+        )}
+
+        {showActive && (
+          <div className="mb-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Timer className={`w-3.5 h-3.5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+              <span className={labelCls}>Live team sessions</span>
+            </div>
+            <ul className="space-y-1.5 max-h-44 overflow-y-auto -mx-1 px-1">
+              {activeTeamSessions.map((s) => (
+                <li
+                  key={s.id}
+                  className={`flex items-center gap-2 px-2.5 py-2 rounded-lg ${
+                    dark ? "bg-slate-800/50 hover:bg-slate-800/80" : "bg-slate-50 hover:bg-slate-100"
+                  } transition-colors`}
+                >
+                  <UserAvatar url={s.leader_avatar} name={s.leader_name} size={28} className="shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-xs font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
+                      {s.leader_name}
+                    </p>
+                    <p className={`text-[10px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                      {modeLabel(s.mode)} · {s.participant_count}/{s.max_participants} · {timeLeftLabel(s)}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => handleJoinActive(s)}
+                    disabled={loading || !hasName}
+                    className="shrink-0 h-7 px-2.5 text-xs"
+                  >
+                    Join
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <div className="flex items-center gap-2 mt-3 mb-1">
+              <div className={`flex-1 h-px ${dark ? "bg-slate-700" : "bg-slate-200"}`} />
+              <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>or</span>
+              <div className={`flex-1 h-px ${dark ? "bg-slate-700" : "bg-slate-200"}`} />
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-1 mb-4">
           <Button
             variant={tab === "create" ? "default" : "outline"}
             size="sm"
@@ -150,18 +232,6 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
             dark ? "bg-red-500/15 text-red-400" : "bg-red-50 text-red-600"
           }`}>
             {error}
-          </div>
-        )}
-
-        {!createdSession && (
-          <div className="mb-3">
-            <label className={labelCls}>Your display name</label>
-            <Input
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value.slice(0, 60))}
-              placeholder="Required"
-              className={`mt-1 ${dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : ""}`}
-            />
           </div>
         )}
 
