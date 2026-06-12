@@ -38,7 +38,7 @@ export function TeamProvider({ session, children }) {
     setTeamLoading(true);
     const { data, error } = await supabase
       .from("team_members")
-      .select("team_id, role, teams(id, name, invite_code, created_by, created_at, icon_url, color)")
+      .select("team_id, role, teams(id, name, invite_code, created_by, created_at, icon_url, color, office_vibe)")
       .eq("user_id", userId);
     setTeamLoading(false);
 
@@ -268,12 +268,13 @@ export function TeamProvider({ session, children }) {
     await loadMembers();
   }
 
-  // Patch team metadata (name, icon_url, color). Admin-only by RLS.
+  // Patch team metadata (name, icon_url, color, office_vibe). Admin-only by RLS.
   async function updateTeam(teamId, patch) {
     const allowed = {};
     if (patch.name !== undefined) allowed.name = patch.name;
     if (patch.icon_url !== undefined) allowed.icon_url = patch.icon_url;
     if (patch.color !== undefined) allowed.color = patch.color;
+    if (patch.office_vibe !== undefined) allowed.office_vibe = patch.office_vibe;
     if (Object.keys(allowed).length === 0) return { data: null };
     const { data, error } = await supabase
       .from("teams")
