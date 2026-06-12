@@ -309,7 +309,7 @@ export default function PomodoroTimer({
                     ? "bg-slate-900/95 backdrop-blur-xl border-slate-700/60"
                     : "bg-white/95 backdrop-blur-xl border-slate-200 shadow-slate-900/10"
                 }`
-              : `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-[22rem] max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border shadow-2xl transition-all ${
+              : `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-[22rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border shadow-2xl transition-all ${
                   !open && !(controlsLocked && !pipMountEl) ? "hidden" : ""
                 } ${
                   dark
@@ -387,8 +387,8 @@ export default function PomodoroTimer({
               dark ? "bg-slate-800/40 border-slate-700/60" : "bg-slate-50 border-slate-200"
             }`}>
               {/* Join code + invite link + buttons (visible to all) */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center justify-between gap-2 flex-wrap gap-y-1.5">
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
                   <span className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
                     Code
                   </span>
