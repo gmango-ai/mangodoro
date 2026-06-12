@@ -79,10 +79,22 @@ export default function TeamPage() {
     });
   }, [searchParams, teamLoading, teams, joinTeam, switchTeam, navigate]);
 
-  // Show create/join if no teams
+  // If the user lands on /team and we genuinely have no teams, default
+  // them onto the Create form. But track that WE auto-switched — if teams
+  // later populate (e.g. the initial loadTeams hit an auth race and a
+  // follow-up fetch succeeds), flip back to "manage" so the user actually
+  // sees their teams instead of staying stuck on the Create form.
+  const autoSwitchedToCreateRef = useRef(false);
   useEffect(() => {
-    if (!teamLoading && teams.length === 0) setTab("create");
-  }, [teamLoading, teams.length]);
+    if (teamLoading) return;
+    if (teams.length === 0 && tab === "manage" && !autoSwitchedToCreateRef.current) {
+      autoSwitchedToCreateRef.current = true;
+      setTab("create");
+    } else if (teams.length > 0 && autoSwitchedToCreateRef.current) {
+      autoSwitchedToCreateRef.current = false;
+      setTab("manage");
+    }
+  }, [teamLoading, teams.length, tab]);
 
   async function handleCreate(e) {
     e.preventDefault();

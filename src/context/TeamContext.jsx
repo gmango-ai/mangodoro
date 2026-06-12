@@ -21,6 +21,9 @@ export function TeamProvider({ session, children }) {
   // Read the latest activeTeamId without retriggering loadTeams.
   const activeTeamIdRef = useRef(activeTeamId);
   activeTeamIdRef.current = activeTeamId;
+  // Guards a single retry when a load returns empty but localStorage hints
+  // the user has teams. Reset on every non-empty (real) result.
+  const emptyRetriedRef = useRef(false);
 
   // ── Load teams ──────────────────────────────────────────────
   // Important: this callback intentionally does NOT depend on activeTeamId.
@@ -47,17 +50,33 @@ export function TeamProvider({ session, children }) {
     const loaded = (data || [])
       .map((m) => (m.teams ? { ...m.teams, role: m.role } : null))
       .filter(Boolean);
+
+    // Auth race-guard. On a fresh page refresh the access token sometimes
+    // isn't warm yet — RLS evaluates auth.uid() to null and silently
+    // returns 0 rows. If localStorage hints that we should have teams,
+    // retry once instead of clobbering state. Without this the UI flips
+    // to "no teams yet", drops ql_active_team, and the user has to
+    // navigate away/back to recover (TOKEN_REFRESHED eventually fires in
+    // the background, but only after the empty-state UI is already up).
+    const current = activeTeamIdRef.current;
+    if (loaded.length === 0 && current && !emptyRetriedRef.current) {
+      emptyRetriedRef.current = true;
+      setTimeout(() => loadTeams(), 600);
+      return;
+    }
+
     setTeams(loaded);
 
-    const current = activeTeamIdRef.current;
     if (loaded.length === 0) {
-      // Genuinely no memberships — drop any stale local active team.
+      // Either we already retried once or there was never a cached team —
+      // trust the empty result.
       if (current) {
         setActiveTeamId(null);
         localStorage.removeItem("ql_active_team");
       }
       return;
     }
+    emptyRetriedRef.current = false;
     // Auto-select if we have none, or if the stored one is no longer valid.
     if (!current || !loaded.find((t) => t.id === current)) {
       const next = loaded[0].id;
