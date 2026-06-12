@@ -12,6 +12,7 @@ import {
   ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
+import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
@@ -214,6 +215,47 @@ export default function TeamPage() {
   const inputCls = dark
     ? "bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500"
     : "";
+
+  // Show the skeleton until TeamContext has at least tried to load teams
+  // once. Without this gate the initial render shows "No teams yet" /
+  // auto-switches to the Create tab during the brief loading window.
+  if (teamLoading && teams.length === 0) {
+    return (
+      <main
+        className="px-4 pt-6 pb-24 max-w-[720px] mx-auto space-y-6"
+        aria-busy="true"
+        aria-label="Loading teams"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Skeleton className="w-9 h-9 rounded-lg" />
+            <Skeleton className="h-6 w-24" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-8 w-20 rounded-md" />
+            <Skeleton className="h-8 w-20 rounded-md" />
+          </div>
+        </div>
+        <SkeletonCard className="p-5 space-y-3">
+          <Skeleton className="h-3 w-32" />
+          <Skeleton className="h-12 w-full rounded-lg" />
+        </SkeletonCard>
+        <SkeletonCard className="p-5 space-y-3">
+          <Skeleton className="h-3 w-28" />
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3">
+              <SkeletonCircle size={32} />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+              <Skeleton className="h-5 w-14 rounded-md" />
+            </div>
+          ))}
+        </SkeletonCard>
+      </main>
+    );
+  }
 
   return (
     <main className="px-4 pt-6 pb-24 max-w-[720px] mx-auto space-y-6">

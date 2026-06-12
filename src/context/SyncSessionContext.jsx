@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { supabase } from "../supabase";
@@ -55,6 +56,12 @@ export function SyncSessionProvider({ session, children }) {
     notifySessionCleared();
   }, []);
 
+  // Guards a single retry when rehydrate finds a stored session id but
+  // the lookup returns nothing — protects against the cold-load auth
+  // race that would otherwise notifySessionCleared() and yank the user
+  // out of an active session on refresh.
+  const rehydrateRetriedRef = useRef(false);
+
   const rehydrateSyncSessionFromStorage = useCallback(async () => {
     const stored = localStorage.getItem(SYNC_SESSION_KEY);
     if (!stored) {
@@ -63,36 +70,50 @@ export function SyncSessionProvider({ session, children }) {
       setPresenceMap({});
       return;
     }
+    let sessionId;
     try {
-      const { sessionId } = JSON.parse(stored);
-      if (!sessionId) {
-        setSyncSession(null);
-        setSyncParticipants([]);
-        setPresenceMap({});
-        return;
-      }
-      const { data } = await supabase
-        .from("sync_sessions")
-        .select("*")
-        .eq("id", sessionId)
-        .eq("status", "active")
-        .maybeSingle();
-      if (data) {
-        setSyncSession(data);
-        const { data: p } = await fetchSyncParticipants(data.id);
-        setSyncParticipants(p || []);
-      } else {
-        setSyncSession(null);
-        setSyncParticipants([]);
-        setPresenceMap({});
-        notifySessionCleared();
-      }
+      ({ sessionId } = JSON.parse(stored));
     } catch {
+      // Malformed JSON in localStorage: not a transient race; safe to clear.
       setSyncSession(null);
       setSyncParticipants([]);
       setPresenceMap({});
       notifySessionCleared();
+      return;
     }
+    if (!sessionId) {
+      setSyncSession(null);
+      setSyncParticipants([]);
+      setPresenceMap({});
+      return;
+    }
+    const { data, error } = await supabase
+      .from("sync_sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (data) {
+      rehydrateRetriedRef.current = false;
+      setSyncSession(data);
+      const { data: p } = await fetchSyncParticipants(data.id);
+      setSyncParticipants(p || []);
+      return;
+    }
+    // Empty result with a stored session id is suspicious — could be a
+    // genuinely-ended session, but on cold loads it's just as likely the
+    // access token wasn't warm yet and RLS returned nothing. Retry once
+    // before clearing local state and removing the localStorage hint.
+    if (!error && !rehydrateRetriedRef.current) {
+      rehydrateRetriedRef.current = true;
+      setTimeout(() => rehydrateSyncSessionFromStorage(), 600);
+      return;
+    }
+    rehydrateRetriedRef.current = false;
+    setSyncSession(null);
+    setSyncParticipants([]);
+    setPresenceMap({});
+    notifySessionCleared();
   }, []);
 
   useEffect(() => {

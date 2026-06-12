@@ -17,6 +17,17 @@ export function AppProvider({ session, children }) {
   const [templates, setTemplates] = useState([]);
   /** True while main Supabase data fetch is in flight — non-blocking; use for subtle UI only. */
   const [dataSyncing, setDataSyncing] = useState(false);
+  /**
+   * True after the first non-retried load completes for the current user.
+   * Pages use this to distinguish "still loading on first render" (show
+   * skeleton) from "loaded and the user genuinely has no data yet" (show
+   * empty state).
+   */
+  const [dataLoaded, setDataLoaded] = useState(false);
+  // Guards a single retry when an initial fetch returns suspiciously empty
+  // (all collections empty AND a cached marker says we previously loaded
+  // data for this user). Reset after every successful non-empty load.
+  const emptyRetriedRef = useRef(false);
   const [hourlyRate, setHourlyRate] = useState(0);
   const [deepseekKey, setDeepseekKey] = useState("");
   const [reminderTime, setReminderTime] = useState("");
@@ -76,74 +87,121 @@ export function AppProvider({ session, children }) {
   const [showInvoice, setShowInvoice] = useState(false);
 
   // ── Load data ────────────────────────────────────────────────
-  useEffect(() => {
+  // Defined as a useCallback so the self-heal effect below can call it
+  // when the auth token refreshes (covers the cold-load case where the
+  // initial fetch raced an unwarm access token and RLS returned nothing).
+  const loadData = useCallback(async () => {
     if (!session) return;
-    async function loadData() {
-      setDataSyncing(true);
-      try {
-        const [entriesRes, templatesRes, settingsRes, projectsRes] = await Promise.all([
-          supabase.from("entries").select("*").order("date", { ascending: false }),
-          supabase.from("templates").select("*").order("created_at"),
-          supabase.from("user_settings").select("*").eq("user_id", session.user.id).maybeSingle(),
-          supabase.from("projects").select("*").order("created_at"),
-        ]);
-        // Sync clock-in state from DB (handles cross-device tracking).
-        // Only override local state if DB has an active session; if DB is null
-        // it might just mean this device hasn't synced yet — visibilitychange
-        // handles the "stopped on another device" case after initial load.
-        const dbClock = settingsRes.data?.active_clock ?? null;
-        if (dbClock && !dbClock.stopped) {
-          clockInFromDBRef.current = true;
-          setClockIn(dbClock);
-          localStorage.setItem("ql_clock_in", JSON.stringify(dbClock));
-        }
-        const loadedTemplates = (templatesRes.data ?? []).map(normalizeTemplate);
-        const loadedSettings = settingsRes.data ? normalizeSettings(settingsRes.data) : {};
-        const loadedEntries = (entriesRes.data ?? []).map(normalizeEntry);
-        const loadedProjects = projectsRes.data ?? [];
-        setTemplates(loadedTemplates);
-        setSettings(loadedSettings);
-        setEntries(loadedEntries);
-        setProjects(loadedProjects);
-        setHourlyRate(settingsRes.data?.hourly_rate ?? 0);
-        setDeepseekKey(settingsRes.data?.deepseek_key ?? "");
-        setReminderTime(normalizeTime(settingsRes.data?.reminder_time ?? ""));
-        setTimeRounding(settingsRes.data?.time_rounding || "none");
-        setDailyTarget(settingsRes.data?.daily_target ?? 0);
-        setWeeklyTarget(settingsRes.data?.weekly_target ?? 0);
-        setDefaultEntryMode(settingsRes.data?.default_entry_mode || "manual");
-        const landing = settingsRes.data?.default_landing_page === "log" ? "log" : "pomodoro";
-        setDefaultLandingPage(landing);
-        // Synced to localStorage so the `/` redirect in App.jsx can decide
-        // where to send the user *before* the AppContext fetch resolves.
-        try { localStorage.setItem("ql_default_landing", landing); } catch { /* ignore */ }
-        // Prefer provider_token from OAuth redirect over stale DB value
-        if (session?.provider_token) {
-          const expiry = Date.now() + 3500 * 1000;
-          setGoogleToken(session.provider_token);
-          setGoogleTokenExpiry(expiry);
-          await supabase.from("user_settings").upsert({
-            user_id: session.user.id,
-            google_access_token: session.provider_token,
-            google_token_expiry: expiry,
-          }, { onConflict: "user_id" });
-        } else {
-          setGoogleToken(settingsRes.data?.google_access_token ?? null);
-          setGoogleTokenExpiry(settingsRes.data?.google_token_expiry ?? 0);
-        }
-        setForm(makeEmptyForm(loadedSettings, loadedTemplates));
-        try {
-          const oldEntries = JSON.parse(localStorage.getItem("worklog_entries_v2") || "[]");
-          if (oldEntries.length > 0 && (entriesRes.data ?? []).length === 0) {
-            setLocalImportBanner({ count: oldEntries.length });
-          }
-        } catch { /* ignore */ }
-      } finally {
+    setDataSyncing(true);
+    try {
+      const [entriesRes, templatesRes, settingsRes, projectsRes] = await Promise.all([
+        supabase.from("entries").select("*").order("date", { ascending: false }),
+        supabase.from("templates").select("*").order("created_at"),
+        supabase.from("user_settings").select("*").eq("user_id", session.user.id).maybeSingle(),
+        supabase.from("projects").select("*").order("created_at"),
+      ]);
+
+      // Auth race-guard. On a fresh page load (or laptop-lid wake) the
+      // access token isn't always warm yet — RLS evaluates auth.uid() to
+      // null and silently returns 0 rows for *everything*. If localStorage
+      // hints we've successfully loaded data for this user before, treat
+      // the all-empty result as transient and retry once before clobbering
+      // settings/entries/projects/templates with empty defaults. Otherwise
+      // a returning user briefly sees hourly rate $0, no projects, no
+      // entries, etc., until something refires the load.
+      const loadHintKey = `ql_data_loaded:${session.user.id}`;
+      const hadDataBefore = (() => {
+        try { return localStorage.getItem(loadHintKey) === "1"; } catch { return false; }
+      })();
+      const everythingEmpty =
+        (entriesRes.data ?? []).length === 0
+        && (templatesRes.data ?? []).length === 0
+        && (projectsRes.data ?? []).length === 0
+        && !settingsRes.data;
+      if (everythingEmpty && hadDataBefore && !emptyRetriedRef.current) {
+        emptyRetriedRef.current = true;
         setDataSyncing(false);
+        setTimeout(() => loadData(), 600);
+        return;
       }
+
+      // Sync clock-in state from DB (handles cross-device tracking).
+      // Only override local state if DB has an active session; if DB is null
+      // it might just mean this device hasn't synced yet — visibilitychange
+      // handles the "stopped on another device" case after initial load.
+      const dbClock = settingsRes.data?.active_clock ?? null;
+      if (dbClock && !dbClock.stopped) {
+        clockInFromDBRef.current = true;
+        setClockIn(dbClock);
+        localStorage.setItem("ql_clock_in", JSON.stringify(dbClock));
+      }
+      const loadedTemplates = (templatesRes.data ?? []).map(normalizeTemplate);
+      const loadedSettings = settingsRes.data ? normalizeSettings(settingsRes.data) : {};
+      const loadedEntries = (entriesRes.data ?? []).map(normalizeEntry);
+      const loadedProjects = projectsRes.data ?? [];
+      setTemplates(loadedTemplates);
+      setSettings(loadedSettings);
+      setEntries(loadedEntries);
+      setProjects(loadedProjects);
+      setHourlyRate(settingsRes.data?.hourly_rate ?? 0);
+      setDeepseekKey(settingsRes.data?.deepseek_key ?? "");
+      setReminderTime(normalizeTime(settingsRes.data?.reminder_time ?? ""));
+      setTimeRounding(settingsRes.data?.time_rounding || "none");
+      setDailyTarget(settingsRes.data?.daily_target ?? 0);
+      setWeeklyTarget(settingsRes.data?.weekly_target ?? 0);
+      setDefaultEntryMode(settingsRes.data?.default_entry_mode || "manual");
+      const landing = settingsRes.data?.default_landing_page === "log" ? "log" : "pomodoro";
+      setDefaultLandingPage(landing);
+      // Synced to localStorage so the `/` redirect in App.jsx can decide
+      // where to send the user *before* the AppContext fetch resolves.
+      try { localStorage.setItem("ql_default_landing", landing); } catch { /* ignore */ }
+      // Prefer provider_token from OAuth redirect over stale DB value
+      if (session?.provider_token) {
+        const expiry = Date.now() + 3500 * 1000;
+        setGoogleToken(session.provider_token);
+        setGoogleTokenExpiry(expiry);
+        await supabase.from("user_settings").upsert({
+          user_id: session.user.id,
+          google_access_token: session.provider_token,
+          google_token_expiry: expiry,
+        }, { onConflict: "user_id" });
+      } else {
+        setGoogleToken(settingsRes.data?.google_access_token ?? null);
+        setGoogleTokenExpiry(settingsRes.data?.google_token_expiry ?? 0);
+      }
+      setForm(makeEmptyForm(loadedSettings, loadedTemplates));
+      try {
+        const oldEntries = JSON.parse(localStorage.getItem("worklog_entries_v2") || "[]");
+        if (oldEntries.length > 0 && (entriesRes.data ?? []).length === 0) {
+          setLocalImportBanner({ count: oldEntries.length });
+        }
+      } catch { /* ignore */ }
+
+      // Mark this user as having a known-good load so a future cold load
+      // can recognise the transient-empty case.
+      if (!everythingEmpty) {
+        emptyRetriedRef.current = false;
+        try { localStorage.setItem(loadHintKey, "1"); } catch { /* ignore */ }
+      }
+      setDataLoaded(true);
+    } finally {
+      setDataSyncing(false);
     }
-    loadData();
-  }, [session?.user?.id]);
+  }, [session]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Self-heal: refire the data load when supabase finishes restoring or
+  // refreshing the session token. Catches the case where the initial cold
+  // fetch was sent before the access token was fully attached and RLS
+  // returned an empty set.
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "TOKEN_REFRESHED" || event === "SIGNED_IN") loadData();
+    });
+    return () => subscription.unsubscribe();
+  }, [session?.user?.id, loadData]);
 
   // ── Reminder notifications ───────────────────────────────────
   useEffect(() => {
@@ -1237,7 +1295,7 @@ export function AppProvider({ session, children }) {
 
   const value = {
     // data
-    session, entries, projects, settings, templates, dataSyncing,
+    session, entries, projects, settings, templates, dataSyncing, dataLoaded,
     hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage,
     setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget,
     updateStatus,

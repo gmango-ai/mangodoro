@@ -9,12 +9,13 @@ import PomodoroTimer from "../components/PomodoroTimer";
 import UserAvatar from "../components/UserAvatar";
 import CreateRoomModal from "../components/CreateRoomModal";
 import RoomTile from "../components/RoomTile";
+import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { resolveRoomByInviteCode } from "../lib/rooms";
 import { notifySessionJoined } from "../sync/joinSession";
 
 export default function PomodoroPage({ session, onOpenSync }) {
-  const { settings, clockIn, projects } = useApp();
+  const { settings, clockIn, projects, dataLoaded } = useApp();
   const { activeTeam, activeTeamId, activeTeamSessions, rooms, isAdmin } = useTeam();
   const { theme } = useTheme();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
@@ -139,6 +140,48 @@ export default function PomodoroPage({ session, onOpenSync }) {
     const active = sessionByRoomId.get(resolvedRoomId);
     if (active) await joinSessionRow(active);
     else await startSessionInRoom(codePromptRoom);
+  }
+
+  if (!dataLoaded) {
+    return (
+      <div
+        className={`max-w-4xl mx-auto px-4 py-6 ${dark ? "text-slate-100" : "text-slate-800"}`}
+        aria-busy="true"
+        aria-label="Loading pomodoro"
+      >
+        <Skeleton className="h-7 w-32 mb-4" />
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="md:col-span-2 space-y-4">
+            <SkeletonCard className="p-4 space-y-3">
+              <Skeleton className="h-3 w-40" />
+              {[0, 1].map((i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <SkeletonCircle size={36} />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                  <Skeleton className="h-8 w-14 rounded-md" />
+                </div>
+              ))}
+            </SkeletonCard>
+            <SkeletonCard className="p-5 space-y-2">
+              <Skeleton className="h-4 w-44" />
+              <Skeleton className="h-3 w-5/6" />
+              <Skeleton className="h-9 w-32 rounded-md" />
+            </SkeletonCard>
+            <SkeletonCard className="p-4 space-y-2">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-3/4" />
+            </SkeletonCard>
+          </div>
+          <SkeletonCard className="p-4 space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-4 w-24" />
+          </SkeletonCard>
+        </div>
+      </div>
+    );
   }
 
   return (

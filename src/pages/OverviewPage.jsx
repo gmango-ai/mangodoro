@@ -28,6 +28,7 @@ import {
   todayStr,
 } from "../lib/utils";
 import EarningsCard from "../components/EarningsCard";
+import { Skeleton, SkeletonCard } from "../components/Skeleton";
 
 export default function OverviewPage() {
   const {
@@ -39,6 +40,7 @@ export default function OverviewPage() {
     exportMonthXLSX,
     setShowInvoice,
     googleToken, googleTokenExpiry, exportToGoogleSheets, connectGoogleSheets,
+    dataLoaded,
   } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -129,6 +131,44 @@ export default function OverviewPage() {
   };
 
   const statCardClasses = `relative rounded-xl border p-5 sm:p-6 overflow-hidden transition-all shadow-sm`;
+
+  if (!dataLoaded) {
+    return (
+      <div className="max-w-[720px] mx-auto px-4 sm:px-6 py-8 pb-24" aria-busy="true" aria-label="Loading overview">
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-7 w-32" />
+            <Skeleton className="h-9 w-44 rounded-xl" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {[0, 1, 2, 3].map((i) => (
+              <SkeletonCard key={i} className="p-4 space-y-2">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-7 w-24" />
+                <Skeleton className="h-3 w-16" />
+              </SkeletonCard>
+            ))}
+          </div>
+          <SkeletonCard className="p-5">
+            <Skeleton className="h-4 w-32 mb-4" />
+            <Skeleton className="h-56 w-full" />
+          </SkeletonCard>
+          <SkeletonCard className="p-5">
+            <Skeleton className="h-4 w-40 mb-4" />
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Skeleton className="h-3 w-32" />
+                  <Skeleton className="h-3 flex-1" />
+                  <Skeleton className="h-3 w-12" />
+                </div>
+              ))}
+            </div>
+          </SkeletonCard>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[720px] mx-auto px-4 sm:px-6 py-8 pb-24">
