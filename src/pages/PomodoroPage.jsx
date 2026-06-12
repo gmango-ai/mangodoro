@@ -4,17 +4,18 @@ import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
-import { Users as UsersIcon, Timer, Sparkles, Briefcase, MessageSquare, Lock, Plus, Hash } from "lucide-react";
+import { Users as UsersIcon, Timer, Sparkles, Plus } from "lucide-react";
 import PomodoroTimer from "../components/PomodoroTimer";
 import UserAvatar from "../components/UserAvatar";
 import CreateRoomModal from "../components/CreateRoomModal";
+import RoomTile from "../components/RoomTile";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { resolveRoomByInviteCode } from "../lib/rooms";
 import { notifySessionJoined } from "../sync/joinSession";
 
 export default function PomodoroPage({ session, onOpenSync }) {
   const { settings, clockIn, projects } = useApp();
-  const { activeTeamId, activeTeamSessions, rooms, isAdmin } = useTeam();
+  const { activeTeam, activeTeamId, activeTeamSessions, rooms, isAdmin } = useTeam();
   const { theme } = useTheme();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
   const dark = theme === "dark";
@@ -140,12 +141,6 @@ export default function PomodoroPage({ session, onOpenSync }) {
     else await startSessionInRoom(codePromptRoom);
   }
 
-  const roomKindIcon = {
-    department: Briefcase,
-    meeting: MessageSquare,
-    private: Lock,
-  };
-
   return (
     <div className={`max-w-4xl mx-auto px-4 py-6 ${dark ? "text-slate-100" : "text-slate-800"}`}>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -183,53 +178,18 @@ export default function PomodoroPage({ session, onOpenSync }) {
                     No rooms yet. Create one to start gathering your team.
                   </p>
                 ) : (
-                  <ul className="space-y-2">
-                    {rooms.map((room) => {
-                      const active = sessionByRoomId.get(room.id);
-                      const Icon = roomKindIcon[room.kind] || Hash;
-                      return (
-                        <li
-                          key={room.id}
-                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${
-                            dark ? "bg-slate-800/40" : "bg-slate-50"
-                          }`}
-                        >
-                          <div className={`p-2 rounded-md shrink-0 ${
-                            dark ? "bg-slate-700/40 text-slate-300" : "bg-white text-slate-500"
-                          }`}>
-                            <Icon className="w-4 h-4" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p
-                              className={`text-sm font-semibold truncate flex items-center gap-1.5 ${dark ? "text-slate-100" : "text-slate-800"}`}
-                            >
-                              {room.name}
-                              {room.kind === "private" && (
-                                <span className={`text-[9px] uppercase tracking-wider font-bold px-1 py-px rounded ${
-                                  dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"
-                                }`}>
-                                  Private
-                                </span>
-                              )}
-                            </p>
-                            <p className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                              {active
-                                ? `${active.leader_name} · ${modeLabel(active.mode)} · ${active.participant_count}/${active.max_participants} · ${timeLeft(active)}`
-                                : `${room.kind === "department" ? "Department" : room.kind === "meeting" ? "Meeting" : "Private"} room · nobody here`}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            onClick={() => handleRoomClick(room)}
-                            disabled={roomBusy}
-                            variant={active ? "default" : "outline"}
-                          >
-                            {active ? "Join" : "Start"}
-                          </Button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                    {rooms.map((room) => (
+                      <RoomTile
+                        key={room.id}
+                        room={room}
+                        activeSession={sessionByRoomId.get(room.id) || null}
+                        vibe={activeTeam?.office_vibe || "quiet"}
+                        busy={roomBusy}
+                        onJoin={handleRoomClick}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
             )}

@@ -552,6 +552,7 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
   const [nameDraft, setNameDraft] = useState(team.name || "");
   const [colorDraft, setColorDraft] = useState(team.color || "#14b8a6");
   const [iconUrl, setIconUrl] = useState(team.icon_url || "");
+  const [vibeDraft, setVibeDraft] = useState(team.office_vibe || "quiet");
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -560,6 +561,7 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
     setNameDraft(team.name || "");
     setColorDraft(team.color || "#14b8a6");
     setIconUrl(team.icon_url || "");
+    setVibeDraft(team.office_vibe || "quiet");
   }, [team.id]);
 
   async function processFile(file) {
@@ -580,7 +582,8 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
   const dirty =
     nameDraft.trim() !== (team.name || "").trim()
     || colorDraft !== (team.color || "#14b8a6")
-    || iconUrl !== (team.icon_url || "");
+    || iconUrl !== (team.icon_url || "")
+    || vibeDraft !== (team.office_vibe || "quiet");
 
   async function handleRemoveIcon() {
     if (iconUrl) await onDeleteIcon?.(iconUrl);
@@ -595,6 +598,7 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
       name: cleanName,
       color: colorDraft,
       icon_url: iconUrl || null,
+      office_vibe: vibeDraft,
     });
     setBusy(false);
     if (error) { onError?.(error.message || "Could not save team settings."); return; }
@@ -680,6 +684,33 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
               />
               Custom
             </label>
+          </div>
+        </div>
+
+        {/* Office vibe — controls the pomodoro rooms grid animation */}
+        <div>
+          <p className={labelCls}>Office vibe</p>
+          <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"} mt-0.5 mb-2`}>
+            How active the rooms grid feels when a session is running.
+          </p>
+          <div className={`inline-flex rounded-lg p-0.5 ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
+            {[
+              ["quiet", "Quiet"],
+              ["active", "Active"],
+            ].map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setVibeDraft(v)}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  vibeDraft === v
+                    ? dark ? "bg-slate-700 text-white" : "bg-white text-slate-800 shadow-sm"
+                    : dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 

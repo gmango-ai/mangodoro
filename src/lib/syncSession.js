@@ -180,6 +180,8 @@ export async function setSyncVisibility(sessionId, visibility) {
 
 // Active team sessions — leaders' display names come from user_settings;
 // RLS for those is satisfied by the team_members policy on user_settings.
+// Each row carries an `occupants` array so the rooms grid can render
+// avatar stacks without a second request per tile.
 export async function listActiveTeamSessions(teamId) {
   if (!teamId) return { data: [], error: null };
   const { data, error } = await supabase
@@ -191,28 +193,50 @@ export async function listActiveTeamSessions(teamId) {
     .order("created_at", { ascending: false });
   if (error || !data?.length) return { data: data || [], error };
 
-  // Join leader names + participant counts client-side.
-  const leaderIds = [...new Set(data.map((s) => s.leader_id))];
+  // Join participants client-side.
   const sessionIds = data.map((s) => s.id);
+  const { data: parts } = await supabase
+    .from("sync_session_participants")
+    .select("session_id, user_id")
+    .in("session_id", sessionIds)
+    .is("left_at", null);
 
-  const [{ data: leaders }, { data: parts }] = await Promise.all([
-    supabase.from("user_settings").select("user_id, name, avatar_url").in("user_id", leaderIds),
-    supabase.from("sync_session_participants")
-      .select("session_id, user_id")
-      .in("session_id", sessionIds)
-      .is("left_at", null),
-  ]);
-  const leaderMap = new Map((leaders || []).map((r) => [r.user_id, r]));
-  const countMap = new Map();
+  // Pull profiles for everyone we'll render (every leader + every participant).
+  const profileIds = [
+    ...new Set([
+      ...data.map((s) => s.leader_id),
+      ...(parts || []).map((p) => p.user_id),
+    ]),
+  ];
+  const { data: profiles } = profileIds.length
+    ? await supabase
+        .from("user_settings")
+        .select("user_id, name, avatar_url, presence_state")
+        .in("user_id", profileIds)
+    : { data: [] };
+  const profileMap = new Map((profiles || []).map((r) => [r.user_id, r]));
+
+  // Group participants by session for the avatar stack.
+  const occupantsBySession = new Map();
   for (const p of (parts || [])) {
-    countMap.set(p.session_id, (countMap.get(p.session_id) || 0) + 1);
+    const list = occupantsBySession.get(p.session_id) || [];
+    const prof = profileMap.get(p.user_id);
+    list.push({
+      user_id: p.user_id,
+      name: prof?.name || "Team member",
+      avatar_url: prof?.avatar_url || "",
+      presence_state: prof?.presence_state || "active",
+    });
+    occupantsBySession.set(p.session_id, list);
   }
+
   return {
     data: data.map((s) => ({
       ...s,
-      leader_name: leaderMap.get(s.leader_id)?.name || "Team member",
-      leader_avatar: leaderMap.get(s.leader_id)?.avatar_url || "",
-      participant_count: countMap.get(s.id) || 0,
+      leader_name: profileMap.get(s.leader_id)?.name || "Team member",
+      leader_avatar: profileMap.get(s.leader_id)?.avatar_url || "",
+      participant_count: (occupantsBySession.get(s.id) || []).length,
+      occupants: occupantsBySession.get(s.id) || [],
     })),
     error: null,
   };
