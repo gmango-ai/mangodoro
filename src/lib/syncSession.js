@@ -8,10 +8,11 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
   const bytes = crypto.getRandomValues(new Uint8Array(6));
   const code = Array.from(bytes, (b) => chars[b % chars.length]).join("");
 
-  // Allow the caller to set team_id / visibility / control_mode atomically
-  // at INSERT time — avoids a race where teammates query before the
-  // follow-up update lands and never see the session in discovery.
+  // Allow the caller to set team_id / room_id / visibility / control_mode
+  // atomically at INSERT time — avoids a race where teammates query before
+  // the follow-up update lands and never see the session in discovery.
   const teamId = opts.teamId ?? null;
+  const roomId = opts.roomId ?? null;
   const visibility = opts.visibility ?? (teamId ? "team" : "invite_only");
   const { data: session, error } = await supabase
     .from("sync_sessions")
@@ -20,6 +21,7 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
       controller_id: userId,
       join_code: code,
       team_id: teamId,
+      room_id: roomId,
       visibility,
       control_mode: "leader",
     })

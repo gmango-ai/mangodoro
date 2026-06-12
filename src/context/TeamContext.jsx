@@ -5,6 +5,7 @@ import {
   toDisplayTime, downloadFile, unpaidBreakMins,
 } from "../lib/utils";
 import { listActiveTeamSessions } from "../lib/syncSession";
+import { listRooms } from "../lib/rooms";
 
 const TeamContext = createContext(null);
 
@@ -16,6 +17,7 @@ export function TeamProvider({ session, children }) {
   const [teamMembers, setTeamMembers] = useState([]);
   const [teamLoading, setTeamLoading] = useState(false);
   const [activeTeamSessions, setActiveTeamSessions] = useState([]);
+  const [rooms, setRooms] = useState([]);
 
   const userId = session?.user?.id;
   // Read the latest activeTeamId without retriggering loadTeams.
@@ -147,6 +149,33 @@ export function TeamProvider({ session, children }) {
   }, [activeTeamId]);
 
   useEffect(() => { loadActiveTeamSessions(); }, [loadActiveTeamSessions]);
+
+  // ── Rooms ──────────────────────────────────────────────────
+  const loadRoomsForActiveTeam = useCallback(async () => {
+    if (!activeTeamId) { setRooms([]); return; }
+    const { data } = await listRooms(activeTeamId);
+    setRooms(data || []);
+  }, [activeTeamId]);
+
+  useEffect(() => { loadRoomsForActiveTeam(); }, [loadRoomsForActiveTeam]);
+
+  // Realtime: refresh rooms when any change to this team's rooms lands.
+  useEffect(() => {
+    if (!activeTeamId) return;
+    const teamIdAtSub = activeTeamId;
+    const channel = supabase
+      .channel(`team-rooms:${activeTeamId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "rooms", filter: `team_id=eq.${activeTeamId}` },
+        () => {
+          if (activeTeamIdRef.current !== teamIdAtSub) return;
+          loadRoomsForActiveTeam();
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeTeamId, loadRoomsForActiveTeam]);
 
   // Realtime: refresh when team sessions change.
   useEffect(() => {
@@ -489,6 +518,7 @@ export function TeamProvider({ session, children }) {
         removeMember, changeMemberRole, regenerateInviteCode,
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
+        rooms, loadRoomsForActiveTeam,
       }}
     >
       {children}
