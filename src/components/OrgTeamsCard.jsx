@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Users, Pencil, Trash2, X, Check } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, Users, Pencil, Trash2, X, Check, Briefcase } from "lucide-react";
 import {
   createOrgTeam, renameOrgTeam, archiveOrgTeam, setOrgTeamColor,
 } from "../lib/orgTeam";
+import { createRoomV2 } from "../lib/rooms";
 
 const PALETTE = [
   "#14b8a6", "#0ea5e9", "#6366f1", "#8b5cf6",
@@ -22,23 +24,48 @@ export default function OrgTeamsCard({
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftColor, setDraftColor] = useState(PALETTE[0]);
+  // Opt-in: create a same-named gated room with the team. Off by
+  // default since many teams are descriptive (Frontend, Backend) and
+  // share the parent team's room.
+  const [draftCreateRoom, setDraftCreateRoom] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(null); // org_team_id being inline-renamed
 
   async function handleAdd() {
-    if (!draftName.trim()) return;
+    const cleanName = draftName.trim();
+    if (!cleanName) return;
     setBusy(true);
-    const { error } = await createOrgTeam(orgId, {
-      name: draftName,
+    const { data: newTeam, error } = await createOrgTeam(orgId, {
+      name: cleanName,
       color: draftColor,
       userId,
     });
+    if (error) {
+      setBusy(false);
+      onError?.(error.message || "Could not create team.");
+      return;
+    }
+    // If the user opted in, seed a department room gated to the new
+    // team. Failures here don't roll back the team — surface as a
+    // warning so they can retry the room from the Rooms section.
+    if (draftCreateRoom && newTeam?.id) {
+      const { error: roomErr } = await createRoomV2(orgId, {
+        name: cleanName,
+        kind: "department",
+        color: draftColor,
+        orgTeamIds: [newTeam.id],
+        userId,
+      });
+      if (roomErr) {
+        onError?.(`Team created, but room failed: ${roomErr.message || ""}`);
+      }
+    }
     setBusy(false);
-    if (error) { onError?.(error.message || "Could not create team."); return; }
     setDraftName("");
     setDraftColor(PALETTE[0]);
+    setDraftCreateRoom(false);
     setAdding(false);
-    onSuccess?.("Team created");
+    onSuccess?.(draftCreateRoom ? "Team and room created" : "Team created");
   }
 
   async function handleRename(team, name) {
@@ -121,6 +148,22 @@ export default function OrgTeamsCard({
               />
             ))}
           </div>
+          {/* Opt-in: also create a gated room for this team. Many
+              teams are descriptive (Frontend, Backend) and reuse the
+              parent's room, so we don't force one. */}
+          <label className={`mt-3 flex items-center gap-2 cursor-pointer text-xs ${
+            dark ? "text-slate-300" : "text-slate-700"
+          }`}>
+            <Checkbox
+              checked={draftCreateRoom}
+              onCheckedChange={(v) => setDraftCreateRoom(!!v)}
+              className={`w-4 h-4 rounded border ${
+                dark ? "border-slate-600 data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500" : "border-slate-300 data-[state=checked]:bg-teal-600 data-[state=checked]:border-teal-600"
+              }`}
+            />
+            <Briefcase className={`w-3.5 h-3.5 ${dark ? "text-slate-400" : "text-slate-500"}`} />
+            <span>Also create a room for this team</span>
+          </label>
         </div>
       )}
 
