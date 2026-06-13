@@ -13,7 +13,7 @@ import {
 import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
   ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
-  MoreVertical, Search, X, Star,
+  MoreVertical, Search, X, Star, Briefcase, Pencil, Archive,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
@@ -23,6 +23,7 @@ import MemberHRModal from "../components/MemberHRModal";
 import MemberTeamsModal from "../components/MemberTeamsModal";
 import InviteCard from "../components/InviteCard";
 import RemoveMemberModal from "../components/RemoveMemberModal";
+import { archiveRoomV2, renameRoomV2, updateRoomGating } from "../lib/rooms";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
@@ -36,7 +37,8 @@ const TEAM_COLORS = [
 export default function TeamPage() {
   const {
     teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, orgTeams, loadOrgTeamsForActive,
-    teamsByUserId, orgTeamMemberCounts,
+    teamsByUserId, orgTeamMemberCounts, myOrgTeamLeadIds,
+    rooms, loadRoomsForActiveTeam,
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
     removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
     activeTeamSessions, loadActiveTeamSessions,
@@ -501,6 +503,29 @@ export default function TeamPage() {
               onSuccess={(msg) => { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }}
               onManageMembers={(t) => { setTeamFilter(t.id); focusPeopleSection(); }}
             />
+          )}
+
+          {/* ─── ROOMS ───────────────────────────────────────────── */}
+          {(isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0)) && (
+            <>
+              <SectionHeader
+                icon={Briefcase}
+                title="Rooms"
+                subtitle="Rename, regate, or archive — drag the floor plan on /pomodoro"
+                dark={dark}
+              />
+              <RoomsAdminCard
+                dark={dark}
+                cardCls={cardCls}
+                rooms={rooms || []}
+                orgTeams={orgTeams || []}
+                isAdmin={isAdmin}
+                myOrgTeamLeadIds={myOrgTeamLeadIds || new Set()}
+                onError={(msg) => setError(msg)}
+                onSuccess={(msg) => { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }}
+                onReload={loadRoomsForActiveTeam}
+              />
+            </>
           )}
 
           {/* ─── PEOPLE ──────────────────────────────────────────── */}
@@ -1213,6 +1238,299 @@ function MemberActionsMenu({ dark, canRemove, onEditComp, onEditTeams, onRemove 
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Admin/lead card for renaming, regating, and archiving rooms. Pure
+// list — drag/resize lives on the /pomodoro floor plan. Leads only see
+// rooms gated to teams they lead (admins see all non-archived rooms).
+function RoomsAdminCard({
+  dark, cardCls, rooms, orgTeams, isAdmin, myOrgTeamLeadIds,
+  onError, onSuccess, onReload,
+}) {
+  const [editingId, setEditingId] = useState(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [busy, setBusy] = useState(null); // room id currently saving
+  const [gatingFor, setGatingFor] = useState(null); // room obj being regated
+  const [archiveConfirmId, setArchiveConfirmId] = useState(null);
+
+  const visible = (rooms || []).filter((r) => {
+    if (isAdmin) return true;
+    const gating = r.room_teams || [];
+    if (gating.length === 0) return false; // org-wide → admin-only management
+    return gating.some((rt) => myOrgTeamLeadIds.has(rt.org_team_id));
+  });
+
+  async function commitRename(room) {
+    const next = nameDraft.trim();
+    setEditingId(null);
+    if (!next || next === room.name) return;
+    setBusy(room.id);
+    const { error } = await renameRoomV2(room.id, next);
+    setBusy(null);
+    if (error) { onError?.(error.message || "Could not rename"); return; }
+    onSuccess?.("Room renamed");
+    onReload?.();
+  }
+
+  async function commitArchive(room) {
+    setBusy(room.id);
+    const { error } = await archiveRoomV2(room.id);
+    setBusy(null);
+    setArchiveConfirmId(null);
+    if (error) { onError?.(error.message || "Could not archive"); return; }
+    onSuccess?.("Room archived");
+    onReload?.();
+  }
+
+  if (visible.length === 0) {
+    return (
+      <div className={cardCls}>
+        <p className={`text-sm italic ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          No rooms yet. Create one on /pomodoro.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cardCls}>
+      <div className="space-y-2">
+        {visible.map((r) => {
+          const gating = (r.room_teams || [])
+            .map((rt) => orgTeams.find((t) => t.id === rt.org_team_id))
+            .filter(Boolean);
+          const isEditing = editingId === r.id;
+          const rowBusy = busy === r.id;
+          return (
+            <div
+              key={r.id}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${
+                dark ? "bg-slate-800/40" : "bg-slate-50"
+              }`}
+            >
+              <Briefcase className={`w-4 h-4 shrink-0 ${dark ? "text-slate-500" : "text-slate-400"}`} />
+              <div className="flex-1 min-w-0">
+                {isEditing ? (
+                  <Input
+                    autoFocus
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value.slice(0, 40))}
+                    onBlur={() => commitRename(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename(r);
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    className="h-7 text-sm"
+                  />
+                ) : (
+                  <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
+                    {r.name}
+                    <span className={`ml-2 text-[10px] uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                      {r.kind}
+                    </span>
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                  {gating.length === 0 ? (
+                    <span className={`text-[11px] italic ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                      Org-wide
+                    </span>
+                  ) : (
+                    gating.map((t) => (
+                      <span
+                        key={t.id}
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                        style={{
+                          background: `${t.color}22`,
+                          color: dark ? "#fff" : t.color,
+                          border: `1px solid ${t.color}55`,
+                        }}
+                      >
+                        <span className="w-1 h-1 rounded-full" style={{ background: t.color }} />
+                        {t.name}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+              {/* Rename */}
+              {!isEditing && (
+                <button
+                  type="button"
+                  onClick={() => { setEditingId(r.id); setNameDraft(r.name); }}
+                  title="Rename"
+                  disabled={rowBusy}
+                  className={`h-7 w-7 inline-flex items-center justify-center rounded-md ${
+                    dark ? "text-slate-400 hover:bg-slate-700/60" : "text-slate-500 hover:bg-slate-200"
+                  }`}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {/* Regate */}
+              <button
+                type="button"
+                onClick={() => setGatingFor(r)}
+                title="Edit which teams see this room"
+                disabled={rowBusy}
+                className={`h-7 w-7 inline-flex items-center justify-center rounded-md ${
+                  dark ? "text-slate-400 hover:bg-slate-700/60" : "text-slate-500 hover:bg-slate-200"
+                }`}
+              >
+                <Users2 className="w-3.5 h-3.5" />
+              </button>
+              {/* Archive */}
+              {archiveConfirmId === r.id ? (
+                <span className="inline-flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setArchiveConfirmId(null)}
+                    disabled={rowBusy}
+                    className="h-7 text-[11px]"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => commitArchive(r)}
+                    disabled={rowBusy}
+                    className="h-7 text-[11px] bg-red-500 hover:bg-red-600 text-white"
+                  >
+                    {rowBusy ? "…" : "Archive"}
+                  </Button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setArchiveConfirmId(r.id)}
+                  title="Archive"
+                  disabled={rowBusy}
+                  className={`h-7 w-7 inline-flex items-center justify-center rounded-md ${
+                    dark ? "text-red-400 hover:bg-red-500/15" : "text-red-500 hover:bg-red-50"
+                  }`}
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <RoomGatingModal
+        open={!!gatingFor}
+        room={gatingFor}
+        orgTeams={orgTeams}
+        isAdmin={isAdmin}
+        myOrgTeamLeadIds={myOrgTeamLeadIds}
+        dark={dark}
+        onClose={() => setGatingFor(null)}
+        onSaved={(msg) => {
+          setGatingFor(null);
+          onSuccess?.(msg);
+          onReload?.();
+        }}
+        onError={onError}
+      />
+    </div>
+  );
+}
+
+// Small modal: pick which org_teams gate a room. Empty = org-wide.
+// Mirrors the chip selector pattern from CreateRoomModal so the two
+// surfaces look the same.
+function RoomGatingModal({ open, room, orgTeams, isAdmin, myOrgTeamLeadIds, dark, onClose, onSaved, onError }) {
+  const [selected, setSelected] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open || !room) return;
+    setSelected((room.room_teams || []).map((rt) => rt.org_team_id));
+    setBusy(false);
+  }, [open, room]);
+
+  if (!open || !room) return null;
+
+  const eligibleTeams = isAdmin
+    ? orgTeams
+    : (orgTeams || []).filter((t) => myOrgTeamLeadIds.has(t.id) || selected.includes(t.id));
+
+  async function handleSave() {
+    setBusy(true);
+    const { error } = await updateRoomGating(room.id, selected);
+    setBusy(false);
+    if (error) { onError?.(error.message || "Could not save gating"); return; }
+    onSaved?.("Gating updated");
+  }
+
+  function toggle(id) {
+    setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
+          dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className={`absolute top-3 right-3 p-1.5 rounded-lg ${
+            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+          }`}
+          aria-label="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        <h2 className={`text-base font-bold mb-1 ${dark ? "text-slate-100" : "text-slate-800"}`}>
+          Who sees {room.name}?
+        </h2>
+        <p className={`text-xs mb-3 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          {selected.length === 0
+            ? "Org-wide — everyone in the org can see this room."
+            : `Visible to ${selected.length} team${selected.length === 1 ? "" : "s"}.`}
+        </p>
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {eligibleTeams.map((t) => {
+            const active = selected.includes(t.id);
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => toggle(t.id)}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors"
+                style={
+                  active
+                    ? { background: `${t.color}22`, borderColor: `${t.color}99`, color: dark ? "#fff" : t.color }
+                    : undefined
+                }
+                {...(!active && {
+                  className: `inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors ${
+                    dark
+                      ? "bg-slate-800/40 border-slate-700 text-slate-300 hover:border-slate-600"
+                      : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
+                  }`,
+                })}
+              >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: t.color }} />
+                {t.name}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button type="button" onClick={handleSave} disabled={busy}>
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
