@@ -36,6 +36,7 @@ export function AppProvider({ session, children }) {
   const [weeklyTarget, setWeeklyTarget] = useState(0);
   const [defaultEntryMode, setDefaultEntryMode] = useState("manual");
   const [defaultLandingPage, setDefaultLandingPage] = useState("pomodoro");
+  const [stickyColor, setStickyColor] = useState("#fde68a");
 
   // ── UI state ─────────────────────────────────────────────────
   const [form, setForm] = useState(() => makeEmptyForm());
@@ -155,6 +156,7 @@ export function AppProvider({ session, children }) {
       // Synced to localStorage so the `/` redirect in App.jsx can decide
       // where to send the user *before* the AppContext fetch resolves.
       try { localStorage.setItem("ql_default_landing", landing); } catch { /* ignore */ }
+      setStickyColor(settingsRes.data?.sticky_color || "#fde68a");
       // Prefer provider_token from OAuth redirect over stale DB value
       if (session?.provider_token) {
         const expiry = Date.now() + 3500 * 1000;
@@ -528,7 +530,7 @@ export function AppProvider({ session, children }) {
 
   // ── Settings modal ───────────────────────────────────────────
   function openSettings() {
-    setDraftSettings({ ...settings, hourlyRate: hourlyRate || "", _deepseekKey: deepseekKey, _reminderTime: reminderTime, _timeRounding: timeRounding, dailyTarget: dailyTarget || "", weeklyTarget: weeklyTarget || "", _defaultEntryMode: defaultEntryMode, _defaultLandingPage: defaultLandingPage });
+    setDraftSettings({ ...settings, hourlyRate: hourlyRate || "", _deepseekKey: deepseekKey, _reminderTime: reminderTime, _timeRounding: timeRounding, dailyTarget: dailyTarget || "", weeklyTarget: weeklyTarget || "", _defaultEntryMode: defaultEntryMode, _defaultLandingPage: defaultLandingPage, _stickyColor: stickyColor });
     setDraftTemplates(templates.map((t) => ({ ...t, breaks: [...(t.breaks || [])] })));
     setDraftProjects(projects.map((p) => ({ ...p })));
     setDraftNewTemplate(null);
@@ -540,7 +542,7 @@ export function AppProvider({ session, children }) {
   }
 
   async function saveSettings() {
-    const { hourlyRate: draftRate, _deepseekKey: draftKey, _reminderTime: draftReminder, _timeRounding: draftRounding, dailyTarget: draftDaily, weeklyTarget: draftWeekly, _defaultEntryMode: draftEntryMode, _defaultLandingPage: draftLanding, ...rest } = draftSettings;
+    const { hourlyRate: draftRate, _deepseekKey: draftKey, _reminderTime: draftReminder, _timeRounding: draftRounding, dailyTarget: draftDaily, weeklyTarget: draftWeekly, _defaultEntryMode: draftEntryMode, _defaultLandingPage: draftLanding, _stickyColor: draftStickyColor, ...rest } = draftSettings;
     const rate = parseFloat(draftRate) || 0;
     const key = (draftKey || "").trim();
     const reminder = draftReminder || null;
@@ -549,6 +551,7 @@ export function AppProvider({ session, children }) {
     const weekly = parseFloat(draftWeekly) || 0;
     const entryMode = draftEntryMode || "manual";
     const landingPage = draftLanding === "log" ? "log" : "pomodoro";
+    const stickyColorClean = /^#[0-9a-f]{6}$/i.test(draftStickyColor || "") ? draftStickyColor : "#fde68a";
 
     // Sync templates
     const existingUUIDs = templates.map((t) => t.id).filter(isUUID);
@@ -613,6 +616,7 @@ export function AppProvider({ session, children }) {
       weekly_target: weekly,
       default_entry_mode: entryMode,
       default_landing_page: landingPage,
+      sticky_color: stickyColorClean,
       avatar_url: rest.avatarUrl || null,
       status: rest.status ?? null,
       presence_state: rest.presenceState || null,
@@ -637,6 +641,7 @@ export function AppProvider({ session, children }) {
     setDefaultEntryMode(entryMode);
     setDefaultLandingPage(landingPage);
     try { localStorage.setItem("ql_default_landing", landingPage); } catch { /* ignore */ }
+    setStickyColor(stickyColorClean);
     setShowSettings(false);
     flash("✓ Settings saved");
     // Best-effort: push the new avatar/name into any active sync sessions.
@@ -1296,7 +1301,7 @@ export function AppProvider({ session, children }) {
   const value = {
     // data
     session, entries, projects, settings, templates, dataSyncing, dataLoaded,
-    hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage,
+    hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage, stickyColor, setStickyColor,
     setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget,
     updateStatus,
     // ui

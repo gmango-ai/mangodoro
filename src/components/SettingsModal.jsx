@@ -75,6 +75,47 @@ function TemplateEditor({ value, onChange, onAddBreak, onChangeBreak, onRemoveBr
 
 const COLORS = ["#14b8a6", "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#ef4444", "#64748b"];
 
+// Pastel palette for retro sticky notes. Stays light enough that body
+// text reads in either theme without needing a per-color contrast tweak.
+const STICKY_COLORS = [
+  { hex: "#fde68a", label: "Yellow" },
+  { hex: "#fbcfe8", label: "Pink" },
+  { hex: "#bfdbfe", label: "Blue" },
+  { hex: "#bbf7d0", label: "Green" },
+  { hex: "#ddd6fe", label: "Purple" },
+  { hex: "#fed7aa", label: "Orange" },
+  { hex: "#fecaca", label: "Coral" },
+  { hex: "#e2e8f0", label: "Slate" },
+];
+
+function StickyColorPicker({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      {STICKY_COLORS.map((c) => {
+        const active = value?.toLowerCase() === c.hex.toLowerCase();
+        return (
+          <button
+            key={c.hex}
+            type="button"
+            onClick={() => onChange(c.hex)}
+            title={c.label}
+            aria-label={c.label}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 8,
+              background: c.hex,
+              border: active ? "2px solid var(--color-text)" : "2px solid transparent",
+              cursor: "pointer",
+              boxShadow: active ? "0 0 0 1px var(--color-surface)" : "none",
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function ProjectEditor({ value, onChange, onSave, onCancel, saveLabel = "Save project" }) {
   const inputCls = "bg-[var(--color-input-bg)] border-[var(--color-border)] text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus-visible:ring-[var(--color-accent)]/40 focus-visible:ring-2 text-sm shadow-sm h-9";
   return (
@@ -293,6 +334,13 @@ export default function SettingsModal() {
                     <SelectItem value="log" className="focus:bg-[var(--color-accent-light)]">Time tracker</SelectItem>
                   </SelectContent>
                 </Select>
+              </FieldRow>
+
+              <FieldRow label="Sticky-note color" hint="Background tint for the retro cards you write">
+                <StickyColorPicker
+                  value={draftSettings._stickyColor || "#fde68a"}
+                  onChange={(v) => setDraftSettings((d) => ({ ...d, _stickyColor: v }))}
+                />
               </FieldRow>
 
               <p style={{ fontSize: 11, fontWeight: 600, color: "var(--color-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 20, marginBottom: 0 }}>Time tracking</p>
