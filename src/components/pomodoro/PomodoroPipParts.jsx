@@ -33,9 +33,7 @@ function PipAvatar({ participant, dark, isLeader }) {
     <div
       className={`relative rounded-full overflow-hidden border shrink-0 ${
         isLeader
-          ? dark
-            ? "border-cyan-400"
-            : "border-teal-500"
+          ? "border-[var(--color-accent)]"
           : dark
             ? "border-slate-700"
             : "border-slate-300"
@@ -48,9 +46,7 @@ function PipAvatar({ participant, dark, isLeader }) {
         <span
           className={`flex items-center justify-center w-full h-full text-[11px] font-bold ${
             isLeader
-              ? dark
-                ? "bg-cyan-500/30 text-cyan-300"
-                : "bg-teal-100 text-teal-700"
+              ? "bg-[var(--color-accent-light-hover)] text-[var(--color-accent)]"
               : dark
                 ? "bg-slate-800 text-slate-400"
                 : "bg-slate-100 text-slate-500"
@@ -140,8 +136,8 @@ export function PipFace({
     `flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-1.5 py-1 rounded-md transition-colors ${
       active
         ? dark
-          ? "bg-cyan-500 text-white shadow"
-          : "bg-teal-600 text-white shadow"
+          ? "bg-[var(--color-accent)] text-white shadow"
+          : "bg-[var(--color-accent)] text-white shadow"
         : dark
           ? "text-slate-300 hover:bg-slate-800"
           : "text-slate-600 hover:bg-slate-100"
@@ -301,8 +297,8 @@ export function PipFace({
                           title="Make leader"
                           className={`text-[11px] w-5 h-5 flex items-center justify-center rounded ${
                             dark
-                              ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-700"
-                              : "text-slate-500 hover:text-teal-700 hover:bg-slate-200"
+                              ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-slate-700"
+                              : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-200"
                           }`}
                         >
                           ★

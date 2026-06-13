@@ -40,15 +40,15 @@ export default function EntryRow({ entry, index }) {
 
   const inputClass = `w-full px-4 py-3 rounded-lg text-sm transition-all focus:outline-none focus:ring-2 ${
     dark
-      ? "bg-slate-900/50 border border-slate-700/50 text-white placeholder:text-slate-500 focus:border-cyan-500 focus:ring-cyan-500/20"
-      : "bg-white/80 border border-slate-200 text-slate-800 placeholder:text-slate-400 focus:border-blue-400 focus:ring-blue-100"
+      ? "bg-slate-900/50 border border-slate-700/50 text-white placeholder:text-slate-500 focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-light)]"
+      : "bg-white/80 border border-slate-200 text-slate-800 placeholder:text-slate-400 focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-light)]"
   }`;
 
   if (isEditing && inlineForm) {
     const inlinePreviewMins = calcWorked(inlineForm.start, inlineForm.end, inlineForm.breaks);
     return (
       <div className={`p-4 sm:p-5 rounded-xl border transition-all ${
-        dark ? "bg-slate-800/40 border-cyan-500/30 shadow-[0_4px_24px_rgba(6,182,212,0.1)]" : "bg-white/80 border-blue-400/30 shadow-lg shadow-blue-500/10"
+        dark ? "bg-slate-800/40 border-[var(--color-accent)] shadow-lg" : "bg-white/80 border-[var(--color-accent)] shadow-lg"
       }`}>
         <div className="grid grid-cols-1 gap-4 mb-4">
           <div>
@@ -90,8 +90,8 @@ export default function EntryRow({ entry, index }) {
               disabled={rewritingDesc || !inlineForm.description?.trim()}
               className={`mt-1.5 flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                 dark
-                  ? "bg-slate-800/80 border-slate-700 text-cyan-400 hover:enabled:bg-slate-700 hover:enabled:border-cyan-500/50"
-                  : "bg-white/80 border-slate-200 text-teal-600 hover:enabled:bg-slate-50 hover:enabled:border-teal-300"
+                  ? "bg-slate-800/80 border-slate-700 text-[var(--color-accent)] hover:enabled:bg-slate-700 hover:enabled:border-[var(--color-accent)]"
+                  : "bg-white/80 border-slate-200 text-[var(--color-accent)] hover:enabled:bg-slate-50 hover:enabled:border-[var(--color-accent)]"
               }`}
             >
               {rewritingDesc ? (
@@ -115,8 +115,8 @@ export default function EntryRow({ entry, index }) {
               onCheckedChange={(v) => setInlineField("billable", !!v)}
               className={`w-5 h-5 rounded border-2 transition-all ${
                 dark
-                  ? "border-slate-700 data-[state=checked]:bg-gradient-to-br data-[state=checked]:from-cyan-500 data-[state=checked]:to-teal-500 data-[state=checked]:border-cyan-500"
-                  : "border-slate-300 data-[state=checked]:bg-teal-600 data-[state=checked]:border-teal-600"
+                  ? "border-slate-700 data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
+                  : "border-slate-300 data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
               }`}
             />
             <Label htmlFor={`ib-bill-${entry.id}`} className={`text-sm font-medium cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
@@ -280,7 +280,7 @@ export default function EntryRow({ entry, index }) {
             <button
               onClick={() => startInlineEdit(entry)}
               title="Edit"
-              className={`p-1.5 sm:p-2 rounded-lg transition-all ${dark ? "text-cyan-400 hover:bg-cyan-500/10" : "text-blue-600 hover:bg-blue-50"}`}
+              className="p-1.5 sm:p-2 rounded-lg transition-all text-[var(--color-accent)] hover:bg-[var(--color-accent-light)]"
             >
               <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>

@@ -247,12 +247,17 @@ export function findAccent(key) {
 
 // Apply the accent's CSS variables to the document root. Called on
 // mount and on settings/theme change.
+//
+// We pass `"important"` so the inline values beat the `.dark { ... }`
+// class block in index.css, which defines its own --color-accent
+// family at the same specificity (class-on-:root). Without important,
+// the dark theme stayed teal regardless of which accent the user picked.
 export function applyAccent(key, dark) {
   if (typeof document === "undefined") return;
   const accent = findAccent(key);
   const vars = dark ? accent.dark : accent.light;
   const root = document.documentElement;
   for (const [name, value] of Object.entries(vars)) {
-    root.style.setProperty(name, value);
+    root.style.setProperty(name, value, "important");
   }
 }

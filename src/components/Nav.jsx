@@ -7,6 +7,7 @@ import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
 import { Sun, Moon, LogOut, Loader2, Timer, Users, Building2, Settings as SettingsIcon, Menu, X, ChevronDown } from "lucide-react";
 import UserAvatar from "./UserAvatar";
+import LogoMark from "./LogoMark";
 
 const PRESENCE_DOT_COLOR = {
   active: "bg-emerald-500",
@@ -120,12 +121,12 @@ export default function Nav({ onOpenPomodoro }) {
               avatar moved to the right of the bar so the product name
               isn't pushed offscreen by a long name. */}
           <NavLink to="/pomodoro" className="flex items-center gap-2 shrink-0">
-            <img
-              src="/logo.svg"
-              alt=""
-              className={`h-6 sm:h-7 ${darkMode ? "brightness-0 invert" : ""}`}
+            <span
+              className="inline-flex text-[var(--color-accent)]"
               aria-hidden
-            />
+            >
+              <LogoMark size={28} />
+            </span>
             <span
               className={`text-base sm:text-lg font-bold tracking-tight ${
                 darkMode ? "text-white" : "text-slate-800"
@@ -193,11 +194,9 @@ export default function Nav({ onOpenPomodoro }) {
             {settings.avatarUrl ? (
               <UserAvatar url={settings.avatarUrl} name={settings.name} size={28} className="shrink-0" />
             ) : (
-              <img
-                src="/logo.svg"
-                alt="Mangodoro"
-                className={`h-6 shrink-0 ${darkMode ? "brightness-0 invert" : ""}`}
-              />
+              <span className="inline-flex shrink-0 text-[var(--color-accent)]" aria-label="Mangodoro">
+                <LogoMark size={24} />
+              </span>
             )}
             <span className={`text-sm font-semibold truncate ${darkMode ? "text-slate-100" : "text-slate-800"}`}>
               {settings.name ? `${settings.name}` : "Mangodoro"}

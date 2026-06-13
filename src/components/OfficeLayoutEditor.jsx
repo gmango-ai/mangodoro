@@ -231,7 +231,7 @@ function CornerHandle({ pos, cursor, onPointerDown }) {
       aria-label={`Resize ${pos}`}
     >
       <span
-        className={`absolute ${dotPos} w-1.5 h-1.5 rounded-full bg-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity`}
+        className={`absolute ${dotPos} w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] opacity-0 group-hover:opacity-100 transition-opacity`}
         aria-hidden
       />
     </span>
@@ -362,22 +362,22 @@ function LayoutTile({
               hover so the affordance is discoverable without being noisy. */}
           <span
             onPointerDown={startResize({ n: true })}
-            className="absolute top-0 left-3 right-3 h-1.5 cursor-ns-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            className="absolute top-0 left-3 right-3 h-1.5 cursor-ns-resize touch-none rounded bg-transparent hover:bg-[var(--color-accent-light-hover)] transition-colors"
             aria-label="Resize from top"
           />
           <span
             onPointerDown={startResize({ s: true })}
-            className="absolute bottom-0 left-3 right-3 h-1.5 cursor-ns-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            className="absolute bottom-0 left-3 right-3 h-1.5 cursor-ns-resize touch-none rounded bg-transparent hover:bg-[var(--color-accent-light-hover)] transition-colors"
             aria-label="Resize from bottom"
           />
           <span
             onPointerDown={startResize({ w: true })}
-            className="absolute left-0 top-3 bottom-3 w-1.5 cursor-ew-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            className="absolute left-0 top-3 bottom-3 w-1.5 cursor-ew-resize touch-none rounded bg-transparent hover:bg-[var(--color-accent-light-hover)] transition-colors"
             aria-label="Resize from left"
           />
           <span
             onPointerDown={startResize({ e: true })}
-            className="absolute right-0 top-3 bottom-3 w-1.5 cursor-ew-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            className="absolute right-0 top-3 bottom-3 w-1.5 cursor-ew-resize touch-none rounded bg-transparent hover:bg-[var(--color-accent-light-hover)] transition-colors"
             aria-label="Resize from right"
           />
           {/* Corner zones — rendered after edges so they sit on top and

@@ -121,7 +121,7 @@ export default function LogPage() {
                 {/* Month Header */}
                 <div className={`p-4 sm:p-5 rounded-xl transition-all ${
                   dark
-                    ? "bg-slate-900/40 backdrop-blur-xl border border-slate-800/50 hover:border-cyan-500/30"
+                    ? "bg-slate-900/40 backdrop-blur-xl border border-slate-800/50 hover:border-[var(--color-accent)]"
                     : "bg-white/40 backdrop-blur-xl border border-slate-200/60 hover:border-blue-300/60"
                 }`}>
                   {/* Row 1: toggle + name + duration */}
@@ -131,7 +131,7 @@ export default function LogPage() {
                       className="flex items-center gap-3 text-left flex-1 min-w-0"
                     >
                       {isMonthExpanded
-                        ? <ChevronDown className={`w-5 h-5 flex-shrink-0 ${dark ? "text-cyan-400" : "text-blue-600"}`} />
+                        ? <ChevronDown className="w-5 h-5 flex-shrink-0 text-[var(--color-accent)]" />
                         : <ChevronRight className={`w-5 h-5 flex-shrink-0 ${dark ? "text-slate-500" : "text-slate-400"}`} />
                       }
                       <div>
@@ -143,7 +143,7 @@ export default function LogPage() {
                         </p>
                       </div>
                     </button>
-                    <div className={`text-xl font-mono font-semibold flex-shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`}>
+                    <div className="text-xl font-mono font-semibold flex-shrink-0 text-[var(--color-accent)]">
                       {formatDuration(monthMins)}
                     </div>
                   </div>
@@ -211,14 +211,14 @@ export default function LogPage() {
                           >
                             <div className="flex items-center gap-3">
                               {isWeekExpanded
-                                ? <ChevronDown className={`w-4 h-4 ${dark ? "text-teal-400" : "text-teal-600"}`} />
+                                ? <ChevronDown className="w-4 h-4 text-[var(--color-accent)]" />
                                 : <ChevronRight className={`w-4 h-4 ${dark ? "text-slate-500" : "text-slate-400"}`} />
                               }
                               <span className={`text-sm font-semibold ${dark ? "text-slate-300" : "text-slate-700"}`}>
                                 {weekRangeLabel(weekKey)}
                               </span>
                             </div>
-                            <div className={`text-lg font-mono font-semibold ${dark ? "text-teal-400" : "text-teal-600"}`}>
+                            <div className="text-lg font-mono font-semibold text-[var(--color-accent)]">
                               {formatDuration(weekMins)}
                             </div>
                           </button>
@@ -307,19 +307,19 @@ export default function LogPage() {
                                                 <div className="flex items-center gap-3 mt-1.5">
                                                   {billMins > 0 && (
                                                     <span className="flex items-center gap-1">
-                                                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dark ? "bg-cyan-500" : "bg-teal-500"}`} />
+                                                      <span className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--color-accent)]" />
                                                       <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>{formatDuration(billMins)}</span>
                                                     </span>
                                                   )}
                                                   {nonBillMins > 0 && (
                                                     <span className="flex items-center gap-1">
-                                                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dark ? "bg-teal-900" : "bg-teal-800"}`} />
+                                                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dark ? "bg-slate-700" : "bg-slate-300"}`} />
                                                       <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>{formatDuration(nonBillMins)}</span>
                                                     </span>
                                                   )}
                                                   {brkMins > 0 && (
                                                     <span className="flex items-center gap-1">
-                                                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dark ? "bg-cyan-300" : "bg-teal-200"}`} />
+                                                      <span className="w-2 h-2 rounded-full flex-shrink-0 bg-[var(--color-accent-light-hover)]" />
                                                       <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>{brkMins}m break</span>
                                                     </span>
                                                   )}

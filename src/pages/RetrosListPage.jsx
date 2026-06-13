@@ -189,7 +189,7 @@ export default function RetrosListPage() {
               onClick={() => setStatusFilter(t.key)}
               className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
                 active
-                  ? dark ? "bg-cyan-500/15 border-cyan-500/50 text-cyan-200" : "bg-teal-50 border-teal-300 text-teal-700"
+                  ? "bg-[var(--color-accent-light)] border-[var(--color-accent)] text-[var(--color-accent)]"
                   : dark
                     ? "bg-slate-800/40 border-slate-700 text-slate-300 hover:border-slate-600"
                     : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
@@ -247,7 +247,7 @@ export default function RetrosListPage() {
                   <Link
                     to={`/retros/${existing.id}`}
                     className={`${cardCls} block transition-colors ${
-                      dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
+                      "hover:border-[var(--color-accent)]"
                     } ${existing.archived_at ? "opacity-60" : ""}`}
                   >
                     <div className="flex items-center justify-between gap-2 pr-8">
@@ -275,10 +275,10 @@ export default function RetrosListPage() {
                     </div>
                     {existing.goal && (
                       <p className={`mt-1.5 text-xs flex items-start gap-1.5 ${dark ? "text-slate-300" : "text-slate-600"}`}>
-                        <Target className={`w-3 h-3 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+                        <Target className="w-3 h-3 mt-0.5 shrink-0 text-[var(--color-accent)]" />
                         <span className="line-clamp-2">
                           <span className={`text-[10px] uppercase tracking-wider font-bold mr-1 ${
-                            dark ? "text-cyan-400" : "text-teal-600"
+                            "text-[var(--color-accent)]"
                           }`}>Next week:</span>
                           {existing.goal}
                         </span>

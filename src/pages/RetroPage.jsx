@@ -37,7 +37,7 @@ const LANE_ACCENT = {
   celebrate: { dark: "text-amber-400 bg-amber-500/15", light: "text-amber-600 bg-amber-50" },
   went_well: { dark: "text-emerald-400 bg-emerald-500/15", light: "text-emerald-600 bg-emerald-50" },
   to_improve: { dark: "text-rose-400 bg-rose-500/15", light: "text-rose-600 bg-rose-50" },
-  next_week: { dark: "text-cyan-400 bg-cyan-500/15", light: "text-teal-600 bg-teal-50" },
+  next_week: { dark: "text-[var(--color-accent)] bg-[var(--color-accent-light)]", light: "text-[var(--color-accent)] bg-[var(--color-accent-light)]" },
 };
 
 const STICKY_COLORS = [
@@ -269,7 +269,7 @@ export default function RetroPage() {
   if (!retro) {
     return (
       <main className="px-4 pt-6 pb-24 max-w-[1080px] mx-auto">
-        <Link to="/retros" className={`inline-flex items-center gap-1 text-sm ${dark ? "text-cyan-400" : "text-teal-600"}`}>
+        <Link to="/retros" className="inline-flex items-center gap-1 text-sm text-[var(--color-accent)]">
           <ArrowLeft className="w-4 h-4" /> Back to retros
         </Link>
         <p className={`mt-3 text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
@@ -350,8 +350,8 @@ export default function RetroPage() {
       {/* Goal */}
       <div className={`${cardCls}`}>
         <div className="flex items-start gap-3">
-          <div className={`p-2 rounded-lg shrink-0 ${dark ? "bg-cyan-500/10" : "bg-teal-50"}`}>
-            <Target className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+          <div className="p-2 rounded-lg shrink-0 bg-[var(--color-accent-light)]">
+            <Target className="w-5 h-5 text-[var(--color-accent)]" />
           </div>
           <div className="flex-1 min-w-0">
             <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
