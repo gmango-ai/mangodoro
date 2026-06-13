@@ -29,6 +29,8 @@ import OfficePage from "./pages/OfficePage";
 import JoinSyncPage from "./pages/JoinSyncPage";
 import JoinTeamPage from "./pages/JoinTeamPage";
 import AccountPage from "./pages/AccountPage";
+import SettingsPage from "./pages/SettingsPage";
+import { applyAccent } from "./lib/accent";
 
 function AppLayout({ session }) {
   const { theme } = useTheme();
@@ -36,6 +38,14 @@ function AppLayout({ session }) {
   const { settings, dataSyncing, clockIn, projects } = useApp();
   const { joinSession } = useSyncSession();
   const location = useLocation();
+
+  // Apply the user's accent color to the document root whenever the
+  // chosen palette or theme changes. Default is "teal" which matches
+  // the existing --color-accent values, so first-time users see no
+  // change.
+  useEffect(() => {
+    applyAccent(settings.accentColor || "teal", darkMode);
+  }, [settings.accentColor, darkMode]);
 
   useEffect(() => {
     const prevent = (e) => {
@@ -156,6 +166,7 @@ function AppLayout({ session }) {
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
             />
             <Route path="/office" element={<OfficePage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="/account" element={<AccountPage session={session} />} />
           </Routes>
         </div>

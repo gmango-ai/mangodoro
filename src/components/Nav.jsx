@@ -117,42 +117,25 @@ export default function Nav({ onOpenPomodoro }) {
             <Menu className="w-5 h-5" />
           </button>
 
-          {/* Logo + title */}
-          <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
-            <div className="relative shrink-0">
-              {settings.avatarUrl ? (
-                <UserAvatar url={settings.avatarUrl} name={settings.name} size={32} />
-              ) : (
-                <img
-                  src="/logo.svg"
-                  alt="Mangodoro"
-                  className={`h-6 sm:h-8 ${darkMode ? "brightness-0 invert" : ""}`}
-                />
-              )}
-              {settings.avatarUrl && (
-                <span
-                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ${presenceDot} ${
-                    darkMode ? "ring-slate-900" : "ring-white"
-                  }`}
-                  title={`Status: ${settings.presenceState || "active"}${settings.status ? ` — ${settings.status}` : ""}`}
-                />
-              )}
-            </div>
-            <div className="min-w-0">
-              <h1
-                className={`text-xs sm:text-sm font-semibold truncate ${darkMode ? "text-white" : "text-slate-800"}`}
-              >
-                {settings.name ? `${settings.name}'s Mangodoro` : "Mangodoro"}
-              </h1>
-              <p
-                className={`text-[11px] sm:text-xs font-mono tracking-tight truncate ${darkMode ? "text-slate-500" : "text-slate-500"}`}
-              >
-                {todayMins > 0
-                  ? `Today · ${formatDuration(todayMins)}`
-                  : "No hours logged today"}
-              </p>
-            </div>
-          </div>
+          {/* Brand — logo + wordmark, always visible. The user's
+              avatar moved to the right of the bar so the product name
+              isn't pushed offscreen by a long name. */}
+          <NavLink to="/pomodoro" className="flex items-center gap-2 shrink-0">
+            <img
+              src="/logo.svg"
+              alt=""
+              className={`h-6 sm:h-7 ${darkMode ? "brightness-0 invert" : ""}`}
+              aria-hidden
+            />
+            <span
+              className={`text-base sm:text-lg font-bold tracking-tight ${
+                darkMode ? "text-white" : "text-slate-800"
+              }`}
+              style={{ fontFamily: "'Parkinsans', sans-serif" }}
+            >
+              Mangodoro
+            </span>
+          </NavLink>
 
           {/* Desktop: full nav + actions */}
           <div className="hidden sm:flex items-center gap-4">
@@ -186,20 +169,53 @@ export default function Nav({ onOpenPomodoro }) {
                 )}
               </button>
 
+              {/* User chip — avatar + today's hours, tooltipped with
+                  status. Lives on the right so the brand on the left
+                  stays untouched. Click → account page. */}
+              <NavLink
+                to="/account"
+                title={`${settings.name || "You"} — ${
+                  todayMins > 0 ? `Today: ${formatDuration(todayMins)}` : "No hours logged today"
+                }${settings.status ? ` · ${settings.status}` : ""}`}
+                className={`flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full transition-colors ${
+                  darkMode ? "hover:bg-slate-800/50" : "hover:bg-slate-100"
+                }`}
+              >
+                <span className="relative">
+                  <UserAvatar url={settings.avatarUrl} name={settings.name || "?"} size={24} />
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ${presenceDot} ${
+                      darkMode ? "ring-slate-900" : "ring-white"
+                    }`}
+                  />
+                </span>
+                {todayMins > 0 && (
+                  <span className={`text-[10px] font-mono ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                    {formatDuration(todayMins)}
+                  </span>
+                )}
+              </NavLink>
+
               <button onClick={toggleTheme} className={themeBtnCls} title={darkMode ? "Light mode" : "Dark mode"}>
                 {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
 
-              <button
-                onClick={openSettings}
-                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                  darkMode
-                    ? "bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50"
-                    : "bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-lg shadow-teal-500/30"
-                }`}
+              <NavLink
+                to="/settings"
+                className={({ isActive }) =>
+                  `px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    isActive
+                      ? darkMode
+                        ? "bg-cyan-500/15 text-cyan-200"
+                        : "bg-teal-100 text-teal-800"
+                      : darkMode
+                        ? "bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50"
+                        : "bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-lg shadow-teal-500/30"
+                  }`
+                }
               >
                 Settings
-              </button>
+              </NavLink>
 
               <button
                 onClick={() => supabase.auth.signOut()}
@@ -299,9 +315,9 @@ export default function Nav({ onOpenPomodoro }) {
             <Timer className="w-5 h-5" /> Quick timer
           </button>
 
-          <button
-            type="button"
-            onClick={() => { setSidebarOpen(false); openSettings?.(); }}
+          <NavLink
+            to="/settings"
+            onClick={() => setSidebarOpen(false)}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
               darkMode
                 ? "text-slate-300 hover:text-slate-100 hover:bg-slate-800/60"
@@ -309,7 +325,7 @@ export default function Nav({ onOpenPomodoro }) {
             }`}
           >
             <SettingsIcon className="w-5 h-5" /> Settings
-          </button>
+          </NavLink>
 
           <button
             type="button"
