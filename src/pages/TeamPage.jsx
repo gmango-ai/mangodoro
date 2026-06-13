@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
-  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check,
+  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
@@ -432,6 +432,21 @@ export default function TeamPage() {
               </div>
             </div>
           )}
+
+          {/* Retro Link (everyone) */}
+          <button
+            onClick={() => navigate("/team/retro")}
+            className={`w-full ${cardCls} flex items-center justify-between hover:border-teal-500/50 transition-colors cursor-pointer`}
+          >
+            <div className="flex items-center gap-3">
+              <Target className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+              <div className="text-left">
+                <p className={headingCls}>Team Retro</p>
+                <p className={subCls}>Celebrate, reflect, and set this week's goal</p>
+              </div>
+            </div>
+            <ArrowRight className={`w-5 h-5 ${dark ? "text-slate-500" : "text-slate-400"}`} />
+          </button>
 
           {/* Timesheets Link (admin only) */}
           {isAdmin && (
