@@ -8,11 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
-  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Briefcase, Users2, Building2, ShieldAlert, DollarSign,
+  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
+  MoreVertical,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
@@ -54,7 +55,8 @@ export default function TeamPage() {
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   // Which org_team's member-management modal is open. Null = none.
   const [managingTeam, setManagingTeam] = useState(null);
   const [hrMember, setHrMember] = useState(null);
@@ -177,16 +179,16 @@ export default function TeamPage() {
   async function handleCopyCode() {
     if (!activeTeam?.invite_code) return;
     await navigator.clipboard.writeText(activeTeam.invite_code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
   }
 
   async function handleCopyLink() {
     if (!activeTeam?.invite_code) return;
     const link = `${window.location.origin}/team/join/${activeTeam.invite_code}`;
     await navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   }
 
   async function handleRegenerateCode() {
@@ -452,8 +454,9 @@ export default function TeamPage() {
             onCopyCode={handleCopyCode}
             onCopyLink={handleCopyLink}
             onRegenerate={handleRegenerateCode}
-            copiedCode={copied}
-            copiedLink={copied}
+            copiedCode={copiedCode}
+            copiedLink={copiedLink}
+            memberCount={teamMembers.length}
           />
 
           {/* ─── ORG ─────────────────────────────────────────────── */}
@@ -779,66 +782,70 @@ function MemberCard({
   const joinedDate = new Date(m.joined_at).toLocaleDateString(undefined, {
     month: "short", day: "numeric", year: "numeric",
   });
-  const taglineParts = [];
-  if (m.role === "admin") taglineParts.push(isOwner ? "Owner" : "Admin");
-  else taglineParts.push("Member");
-  if (m.classification === "salary") taglineParts.push("Salary");
+  const roleLabel = m.role === "admin" ? (isOwner ? "Owner" : "Admin") : "Member";
+  const compParts = [];
+  if (m.classification === "salary") compParts.push("Salary");
   else if (m.classification === "hourly") {
-    taglineParts.push(`Hourly${m.hourly_rate ? ` · $${Number(m.hourly_rate).toFixed(0)}/hr` : ""}`);
+    compParts.push(`Hourly${m.hourly_rate ? ` · $${Number(m.hourly_rate).toFixed(0)}/hr` : ""}`);
   }
 
   return (
     <div className={`rounded-xl px-3 py-3 ${dark ? "bg-slate-800/40" : "bg-slate-50"}`}>
       {/* Row 1: identity + actions */}
       <div className="flex items-start gap-3">
-        {/* Avatar + presence ring + admin crown overlay */}
+        {/* Avatar with presence ring. Admin status is shown in the
+            tagline and (for editable rows) in the role dropdown — the
+            crown overlay used to add a third signal that just made the
+            row noisier. */}
         <div className={`relative shrink-0 rounded-full ring-2 ring-offset-2 ${presenceRing} ${
           dark ? "ring-offset-slate-800/40" : "ring-offset-slate-50"
         }`}>
           <UserAvatar url={m.avatar_url} name={m.name} size={40} />
-          {m.role === "admin" && (
-            <span
-              className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center shadow ${
-                dark ? "bg-amber-400 text-slate-900" : "bg-amber-400 text-white"
-              }`}
-              title={isOwner ? "Owner" : "Admin"}
-            >
-              <Crown className="w-3 h-3" fill="currentColor" />
-            </span>
-          )}
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className={`text-sm font-bold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
-            {m.name}
-          </p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className={`text-sm font-bold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
+              {m.name}
+            </p>
+            {/* Role pill — prominent, since the crown overlay is gone.
+                Owner gets the strongest treatment, admin a softer one,
+                regular member is implicit (no pill at all). */}
+            {m.role === "admin" && (
+              <span
+                className={`inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                  isOwner
+                    ? dark ? "bg-amber-400/15 text-amber-300" : "bg-amber-100 text-amber-700"
+                    : dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-100 text-teal-700"
+                }`}
+              >
+                <Crown className="w-2.5 h-2.5" fill="currentColor" />
+                {roleLabel}
+              </span>
+            )}
+          </div>
           <p className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
             {presenceLabel}
             {m.status ? ` · ${m.status}` : ""}
             {" · "}Joined {joinedDate}
           </p>
-          <p className={`text-[11px] mt-0.5 truncate ${dark ? "text-slate-300" : "text-slate-600"}`}>
-            {taglineParts.join(" · ")}
-          </p>
+          {compParts.length > 0 && (
+            <p className={`text-[11px] mt-0.5 truncate ${dark ? "text-slate-300" : "text-slate-600"}`}>
+              {compParts.join(" · ")}
+            </p>
+          )}
         </div>
 
-        {/* Admin actions — labeled buttons, not mystery icons. Role
-            change goes through a dropdown rather than two crowns. */}
+        {/* Admin actions. Inline: role dropdown (a primary,
+            understandable axis of control). Behind kebab: Comp + Teams
+            (less frequent) and the destructive Remove (kept off the
+            role dropdown so role-change isn't co-located with destroy). */}
         {isAdmin && (
-          <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-end">
-            <Button variant="outline" size="sm" onClick={onEditHR} className="h-7 text-xs">
-              <DollarSign className="w-3.5 h-3.5 mr-1" /> Pay
-            </Button>
-            <Button variant="outline" size="sm" onClick={onEditTeams} className="h-7 text-xs">
-              <Users2 className="w-3.5 h-3.5 mr-1" /> Teams
-            </Button>
-            {!isOwner && (
+          <div className="flex items-center gap-1.5 shrink-0 justify-end">
+            {!isOwner ? (
               <Select
                 value={m.role === "admin" ? "admin" : "member"}
-                onValueChange={(v) => {
-                  if (v === "remove") onRemove();
-                  else if (v !== m.role) onToggleRole();
-                }}
+                onValueChange={(v) => { if (v !== m.role) onToggleRole(); }}
               >
                 <SelectTrigger
                   className={`h-7 text-xs px-2 w-auto gap-1 ${
@@ -850,13 +857,22 @@ function MemberCard({
                 <SelectContent>
                   <SelectItem value="member">Member</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
-                  <SelectSeparator />
-                  <SelectItem value="remove" className="text-red-500 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-500/10 dark:focus:text-red-300">
-                    Remove from org…
-                  </SelectItem>
                 </SelectContent>
               </Select>
+            ) : (
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-1 ${
+                dark ? "text-slate-500" : "text-slate-400"
+              }`}>
+                Owner
+              </span>
             )}
+            <MemberActionsMenu
+              dark={dark}
+              canRemove={!isOwner}
+              onEditComp={onEditHR}
+              onEditTeams={onEditTeams}
+              onRemove={onRemove}
+            />
           </div>
         )}
       </div>
@@ -900,6 +916,98 @@ function MemberCard({
             >
               + Manage
             </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Kebab overflow menu for less-frequent member actions. We close on
+// outside click and Escape — the standard expectations. Lives inline
+// (not a portal) because the row clipping isn't an issue at our card
+// widths; if we hit overflow later we can lift it into a Popover.
+function MemberActionsMenu({ dark, canRemove, onEditComp, onEditTeams, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const itemCls = `flex items-center gap-2 w-full text-left px-3 py-2 text-xs font-medium transition-colors ${
+    dark ? "text-slate-200 hover:bg-slate-700/60" : "text-slate-700 hover:bg-slate-100"
+  }`;
+  const destructiveCls = `flex items-center gap-2 w-full text-left px-3 py-2 text-xs font-medium transition-colors ${
+    dark ? "text-red-300 hover:bg-red-500/15" : "text-red-600 hover:bg-red-50"
+  }`;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Member actions"
+        className={`h-7 w-7 rounded-md border inline-flex items-center justify-center transition-colors ${
+          dark
+            ? "bg-slate-900/60 border-slate-700 text-slate-300 hover:bg-slate-700/60"
+            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+        }`}
+      >
+        <MoreVertical className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className={`absolute right-0 top-full mt-1 z-40 min-w-[160px] rounded-lg border shadow-lg overflow-hidden py-1 ${
+            dark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+          }`}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className={itemCls}
+            onClick={() => { setOpen(false); onEditComp(); }}
+          >
+            <DollarSign className="w-3.5 h-3.5 opacity-70" />
+            Edit comp
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={itemCls}
+            onClick={() => { setOpen(false); onEditTeams(); }}
+          >
+            <Users2 className="w-3.5 h-3.5 opacity-70" />
+            Edit teams
+          </button>
+          {canRemove && (
+            <>
+              <div className={`my-1 h-px ${dark ? "bg-slate-700/60" : "bg-slate-200"}`} />
+              <button
+                type="button"
+                role="menuitem"
+                className={destructiveCls}
+                onClick={() => { setOpen(false); onRemove(); }}
+              >
+                <UserMinus className="w-3.5 h-3.5" />
+                Remove from org…
+              </button>
+            </>
           )}
         </div>
       )}

@@ -1,23 +1,56 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Copy, Mail, RefreshCw, Sparkles, Check } from "lucide-react";
+import { Copy, Mail, RefreshCw, Sparkles, Check, ChevronDown } from "lucide-react";
 
 // Prominent invite card. Lives at the top of /team because the single
 // most important action for a new org is bringing in teammates — the
-// previous design buried it three sections deep. Stays visible even
-// for established orgs because the same admins keep needing to share
-// the link when someone new joins.
+// previous design buried it three sections deep.
+//
+// For larger orgs (memberCount > 5) the card collapses to a single
+// line by default — the visual loudness only helps when adding people
+// is the dominant action, which is true for new orgs but noise for
+// established ones. Click the row to expand the full form.
 export default function InviteCard({
-  dark, team, isAdmin, onCopyCode, onCopyLink, onRegenerate, copiedCode, copiedLink,
+  dark, team, isAdmin, memberCount = 1,
+  onCopyCode, onCopyLink, onRegenerate, copiedCode, copiedLink,
 }) {
+  const shouldCollapseByDefault = memberCount > 5;
+  const [expanded, setExpanded] = useState(!shouldCollapseByDefault);
   const [emailDraft, setEmailDraft] = useState("");
 
-  const cardCls = `rounded-2xl border p-5 sm:p-6 ${
-    dark
-      ? "bg-gradient-to-br from-cyan-500/10 via-slate-900/60 to-slate-900 border-cyan-500/30"
-      : "bg-gradient-to-br from-teal-50 via-white to-white border-teal-200"
-  }`;
+  // --- Collapsed (compact) variant ---
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors text-left ${
+          dark
+            ? "bg-slate-900/40 border-slate-700/60 hover:bg-slate-800/60 hover:border-cyan-500/40"
+            : "bg-white border-slate-200 hover:border-teal-300 hover:bg-teal-50/40"
+        }`}
+        aria-expanded="false"
+        aria-label="Invite people to this org"
+      >
+        <div className={`p-1.5 rounded-md shrink-0 ${
+          dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-100 text-teal-700"
+        }`}>
+          <Sparkles className="w-3.5 h-3.5" />
+        </div>
+        <span className={`flex-1 text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>
+          Invite people
+        </span>
+        <code className={`hidden sm:inline font-mono text-[11px] tracking-widest ${
+          dark ? "text-cyan-300" : "text-teal-700"
+        }`}>
+          {team.invite_code}
+        </code>
+        <ChevronDown className={`w-4 h-4 ${dark ? "text-slate-500" : "text-slate-400"}`} />
+      </button>
+    );
+  }
 
+  // --- Expanded (full) variant ---
   function handleEmail() {
     const subject = encodeURIComponent(`Join ${team.name} on Mangodoro`);
     const link = `${window.location.origin}/team/join/${team.invite_code}`;
@@ -27,6 +60,12 @@ export default function InviteCard({
     const href = `mailto:${encodeURIComponent(emailDraft.trim())}?subject=${subject}&body=${body}`;
     window.open(href, "_blank", "noopener");
   }
+
+  const cardCls = `rounded-2xl border p-5 sm:p-6 ${
+    dark
+      ? "bg-gradient-to-br from-cyan-500/10 via-slate-900/60 to-slate-900 border-cyan-500/30"
+      : "bg-gradient-to-br from-teal-50 via-white to-white border-teal-200"
+  }`;
 
   return (
     <div className={cardCls}>
@@ -44,6 +83,18 @@ export default function InviteCard({
             Share the link or send a quick email — they'll land directly in {team.name}.
           </p>
         </div>
+        {/* Allow collapse for established orgs once they've expanded. */}
+        {shouldCollapseByDefault && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className={`text-[11px] underline shrink-0 ${
+              dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Collapse
+          </button>
+        )}
       </div>
 
       {/* Action buttons row */}
