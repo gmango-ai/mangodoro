@@ -1,7 +1,41 @@
 import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
+import { useTeam } from "../context/TeamContext";
 import { Crown, ShieldCheck, Trash2, Pencil, Rows3, LayoutGrid, X, Clock } from "lucide-react";
 import ConfirmRow from "./ConfirmRow";
+
+// Inline team chip strip — minimal so it fits next to a participant
+// name without inflating row height. Mirror MemberIdentity's chip
+// style but stripped down; both should converge on the same look.
+function TeamChips({ teams, dark, max = 3 }) {
+  if (!teams || teams.length === 0) return null;
+  const shown = teams.slice(0, max);
+  const overflow = teams.length - shown.length;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 ml-1">
+      {shown.map((t) => (
+        <span
+          key={t.id}
+          className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+          style={{
+            background: `${t.color}22`,
+            color: dark ? "#fff" : t.color,
+            border: `1px solid ${t.color}55`,
+          }}
+          title={t.role === "lead" ? `${t.name} (lead)` : t.name}
+        >
+          <span className="w-1 h-1 rounded-full" style={{ background: t.color }} />
+          {t.name}
+        </span>
+      ))}
+      {overflow > 0 && (
+        <span className={`text-[10px] font-semibold ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          +{overflow}
+        </span>
+      )}
+    </span>
+  );
+}
 
 const PRESENCE_INFO = {
   active:     { label: "Active",       light: "bg-emerald-500", dark: "bg-emerald-400" },
@@ -176,6 +210,7 @@ export default function SyncParticipantList({
 }
 
 function ListView({ participants, leaderId, controllerId, presenceMap, currentUserId, selectedId, onSelect, dark }) {
+  const { teamsByUserId } = useTeam();
   return (
     <ul className="max-h-72 overflow-y-auto -mx-0.5 px-0.5 space-y-1">
       {participants.map((p) => {
@@ -218,9 +253,12 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
-                  {isSelf ? `${p.display_name || "You"} (you)` : (p.display_name || "Member")}
+                <p className={`text-sm font-semibold ${dark ? "text-slate-100" : "text-slate-800"} flex items-center flex-wrap gap-y-0.5`}>
+                  <span className="truncate">
+                    {isSelf ? `${p.display_name || "You"} (you)` : (p.display_name || "Member")}
+                  </span>
                   {isController && <span className={`ml-1 text-[10px] ${dark ? "text-cyan-300" : "text-teal-600"}`}>⏱</span>}
+                  <TeamChips teams={teamsByUserId?.get(p.user_id)} dark={dark} />
                 </p>
                 <p className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
                   {p.status?.trim()
@@ -284,7 +322,9 @@ function ParticipantDetail({
   confirming, setConfirming,
   onTransferLeader, onKickParticipant, onEditMyStatus, onClose,
 }) {
+  const { teamsByUserId } = useTeam();
   const presence = presenceOf(p);
+  const userTeams = teamsByUserId?.get(p.user_id) || [];
 
   return (
     <div
@@ -326,6 +366,11 @@ function ParticipantDetail({
             <div className={`flex items-center gap-1 text-[11px] mt-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
               <Clock className="w-3 h-3" />
               <span>Joined {relativeTime(p.joined_at)}</span>
+            </div>
+          )}
+          {userTeams.length > 0 && (
+            <div className="mt-1.5">
+              <TeamChips teams={userTeams} dark={dark} max={6} />
             </div>
           )}
         </div>

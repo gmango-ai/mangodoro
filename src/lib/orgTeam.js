@@ -93,6 +93,19 @@ export async function setOrgTeamMemberRole(orgTeamId, userId, role) {
   return { error };
 }
 
+// Every org_team_members row scoped to a single org, in one query.
+// Powers the teamsByUserId map in TeamContext so every surface that
+// shows a user (sync sessions, retros, rooms) can render team chips
+// without an N+1 fetch.
+export async function listOrgTeamMembershipsForOrg(orgId) {
+  if (!orgId) return { data: [], error: null };
+  const { data, error } = await supabase
+    .from("org_team_members")
+    .select("org_team_id, user_id, role, org_teams!inner(org_id)")
+    .eq("org_teams.org_id", orgId);
+  return { data: data || [], error };
+}
+
 // Convenience: which of the active org's teams is the given user
 // already in. Used to drive the chip checkbox state in admin UI.
 export async function listMyOrgTeams(orgId, userId) {

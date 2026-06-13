@@ -1,33 +1,36 @@
 import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
-import { X, Briefcase } from "lucide-react";
+import { X, Briefcase, Star } from "lucide-react";
 import UserAvatar from "./UserAvatar";
-import { addOrgTeamMember, removeOrgTeamMember } from "../lib/orgTeam";
+import { addOrgTeamMember, removeOrgTeamMember, setOrgTeamMemberRole } from "../lib/orgTeam";
 
 // Per-member view of team membership: lists every org_team and lets
-// the admin toggle the user in or out. Mirror of OrgTeamMembersModal,
-// just pivoted — that one is team-centric ("who's in SWE?"), this one
-// is member-centric ("what teams is Jacob on?").
+// the admin toggle the user in or out, plus promote/demote them as
+// team lead for the teams they're already in. Mirror of
+// OrgTeamMembersModal — that one is team-centric ("who's in SWE?"),
+// this one is member-centric ("what teams is Jacob on?").
 export default function MemberTeamsModal({
-  open, onClose, member, orgTeams, currentTeamIds, onChange,
+  open, onClose, member, orgTeams, currentTeamIds, currentLeadTeamIds, onChange,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [pending, setPending] = useState(null); // org_team_id currently saving
 
-  // Re-derive the set on every open so an external change (e.g. the
+  // Re-derive the sets on every open so an external change (e.g. the
   // team-centric modal flipping the same user) shows up here too.
   const [memberTeamIds, setMemberTeamIds] = useState(new Set());
+  const [leadTeamIds, setLeadTeamIds] = useState(new Set());
   useEffect(() => {
     if (!open) return;
     setMemberTeamIds(new Set(currentTeamIds || []));
+    setLeadTeamIds(new Set(currentLeadTeamIds || []));
     setPending(null);
-  }, [open, currentTeamIds]);
+  }, [open, currentTeamIds, currentLeadTeamIds]);
 
   if (!open || !member) return null;
 
-  async function toggle(team) {
+  async function toggleMembership(team) {
     const has = memberTeamIds.has(team.id);
     setPending(team.id);
     const { error } = has
@@ -36,8 +39,35 @@ export default function MemberTeamsModal({
     setPending(null);
     if (error) return;
     const next = new Set(memberTeamIds);
-    has ? next.delete(team.id) : next.add(team.id);
+    if (has) {
+      next.delete(team.id);
+      // Removing the user also drops their lead status for that team.
+      if (leadTeamIds.has(team.id)) {
+        const nextLead = new Set(leadTeamIds);
+        nextLead.delete(team.id);
+        setLeadTeamIds(nextLead);
+      }
+    } else {
+      next.add(team.id);
+    }
     setMemberTeamIds(next);
+    onChange?.();
+  }
+
+  async function toggleLead(team) {
+    if (!memberTeamIds.has(team.id)) return; // safety
+    const isLead = leadTeamIds.has(team.id);
+    setPending(team.id);
+    const { error } = await setOrgTeamMemberRole(
+      team.id,
+      member.user_id,
+      isLead ? "member" : "lead",
+    );
+    setPending(null);
+    if (error) return;
+    const next = new Set(leadTeamIds);
+    isLead ? next.delete(team.id) : next.add(team.id);
+    setLeadTeamIds(next);
     onChange?.();
   }
 
@@ -82,6 +112,7 @@ export default function MemberTeamsModal({
           <ul className="flex-1 overflow-y-auto -mx-1 px-1 space-y-1.5">
             {orgTeams.map((t) => {
               const has = memberTeamIds.has(t.id);
+              const isLead = leadTeamIds.has(t.id);
               const busy = pending === t.id;
               return (
                 <li
@@ -100,10 +131,33 @@ export default function MemberTeamsModal({
                   }`}>
                     {t.name}
                   </span>
+                  {/* Lead toggle — only meaningful when the user is in
+                      the team. Tapping promotes/demotes via
+                      setOrgTeamMemberRole. */}
+                  {has && (
+                    <button
+                      type="button"
+                      onClick={() => toggleLead(t)}
+                      disabled={busy}
+                      title={isLead ? "Demote to member" : "Promote to team lead"}
+                      className={`h-7 px-2 inline-flex items-center gap-1 rounded-md text-[11px] font-semibold border transition-colors ${
+                        isLead
+                          ? dark
+                            ? "bg-violet-500/15 border-violet-400/40 text-violet-200 hover:bg-violet-500/25"
+                            : "bg-violet-100 border-violet-300 text-violet-700 hover:bg-violet-200"
+                          : dark
+                            ? "bg-transparent border-slate-700 text-slate-400 hover:text-violet-300 hover:border-violet-500/40"
+                            : "bg-transparent border-slate-300 text-slate-500 hover:text-violet-600 hover:border-violet-400"
+                      }`}
+                    >
+                      <Star className="w-3 h-3" fill={isLead ? "currentColor" : "none"} />
+                      {isLead ? "Lead" : "Promote"}
+                    </button>
+                  )}
                   <Button
                     size="sm"
                     variant={has ? "default" : "outline"}
-                    onClick={() => toggle(t)}
+                    onClick={() => toggleMembership(t)}
                     disabled={busy}
                     className="h-7 text-xs"
                   >

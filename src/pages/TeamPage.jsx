@@ -13,9 +13,10 @@ import {
 import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
   ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
-  MoreVertical, Search, X,
+  MoreVertical, Search, X, Star,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
+import MemberIdentity from "../components/MemberIdentity";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import OrgTeamsCard from "../components/OrgTeamsCard";
 import MemberHRModal from "../components/MemberHRModal";
@@ -25,7 +26,6 @@ import RemoveMemberModal from "../components/RemoveMemberModal";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
-import { listOrgTeamMembers } from "../lib/orgTeam";
 import { supabase } from "../supabase";
 
 const TEAM_COLORS = [
@@ -36,6 +36,7 @@ const TEAM_COLORS = [
 export default function TeamPage() {
   const {
     teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, orgTeams, loadOrgTeamsForActive,
+    teamsByUserId, orgTeamMemberCounts,
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
     removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
     activeTeamSessions, loadActiveTeamSessions,
@@ -58,40 +59,7 @@ export default function TeamPage() {
   const [copiedCode, setCopiedCode] = useState(false);
   // Which org_team's member-management modal is open. Null = none.
   const [hrMember, setHrMember] = useState(null);
-  // Map of org_team_id -> member count. Loaded lazily for the cards.
-  const [orgTeamMemberCounts, setOrgTeamMemberCounts] = useState(new Map());
-  // Map of user_id → array of org_team rows the user belongs to. Drives
-  // the team chips on each member row and the MemberTeamsModal.
-  const [teamsByUserId, setTeamsByUserId] = useState(new Map());
-
-  // Refetch all team memberships whenever the org_teams list changes.
-  useEffect(() => {
-    if (!orgTeams || orgTeams.length === 0) {
-      setOrgTeamMemberCounts(new Map());
-      setTeamsByUserId(new Map());
-      return;
-    }
-    let cancelled = false;
-    Promise.all(orgTeams.map((t) => listOrgTeamMembers(t.id))).then((results) => {
-      if (cancelled) return;
-      const counts = new Map();
-      const byUser = new Map();
-      orgTeams.forEach((t, i) => {
-        const rows = results[i]?.data || [];
-        counts.set(t.id, rows.length);
-        for (const r of rows) {
-          const list = byUser.get(r.user_id) || [];
-          list.push(t);
-          byUser.set(r.user_id, list);
-        }
-      });
-      setOrgTeamMemberCounts(counts);
-      setTeamsByUserId(byUser);
-    });
-    return () => { cancelled = true; };
-  }, [orgTeams]);
-
-  // Per-member team-management modal — "what teams is Jacob on?". The
+// Per-member team-management modal — "what teams is Jacob on?". The
   // team-centric "who's in SWE?" lives in the People filter now.
   const [memberTeamsModalFor, setMemberTeamsModalFor] = useState(null);
   const [memberToRemove, setMemberToRemove] = useState(null);
@@ -448,12 +416,14 @@ export default function TeamPage() {
                       dark ? "bg-slate-800/40" : "bg-slate-50"
                     }`}
                   >
-                    <UserAvatar url={s.leader_avatar} name={s.leader_name} size={32} className="shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${dark ? "text-slate-200" : "text-slate-700"}`}>
-                        {s.leader_name}
-                      </p>
-                      <p className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                      <MemberIdentity
+                        userId={s.leader_id}
+                        fallbackName={s.leader_name}
+                        fallbackAvatarUrl={s.leader_avatar}
+                        size={32}
+                      />
+                      <p className={`text-xs mt-0.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
                         {modeLabel(s.mode)} · {s.participant_count}/{s.max_participants} · {fmtTimeLeft(s)}
                       </p>
                     </div>
@@ -841,6 +811,13 @@ export default function TeamPage() {
             ? (teamsByUserId.get(memberTeamsModalFor.user_id) || []).map((t) => t.id)
             : []
         }
+        currentLeadTeamIds={
+          memberTeamsModalFor
+            ? (teamsByUserId.get(memberTeamsModalFor.user_id) || [])
+                .filter((t) => t.role === "lead")
+                .map((t) => t.id)
+            : []
+        }
         onChange={() => {
           // Realtime usually catches this via the org_team_members
           // subscription in TeamContext, but kick a manual refresh too
@@ -928,6 +905,14 @@ function MemberCard({
     month: "short", day: "numeric", year: "numeric",
   });
   const roleLabel = m.role === "admin" ? (isOwner ? "Owner" : "Admin") : "Member";
+  // A lead in any org_team gets a violet "Lead" badge alongside the
+  // org-level role pill. Distinct purpose from admin: leads scope to
+  // a specific team's rooms + retros, not to the whole org.
+  const leadTeams = (teamsForUser || []).filter((t) => t.role === "lead");
+  const isLead = leadTeams.length > 0;
+  const leadTitle = isLead
+    ? `Lead of ${leadTeams.map((t) => t.name).join(", ")}`
+    : "";
   const compParts = [];
   if (m.classification === "salary") compParts.push("Salary");
   else if (m.classification === "hourly") {
@@ -966,6 +951,17 @@ function MemberCard({
               >
                 <Crown className="w-2.5 h-2.5" fill="currentColor" />
                 {roleLabel}
+              </span>
+            )}
+            {isLead && (
+              <span
+                title={leadTitle}
+                className={`inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                  dark ? "bg-violet-500/15 text-violet-300" : "bg-violet-100 text-violet-700"
+                }`}
+              >
+                <Star className="w-2.5 h-2.5" fill="currentColor" />
+                Lead
               </span>
             )}
           </div>
