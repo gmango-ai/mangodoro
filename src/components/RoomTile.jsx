@@ -97,6 +97,9 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
 
   const isOccupied = !!activeSession;
   const isPulsing = vibe === "active" && isOccupied && activeSession?.is_running;
+  // Room accent color. Falls back to the previous default so older rows
+  // without a color stored still render correctly.
+  const accent = room.color || "#14b8a6";
 
   // Sort occupants so the leader shows first in the stack.
   const occupants = (activeSession?.occupants || []).slice().sort((a, b) => {
@@ -142,16 +145,20 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
         onClick={handlePrimary}
         disabled={busy}
         title={`${room.name} — ${dotTitle}`}
-        className={`relative flex flex-col items-center justify-center rounded-2xl border p-2 transition-all h-full w-full text-center ${tone} ${pulse} ${
+        className={`relative flex flex-col items-center justify-center rounded-2xl border p-2 transition-all h-full w-full text-center overflow-hidden ${tone} ${pulse} ${
           dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
         }`}
       >
+        {/* Accent stripe on the top edge — same idea as Huly's tile
+            accent. Subtle enough not to overwhelm. */}
+        <span
+          className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl"
+          style={{ background: accent }}
+          aria-hidden
+        />
         <div
-          className={`p-1.5 rounded-lg mb-1 ${
-            isOccupied
-              ? dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-100 text-teal-700"
-              : dark ? "bg-slate-800/60 text-slate-300" : "bg-slate-100 text-slate-600"
-          }`}
+          className="p-1.5 rounded-lg mb-1"
+          style={{ background: `${accent}22`, color: accent }}
         >
           <Icon className="w-3.5 h-3.5" />
         </div>
@@ -201,10 +208,18 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
       type="button"
       onClick={handlePrimary}
       disabled={busy}
-      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full ${tone} ${pulse} ${
+      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full overflow-hidden ${tone} ${pulse} ${
         dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
       }`}
     >
+      {/* Accent stripe along the top edge — the primary color
+          identification cue. Kept thin so it doesn't fight tile
+          content. */}
+      <span
+        className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl"
+        style={{ background: accent }}
+        aria-hidden
+      />
       {/* Top row — name + small status indicator. */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -215,11 +230,12 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
           >
             {room.name}
           </p>
-          {/* Soft secondary line — kind + (private badge) */}
+          {/* Soft secondary line — kind + (private badge). Icon tinted
+              with the room's accent so each room reads at a glance. */}
           <p className={`text-[10px] mt-0.5 inline-flex items-center gap-1 ${
             dark ? "text-slate-500" : "text-slate-400"
           }`}>
-            <Icon className="w-2.5 h-2.5 opacity-70" />
+            <Icon className="w-2.5 h-2.5 opacity-90" style={{ color: accent }} />
             {KIND_LABEL[room.kind]}
             {room.kind === "private" && (
               <span className={`uppercase tracking-wider font-bold ${

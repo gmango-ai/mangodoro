@@ -3,8 +3,13 @@ import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Briefcase, MessageSquare, Lock, Users2 } from "lucide-react";
+import { X, Briefcase, MessageSquare, Lock, Users2, Check } from "lucide-react";
 import { createRoomV2 } from "../lib/rooms";
+
+const ROOM_COLORS = [
+  "#14b8a6", "#0ea5e9", "#6366f1", "#8b5cf6", "#ec4899",
+  "#f43f5e", "#f59e0b", "#84cc16", "#10b981", "#64748b",
+];
 
 const KIND_OPTIONS = [
   {
@@ -36,6 +41,7 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
   const dark = theme === "dark";
   const [name, setName] = useState("");
   const [kind, setKind] = useState("meeting");
+  const [color, setColor] = useState(ROOM_COLORS[0]);
   const [selectedTeamIds, setSelectedTeamIds] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -45,6 +51,7 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
     if (open) {
       setName("");
       setKind(isAdmin ? "department" : "meeting");
+      setColor(ROOM_COLORS[0]);
       setSelectedTeamIds([]);
       setBusy(false);
       setError("");
@@ -66,6 +73,7 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
     const { data, error: err } = await createRoomV2(teamId, {
       name,
       kind,
+      color,
       orgTeamIds: selectedTeamIds,
       userId,
     });
@@ -154,6 +162,36 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
           <p className={`text-[11px] mt-2 ${dark ? "text-slate-400" : "text-slate-500"}`}>
             {KIND_OPTIONS.find((o) => o.key === kind)?.hint}
           </p>
+        </div>
+
+        {/* Color picker — quick visual identification on the floor plan. */}
+        <div className="mb-4">
+          <label className={labelCls}>Color</label>
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {ROOM_COLORS.map((c) => {
+              const active = color === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setColor(c)}
+                  className={`w-7 h-7 rounded-md border-2 transition-all relative ${
+                    active ? "scale-110 shadow-md" : "hover:scale-105"
+                  }`}
+                  style={{
+                    background: c,
+                    borderColor: active ? (dark ? "#fff" : "#0f172a") : "transparent",
+                  }}
+                  aria-label={c}
+                  aria-pressed={active}
+                >
+                  {active && (
+                    <Check className="w-3 h-3 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white drop-shadow" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Team gating. Empty selection = org-wide. For leads, only the

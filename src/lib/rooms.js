@@ -16,7 +16,7 @@ export async function listRooms(teamId) {
   const { data, error } = await supabase
     .from("rooms")
     .select(`
-      id, team_id, name, kind, invite_code, created_by, created_at, archived_at,
+      id, team_id, name, kind, color, invite_code, created_by, created_at, archived_at,
       layout_x, layout_y, layout_w, layout_h,
       room_teams ( org_team_id )
     `)
@@ -30,7 +30,7 @@ export async function listRooms(teamId) {
 // (admin / lead / member) is enforced server-side and team-gating
 // rows are inserted atomically alongside the room.
 export async function createRoomV2(teamId, {
-  name, kind, orgTeamIds = [], layout, userId,
+  name, kind, color = "#14b8a6", orgTeamIds = [], layout, userId,
 }) {
   const trimmed = (name || "").trim();
   if (!trimmed) return { error: { message: "Room name is required" } };
@@ -48,10 +48,19 @@ export async function createRoomV2(teamId, {
     p_layout_y: layout?.y ?? 0,
     p_layout_w: layout?.w ?? 4,
     p_layout_h: layout?.h ?? 2,
+    p_color: color,
   });
   // The RPC returns just the new room id; callers that need the row
   // can refetch via listRooms.
-  return { data: data ? { id: data, name: trimmed, kind, invite_code, created_by: userId } : null, error };
+  return { data: data ? { id: data, name: trimmed, kind, color, invite_code, created_by: userId } : null, error };
+}
+
+export async function setRoomColor(roomId, color) {
+  const { error } = await supabase.rpc("set_room_color", {
+    p_room_id: roomId,
+    p_color: color,
+  });
+  return { error };
 }
 
 export async function updateRoomLayout(roomId, { x, y, w, h }) {

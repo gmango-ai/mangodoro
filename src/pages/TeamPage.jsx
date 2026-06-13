@@ -20,11 +20,13 @@ import MemberIdentity from "../components/MemberIdentity";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import OrgTeamsCard from "../components/OrgTeamsCard";
 import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
+import CreateRoomModal from "../components/CreateRoomModal";
 import MemberHRModal from "../components/MemberHRModal";
 import MemberTeamsModal from "../components/MemberTeamsModal";
 import InviteCard from "../components/InviteCard";
 import RemoveMemberModal from "../components/RemoveMemberModal";
-import { archiveRoomV2, renameRoomV2, updateRoomGating } from "../lib/rooms";
+import { archiveRoomV2 } from "../lib/rooms";
+import RoomSettingsModal from "../components/RoomSettingsModal";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
@@ -80,6 +82,11 @@ export default function TeamPage() {
   // team-centric "who's in SWE?" lives in the People filter now.
   const [memberTeamsModalFor, setMemberTeamsModalFor] = useState(null);
   const [memberToRemove, setMemberToRemove] = useState(null);
+  // Open the unified RoomSettingsModal — triggered both from the floor
+  // plan editor (click a tile in edit mode) and from the Rooms list
+  // below (the Edit button on each row).
+  const [roomToEdit, setRoomToEdit] = useState(null);
+  const [showCreateRoom, setShowCreateRoom] = useState(false);
   const [removeBusy, setRemoveBusy] = useState(false);
 
   // People filter + search. Source of truth lives in URL params so an
@@ -531,13 +538,22 @@ export default function TeamPage() {
                 dark={dark}
               />
               <div className={cardCls}>
+                <div className="flex items-center justify-end mb-3">
+                  <Button
+                    size="sm"
+                    onClick={() => setShowCreateRoom(true)}
+                    className="h-7 text-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" /> New room
+                  </Button>
+                </div>
                 <OfficeLayoutEditor
                   rooms={(rooms || []).filter((r) => !r.archived_at)}
                   readOnly={false}
                   vibe={activeTeam?.office_vibe || "quiet"}
                   busy={false}
                   onJoinRoom={() => {}}
-                  onOpenRoom={() => {}}
+                  onOpenRoom={setRoomToEdit}
                   sessionByRoomId={new Map()}
                 />
               </div>
@@ -551,6 +567,7 @@ export default function TeamPage() {
                 onError={(msg) => setError(msg)}
                 onSuccess={(msg) => { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }}
                 onReload={loadRoomsForActiveTeam}
+                onEdit={setRoomToEdit}
               />
             </>
           )}
@@ -891,6 +908,31 @@ export default function TeamPage() {
           setRemoveBusy(false);
           setMemberToRemove(null);
         }}
+      />
+
+      <CreateRoomModal
+        open={showCreateRoom}
+        onClose={() => setShowCreateRoom(false)}
+        teamId={activeTeamId}
+        userId={session?.user?.id}
+        isAdmin={isAdmin}
+        onCreated={() => loadRoomsForActiveTeam?.()}
+      />
+
+      <RoomSettingsModal
+        open={!!roomToEdit}
+        room={roomToEdit}
+        orgTeams={orgTeams || []}
+        isAdmin={isAdmin}
+        myOrgTeamLeadIds={myOrgTeamLeadIds || new Set()}
+        onClose={() => setRoomToEdit(null)}
+        onSaved={(msg) => {
+          setRoomToEdit(null);
+          setSuccess(msg);
+          setTimeout(() => setSuccess(""), 3000);
+          loadRoomsForActiveTeam?.();
+        }}
+        onError={(msg) => setError(msg)}
       />
     </main>
   );
@@ -1274,12 +1316,9 @@ function MemberActionsMenu({ dark, canRemove, onEditComp, onEditTeams, onRemove 
 // rooms gated to teams they lead (admins see all non-archived rooms).
 function RoomsAdminCard({
   dark, cardCls, rooms, orgTeams, isAdmin, myOrgTeamLeadIds,
-  onError, onSuccess, onReload,
+  onError, onSuccess, onReload, onEdit,
 }) {
-  const [editingId, setEditingId] = useState(null);
-  const [nameDraft, setNameDraft] = useState("");
   const [busy, setBusy] = useState(null); // room id currently saving
-  const [gatingFor, setGatingFor] = useState(null); // room obj being regated
   const [archiveConfirmId, setArchiveConfirmId] = useState(null);
 
   const visible = (rooms || []).filter((r) => {
@@ -1288,18 +1327,6 @@ function RoomsAdminCard({
     if (gating.length === 0) return false; // org-wide → admin-only management
     return gating.some((rt) => myOrgTeamLeadIds.has(rt.org_team_id));
   });
-
-  async function commitRename(room) {
-    const next = nameDraft.trim();
-    setEditingId(null);
-    if (!next || next === room.name) return;
-    setBusy(room.id);
-    const { error } = await renameRoomV2(room.id, next);
-    setBusy(null);
-    if (error) { onError?.(error.message || "Could not rename"); return; }
-    onSuccess?.("Room renamed");
-    onReload?.();
-  }
 
   async function commitArchive(room) {
     setBusy(room.id);
@@ -1315,7 +1342,7 @@ function RoomsAdminCard({
     return (
       <div className={cardCls}>
         <p className={`text-sm italic ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          No rooms yet. Create one on /pomodoro.
+          No rooms yet — create one with the New room button above.
         </p>
       </div>
     );
@@ -1328,7 +1355,6 @@ function RoomsAdminCard({
           const gating = (r.room_teams || [])
             .map((rt) => orgTeams.find((t) => t.id === rt.org_team_id))
             .filter(Boolean);
-          const isEditing = editingId === r.id;
           const rowBusy = busy === r.id;
           return (
             <div
@@ -1337,28 +1363,20 @@ function RoomsAdminCard({
                 dark ? "bg-slate-800/40" : "bg-slate-50"
               }`}
             >
-              <Briefcase className={`w-4 h-4 shrink-0 ${dark ? "text-slate-500" : "text-slate-400"}`} />
+              {/* Color swatch instead of the generic Briefcase icon — at
+                  a glance you can see which rooms share a category. */}
+              <span
+                className="w-3 h-3 rounded-md border border-black/10 shrink-0"
+                style={{ background: r.color || "#14b8a6" }}
+                title={r.color}
+              />
               <div className="flex-1 min-w-0">
-                {isEditing ? (
-                  <Input
-                    autoFocus
-                    value={nameDraft}
-                    onChange={(e) => setNameDraft(e.target.value.slice(0, 40))}
-                    onBlur={() => commitRename(r)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitRename(r);
-                      if (e.key === "Escape") setEditingId(null);
-                    }}
-                    className="h-7 text-sm"
-                  />
-                ) : (
-                  <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
-                    {r.name}
-                    <span className={`ml-2 text-[10px] uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                      {r.kind}
-                    </span>
-                  </p>
-                )}
+                <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
+                  {r.name}
+                  <span className={`ml-2 text-[10px] uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                    {r.kind}
+                  </span>
+                </p>
                 <div className="flex flex-wrap items-center gap-1 mt-0.5">
                   {gating.length === 0 ? (
                     <span className={`text-[11px] italic ${dark ? "text-slate-500" : "text-slate-400"}`}>
@@ -1382,31 +1400,18 @@ function RoomsAdminCard({
                   )}
                 </div>
               </div>
-              {/* Rename */}
-              {!isEditing && (
-                <button
-                  type="button"
-                  onClick={() => { setEditingId(r.id); setNameDraft(r.name); }}
-                  title="Rename"
-                  disabled={rowBusy}
-                  className={`h-7 w-7 inline-flex items-center justify-center rounded-md ${
-                    dark ? "text-slate-400 hover:bg-slate-700/60" : "text-slate-500 hover:bg-slate-200"
-                  }`}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-              )}
-              {/* Regate */}
+              {/* Settings — one button replaces rename + gating */}
               <button
                 type="button"
-                onClick={() => setGatingFor(r)}
-                title="Edit which teams see this room"
+                onClick={() => onEdit?.(r)}
+                title="Edit settings"
                 disabled={rowBusy}
-                className={`h-7 w-7 inline-flex items-center justify-center rounded-md ${
-                  dark ? "text-slate-400 hover:bg-slate-700/60" : "text-slate-500 hover:bg-slate-200"
+                className={`h-7 px-2 inline-flex items-center gap-1 text-xs rounded-md ${
+                  dark ? "text-slate-300 hover:bg-slate-700/60" : "text-slate-600 hover:bg-slate-200"
                 }`}
               >
-                <Users2 className="w-3.5 h-3.5" />
+                <Pencil className="w-3.5 h-3.5" />
+                Edit
               </button>
               {/* Archive */}
               {archiveConfirmId === r.id ? (
@@ -1447,117 +1452,6 @@ function RoomsAdminCard({
         })}
       </div>
 
-      <RoomGatingModal
-        open={!!gatingFor}
-        room={gatingFor}
-        orgTeams={orgTeams}
-        isAdmin={isAdmin}
-        myOrgTeamLeadIds={myOrgTeamLeadIds}
-        dark={dark}
-        onClose={() => setGatingFor(null)}
-        onSaved={(msg) => {
-          setGatingFor(null);
-          onSuccess?.(msg);
-          onReload?.();
-        }}
-        onError={onError}
-      />
-    </div>
-  );
-}
-
-// Small modal: pick which org_teams gate a room. Empty = org-wide.
-// Mirrors the chip selector pattern from CreateRoomModal so the two
-// surfaces look the same.
-function RoomGatingModal({ open, room, orgTeams, isAdmin, myOrgTeamLeadIds, dark, onClose, onSaved, onError }) {
-  const [selected, setSelected] = useState([]);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!open || !room) return;
-    setSelected((room.room_teams || []).map((rt) => rt.org_team_id));
-    setBusy(false);
-  }, [open, room]);
-
-  if (!open || !room) return null;
-
-  const eligibleTeams = isAdmin
-    ? orgTeams
-    : (orgTeams || []).filter((t) => myOrgTeamLeadIds.has(t.id) || selected.includes(t.id));
-
-  async function handleSave() {
-    setBusy(true);
-    const { error } = await updateRoomGating(room.id, selected);
-    setBusy(false);
-    if (error) { onError?.(error.message || "Could not save gating"); return; }
-    onSaved?.("Gating updated");
-  }
-
-  function toggle(id) {
-    setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
-  }
-
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className={`relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
-          dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
-        }`}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          className={`absolute top-3 right-3 p-1.5 rounded-lg ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
-          }`}
-          aria-label="Close"
-        >
-          <X className="w-4 h-4" />
-        </button>
-        <h2 className={`text-base font-bold mb-1 ${dark ? "text-slate-100" : "text-slate-800"}`}>
-          Who sees {room.name}?
-        </h2>
-        <p className={`text-xs mb-3 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          {selected.length === 0
-            ? "Org-wide — everyone in the org can see this room."
-            : `Visible to ${selected.length} team${selected.length === 1 ? "" : "s"}.`}
-        </p>
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          {eligibleTeams.map((t) => {
-            const active = selected.includes(t.id);
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => toggle(t.id)}
-                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors"
-                style={
-                  active
-                    ? { background: `${t.color}22`, borderColor: `${t.color}99`, color: dark ? "#fff" : t.color }
-                    : undefined
-                }
-                {...(!active && {
-                  className: `inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors ${
-                    dark
-                      ? "bg-slate-800/40 border-slate-700 text-slate-300 hover:border-slate-600"
-                      : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
-                  }`,
-                })}
-              >
-                <span className="w-1.5 h-1.5 rounded-full" style={{ background: t.color }} />
-                {t.name}
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button type="button" onClick={handleSave} disabled={busy}>
-            {busy ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }
