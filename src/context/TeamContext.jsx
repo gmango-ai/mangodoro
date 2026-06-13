@@ -6,7 +6,7 @@ import {
 } from "../lib/utils";
 import { listActiveTeamSessions } from "../lib/syncSession";
 import { listRooms } from "../lib/rooms";
-import { listOrgTeams, listMyOrgTeams } from "../lib/orgTeam";
+import { listOrgTeams, listMyOrgTeams, listOrgTeamMembershipsForOrg } from "../lib/orgTeam";
 import { setMemberHR as setMemberHRRpc } from "../lib/hr";
 
 const TeamContext = createContext(null);
@@ -22,6 +22,14 @@ export function TeamProvider({ session, children }) {
   const [rooms, setRooms] = useState([]);
   const [orgTeams, setOrgTeams] = useState([]);
   const [myOrgTeamIds, setMyOrgTeamIds] = useState(new Set());
+  const [myOrgTeamLeadIds, setMyOrgTeamLeadIds] = useState(new Set());
+  // Map<userId, Array<{id, name, color, role}>>: which org_teams each
+  // person belongs to. Powers <MemberIdentity /> so every sync session,
+  // retro, and room card can render team chips off shared state.
+  const [teamsByUserId, setTeamsByUserId] = useState(new Map());
+  // Map<org_team_id, member count> — derived from the same query that
+  // builds teamsByUserId, so we avoid the previous N+1 per-team fetch.
+  const [orgTeamMemberCounts, setOrgTeamMemberCounts] = useState(new Map());
 
   const userId = session?.user?.id;
   // Read the latest activeTeamId without retriggering loadTeams.
@@ -198,13 +206,38 @@ export function TeamProvider({ session, children }) {
   // replacing the deprecated tag-on-team_member shape. Membership
   // gates room/retro access.
   const loadOrgTeamsForActive = useCallback(async () => {
-    if (!activeTeamId) { setOrgTeams([]); setMyOrgTeamIds(new Set()); return; }
-    const [{ data: list }, { data: mine }] = await Promise.all([
+    if (!activeTeamId) {
+      setOrgTeams([]);
+      setMyOrgTeamIds(new Set());
+      setMyOrgTeamLeadIds(new Set());
+      setTeamsByUserId(new Map());
+      setOrgTeamMemberCounts(new Map());
+      return;
+    }
+    const [{ data: list }, { data: mine }, { data: allMemberships }] = await Promise.all([
       listOrgTeams(activeTeamId),
       userId ? listMyOrgTeams(activeTeamId, userId) : Promise.resolve({ data: [] }),
+      listOrgTeamMembershipsForOrg(activeTeamId),
     ]);
     setOrgTeams(list || []);
     setMyOrgTeamIds(new Set((mine || []).map((r) => r.org_team_id)));
+    setMyOrgTeamLeadIds(new Set((mine || []).filter((r) => r.role === "lead").map((r) => r.org_team_id)));
+
+    // Build the userId → teams map from a single allMemberships query
+    // joined against the team list we just fetched.
+    const teamById = new Map((list || []).map((t) => [t.id, t]));
+    const next = new Map();
+    const counts = new Map();
+    for (const m of allMemberships || []) {
+      const team = teamById.get(m.org_team_id);
+      if (!team) continue; // team archived; skip
+      const arr = next.get(m.user_id) || [];
+      arr.push({ id: team.id, name: team.name, color: team.color, role: m.role });
+      next.set(m.user_id, arr);
+      counts.set(team.id, (counts.get(team.id) || 0) + 1);
+    }
+    setTeamsByUserId(next);
+    setOrgTeamMemberCounts(counts);
   }, [activeTeamId, userId]);
 
   useEffect(() => { loadOrgTeamsForActive(); }, [loadOrgTeamsForActive]);
@@ -585,7 +618,7 @@ export function TeamProvider({ session, children }) {
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
         rooms, loadRoomsForActiveTeam,
-        orgTeams, myOrgTeamIds, loadOrgTeamsForActive,
+        orgTeams, myOrgTeamIds, myOrgTeamLeadIds, teamsByUserId, orgTeamMemberCounts, loadOrgTeamsForActive,
       }}
     >
       {children}

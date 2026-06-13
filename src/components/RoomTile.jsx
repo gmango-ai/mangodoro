@@ -1,7 +1,8 @@
 import { useTheme } from "../context/ThemeContext";
+import { useTeam } from "../context/TeamContext";
 import UserAvatar from "./UserAvatar";
 import { Button } from "@/components/ui/button";
-import { Briefcase, MessageSquare, Lock, Crown, Hash } from "lucide-react";
+import { Briefcase, MessageSquare, Lock, Crown, Hash, Star } from "lucide-react";
 
 const KIND_ICON = {
   department: Briefcase,
@@ -34,17 +35,28 @@ function timeLeft(s) {
 }
 
 // One avatar in the stack — overlapping ring + optional leader crown.
-function OccupantAvatar({ occupant, isLeader }) {
+// Lead users (in any org_team) get a small violet star marker; team
+// names are surfaced in the tooltip for quick "who is this?" scans.
+function OccupantAvatar({ occupant, isLeader, userTeams }) {
   const ring = PRESENCE_RING[occupant.presence_state] || PRESENCE_RING.active;
+  const isLead = (userTeams || []).some((t) => t.role === "lead");
+  const teamNames = (userTeams || []).map((t) => t.name).join(" · ");
+  const title = teamNames ? `${occupant.name} — ${teamNames}` : occupant.name;
   return (
     <div
       className={`relative shrink-0 rounded-full ring-2 ${ring} -ml-2 first:ml-0`}
-      title={occupant.name}
+      title={title}
     >
       <UserAvatar url={occupant.avatar_url} name={occupant.name} size={28} />
       {isLeader && (
         <Crown
           className="absolute -top-1.5 -right-1.5 w-3 h-3 text-amber-400 drop-shadow"
+          fill="currentColor"
+        />
+      )}
+      {isLead && !isLeader && (
+        <Star
+          className="absolute -top-1.5 -right-1.5 w-3 h-3 text-violet-400 drop-shadow"
           fill="currentColor"
         />
       )}
@@ -56,6 +68,7 @@ const MAX_VISIBLE_AVATARS = 6;
 
 export default function RoomTile({ room, activeSession, vibe, busy, onJoin }) {
   const { theme } = useTheme();
+  const { teamsByUserId } = useTeam();
   const dark = theme === "dark";
   const Icon = KIND_ICON[room.kind] || Hash;
 
@@ -135,6 +148,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin }) {
                   key={o.user_id}
                   occupant={o}
                   isLeader={o.user_id === activeSession.leader_id}
+                  userTeams={teamsByUserId?.get(o.user_id)}
                 />
               ))}
             </div>
