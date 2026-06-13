@@ -5,7 +5,7 @@ import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
-import { Sun, Moon, LogOut, Loader2, Timer, Users, Settings as SettingsIcon, Menu, X } from "lucide-react";
+import { Sun, Moon, LogOut, Loader2, Timer, Users, Building2, Settings as SettingsIcon, Menu, X } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 
 const PRESENCE_DOT_COLOR = {
@@ -163,6 +163,7 @@ export default function Nav({ onOpenPomodoro }) {
                   <span className={`ml-1.5 inline-block w-1.5 h-1.5 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse align-middle`} />
                 )}
               </NavLink>
+              <NavLink to="/office" className={desktopNavLink}>Office</NavLink>
               <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
               <NavLink to="/retros" className={desktopNavLink}>Retros</NavLink>
               <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
@@ -270,6 +271,9 @@ export default function Nav({ onOpenPomodoro }) {
             {hasTeamSessions && (
               <span className={`ml-auto w-2 h-2 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
             )}
+          </NavLink>
+          <NavLink to="/office" className={sidebarNavLink}>
+            <Building2 className="w-5 h-5" /> Office
           </NavLink>
           <NavLink to="/time-tracker" className={sidebarNavLink}>
             <span className="w-5 text-center">📋</span> Time tracker

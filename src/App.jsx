@@ -25,6 +25,7 @@ import RetroPage from "./pages/RetroPage";
 import RetrosListPage from "./pages/RetrosListPage";
 import JoinRetroPage from "./pages/JoinRetroPage";
 import PomodoroPage from "./pages/PomodoroPage";
+import OfficePage from "./pages/OfficePage";
 import JoinSyncPage from "./pages/JoinSyncPage";
 import JoinTeamPage from "./pages/JoinTeamPage";
 import AccountPage from "./pages/AccountPage";
@@ -154,6 +155,7 @@ function AppLayout({ session }) {
               path="/pomodoro"
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
             />
+            <Route path="/office" element={<OfficePage />} />
             <Route path="/account" element={<AccountPage session={session} />} />
           </Routes>
         </div>
