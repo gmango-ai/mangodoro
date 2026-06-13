@@ -74,7 +74,7 @@ function Avatar({ participant, size = 36, dark, isLeader }) {
     <div
       className={`relative rounded-full overflow-hidden border-2 shrink-0 ${
         isLeader
-          ? dark ? "border-cyan-500/50" : "border-teal-400"
+          ? "border-[var(--color-accent)]"
           : dark ? "border-slate-700" : "border-slate-300"
       }`}
       style={{ width: px, height: px }}
@@ -85,7 +85,7 @@ function Avatar({ participant, size = 36, dark, isLeader }) {
         <span
           className={`flex items-center justify-center w-full h-full font-bold ${
             isLeader
-              ? dark ? "bg-cyan-500/30 text-cyan-300" : "bg-teal-100 text-teal-700"
+              ? "bg-[var(--color-accent-light-hover)] text-[var(--color-accent)]"
               : dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
           }`}
           style={{ fontSize }}
@@ -226,7 +226,7 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
               aria-pressed={isSelected}
               className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
                 isSelected
-                  ? dark ? "bg-cyan-500/10 ring-1 ring-cyan-500/40" : "bg-teal-50 ring-1 ring-teal-300"
+                  ? "bg-[var(--color-accent-light)] ring-1 ring-[var(--color-accent)]"
                   : dark ? "bg-slate-800/40 hover:bg-slate-800/70" : "bg-slate-50 hover:bg-slate-100"
               }`}
             >
@@ -245,7 +245,7 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
                 )}
                 {isController && !isLeader && (
                   <span className={`absolute -top-1 -left-1 rounded-full p-0.5 ${dark ? "bg-slate-900" : "bg-white"}`}>
-                    <Clock className={`w-2.5 h-2.5 ${dark ? "text-cyan-300" : "text-teal-600"}`} />
+                    <Clock className="w-2.5 h-2.5 text-[var(--color-accent)]" />
                   </span>
                 )}
               </div>
@@ -254,7 +254,7 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
                   <span className="truncate">
                     {isSelf ? `${p.display_name || "You"} (you)` : (p.display_name || "Member")}
                   </span>
-                  {isController && <span className={`ml-1 text-[10px] ${dark ? "text-cyan-300" : "text-teal-600"}`}>⏱</span>}
+                  {isController && <span className="ml-1 text-[10px] text-[var(--color-accent)]">⏱</span>}
                   <TeamChips teams={teamsByUserId?.get(p.user_id)} dark={dark} />
                 </p>
                 <p className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
@@ -289,7 +289,7 @@ function CompactView({ participants, leaderId, controllerId, presenceMap, curren
             onClick={() => onSelect(p.user_id)}
             aria-pressed={isSelected}
             title={`${isSelf ? "You" : (p.display_name || "Member")}${isController ? " · Controls timer" : ""}${p.status?.trim() ? ` — ${p.status}` : ""}`}
-            className={`relative rounded-full ${isSelected ? "ring-2 ring-offset-1 " + (dark ? "ring-cyan-400 ring-offset-slate-900" : "ring-teal-500 ring-offset-white") : ""}`}
+            className={`relative rounded-full ${isSelected ? "ring-2 ring-offset-1 ring-[var(--color-accent)] " + (dark ? "ring-offset-slate-900" : "ring-offset-white") : ""}`}
           >
             <Avatar participant={p} size={32} dark={dark} isLeader={isLeader} />
             <span
@@ -304,7 +304,7 @@ function CompactView({ participants, leaderId, controllerId, presenceMap, curren
             )}
             {isController && !isLeader && (
               <span className={`absolute -top-1 -left-1 rounded-full p-0.5 ${dark ? "bg-slate-900" : "bg-white"}`}>
-                <Clock className={`w-2.5 h-2.5 ${dark ? "text-cyan-300" : "text-teal-600"}`} />
+                <Clock className="w-2.5 h-2.5 text-[var(--color-accent)]" />
               </span>
             )}
           </button>
@@ -327,8 +327,8 @@ function ParticipantDetail({
     <div
       className={`rounded-lg border p-3 ${
         dark
-          ? "bg-slate-900/90 border-cyan-500/30 shadow-lg shadow-cyan-500/10"
-          : "bg-white border-teal-300 shadow-lg shadow-teal-500/10"
+          ? "bg-slate-900/90 border-[var(--color-accent)] shadow-lg"
+          : "bg-white border-[var(--color-accent)] shadow-lg"
       }`}
     >
       <div className="flex items-start gap-3">
@@ -348,7 +348,7 @@ function ParticipantDetail({
             )}
             {isController && (
               <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-50 text-teal-700"
+                "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
               }`}>
                 <Clock className="w-2.5 h-2.5" />
                 Controls timer
@@ -405,7 +405,7 @@ function ParticipantDetail({
           type="button"
           onClick={() => { onEditMyStatus(); onClose(); }}
           className={`mt-3 w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${
-            dark ? "bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25" : "bg-teal-50 text-teal-700 hover:bg-teal-100"
+            "bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
           }`}
         >
           <Pencil className="w-3 h-3" /> Edit my status
@@ -441,7 +441,7 @@ function ParticipantDetail({
                   onClick={() => setConfirming("transfer")}
                   disabled={!onTransferLeader}
                   className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${
-                    dark ? "bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25" : "bg-teal-50 text-teal-700 hover:bg-teal-100"
+                    "bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
                   } disabled:opacity-40`}
                 >
                   <ShieldCheck className="w-3 h-3" /> Make leader
