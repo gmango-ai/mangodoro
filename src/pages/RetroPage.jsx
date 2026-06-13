@@ -6,7 +6,7 @@ import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, Target, Plus, Pencil, Trash2, Check, X, Sparkles,
-  Heart, AlertTriangle, ArrowRight as ArrowRightIcon, Link as LinkIcon, Lock, Palette,
+  Heart, AlertTriangle, ArrowRight as ArrowRightIcon, Link as LinkIcon, Lock, Unlock, Palette,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
@@ -21,6 +21,7 @@ import {
   setRetroGoal,
   formatRetroWeek,
   isRetroCurrentWeek,
+  setRetroLive,
 } from "../lib/retro";
 import { supabase } from "../supabase";
 
@@ -138,7 +139,21 @@ export default function RetroPage() {
     return m;
   }, [cards]);
 
-  const readOnly = retro ? !isRetroCurrentWeek(retro) : true;
+  // Live/closed is now the source of truth for editability. is_live
+  // defaults to true on new retros; admins can flip via the header
+  // toggle. Past retros were back-filled to is_live=false.
+  const readOnly = !retro?.is_live;
+  const [liveToggling, setLiveToggling] = useState(false);
+
+  async function handleToggleLive() {
+    if (!retro) return;
+    setLiveToggling(true); setError("");
+    const next = !retro.is_live;
+    const { error: err } = await setRetroLive(retro.id, next);
+    setLiveToggling(false);
+    if (err) { setError(err.message || "Could not change retro state."); return; }
+    setRetro({ ...retro, is_live: next });
+  }
 
   async function handleAddCard(laneKey) {
     if (!retro || !session?.user?.id || readOnly) return;
@@ -258,15 +273,17 @@ export default function RetroPage() {
             {retro.department ? `${retro.department} retro` : "Team retro"}
             {" · "}
             {formatRetroWeek(retro.week_start)}
-            {readOnly && (
-              <span
-                className={`ml-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${
-                  dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
-                }`}
-              >
-                <Lock className="w-3 h-3" /> Read-only
-              </span>
-            )}
+            <span
+              className={`ml-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${
+                readOnly
+                  ? dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
+                  : dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              {readOnly
+                ? <><Lock className="w-3 h-3" /> Closed</>
+                : <><span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" /> Live</>}
+            </span>
           </h1>
         </div>
 
@@ -340,6 +357,20 @@ export default function RetroPage() {
             >
               <LinkIcon className="w-3.5 h-3.5 mr-1" />
               {inviteCopied ? "Copied!" : "Invite"}
+            </Button>
+          )}
+          {/* Admin: live/closed toggle */}
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant={readOnly ? "default" : "outline"}
+              onClick={handleToggleLive}
+              disabled={liveToggling}
+              title={readOnly ? "Reopen this retro for edits" : "Close this retro (read-only)"}
+              className="h-8 text-xs"
+            >
+              {readOnly ? <Unlock className="w-3.5 h-3.5 mr-1" /> : <Lock className="w-3.5 h-3.5 mr-1" />}
+              {liveToggling ? "…" : readOnly ? "Reopen" : "Close"}
             </Button>
           )}
         </div>

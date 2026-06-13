@@ -152,6 +152,16 @@ export function isRetroCurrentWeek(retro) {
   return monday.toISOString().slice(0, 10) === retro.week_start;
 }
 
+// Admin-only: open or close a retro. Closed retros become read-only;
+// re-opening lets the team edit cards/goal again.
+export async function setRetroLive(retroId, isLive) {
+  const { error } = await supabase.rpc("set_retro_live", {
+    p_retro_id: retroId,
+    p_is_live: isLive,
+  });
+  return { error };
+}
+
 // Helper: format an ISO week_start date as a human-friendly range.
 // e.g. "Jun 8–14" or "Jun 30–Jul 6".
 export function formatRetroWeek(weekStart) {

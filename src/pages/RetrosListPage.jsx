@@ -130,14 +130,22 @@ export default function RetrosListPage() {
                       dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <p className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"} flex items-center gap-1.5`}>
-                        {label}
+                    <div className="flex items-center justify-between gap-2">
+                      <p className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"} flex items-center gap-1.5 min-w-0`}>
+                        <span className="truncate">{label}</span>
                         {mine && (
-                          <span className={`w-1.5 h-1.5 rounded-full ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="One of your departments" />
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="One of your departments" />
                         )}
                       </p>
-                      <ArrowRight className={`w-4 h-4 ${dark ? "text-slate-500" : "text-slate-400"}`} />
+                      <span
+                        className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                          existing.is_live
+                            ? dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"
+                            : dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {existing.is_live ? "Live" : "Closed"}
+                      </span>
                     </div>
                     {existing.goal && (
                       <p className={`mt-1.5 text-xs flex items-start gap-1.5 ${dark ? "text-slate-300" : "text-slate-600"}`}>
@@ -157,23 +165,34 @@ export default function RetrosListPage() {
                   type="button"
                   onClick={() => handleStartRetro(dept)}
                   disabled={creatingDept === dept}
-                  className={`${cardCls} text-left transition-colors ${
-                    dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
+                  className={`${cardCls} text-left transition-colors flex flex-col items-start gap-2 border-dashed ${
+                    dark
+                      ? "hover:border-cyan-500/50 hover:bg-slate-900"
+                      : "hover:border-teal-300 hover:bg-slate-50"
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <p className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"} flex items-center gap-1.5`}>
-                      {label}
+                  <div className="flex items-center justify-between gap-2 w-full">
+                    <p className={`text-sm font-bold ${dark ? "text-slate-200" : "text-slate-700"} flex items-center gap-1.5 min-w-0`}>
+                      <span className="truncate">{label}</span>
                       {mine && (
-                        <span className={`w-1.5 h-1.5 rounded-full ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="One of your departments" />
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="One of your departments" />
                       )}
                     </p>
-                    {creatingDept === dept
-                      ? <Loader2 className="w-4 h-4 animate-spin" />
-                      : <Plus className={`w-4 h-4 ${dark ? "text-slate-500" : "text-slate-400"}`} />}
                   </div>
-                  <p className={`mt-1 text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                    Not started yet — click to open and begin.
+                  <span
+                    className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md ${
+                      dark
+                        ? "bg-cyan-500/15 text-cyan-300"
+                        : "bg-teal-50 text-teal-700"
+                    }`}
+                  >
+                    {creatingDept === dept
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Plus className="w-3.5 h-3.5" />}
+                    {creatingDept === dept ? "Creating…" : "Start retro"}
+                  </span>
+                  <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                    Opens a fresh board for this week.
                   </p>
                 </button>
               );
