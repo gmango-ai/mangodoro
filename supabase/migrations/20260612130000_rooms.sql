@@ -10,7 +10,14 @@
 -- Existing sync_sessions stay loose (room_id null) for back-compat; new
 -- sessions started "in a room" carry the room_id so the UI can group them.
 
-create type public.room_kind as enum ('department', 'meeting', 'private');
+-- Guarded with a DO block — `create type` has no native `if not exists`,
+-- so a partial prior run that created the enum would otherwise break
+-- re-runs of the whole migration.
+do $$
+begin
+  create type public.room_kind as enum ('department', 'meeting', 'private');
+exception when duplicate_object then null;
+end $$;
 
 create table if not exists public.rooms (
   id uuid primary key default gen_random_uuid(),
@@ -26,12 +33,18 @@ create table if not exists public.rooms (
     check ((kind = 'private') = (invite_code is not null))
 );
 
-create index rooms_team_id_idx on public.rooms (team_id) where archived_at is null;
-create unique index rooms_invite_code_unique
+create index if not exists rooms_team_id_idx on public.rooms (team_id) where archived_at is null;
+create unique index if not exists rooms_invite_code_unique
   on public.rooms (invite_code) where invite_code is not null;
 
 alter table public.rooms replica identity full;
-alter publication supabase_realtime add table public.rooms;
+-- Realtime publication add is idempotent in newer Postgres but errors on
+-- duplicate in older — guard it.
+do $$
+begin
+  alter publication supabase_realtime add table public.rooms;
+exception when duplicate_object then null;
+end $$;
 
 -- Link sync sessions to a room (nullable: existing loose sessions keep working).
 alter table public.sync_sessions
@@ -47,12 +60,16 @@ create unique index if not exists sync_sessions_one_active_per_room
 
 alter table public.rooms enable row level security;
 
+-- `create policy` has no `if not exists`. Drop + create makes the
+-- migration safely re-runnable after a partial prior run.
+drop policy if exists "Team members can read rooms" on public.rooms;
 create policy "Team members can read rooms"
   on public.rooms for select
   using (
     team_id in (select team_id from public.team_members where user_id = auth.uid())
   );
 
+drop policy if exists "Admins can create department rooms" on public.rooms;
 create policy "Admins can create department rooms"
   on public.rooms for insert
   with check (
@@ -64,6 +81,7 @@ create policy "Admins can create department rooms"
     )
   );
 
+drop policy if exists "Members can create meeting or private rooms" on public.rooms;
 create policy "Members can create meeting or private rooms"
   on public.rooms for insert
   with check (
@@ -74,6 +92,7 @@ create policy "Members can create meeting or private rooms"
     )
   );
 
+drop policy if exists "Creators or admins can update rooms" on public.rooms;
 create policy "Creators or admins can update rooms"
   on public.rooms for update
   using (
@@ -84,6 +103,7 @@ create policy "Creators or admins can update rooms"
     )
   );
 
+drop policy if exists "Creators or admins can delete rooms" on public.rooms;
 create policy "Creators or admins can delete rooms"
   on public.rooms for delete
   using (
