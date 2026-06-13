@@ -1,21 +1,26 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
+import { supabase } from "../supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Settings as SettingsIcon, User, Palette, Timer, Clock,
-  Briefcase, Bell, Database, ExternalLink, Check, Sun, Moon, Sparkles,
+  Briefcase, Bell, Database, Check, Sun, Moon, Sparkles,
 } from "lucide-react";
 import { ACCENTS } from "../lib/accent";
+import AvatarUploader from "../components/AvatarUploader";
+import FileDropZone from "../components/FileDropZone";
+import { uploadCustomSound, deleteCustomSound } from "../lib/customSound";
+import {
+  loadPomodoroSoundSettings, savePomodoroSoundSettings,
+  CUSTOM_PRESET_ID,
+} from "../lib/pomodoroSound";
 
-// Settings as a real page (was a modal). Left sidebar of sections,
-// right pane renders the section. Each section saves what it owns —
-// no global Save button, so picking a theme or color commits instantly.
-//
-// Sections kept narrow on purpose; complex flows (projects, templates)
-// link out to dedicated screens rather than cramming into the rail.
+// Settings as a real page (replaces the modal and the old /account
+// page — both folded in here). Left sidebar of sections, right pane
+// renders the active section. Each section saves what it owns — no
+// global Save button, so picking a theme or color commits instantly.
 const SECTIONS = [
   { key: "profile",   label: "Profile",     Icon: User },
   { key: "appearance",label: "Appearance",  Icon: Palette },
@@ -34,8 +39,8 @@ export default function SettingsPage() {
   return (
     <main className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <div className="flex items-center gap-3 mb-6">
-        <div className={`p-2 rounded-lg ${dark ? "bg-cyan-500/10" : "bg-[var(--color-accent-light)]"}`}>
-          <SettingsIcon className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-[var(--color-accent)]"}`} />
+        <div className="p-2 rounded-lg bg-[var(--color-accent-light)]">
+          <SettingsIcon className="w-5 h-5 text-[var(--color-accent)]" />
         </div>
         <h1 className={`text-2xl font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
           Settings
@@ -43,7 +48,6 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-[220px_1fr]">
-        {/* Sidebar */}
         <aside className="space-y-0.5">
           {SECTIONS.map(({ key, label, Icon }) => {
             const active = section === key;
@@ -54,9 +58,7 @@ export default function SettingsPage() {
                 onClick={() => setSection(key)}
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
                   active
-                    ? dark
-                      ? "bg-cyan-500/15 text-cyan-200 font-semibold"
-                      : "bg-[var(--color-accent-light)] text-[var(--color-accent)] font-semibold"
+                    ? "bg-[var(--color-accent-light)] text-[var(--color-accent)] font-semibold"
                     : dark
                       ? "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
@@ -69,7 +71,6 @@ export default function SettingsPage() {
           })}
         </aside>
 
-        {/* Content */}
         <div className="min-w-0">
           {section === "profile" && <ProfileSection dark={dark} />}
           {section === "appearance" && <AppearanceSection dark={dark} />}
@@ -84,7 +85,7 @@ export default function SettingsPage() {
   );
 }
 
-// ── Section components ─────────────────────────────────────────────
+// ── Shared shell ───────────────────────────────────────────────────
 
 function SectionCard({ title, hint, dark, children }) {
   return (
@@ -104,49 +105,224 @@ function SectionCard({ title, hint, dark, children }) {
   );
 }
 
-function ProfileSection({ dark }) {
-  const { settings, updateSettingsField } = useApp();
-  const [nameDraft, setNameDraft] = useState(settings.name || "");
-  const [busy, setBusy] = useState(false);
+// ── Profile: name + avatar + custom alarm sound (from /account) ────
 
-  async function save() {
-    setBusy(true);
-    await updateSettingsField({ name: nameDraft.trim() });
-    setBusy(false);
+function ProfileSection({ dark }) {
+  const { settings, setSettings, session } = useApp();
+  const userId = session?.user?.id;
+
+  const [name, setName] = useState(settings.name || "");
+  const [avatarUrl, setAvatarUrl] = useState(settings.avatarUrl || "");
+  const [soundUrl, setSoundUrl] = useState(settings.pomodoroSoundUrl || "");
+  const [soundName, setSoundName] = useState(settings.pomodoroSoundName || "");
+  const [error, setError] = useState("");
+  const [savingMsg, setSavingMsg] = useState("");
+
+  useEffect(() => { setName(settings.name || ""); }, [settings.name]);
+  useEffect(() => { setAvatarUrl(settings.avatarUrl || ""); }, [settings.avatarUrl]);
+  useEffect(() => { setSoundUrl(settings.pomodoroSoundUrl || ""); }, [settings.pomodoroSoundUrl]);
+  useEffect(() => { setSoundName(settings.pomodoroSoundName || ""); }, [settings.pomodoroSoundName]);
+
+  // Single-column upsert mirrored into local settings cache. Lifted
+  // verbatim from the old /account page so the same uploads keep working.
+  async function persist(patch) {
+    if (!userId) return;
+    const { error: err } = await supabase
+      .from("user_settings")
+      .upsert({ user_id: userId, ...patch, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    if (err) { setError(err.message); return; }
+    setSettings((prev) => ({
+      ...prev,
+      ...(patch.name !== undefined        ? { name: patch.name || "" }                 : {}),
+      ...(patch.avatar_url !== undefined  ? { avatarUrl: patch.avatar_url || "" }      : {}),
+      ...(patch.pomodoro_sound_url !== undefined  ? { pomodoroSoundUrl: patch.pomodoro_sound_url || "" }   : {}),
+      ...(patch.pomodoro_sound_name !== undefined ? { pomodoroSoundName: patch.pomodoro_sound_name || "" } : {}),
+    }));
+    setSavingMsg("Saved");
+    setTimeout(() => setSavingMsg(""), 2000);
+  }
+
+  function onAvatarChange(url) {
+    setAvatarUrl(url || "");
+    persist({ avatar_url: url || null });
+    supabase.rpc("refresh_my_sync_avatar").then(() => {}, () => {});
+  }
+
+  function onNameBlur() {
+    const clean = name.trim();
+    if (clean === (settings.name || "")) return;
+    persist({ name: clean || null });
+  }
+
+  // Custom alarm sound handlers
+  const audioRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [uploadingSound, setUploadingSound] = useState(false);
+  const [defaultBump, setDefaultBump] = useState(0);
+  void defaultBump; // re-render trigger after savePomodoroSoundSettings
+  const soundPrefs = loadPomodoroSoundSettings();
+  const isDefault =
+    soundUrl
+    && soundPrefs.workEndPreset === CUSTOM_PRESET_ID
+    && soundPrefs.breakEndPreset === CUSTOM_PRESET_ID;
+
+  async function processSoundFile(file) {
+    if (!file) return;
+    setUploadingSound(true); setError("");
+    try {
+      if (soundUrl) await deleteCustomSound(soundUrl);
+      const { data, error: err } = await uploadCustomSound(file, userId);
+      if (err) { setError(err.message || "Upload failed"); return; }
+      setSoundUrl(data.url);
+      setSoundName(data.name);
+      await persist({ pomodoro_sound_url: data.url, pomodoro_sound_name: data.name });
+    } catch (e2) {
+      setError(e2?.message || "Upload failed");
+    } finally {
+      setUploadingSound(false);
+    }
+  }
+
+  async function removeSound() {
+    if (soundUrl) await deleteCustomSound(soundUrl);
+    setSoundUrl(""); setSoundName("");
+    await persist({ pomodoro_sound_url: null, pomodoro_sound_name: null });
+    const isW = soundPrefs.workEndPreset === CUSTOM_PRESET_ID;
+    const isB = soundPrefs.breakEndPreset === CUSTOM_PRESET_ID;
+    if (isW || isB) {
+      savePomodoroSoundSettings({
+        ...soundPrefs,
+        workEndPreset: isW ? "chime" : soundPrefs.workEndPreset,
+        breakEndPreset: isB ? "beep" : soundPrefs.breakEndPreset,
+      });
+      setDefaultBump((n) => n + 1);
+    }
+  }
+
+  function togglePreview() {
+    if (!soundUrl) return;
+    if (playing) {
+      if (audioRef.current) { try { audioRef.current.pause(); } catch { /* ignore */ } }
+      setPlaying(false);
+      return;
+    }
+    const a = new Audio(soundUrl);
+    audioRef.current = a;
+    a.addEventListener("ended", () => setPlaying(false));
+    a.play().then(() => setPlaying(true)).catch(() => setError("Couldn't play sound"));
+  }
+
+  function toggleDefault() {
+    const next = isDefault
+      ? { ...soundPrefs, workEndPreset: "chime", breakEndPreset: "beep" }
+      : { ...soundPrefs, workEndPreset: CUSTOM_PRESET_ID, breakEndPreset: CUSTOM_PRESET_ID };
+    savePomodoroSoundSettings(next);
+    setDefaultBump((n) => n + 1);
   }
 
   return (
     <>
+      {error && (
+        <div className={`mb-3 text-sm px-3 py-2 rounded-md ${
+          dark ? "bg-red-500/15 text-red-300" : "bg-red-50 text-red-700"
+        }`}>
+          {error}
+        </div>
+      )}
+      {savingMsg && (
+        <div className={`mb-3 text-xs ${dark ? "text-emerald-400" : "text-emerald-600"}`}>
+          {savingMsg}
+        </div>
+      )}
+
       <SectionCard title="Your profile" hint="What teammates see in shared sessions and retros." dark={dark}>
-        <label className={`block text-[10px] font-semibold uppercase tracking-wider mb-1 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          Display name
-        </label>
-        <div className="flex gap-2">
-          <Input
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value.slice(0, 40))}
-            placeholder="e.g. Jacob"
-            className="flex-1"
-          />
-          <Button onClick={save} disabled={busy || nameDraft === (settings.name || "")}>
-            {busy ? "Saving…" : "Save"}
-          </Button>
+        <div className="space-y-4">
+          <div>
+            <label className={`block text-[10px] font-semibold uppercase tracking-wider mb-1 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+              Display name
+            </label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value.slice(0, 60))}
+              onBlur={onNameBlur}
+              placeholder="e.g. Jacob"
+              className="max-w-sm"
+              maxLength={60}
+            />
+          </div>
+          <div>
+            <label className={`block text-[10px] font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+              Profile picture
+            </label>
+            <AvatarUploader
+              userId={userId}
+              value={avatarUrl}
+              displayName={name}
+              size={72}
+              onChange={onAvatarChange}
+              onError={(msg) => setError(msg)}
+            />
+          </div>
         </div>
       </SectionCard>
 
-      <SectionCard title="Account" hint="Avatar, custom alarm sound, and account-level controls." dark={dark}>
-        <Link
-          to="/account"
-          className={`inline-flex items-center gap-2 text-sm font-semibold ${
-            dark ? "text-cyan-300 hover:text-cyan-200" : "text-[var(--color-accent)] hover:underline"
-          }`}
-        >
-          Go to account page <ExternalLink className="w-3.5 h-3.5" />
-        </Link>
+      <SectionCard
+        title="Pomodoro alarm sound"
+        hint="Upload a custom audio file. Used when a focus or break cycle ends."
+        dark={dark}
+      >
+        <FileDropZone
+          accept={{ "audio/*": [] }}
+          maxSize={5 * 1024 * 1024}
+          uploading={uploadingSound}
+          buttonLabel={soundUrl ? "Replace sound" : "Upload sound"}
+          hint={
+            soundUrl
+              ? (soundName || "Custom sound")
+              : "Click or drop an audio file · MP3 / WAV / OGG / M4A / FLAC · up to 5 MB"
+          }
+          onFile={processSoundFile}
+          onReject={(msg) => setError(msg)}
+          actions={soundUrl ? (
+            <>
+              <button
+                type="button"
+                onClick={togglePreview}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
+                  dark ? "bg-slate-800 text-slate-200 border border-slate-700" : "bg-white text-slate-700 border border-slate-200"
+                }`}
+              >
+                {playing ? "Stop" : "Preview"}
+              </button>
+              <button
+                type="button"
+                onClick={removeSound}
+                className={`text-xs font-medium px-2 py-1.5 rounded-md ${dark ? "text-slate-500 hover:text-red-300" : "text-slate-500 hover:text-red-500"}`}
+              >
+                Remove
+              </button>
+            </>
+          ) : null}
+        />
+
+        {soundUrl && (
+          <label className={`mt-3 inline-flex items-center gap-2 text-xs cursor-pointer ${dark ? "text-slate-300" : "text-slate-700"}`}>
+            <input
+              type="checkbox"
+              checked={isDefault}
+              onChange={toggleDefault}
+              className="h-3.5 w-3.5"
+              style={{ accentColor: "var(--color-accent)" }}
+            />
+            Use as my default alarm (focus end + break end)
+          </label>
+        )}
       </SectionCard>
     </>
   );
 }
+
+// ── Appearance: theme + accent ─────────────────────────────────────
 
 function AppearanceSection({ dark }) {
   const { settings, updateSettingsField } = useApp();
@@ -169,9 +345,7 @@ function AppearanceSection({ dark }) {
                 onClick={() => { if (active) return; toggleTheme(); }}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 text-sm font-semibold transition-all ${
                   active
-                    ? dark
-                      ? "border-cyan-400 bg-cyan-500/15 text-cyan-200"
-                      : "border-[var(--color-accent)] bg-[var(--color-accent-light)] text-[var(--color-accent)]"
+                    ? "border-[var(--color-accent)] bg-[var(--color-accent-light)] text-[var(--color-accent)]"
                     : dark
                       ? "border-slate-700 text-slate-400 hover:border-slate-600"
                       : "border-slate-200 text-slate-600 hover:border-slate-300"
@@ -186,7 +360,7 @@ function AppearanceSection({ dark }) {
 
       <SectionCard
         title="Accent color"
-        hint="Used on buttons, links, focus rings, and other highlights. Saves immediately."
+        hint="Used on buttons, links, focus rings, and active states. Saves immediately."
         dark={dark}
       >
         <div className="grid grid-cols-5 gap-3">
@@ -199,14 +373,16 @@ function AppearanceSection({ dark }) {
                 onClick={() => updateSettingsField({ accentColor: a.key })}
                 className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all ${
                   active
-                    ? dark ? "border-cyan-400 bg-cyan-500/10" : "border-slate-800 bg-slate-50"
-                    : "border-transparent hover:border-slate-300 dark:hover:border-slate-600"
+                    ? "border-[var(--color-accent)] bg-[var(--color-accent-light)]"
+                    : dark
+                      ? "border-transparent hover:border-slate-700"
+                      : "border-transparent hover:border-slate-300"
                 }`}
                 aria-label={a.label}
                 aria-pressed={active}
               >
                 <span
-                  className="w-10 h-10 rounded-full relative"
+                  className="w-10 h-10 rounded-full relative shrink-0"
                   style={{ background: a.swatch }}
                 >
                   {active && (
@@ -223,21 +399,20 @@ function AppearanceSection({ dark }) {
           })}
         </div>
         <p className={`text-[11px] mt-3 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-          Heads-up: some surfaces still use the original teal/cyan palette. Migrating those is a bigger refactor we'll roll in over time.
+          Heads-up: some surfaces still use the original teal/cyan palette. Migrating those is a multi-PR sweep.
         </p>
       </SectionCard>
     </>
   );
 }
 
+// ── Stub sections — content lives in the legacy modal for now ──────
+
 function PomodoroSection({ dark }) {
   return (
-    <SectionCard title="Pomodoro" hint="Sound, durations, and timer behavior live with the timer itself." dark={dark}>
+    <SectionCard title="Pomodoro" hint="Sound, durations, and timer behavior." dark={dark}>
       <p className={`text-sm ${dark ? "text-slate-300" : "text-slate-700"}`}>
-        Pop-out and sound settings are accessible from the timer's gear in the top of the timer card.
-      </p>
-      <p className={`text-xs mt-2 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-        Custom alarm sound: <Link to="/account" className={`underline ${dark ? "text-cyan-300" : "text-[var(--color-accent)]"}`}>Account page</Link>
+        Custom alarm sound lives under Profile above. Per-cycle durations and the sound preset picker stay on the timer card for now.
       </p>
     </SectionCard>
   );
@@ -264,10 +439,7 @@ function ProjectsSection({ dark }) {
   return (
     <SectionCard title="Projects & templates" hint="Manage your project list and time-entry templates." dark={dark}>
       <p className={`text-sm ${dark ? "text-slate-300" : "text-slate-700"}`}>
-        The full project + template editor is currently in the legacy settings dialog. Use the Settings cog in the timer card to open it.
-      </p>
-      <p className={`text-[11px] mt-2 italic ${dark ? "text-slate-500" : "text-slate-400"}`}>
-        Moving to this page in a follow-up.
+        The full project + template editor is currently in the legacy settings dialog. Open it from the timer card's Settings cog.
       </p>
     </SectionCard>
   );
