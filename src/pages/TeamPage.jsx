@@ -790,7 +790,7 @@ export default function TeamPage() {
               <Target className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
               <div className="text-left">
                 <p className={headingCls}>Team Retro</p>
-                <p className={subCls}>Celebrate, reflect, and set this week's goal</p>
+                <p className={subCls}>Review the week and plan next week's goal</p>
               </div>
             </div>
             <ArrowRight className={`w-5 h-5 ${dark ? "text-slate-500" : "text-slate-400"}`} />

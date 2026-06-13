@@ -341,7 +341,7 @@ export default function RetroPage() {
           </div>
           <div className="flex-1 min-w-0">
             <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              {readOnly ? "Goal that week" : "This week's goal"}
+              {readOnly ? "Goal for next week" : "Next week's goal"}
             </p>
             {goalEditing && !readOnly ? (
               <div className="mt-1.5 space-y-2">
@@ -570,7 +570,12 @@ export default function RetroPage() {
                     rows={2}
                     placeholder="Add to this lane…"
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      // Enter submits; Cmd/Ctrl+Enter inserts a newline.
+                      // Mirrors how Slack/Linear behave for short notes —
+                      // most cards are a single line and the submit
+                      // friction was breaking the rhythm of dropping in
+                      // ideas during a retro.
+                      if (e.key === "Enter" && !(e.metaKey || e.ctrlKey) && !e.shiftKey) {
                         e.preventDefault();
                         handleAddCard(lane.key);
                       }

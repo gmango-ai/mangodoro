@@ -208,7 +208,7 @@ export default function NewRetroModal({
         {/* Optional initial goal */}
         {canSetGoal && (
           <div className="mb-4">
-            <label className={labelCls}>Goal for the week <span className="font-normal text-slate-500">(optional)</span></label>
+            <label className={labelCls}>Goal for next week <span className="font-normal text-slate-500">(optional)</span></label>
             <div className="relative mt-1">
               <Target className={`absolute left-2 top-2.5 w-4 h-4 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
               <textarea
@@ -216,7 +216,7 @@ export default function NewRetroModal({
                 onChange={(e) => setGoal(e.target.value.slice(0, 140))}
                 rows={2}
                 maxLength={140}
-                placeholder="What's the team's focus this week?"
+                placeholder="What's the team's focus next week?"
                 className={`w-full pl-8 pr-3 py-2 rounded-lg border text-sm ${
                   dark
                     ? "bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500"

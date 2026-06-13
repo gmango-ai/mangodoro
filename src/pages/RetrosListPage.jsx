@@ -4,9 +4,9 @@ import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
-import { Target, History, Plus, Loader2, MoreVertical, Archive, RotateCcw, Lock, Unlock, Trash2 } from "lucide-react";
+import { Target, History, Plus, MoreVertical, Archive, RotateCcw, Lock, Unlock, Trash2 } from "lucide-react";
 import {
-  listTeamRetros, getOrCreateCurrentRetro, formatRetroWeek,
+  listTeamRetros, formatRetroWeek,
   archiveRetro, unarchiveRetro, deleteRetro, setRetroLive,
 } from "../lib/retro";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
@@ -23,7 +23,6 @@ export default function RetrosListPage() {
 
   const [retros, setRetros] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [creatingDept, setCreatingDept] = useState(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [retroToDelete, setRetroToDelete] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -141,19 +140,6 @@ export default function RetrosListPage() {
     return [...m.entries()];
   }, [pastRetros]);
 
-  async function handleStartRetro(orgTeamId) {
-    if (!activeTeamId) return;
-    setCreatingDept(orgTeamId || "__org__");
-    const { data, error } = await getOrCreateCurrentRetro(activeTeamId, orgTeamId);
-    setCreatingDept(null);
-    if (error) return;
-    if (data) {
-      setRetros((prev) => [
-        { ...data, is_current_week: true, is_live: true, card_count: 0 },
-        ...prev.filter((r) => r.id !== data.id),
-      ]);
-    }
-  }
 
   const cardCls = `rounded-2xl border p-4 ${
     dark ? "bg-slate-900/60 border-slate-700/50" : "bg-white border-slate-200 shadow-sm"
@@ -180,7 +166,7 @@ export default function RetrosListPage() {
             Team Retros
           </h1>
           <p className={`text-xs mt-0.5 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-            Weekly reflection — one per department.
+            Review the week and plan ahead. Create one when a team needs it.
           </p>
         </div>
         <Button onClick={() => setShowNewModal(true)} className="shrink-0">
@@ -222,7 +208,10 @@ export default function RetrosListPage() {
         })}
       </div>
 
-      {/* Current week */}
+      {/* Current week — only retros that actually exist. No per-team
+          stubs: not every team needs a retro (some teams are
+          descriptive tags), so creation is an explicit step via the
+          New retro button + modal. */}
       <section>
         <div className="flex items-center justify-between mb-2">
           <h2 className={`text-sm font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`}>
@@ -233,115 +222,85 @@ export default function RetrosListPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[0, 1, 2].map((i) => <SkeletonCard key={i} className="h-32" />)}
           </div>
+        ) : currentWeekRetros.length === 0 ? (
+          <div className={`${cardCls} text-center border-dashed`}>
+            <p className={`text-sm ${dark ? "text-slate-300" : "text-slate-700"}`}>
+              No retros for this week yet.
+            </p>
+            <p className={`text-xs mt-1 mb-3 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              Create one when a team needs to review the week and plan ahead.
+            </p>
+            <Button onClick={() => setShowNewModal(true)} size="sm">
+              <Plus className="w-4 h-4 mr-1" /> New retro
+            </Button>
+          </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {availableTeams.map((team) => {
-              // Match retros by org_team_id; team.id === null = org-wide retro.
-              const existing = currentWeekRetros.find((r) =>
-                team.id === null
-                  ? (r.org_team_id == null)
-                  : r.org_team_id === team.id,
-              );
-              const mine = team.id !== null && myOrgTeamIds?.has(team.id);
-              const tileKey = team.id || "__org__";
-              if (existing) {
-                return (
-                  <div key={tileKey} className="relative">
-                    <Link
-                      to={`/retros/${existing.id}`}
-                      className={`${cardCls} block transition-colors ${
-                        dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
-                      } ${existing.archived_at ? "opacity-60" : ""}`}
-                    >
-                      <div className="flex items-center justify-between gap-2 pr-8">
-                        <p className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"} flex items-center gap-1.5 min-w-0`}>
-                          <span
-                            className="w-2 h-2 rounded-full shrink-0"
-                            style={{ background: team.color }}
-                          />
-                          <span className="truncate">{team.name}</span>
-                          {mine && (
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="You're on this team" />
-                          )}
-                        </p>
-                        <span
-                          className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                            existing.archived_at
-                              ? dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"
-                              : existing.is_live
-                                ? dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"
-                                : dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
-                          }`}
-                        >
-                          {existing.archived_at ? "Archived" : existing.is_live ? "Live" : "Closed"}
-                        </span>
-                      </div>
-                      {existing.goal && (
-                        <p className={`mt-1.5 text-xs flex items-start gap-1.5 ${dark ? "text-slate-300" : "text-slate-600"}`}>
-                          <Target className={`w-3 h-3 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
-                          <span className="line-clamp-2">{existing.goal}</span>
-                        </p>
-                      )}
-                      <p className={`mt-2 text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                        {existing.card_count} {existing.card_count === 1 ? "card" : "cards"} · {formatRetroWeek(existing.week_start)}
-                      </p>
-                    </Link>
-                    {canManage(existing) && (
-                      <RetroKebab
-                        dark={dark}
-                        retro={existing}
-                        isAdmin={isAdmin}
-                        busy={actionBusy === existing.id}
-                        onToggleLive={() => handleToggleLive(existing)}
-                        onArchive={() => handleArchive(existing)}
-                        onUnarchive={() => handleUnarchive(existing)}
-                        onRequestDelete={() => setRetroToDelete(existing)}
-                      />
-                    )}
-                  </div>
-                );
-              }
-              const busyKey = team.id || "__org__";
+            {currentWeekRetros.map((existing) => {
+              const teamColor = (orgTeams || []).find((t) => t.id === existing.org_team_id)?.color
+                || activeTeam?.color
+                || "#14b8a6";
+              const teamName = existing.org_team_name || existing.department || "Org-wide";
+              const mine = existing.org_team_id != null && myOrgTeamIds?.has(existing.org_team_id);
               return (
-                <button
-                  key={tileKey}
-                  type="button"
-                  onClick={() => handleStartRetro(team.id)}
-                  disabled={creatingDept === busyKey}
-                  className={`${cardCls} text-left transition-colors flex flex-col items-start gap-2 border-dashed ${
-                    dark
-                      ? "hover:border-cyan-500/50 hover:bg-slate-900"
-                      : "hover:border-teal-300 hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 w-full">
-                    <p className={`text-sm font-bold ${dark ? "text-slate-200" : "text-slate-700"} flex items-center gap-1.5 min-w-0`}>
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ background: team.color }}
-                      />
-                      <span className="truncate">{team.name}</span>
-                      {mine && (
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="You're on this team" />
-                      )}
-                    </p>
-                  </div>
-                  <span
-                    className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md ${
-                      dark
-                        ? "bg-cyan-500/15 text-cyan-300"
-                        : "bg-teal-50 text-teal-700"
-                    }`}
+                <div key={existing.id} className="relative">
+                  <Link
+                    to={`/retros/${existing.id}`}
+                    className={`${cardCls} block transition-colors ${
+                      dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
+                    } ${existing.archived_at ? "opacity-60" : ""}`}
                   >
-                    {creatingDept === busyKey
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Plus className="w-3.5 h-3.5" />}
-                    {creatingDept === busyKey ? "Creating…" : "Start retro"}
-                  </span>
-                  <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                    Opens a fresh board for this week.
-                  </p>
-                </button>
+                    <div className="flex items-center justify-between gap-2 pr-8">
+                      <p className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"} flex items-center gap-1.5 min-w-0`}>
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ background: teamColor }}
+                        />
+                        <span className="truncate">{teamName}</span>
+                        {mine && (
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="You're on this team" />
+                        )}
+                      </p>
+                      <span
+                        className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                          existing.archived_at
+                            ? dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"
+                            : existing.is_live
+                              ? dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"
+                              : dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {existing.archived_at ? "Archived" : existing.is_live ? "Live" : "Closed"}
+                      </span>
+                    </div>
+                    {existing.goal && (
+                      <p className={`mt-1.5 text-xs flex items-start gap-1.5 ${dark ? "text-slate-300" : "text-slate-600"}`}>
+                        <Target className={`w-3 h-3 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+                        <span className="line-clamp-2">
+                          <span className={`text-[10px] uppercase tracking-wider font-bold mr-1 ${
+                            dark ? "text-cyan-400" : "text-teal-600"
+                          }`}>Next week:</span>
+                          {existing.goal}
+                        </span>
+                      </p>
+                    )}
+                    <p className={`mt-2 text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                      {existing.card_count} {existing.card_count === 1 ? "card" : "cards"} · {formatRetroWeek(existing.week_start)}
+                    </p>
+                  </Link>
+                  {canManage(existing) && (
+                    <RetroKebab
+                      dark={dark}
+                      retro={existing}
+                      isAdmin={isAdmin}
+                      busy={actionBusy === existing.id}
+                      onToggleLive={() => handleToggleLive(existing)}
+                      onArchive={() => handleArchive(existing)}
+                      onUnarchive={() => handleUnarchive(existing)}
+                      onRequestDelete={() => setRetroToDelete(existing)}
+                    />
+                  )}
+                </div>
               );
             })}
           </div>
@@ -404,17 +363,6 @@ export default function RetrosListPage() {
             ))}
           </ul>
         </section>
-      )}
-
-      {!loading && retros.length === 0 && (
-        <div className={`text-center py-8 rounded-2xl border border-dashed ${
-          dark ? "border-slate-700/60 text-slate-400" : "border-slate-300 text-slate-500"
-        }`}>
-          <p className="text-sm">No retros yet for this team.</p>
-          <Button onClick={() => setShowNewModal(true)} className="mt-3">
-            <Plus className="w-4 h-4 mr-1" /> Start your first retro
-          </Button>
-        </div>
       )}
 
       <RetroDeleteModal

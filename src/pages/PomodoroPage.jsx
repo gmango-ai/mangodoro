@@ -219,8 +219,8 @@ export default function PomodoroPage({ session, onOpenSync }) {
         <h1 className="text-2xl font-bold">Pomodoro</h1>
       </div>
 
-      {/* This week's goals (per-department) — glance-able context above
-          the rooms grid. Stacks all goals for the user's tagged depts. */}
+      {/* Next-week goals from each active retro — glance-able context
+          above the rooms grid. Stacks all goals for the user's teams. */}
       {weekGoals.length > 0 && (
         <div className="mb-4 space-y-1.5">
           {weekGoals.map((g) => (
@@ -236,7 +236,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
               <Target className={`w-4 h-4 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
               <div className="flex-1 min-w-0">
                 <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-cyan-300" : "text-teal-700"}`}>
-                  {g.department || "Team"} · this week
+                  {g.department || "Team"} · next week
                 </p>
                 <p className="font-semibold truncate">{g.goal}</p>
               </div>
