@@ -15,7 +15,6 @@ import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { resolveRoomByInviteCode } from "../lib/rooms";
 import { listCurrentWeekRetros } from "../lib/retro";
 import { notifySessionJoined } from "../sync/joinSession";
-import SalaryClockCard from "../components/SalaryClockCard";
 
 export default function PomodoroPage({ session, onOpenSync }) {
   const { settings, clockIn, projects, dataLoaded } = useApp();
@@ -214,17 +213,6 @@ export default function PomodoroPage({ session, onOpenSync }) {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="text-2xl font-bold">Pomodoro</h1>
       </div>
-
-      {/* Quick clock-in card for salary users only. Hourly users keep
-          using the precise /time-tracker — surfacing both here would
-          be noisy. */}
-      {(() => {
-        const me = (teamMembers || []).find((m) => m.user_id === session?.user?.id);
-        if (me?.classification === "salary") {
-          return <div className="mb-4"><SalaryClockCard /></div>;
-        }
-        return null;
-      })()}
 
       {/* This week's goals (per-department) — glance-able context above
           the rooms grid. Stacks all goals for the user's tagged depts. */}

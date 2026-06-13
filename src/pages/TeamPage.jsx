@@ -9,13 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
-  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Briefcase,
+  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Briefcase, Users2, Building2, ShieldAlert,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import OrgTeamsCard from "../components/OrgTeamsCard";
 import OrgTeamMembersModal from "../components/OrgTeamMembersModal";
 import MemberHRModal from "../components/MemberHRModal";
+import MemberTeamsModal from "../components/MemberTeamsModal";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
@@ -54,19 +55,40 @@ export default function TeamPage() {
   const [hrMember, setHrMember] = useState(null);
   // Map of org_team_id -> member count. Loaded lazily for the cards.
   const [orgTeamMemberCounts, setOrgTeamMemberCounts] = useState(new Map());
+  // Map of user_id → array of org_team rows the user belongs to. Drives
+  // the team chips on each member row and the MemberTeamsModal.
+  const [teamsByUserId, setTeamsByUserId] = useState(new Map());
 
-  // Fetch member counts whenever the org_teams list changes.
+  // Refetch all team memberships whenever the org_teams list changes.
   useEffect(() => {
-    if (!orgTeams || orgTeams.length === 0) { setOrgTeamMemberCounts(new Map()); return; }
+    if (!orgTeams || orgTeams.length === 0) {
+      setOrgTeamMemberCounts(new Map());
+      setTeamsByUserId(new Map());
+      return;
+    }
     let cancelled = false;
     Promise.all(orgTeams.map((t) => listOrgTeamMembers(t.id))).then((results) => {
       if (cancelled) return;
-      const m = new Map();
-      orgTeams.forEach((t, i) => m.set(t.id, (results[i]?.data || []).length));
-      setOrgTeamMemberCounts(m);
+      const counts = new Map();
+      const byUser = new Map();
+      orgTeams.forEach((t, i) => {
+        const rows = results[i]?.data || [];
+        counts.set(t.id, rows.length);
+        for (const r of rows) {
+          const list = byUser.get(r.user_id) || [];
+          list.push(t);
+          byUser.set(r.user_id, list);
+        }
+      });
+      setOrgTeamMemberCounts(counts);
+      setTeamsByUserId(byUser);
     });
     return () => { cancelled = true; };
   }, [orgTeams]);
+
+  // Per-member team-management modal (member-centric, distinct from the
+  // team-centric OrgTeamMembersModal opened from the Teams card).
+  const [memberTeamsModalFor, setMemberTeamsModalFor] = useState(null);
 
   // Auto-join from URL. Used to just pre-fill the field; now actually
   // performs the join so a one-click invite link works without the user
@@ -415,6 +437,16 @@ export default function TeamPage() {
             </div>
           )}
 
+          {/* ─── ORG ─────────────────────────────────────────────── */}
+          {isAdmin && (
+            <SectionHeader
+              icon={Building2}
+              title="Org"
+              subtitle="Profile and how others join"
+              dark={dark}
+            />
+          )}
+
           {/* Team Settings (admin only) — name, icon, accent color */}
           {isAdmin && (
             <TeamSettingsCard
@@ -432,7 +464,17 @@ export default function TeamPage() {
             />
           )}
 
-          {/* Teams (departments) admin card — only org admins */}
+          {/* ─── TEAMS ───────────────────────────────────────────── */}
+          {isAdmin && (
+            <SectionHeader
+              icon={Users2}
+              title="Teams"
+              subtitle="SWE, PM, HR — gate rooms, retros, and goals"
+              dark={dark}
+            />
+          )}
+
+          {/* OrgTeamsCard — only org admins */}
           {isAdmin && (
             <OrgTeamsCard
               dark={dark}
@@ -472,7 +514,39 @@ export default function TeamPage() {
             </div>
           )}
 
-          {/* Retro Link (everyone) */}
+          {/* ─── MEMBERS ─────────────────────────────────────────── */}
+          <SectionHeader
+            icon={Users}
+            title="Members"
+            subtitle={`${teamMembers.length} ${teamMembers.length === 1 ? "person" : "people"} in ${activeTeam.name}`}
+            dark={dark}
+          />
+          <div className={cardCls}>
+            <div className="space-y-2">
+              {teamMembers.map((m) => (
+                <MemberCard
+                  key={m.user_id}
+                  member={m}
+                  dark={dark}
+                  isAdmin={isAdmin}
+                  isOwner={m.user_id === activeTeam.created_by}
+                  teamsForUser={teamsByUserId.get(m.user_id) || []}
+                  onEditHR={() => setHrMember(m)}
+                  onEditTeams={() => setMemberTeamsModalFor(m)}
+                  onToggleRole={() => handleToggleRole(m.user_id, m.role)}
+                  onRemove={() => handleRemoveMember(m.user_id)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* ─── QUICK LINKS ─────────────────────────────────────── */}
+          <SectionHeader
+            icon={ArrowRight}
+            title="Quick links"
+            subtitle="Jump to retros, timesheets, and live sessions"
+            dark={dark}
+          />
           <button
             onClick={() => navigate("/retros")}
             className={`w-full ${cardCls} flex items-center justify-between hover:border-teal-500/50 transition-colors cursor-pointer`}
@@ -486,8 +560,6 @@ export default function TeamPage() {
             </div>
             <ArrowRight className={`w-5 h-5 ${dark ? "text-slate-500" : "text-slate-400"}`} />
           </button>
-
-          {/* Timesheets Link (admin only) */}
           {isAdmin && (
             <button
               onClick={() => navigate("/team/timesheets")}
@@ -504,100 +576,15 @@ export default function TeamPage() {
             </button>
           )}
 
-          {/* Members */}
-          <div className={cardCls}>
-            <div className="flex items-center justify-between mb-4">
-              <p className={labelCls}>Members ({teamMembers.length})</p>
-              <Badge variant="outline" className="text-xs">
-                {activeTeam.name}
-              </Badge>
-            </div>
-            <div className="space-y-2">
-              {teamMembers.map((m) => (
-                <div
-                  key={m.user_id}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${
-                    dark ? "bg-slate-800/40" : "bg-slate-50"
-                  }`}
-                >
-                  <UserAvatar url={m.avatar_url} name={m.name} size={32} className="shrink-0" />
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate flex items-center gap-1.5 ${dark ? "text-slate-200" : "text-slate-700"}`}>
-                      <span
-                        className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
-                          m.presence_state === "in_meeting" ? "bg-rose-500"
-                          : m.presence_state === "heads_down" ? "bg-violet-500"
-                          : m.presence_state === "away" ? "bg-amber-500"
-                          : "bg-emerald-500"
-                        }`}
-                        title={m.presence_state}
-                      />
-                      {m.name}
-                    </p>
-                    <p className={`text-xs truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                      {m.status ? m.status : `Joined ${new Date(m.joined_at).toLocaleDateString()}`}
-                    </p>
-                  </div>
-                  {/* Classification badge — read-only for non-admins. */}
-                  {m.classification && (
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] ${
-                        m.classification === "salary"
-                          ? dark ? "border-cyan-500/40 text-cyan-300" : "border-teal-300 text-teal-700"
-                          : dark ? "border-amber-500/40 text-amber-300" : "border-amber-300 text-amber-700"
-                      }`}
-                    >
-                      {m.classification === "salary" ? "Salary" : "Hourly"}
-                    </Badge>
-                  )}
-                  {/* Role badge */}
-                  <Badge variant={m.role === "admin" ? "default" : "secondary"} className="text-[10px]">
-                    {m.role === "admin" ? "Admin" : "Member"}
-                  </Badge>
-                  {/* Admin actions */}
-                  {isAdmin && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      onClick={() => setHrMember(m)}
-                      title="Edit HR fields (salary, rate, target hours)"
-                    >
-                      <Briefcase className="w-3.5 h-3.5" />
-                    </Button>
-                  )}
-                  {isAdmin && m.user_id !== activeTeam.created_by && (
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        onClick={() => handleToggleRole(m.user_id, m.role)}
-                        title={m.role === "admin" ? "Demote to member" : "Promote to admin"}
-                      >
-                        <Crown className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
-                        onClick={() => handleRemoveMember(m.user_id)}
-                        title="Remove member"
-                      >
-                        <UserMinus className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Danger Zone */}
+          {/* ─── DANGER ──────────────────────────────────────────── */}
+          <SectionHeader
+            icon={ShieldAlert}
+            title="Danger zone"
+            subtitle="Leave or delete this org — both are permanent"
+            dark={dark}
+            danger
+          />
           <div className={`${cardCls} border-red-500/20`}>
-            <p className={`${labelCls} text-red-500`}>Danger Zone</p>
             <div className="flex gap-2 mt-3">
               {!confirmLeave ? (
                 <Button variant="outline" size="sm" onClick={() => setConfirmLeave(true)}>
@@ -666,7 +653,221 @@ export default function TeamPage() {
           return await updateMemberHR(activeTeamId, hrMember.user_id, patch);
         }}
       />
+
+      <MemberTeamsModal
+        open={!!memberTeamsModalFor}
+        onClose={() => setMemberTeamsModalFor(null)}
+        member={memberTeamsModalFor}
+        orgTeams={orgTeams || []}
+        currentTeamIds={
+          memberTeamsModalFor
+            ? (teamsByUserId.get(memberTeamsModalFor.user_id) || []).map((t) => t.id)
+            : []
+        }
+        onChange={() => {
+          // Realtime usually catches this via the org_team_members
+          // subscription in TeamContext, but kick a manual refresh too
+          // so the chip strip on the row updates the same tick.
+          loadOrgTeamsForActive?.();
+        }}
+      />
     </main>
+  );
+}
+
+// Small section header. Used to group the page (Org → Teams →
+// Members → Quick links → Danger) so admins don't see one tall stack
+// of cards with no semantic structure.
+function SectionHeader({ icon: Icon, title, subtitle, dark, danger = false }) {
+  return (
+    <div className="flex items-start gap-2.5 px-1 pt-3">
+      <div
+        className={`p-1.5 rounded-lg shrink-0 ${
+          danger
+            ? dark ? "bg-red-500/15 text-red-300" : "bg-red-50 text-red-600"
+            : dark ? "bg-cyan-500/10 text-cyan-400" : "bg-teal-50 text-teal-600"
+        }`}
+      >
+        <Icon className="w-4 h-4" />
+      </div>
+      <div>
+        <h2 className={`text-sm font-bold uppercase tracking-wider ${
+          danger
+            ? dark ? "text-red-300" : "text-red-600"
+            : dark ? "text-slate-100" : "text-slate-800"
+        }`}>
+          {title}
+        </h2>
+        {subtitle && (
+          <p className={`text-[11px] mt-0.5 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            {subtitle}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Per-member card. Two-row layout: identity + role/classification
+// tagline on top, team chips + admin actions on the bottom. Reads as
+// "who they are, what they are, what they're on, what I can do."
+function MemberCard({
+  member: m, dark, isAdmin, isOwner,
+  teamsForUser, onEditHR, onEditTeams, onToggleRole, onRemove,
+}) {
+  const presenceRing = (() => {
+    switch (m.presence_state) {
+      case "in_meeting": return "ring-rose-500";
+      case "heads_down": return "ring-violet-500";
+      case "away":       return "ring-amber-500";
+      default:           return "ring-emerald-500";
+    }
+  })();
+  const presenceLabel = (() => {
+    switch (m.presence_state) {
+      case "in_meeting": return "In meeting";
+      case "heads_down": return "Heads-down";
+      case "away":       return "Away";
+      case "available":  return "Available";
+      default:           return "Active";
+    }
+  })();
+  const joinedDate = new Date(m.joined_at).toLocaleDateString(undefined, {
+    month: "short", day: "numeric", year: "numeric",
+  });
+  const taglineParts = [];
+  if (m.role === "admin") taglineParts.push(isOwner ? "Owner" : "Admin");
+  else taglineParts.push("Member");
+  if (m.classification === "salary") taglineParts.push("Salary");
+  else if (m.classification === "hourly") {
+    taglineParts.push(`Hourly${m.hourly_rate ? ` · $${Number(m.hourly_rate).toFixed(0)}/hr` : ""}`);
+  }
+
+  return (
+    <div className={`rounded-xl px-3 py-3 ${dark ? "bg-slate-800/40" : "bg-slate-50"}`}>
+      {/* Row 1: identity + actions */}
+      <div className="flex items-start gap-3">
+        {/* Avatar + presence ring + admin crown overlay */}
+        <div className={`relative shrink-0 rounded-full ring-2 ring-offset-2 ${presenceRing} ${
+          dark ? "ring-offset-slate-800/40" : "ring-offset-slate-50"
+        }`}>
+          <UserAvatar url={m.avatar_url} name={m.name} size={40} />
+          {m.role === "admin" && (
+            <span
+              className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center shadow ${
+                dark ? "bg-amber-400 text-slate-900" : "bg-amber-400 text-white"
+              }`}
+              title={isOwner ? "Owner" : "Admin"}
+            >
+              <Crown className="w-3 h-3" fill="currentColor" />
+            </span>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm font-bold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
+            {m.name}
+          </p>
+          <p className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            {presenceLabel}
+            {m.status ? ` · ${m.status}` : ""}
+            {" · "}Joined {joinedDate}
+          </p>
+          <p className={`text-[11px] mt-0.5 truncate ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            {taglineParts.join(" · ")}
+          </p>
+        </div>
+
+        {/* Admin actions — compact icon row aligned top-right */}
+        {isAdmin && (
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={onEditHR}
+              title="Edit HR fields"
+            >
+              <Briefcase className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={onEditTeams}
+              title="Manage team memberships"
+            >
+              <Users2 className="w-3.5 h-3.5" />
+            </Button>
+            {!isOwner && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={onToggleRole}
+                  title={m.role === "admin" ? "Demote to member" : "Promote to admin"}
+                >
+                  <Crown className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
+                  onClick={onRemove}
+                  title="Remove from org"
+                >
+                  <UserMinus className="w-3.5 h-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Row 2: team chips */}
+      {(teamsForUser.length > 0 || isAdmin) && (
+        <div className={`mt-3 pt-2.5 border-t ${dark ? "border-slate-700/40" : "border-slate-200/70"} flex flex-wrap items-center gap-1.5`}>
+          <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+            dark ? "text-slate-500" : "text-slate-400"
+          }`}>
+            Teams
+          </span>
+          {teamsForUser.length === 0 && (
+            <span className={`text-[11px] italic ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              No teams yet
+            </span>
+          )}
+          {teamsForUser.map((t) => (
+            <span
+              key={t.id}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+              style={{
+                background: `${t.color}22`,
+                color: dark ? "#fff" : t.color,
+                border: `1px solid ${t.color}55`,
+              }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: t.color }} />
+              {t.name}
+            </span>
+          ))}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={onEditTeams}
+              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border border-dashed transition-colors ${
+                dark
+                  ? "border-slate-600 text-slate-400 hover:border-cyan-500/60 hover:text-cyan-300"
+                  : "border-slate-300 text-slate-500 hover:border-teal-400 hover:text-teal-600"
+              }`}
+            >
+              + Manage
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
