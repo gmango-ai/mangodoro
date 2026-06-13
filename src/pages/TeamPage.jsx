@@ -435,7 +435,7 @@ export default function TeamPage() {
 
           {/* Retro Link (everyone) */}
           <button
-            onClick={() => navigate("/team/retro")}
+            onClick={() => navigate("/retros")}
             className={`w-full ${cardCls} flex items-center justify-between hover:border-teal-500/50 transition-colors cursor-pointer`}
           >
             <div className="flex items-center gap-3">

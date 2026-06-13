@@ -1,25 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, Target, Plus, Pencil, Trash2, Check, X, Sparkles,
-  Heart, ThumbsUp, AlertTriangle, ArrowRight as ArrowRightIcon,
+  Heart, AlertTriangle, ArrowRight as ArrowRightIcon, Link as LinkIcon, Lock, Unlock,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
 import {
   RETRO_LANES,
-  getOrCreateCurrentRetro,
+  fetchRetroById,
   listRetroCards,
+  listRetroParticipants,
   createRetroCard,
   updateRetroCard,
   deleteRetroCard,
   setRetroGoal,
   formatRetroWeek,
+  isRetroCurrentWeek,
+  setRetroLive,
 } from "../lib/retro";
+import { supabase } from "../supabase";
 
 const LANE_ICON = {
   celebrate: Sparkles,
@@ -34,39 +38,29 @@ const LANE_ACCENT = {
   next_week: { dark: "text-cyan-400 bg-cyan-500/15", light: "text-teal-600 bg-teal-50" },
 };
 
+const STICKY_COLORS = [
+  { hex: "#fde68a", label: "Yellow" },
+  { hex: "#fbcfe8", label: "Pink" },
+  { hex: "#bfdbfe", label: "Blue" },
+  { hex: "#bbf7d0", label: "Green" },
+  { hex: "#ddd6fe", label: "Purple" },
+  { hex: "#fed7aa", label: "Orange" },
+  { hex: "#fecaca", label: "Coral" },
+  { hex: "#e2e8f0", label: "Slate" },
+];
+
 export default function RetroPage() {
-  const { session, stickyColor: myStickyColor } = useApp();
-  const { activeTeam, activeTeamId, isAdmin, teamMembers } = useTeam();
+  const { retroId } = useParams();
+  const { session, stickyColor: myStickyColor, setStickyColor } = useApp();
+  const { activeTeam, isAdmin, teams, switchTeam } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
 
   const [retro, setRetro] = useState(null);
   const [cards, setCards] = useState([]);
+  const [participants, setParticipants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // Department selector. Available departments = team's canonical list +
-  // a "Team" fallback (empty string) for cross-team / undeparted folks.
-  // Default selection is the user's first dept tag, or "Team" if untagged.
-  const myMember = useMemo(
-    () => teamMembers.find((m) => m.user_id === session?.user?.id) || null,
-    [teamMembers, session?.user?.id],
-  );
-  const myDepartments = myMember?.departments || [];
-  const teamDepartments = activeTeam?.departments || [];
-  // Distinct list, "" sentinel for the team-wide retro shown first.
-  const availableDepartments = useMemo(() => {
-    const set = new Set([""]);
-    for (const d of teamDepartments) set.add(d);
-    return [...set];
-  }, [teamDepartments]);
-  const [selectedDepartment, setSelectedDepartment] = useState("");
-  // Re-pick a default when the active team / my tags change.
-  useEffect(() => {
-    if (!activeTeamId) return;
-    const preferred = myDepartments[0] || "";
-    setSelectedDepartment(availableDepartments.includes(preferred) ? preferred : "");
-  }, [activeTeamId, myDepartments.join(","), availableDepartments.join(",")]);
 
   // Goal editor state.
   const [goalEditing, setGoalEditing] = useState(false);
@@ -84,28 +78,43 @@ export default function RetroPage() {
   const [editingBody, setEditingBody] = useState("");
   const editingTextareaRef = useRef(null);
 
-  // Bootstrap: get or create this week's retro for the active team
-  // and selected department, then load its cards. Re-runs on team or
-  // department change.
+
+  // Invite copy feedback.
+  const [inviteCopied, setInviteCopied] = useState(false);
+
+  // Load the retro + its cards + participant list. Re-runs on retroId change.
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!activeTeamId) return;
+      if (!retroId) return;
       setLoading(true); setError("");
-      const { data, error: err } = await getOrCreateCurrentRetro(activeTeamId, selectedDepartment);
+      const { data, error: err } = await fetchRetroById(retroId);
       if (cancelled) return;
-      if (err) { setError(err.message || "Could not load retro."); setLoading(false); return; }
+      if (err || !data) {
+        setError(err?.message || "Retro not found.");
+        setRetro(null);
+        setLoading(false);
+        return;
+      }
       setRetro(data);
-      const { data: c } = await listRetroCards(data.id);
+      // Auto-switch the active team if the retro lives in a different one
+      // (e.g. clicking a /retros/:id link from a deep-link).
+      if (teams?.length && data.team_id && teams.some((t) => t.id === data.team_id)) {
+        switchTeam(data.team_id);
+      }
+      const [{ data: c }, { data: p }] = await Promise.all([
+        listRetroCards(data.id),
+        listRetroParticipants(data.id),
+      ]);
       if (cancelled) return;
       setCards(c || []);
+      setParticipants(p || []);
       setLoading(false);
     }
     load();
     return () => { cancelled = true; };
-  }, [activeTeamId, selectedDepartment]);
+  }, [retroId, switchTeam, teams]);
 
-  // Reset transient editor state when the retro id changes (e.g. team switch).
   useEffect(() => {
     setGoalEditing(false);
     setGoalDraft(retro?.goal || "");
@@ -113,7 +122,6 @@ export default function RetroPage() {
     setNewCardDrafts(Object.fromEntries(RETRO_LANES.map((l) => [l.key, ""])));
   }, [retro?.id]);
 
-  // Autofocus the card editor when one opens.
   useEffect(() => {
     if (editingCardId && editingTextareaRef.current) {
       editingTextareaRef.current.focus();
@@ -121,11 +129,11 @@ export default function RetroPage() {
     }
   }, [editingCardId]);
 
-  const memberByUserId = useMemo(() => {
+  const participantByUserId = useMemo(() => {
     const m = new Map();
-    for (const row of teamMembers) m.set(row.user_id, row);
+    for (const p of participants) m.set(p.user_id, p);
     return m;
-  }, [teamMembers]);
+  }, [participants]);
 
   const cardsByLane = useMemo(() => {
     const m = new Map(RETRO_LANES.map((l) => [l.key, []]));
@@ -135,14 +143,24 @@ export default function RetroPage() {
     return m;
   }, [cards]);
 
-  async function refreshCards() {
+  // Live/closed is now the source of truth for editability. is_live
+  // defaults to true on new retros; admins can flip via the header
+  // toggle. Past retros were back-filled to is_live=false.
+  const readOnly = !retro?.is_live;
+  const [liveToggling, setLiveToggling] = useState(false);
+
+  async function handleToggleLive() {
     if (!retro) return;
-    const { data } = await listRetroCards(retro.id);
-    setCards(data || []);
+    setLiveToggling(true); setError("");
+    const next = !retro.is_live;
+    const { error: err } = await setRetroLive(retro.id, next);
+    setLiveToggling(false);
+    if (err) { setError(err.message || "Could not change retro state."); return; }
+    setRetro({ ...retro, is_live: next });
   }
 
   async function handleAddCard(laneKey) {
-    if (!retro || !session?.user?.id) return;
+    if (!retro || !session?.user?.id || readOnly) return;
     const body = (newCardDrafts[laneKey] || "").trim();
     if (!body) return;
     setCreatingLane(laneKey); setError("");
@@ -189,22 +207,38 @@ export default function RetroPage() {
     setEditingBody(card.body);
   }
 
+  // Sticky-color update is optimistic: flip AppContext state immediately
+  // so own cards re-render the same tick, then persist to user_settings.
+  // Without setStickyColor exposed (the bug behind "change doesn't take
+  // until refresh"), the local state was stuck on the loadData value.
+  async function chooseStickyColor(hex) {
+    if (!session?.user?.id) return;
+    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+    if (hex.toLowerCase() === (myStickyColor || "").toLowerCase()) return;
+    setStickyColor(hex);
+    const { error: err } = await supabase
+      .from("user_settings")
+      .upsert({ user_id: session.user.id, sticky_color: hex }, { onConflict: "user_id" });
+    if (err) {
+      // Revert the optimistic update if the save fails so we don't lie
+      // to the user about persistence.
+      setStickyColor(myStickyColor);
+      setError(err.message || "Couldn't save your color.");
+    }
+  }
+
+  async function copyInviteLink() {
+    if (!retro?.invite_code) return;
+    const url = `${window.location.origin}/retros/join/${retro.invite_code}`;
+    try { await navigator.clipboard.writeText(url); } catch { /* ignore */ }
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 2000);
+  }
+
   const cardCls = `rounded-2xl border p-4 ${
     dark ? "bg-slate-900/60 border-slate-700/50" : "bg-white border-slate-200 shadow-sm"
   }`;
-  const subCls = `text-sm ${dark ? "text-slate-400" : "text-slate-500"}`;
   const headingCls = `text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`;
-
-  if (!activeTeam) {
-    return (
-      <main className="px-4 pt-6 pb-24 max-w-[1080px] mx-auto">
-        <p className={subCls}>Join or create a team first to run a retro.</p>
-        <Link to="/team" className={`inline-flex items-center gap-1 mt-3 text-sm ${dark ? "text-cyan-400" : "text-teal-600"}`}>
-          <ArrowLeft className="w-4 h-4" /> Back to teams
-        </Link>
-      </main>
-    );
-  }
 
   if (loading) {
     return (
@@ -212,10 +246,21 @@ export default function RetroPage() {
         <Skeleton className="h-7 w-48" />
         <SkeletonCard className="h-20" />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <SkeletonCard key={i} className="h-64" />
-          ))}
+          {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} className="h-64" />)}
         </div>
+      </main>
+    );
+  }
+
+  if (!retro) {
+    return (
+      <main className="px-4 pt-6 pb-24 max-w-[1080px] mx-auto">
+        <Link to="/retros" className={`inline-flex items-center gap-1 text-sm ${dark ? "text-cyan-400" : "text-teal-600"}`}>
+          <ArrowLeft className="w-4 h-4" /> Back to retros
+        </Link>
+        <p className={`mt-3 text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          Retro not found, or you don't have access.
+        </p>
       </main>
     );
   }
@@ -226,57 +271,59 @@ export default function RetroPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <Link
-            to="/team"
+            to="/retros"
             className={`inline-flex items-center gap-1 text-xs mb-1 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
           >
-            <ArrowLeft className="w-3 h-3" /> {activeTeam.name}
+            <ArrowLeft className="w-3 h-3" /> All retros
           </Link>
           <h1 className={headingCls}>
-            {selectedDepartment ? `${selectedDepartment} retro` : "Team retro"}
+            {retro.department ? `${retro.department} retro` : "Team retro"}
             {" · "}
-            {formatRetroWeek(retro?.week_start)}
+            {formatRetroWeek(retro.week_start)}
+            <span
+              className={`ml-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${
+                readOnly
+                  ? dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
+                  : dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              {readOnly
+                ? <><Lock className="w-3 h-3" /> Closed</>
+                : <><span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" /> Live</>}
+            </span>
           </h1>
         </div>
-      </div>
 
-      {/* Department switcher */}
-      {availableDepartments.length > 1 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
-            Showing
-          </span>
-          {availableDepartments.map((d) => {
-            const active = d === selectedDepartment;
-            const mine = d !== "" && myDepartments.includes(d);
-            return (
-              <button
-                key={d || "__team__"}
-                type="button"
-                onClick={() => setSelectedDepartment(d)}
-                className={`relative text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
-                  active
-                    ? dark
-                      ? "bg-cyan-500/20 border-cyan-500/50 text-cyan-100"
-                      : "bg-teal-100 border-teal-300 text-teal-800"
-                    : dark
-                      ? "border-slate-700 text-slate-300 hover:border-slate-600"
-                      : "border-slate-200 text-slate-600 hover:border-slate-300"
-                }`}
-              >
-                {d || "Team"}
-                {mine && (
-                  <span
-                    className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ${
-                      dark ? "bg-amber-300 ring-slate-900" : "bg-amber-400 ring-white"
-                    }`}
-                    title="One of your departments"
-                  />
-                )}
-              </button>
-            );
-          })}
+        {/* Header actions — Invite + admin Close/Reopen */}
+        <div className="flex items-center gap-2">
+          {!readOnly && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={copyInviteLink}
+              title="Copy guest invite link"
+              className="h-8 text-xs"
+            >
+              <LinkIcon className="w-3.5 h-3.5 mr-1" />
+              {inviteCopied ? "Copied!" : "Invite"}
+            </Button>
+          )}
+          {/* Admin: live/closed toggle */}
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant={readOnly ? "default" : "outline"}
+              onClick={handleToggleLive}
+              disabled={liveToggling}
+              title={readOnly ? "Reopen this retro for edits" : "Close this retro (read-only)"}
+              className="h-8 text-xs"
+            >
+              {readOnly ? <Unlock className="w-3.5 h-3.5 mr-1" /> : <Lock className="w-3.5 h-3.5 mr-1" />}
+              {liveToggling ? "…" : readOnly ? "Reopen" : "Close"}
+            </Button>
+          )}
         </div>
-      )}
+      </div>
 
       {error && (
         <div className={`text-sm font-medium px-4 py-2 rounded-lg ${
@@ -294,16 +341,16 @@ export default function RetroPage() {
           </div>
           <div className="flex-1 min-w-0">
             <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              This week's goal
+              {readOnly ? "Goal that week" : "This week's goal"}
             </p>
-            {goalEditing ? (
+            {goalEditing && !readOnly ? (
               <div className="mt-1.5 space-y-2">
                 <textarea
                   value={goalDraft}
                   onChange={(e) => setGoalDraft(e.target.value.slice(0, 140))}
                   rows={2}
                   maxLength={140}
-                  placeholder="e.g. Ship the rooms-redesign to 100% of the team"
+                  placeholder="e.g. Ship the rooms redesign to 100% of the team"
                   className={`w-full rounded-lg border px-3 py-2 text-sm ${
                     dark
                       ? "bg-slate-900 border-slate-700 text-slate-100 placeholder:text-slate-500"
@@ -335,10 +382,10 @@ export default function RetroPage() {
                   </p>
                 ) : (
                   <p className={`text-sm italic flex-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                    No goal set for this week yet.
+                    {readOnly ? "No goal was set for this week." : "No goal set for this week yet."}
                   </p>
                 )}
-                {isAdmin && (
+                {isAdmin && !readOnly && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -354,6 +401,47 @@ export default function RetroPage() {
         </div>
       </div>
 
+      {/* Inline sticky-color strip — always visible, instant feedback.
+          Picking a swatch updates AppContext optimistically so own cards
+          re-render the same tick. Hidden in read-only retros since no
+          new cards will be authored. */}
+      {!readOnly && (
+        <div className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg border ${
+          dark ? "bg-slate-900/40 border-slate-700/40" : "bg-white border-slate-200"
+        }`}>
+          <span className={`text-[11px] font-semibold uppercase tracking-wider ${
+            dark ? "text-slate-400" : "text-slate-500"
+          }`}>
+            Your sticky color
+          </span>
+          <div className="flex items-center gap-1.5 ml-auto sm:ml-2">
+            {STICKY_COLORS.map((c) => {
+              const selected = myStickyColor?.toLowerCase() === c.hex.toLowerCase();
+              return (
+                <button
+                  key={c.hex}
+                  type="button"
+                  onClick={() => chooseStickyColor(c.hex)}
+                  aria-label={c.label}
+                  aria-pressed={selected}
+                  title={c.label}
+                  className={`relative flex items-center justify-center w-7 h-7 rounded-md border border-black/10 transition-transform hover:scale-110 ${
+                    selected
+                      ? dark
+                        ? "outline outline-2 outline-offset-2 outline-white"
+                        : "outline outline-2 outline-offset-2 outline-slate-900"
+                      : ""
+                  }`}
+                  style={{ background: c.hex }}
+                >
+                  {selected && <Check className="w-3.5 h-3.5 text-slate-900" strokeWidth={3} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Lanes */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {RETRO_LANES.map((lane) => {
@@ -362,7 +450,6 @@ export default function RetroPage() {
           const laneCards = cardsByLane.get(lane.key) || [];
           return (
             <div key={lane.key} className={`${cardCls} flex flex-col gap-3 min-h-[320px]`}>
-              {/* Lane header */}
               <div className="flex items-start gap-2">
                 <div className={`p-1.5 rounded-md ${accent}`}>
                   <Icon className="w-4 h-4" />
@@ -380,7 +467,6 @@ export default function RetroPage() {
                 </span>
               </div>
 
-              {/* Card list */}
               <ul className="space-y-2 flex-1 overflow-y-auto -mx-1 px-1">
                 {laneCards.length === 0 && (
                   <li className={`text-xs italic ${dark ? "text-slate-500" : "text-slate-400"}`}>
@@ -388,19 +474,13 @@ export default function RetroPage() {
                   </li>
                 )}
                 {laneCards.map((card) => {
-                  const author = memberByUserId.get(card.author_id);
+                  const author = participantByUserId.get(card.author_id);
                   const isOwn = card.author_id === session?.user?.id;
                   const editing = editingCardId === card.id;
-                  // Sticky-note background = author's chosen color.
-                  // For the current user's own cards, prefer the live
-                  // value from AppContext so an in-session color change
-                  // shows up without waiting for teamMembers to refetch.
                   const sticky = isOwn
                     ? myStickyColor || "#fde68a"
                     : author?.sticky_color || "#fde68a";
-                  const stickyStyle = dark
-                    ? { background: sticky, color: "#0f172a" }
-                    : { background: sticky, color: "#1e293b" };
+                  const stickyStyle = { background: sticky, color: "#1e293b" };
                   return (
                     <li
                       key={card.id}
@@ -432,9 +512,6 @@ export default function RetroPage() {
                         </div>
                       ) : (
                         <>
-                          {/* Sticky-tinted cards always have dark slate text;
-                              the pastel palette stays readable in either theme
-                              when paired with a dark foreground. */}
                           <p className="text-sm whitespace-pre-wrap break-words text-slate-900">
                             {card.body}
                           </p>
@@ -447,8 +524,13 @@ export default function RetroPage() {
                             />
                             <span className="text-[11px] truncate text-slate-700">
                               {author?.name || "Team member"}
+                              {author?.is_guest && (
+                                <span className="ml-1 text-[9px] uppercase tracking-wider opacity-70">
+                                  Guest
+                                </span>
+                              )}
                             </span>
-                            {(isOwn || isAdmin) && (
+                            {!readOnly && (isOwn || isAdmin) && (
                               <div className="ml-auto flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {isOwn && (
                                   <button
@@ -478,38 +560,39 @@ export default function RetroPage() {
                 })}
               </ul>
 
-              {/* Add-card form */}
-              <div className="border-t pt-2.5 mt-auto border-slate-700/30">
-                <textarea
-                  value={newCardDrafts[lane.key]}
-                  onChange={(e) =>
-                    setNewCardDrafts((prev) => ({ ...prev, [lane.key]: e.target.value.slice(0, 500) }))
-                  }
-                  rows={2}
-                  placeholder="Add to this lane…"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      handleAddCard(lane.key);
+              {!readOnly && (
+                <div className="border-t pt-2.5 mt-auto border-slate-700/30">
+                  <textarea
+                    value={newCardDrafts[lane.key]}
+                    onChange={(e) =>
+                      setNewCardDrafts((prev) => ({ ...prev, [lane.key]: e.target.value.slice(0, 500) }))
                     }
-                  }}
-                  className={`w-full rounded-md border px-2 py-1.5 text-sm resize-none ${
-                    dark
-                      ? "bg-slate-900/40 border-slate-700 text-slate-100 placeholder:text-slate-500"
-                      : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
-                  }`}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleAddCard(lane.key)}
-                  disabled={!newCardDrafts[lane.key].trim() || creatingLane === lane.key}
-                  className="w-full mt-1.5 h-7 text-xs"
-                >
-                  <Plus className="w-3 h-3 mr-1" />
-                  {creatingLane === lane.key ? "Adding…" : "Add"}
-                </Button>
-              </div>
+                    rows={2}
+                    placeholder="Add to this lane…"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        handleAddCard(lane.key);
+                      }
+                    }}
+                    className={`w-full rounded-md border px-2 py-1.5 text-sm resize-none ${
+                      dark
+                        ? "bg-slate-900/40 border-slate-700 text-slate-100 placeholder:text-slate-500"
+                        : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
+                    }`}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleAddCard(lane.key)}
+                    disabled={!newCardDrafts[lane.key].trim() || creatingLane === lane.key}
+                    className="w-full mt-1.5 h-7 text-xs"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    {creatingLane === lane.key ? "Adding…" : "Add"}
+                  </Button>
+                </div>
+              )}
             </div>
           );
         })}

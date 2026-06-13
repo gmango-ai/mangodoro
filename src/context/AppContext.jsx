@@ -1301,7 +1301,7 @@ export function AppProvider({ session, children }) {
   const value = {
     // data
     session, entries, projects, settings, templates, dataSyncing, dataLoaded,
-    hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage, stickyColor,
+    hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage, stickyColor, setStickyColor,
     setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget,
     updateStatus,
     // ui

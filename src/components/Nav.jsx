@@ -163,9 +163,8 @@ export default function Nav({ onOpenPomodoro }) {
                   <span className={`ml-1.5 inline-block w-1.5 h-1.5 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse align-middle`} />
                 )}
               </NavLink>
-              <NavLink to="/log" className={desktopNavLink}>Log</NavLink>
-              <NavLink to="/overview" className={desktopNavLink}>Overview</NavLink>
-              <NavLink to="/planner" className={desktopNavLink}>Planner</NavLink>
+              <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
+              <NavLink to="/retros" className={desktopNavLink}>Retros</NavLink>
               <NavLink to="/team" className={desktopNavLink}>Team</NavLink>
             </nav>
 
@@ -272,14 +271,11 @@ export default function Nav({ onOpenPomodoro }) {
               <span className={`ml-auto w-2 h-2 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
             )}
           </NavLink>
-          <NavLink to="/log" className={sidebarNavLink}>
-            <span className="w-5 text-center">📋</span> Log
+          <NavLink to="/time-tracker" className={sidebarNavLink}>
+            <span className="w-5 text-center">📋</span> Time tracker
           </NavLink>
-          <NavLink to="/overview" className={sidebarNavLink}>
-            <span className="w-5 text-center">📊</span> Overview
-          </NavLink>
-          <NavLink to="/planner" className={sidebarNavLink}>
-            <span className="w-5 text-center">🗓️</span> Planner
+          <NavLink to="/retros" className={sidebarNavLink}>
+            <span className="w-5 text-center">🎯</span> Retros
           </NavLink>
           <NavLink to="/team" className={sidebarNavLink}>
             <Users className="w-5 h-5" /> Team
