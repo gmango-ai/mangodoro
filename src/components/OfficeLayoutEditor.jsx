@@ -31,8 +31,11 @@ import { GripVertical } from "lucide-react";
 // so non-admin viewers see the floor plan exactly as admins do.
 
 const COLUMNS = 12;
-const ROW_HEIGHT = 80; // px — chosen so two cells make a comfortable room tile
-const GAP = 8;
+// Tuned for the default 3×2 tile (12 cols → ~25% width per tile, two
+// rows tall). Bigger ROW_HEIGHT gives the avatar strip + Start button
+// real vertical breathing room.
+const ROW_HEIGHT = 96;
+const GAP = 10;
 
 export default function OfficeLayoutEditor({
   rooms,

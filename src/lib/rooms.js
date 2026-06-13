@@ -46,7 +46,7 @@ export async function createRoomV2(teamId, {
     p_invite_code: invite_code,
     p_layout_x: layout?.x ?? 0,
     p_layout_y: layout?.y ?? 0,
-    p_layout_w: layout?.w ?? 2,
+    p_layout_w: layout?.w ?? 3,
     p_layout_h: layout?.h ?? 2,
   });
   // The RPC returns just the new room id; callers that need the row
