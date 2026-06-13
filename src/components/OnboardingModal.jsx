@@ -82,7 +82,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
     <div className={overlayCls}>
       <div className={modalCls}>
         <div className="flex items-center gap-2 mb-1">
-          <Sparkles className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+          <Sparkles className="w-5 h-5 text-[var(--color-accent)]" />
           <h2 className={`text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
             Welcome to Mangodoro
           </h2>
@@ -130,8 +130,8 @@ export default function OnboardingModal({ open, onClose, userId }) {
                   className={`flex-1 text-xs font-semibold py-1.5 rounded-md transition-colors ${
                     payType === "hourly"
                       ? dark
-                        ? "bg-cyan-500/20 text-cyan-300"
-                        : "bg-teal-100 text-teal-700"
+                        ? "bg-[var(--color-accent-light-hover)] text-[var(--color-accent)]"
+                        : "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
                       : dark
                         ? "bg-slate-800 text-slate-400"
                         : "bg-slate-100 text-slate-500"
@@ -145,8 +145,8 @@ export default function OnboardingModal({ open, onClose, userId }) {
                   className={`flex-1 text-xs font-semibold py-1.5 rounded-md transition-colors ${
                     payType === "annual"
                       ? dark
-                        ? "bg-cyan-500/20 text-cyan-300"
-                        : "bg-teal-100 text-teal-700"
+                        ? "bg-[var(--color-accent-light-hover)] text-[var(--color-accent)]"
+                        : "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
                       : dark
                         ? "bg-slate-800 text-slate-400"
                         : "bg-slate-100 text-slate-500"
@@ -282,7 +282,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
               key={i}
               className={`w-1.5 h-1.5 rounded-full transition-colors ${
                 i === step
-                  ? dark ? "bg-cyan-400" : "bg-teal-500"
+                  ? "bg-[var(--color-accent)]"
                   : dark ? "bg-slate-700" : "bg-slate-200"
               }`}
             />

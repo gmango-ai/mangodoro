@@ -132,8 +132,8 @@ export default function NewRetroModal({
                     className={`relative inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
                       active
                         ? dark
-                          ? "bg-cyan-500/20 border-cyan-500/50 text-cyan-100"
-                          : "bg-teal-100 border-teal-300 text-teal-800"
+                          ? "bg-[var(--color-accent-light-hover)] border-[var(--color-accent)] text-[var(--color-accent)]"
+                          : "bg-[var(--color-accent-light)] border-[var(--color-accent)] text-[var(--color-accent)]"
                         : dark
                           ? "border-slate-700 text-slate-300 hover:border-slate-600"
                           : "border-slate-200 text-slate-600 hover:border-slate-300"
@@ -166,8 +166,8 @@ export default function NewRetroModal({
                   onClick={() => setCustomMode(true)}
                   className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border border-dashed transition-colors ${
                     dark
-                      ? "border-slate-600 text-slate-300 hover:border-cyan-500/60 hover:text-cyan-200"
-                      : "border-slate-300 text-slate-600 hover:border-teal-400 hover:text-teal-700"
+                      ? "border-slate-600 text-slate-300 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                      : "border-slate-300 text-slate-600 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
                   }`}
                 >
                   <Sparkles className="w-3 h-3" /> New team…

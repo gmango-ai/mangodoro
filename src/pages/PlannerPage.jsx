@@ -260,8 +260,8 @@ function PlannerTaskRow({
       className={`rounded-2xl border transition-colors ${
         t.inProgress
           ? dark
-            ? "border-cyan-500/35 bg-gradient-to-b from-cyan-500/10 to-slate-950/40"
-            : "border-teal-300/90 bg-gradient-to-b from-teal-50 to-white"
+            ? "border-[var(--color-accent)] bg-gradient-to-b from-[var(--color-accent-light)] to-slate-950/40"
+            : "border-[var(--color-accent)] bg-gradient-to-b from-[var(--color-accent-light)] to-white"
           : dark
             ? "border-slate-700/70 bg-slate-950/40"
             : "border-slate-200/90 bg-white"
@@ -335,7 +335,7 @@ function PlannerTaskRow({
               {t.inProgress && !t.done && (
                 <span
                   className={`inline-flex items-center gap-1 font-semibold uppercase tracking-wide px-2 py-0.5 rounded-md border ${
-                    dark ? "border-cyan-500/35 text-cyan-200 bg-cyan-500/10" : "border-teal-300 text-teal-800 bg-teal-50"
+                    "border-[var(--color-accent)] text-[var(--color-accent)] bg-[var(--color-accent-light)]"
                   }`}
                 >
                   <Focus className="w-3 h-3" />
@@ -1110,7 +1110,7 @@ export default function PlannerPage() {
           role="status"
           aria-live="polite"
           className={`mb-4 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
-            dark ? "border-cyan-500/25 bg-cyan-500/10 text-cyan-200/90" : "border-teal-200/80 bg-teal-50/90 text-teal-900"
+            "border-[var(--color-accent)] bg-[var(--color-accent-light)] text-[var(--color-accent)]"
           }`}
         >
           <span className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-current opacity-80" aria-hidden />
@@ -1154,7 +1154,7 @@ export default function PlannerPage() {
         <Card
           className={
             dark
-              ? "border-cyan-500/15 bg-slate-900/40 shadow-[0_0_30px_rgba(6,182,212,0.06)] rounded-2xl"
+              ? "border-[var(--color-accent)] bg-slate-900/40 shadow-lg rounded-2xl"
               : "border-slate-200/80 bg-white/80 shadow-sm rounded-2xl"
           }
         >
@@ -1163,7 +1163,7 @@ export default function PlannerPage() {
             <CardDescription className={`text-[15px] leading-relaxed ${dark ? "text-slate-400" : "text-slate-500"}`}>
               Today and anything still open from the last few days
             </CardDescription>
-            <p className={`text-xs font-medium pt-2 ${dark ? "text-cyan-400/90" : "text-teal-700"}`}>
+            <p className="text-xs font-medium pt-2 text-[var(--color-accent)]">
               Today: {doneToday} of {todayTasks.length} done
               {previousTasks.length > 0 && ` · ${previousTasks.length} earlier`}
             </p>
@@ -1583,7 +1583,7 @@ export default function PlannerPage() {
         <Card
           className={
             dark
-              ? "border-cyan-500/15 bg-slate-900/40 shadow-[0_0_30px_rgba(6,182,212,0.06)] rounded-2xl"
+              ? "border-[var(--color-accent)] bg-slate-900/40 shadow-lg rounded-2xl"
               : "border-slate-200/80 bg-white/80 shadow-sm rounded-2xl"
           }
         >
@@ -1592,7 +1592,7 @@ export default function PlannerPage() {
             <CardDescription className={`text-[15px] leading-relaxed ${dark ? "text-slate-400" : "text-slate-500"}`}>
               Anything scheduled after today (next {PLANNER_FUTURE_DAYS} days)
             </CardDescription>
-            <p className={`text-xs font-medium pt-2 ${dark ? "text-cyan-400/90" : "text-teal-700"}`}>
+            <p className="text-xs font-medium pt-2 text-[var(--color-accent)]">
               {doneFuture} of {futureTasks.length} done
             </p>
           </CardHeader>

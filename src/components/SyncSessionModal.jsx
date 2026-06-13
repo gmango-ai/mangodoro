@@ -148,7 +148,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
         </button>
 
         <div className="flex items-center gap-2 mb-5">
-          <Users className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+          <Users className="w-5 h-5 text-[var(--color-accent)]" />
           <h2 className={`text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
             Sync Pomodoro
           </h2>
@@ -169,7 +169,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
         {showActive && (
           <div className="mb-4">
             <div className="flex items-center gap-1.5 mb-2">
-              <Timer className={`w-3.5 h-3.5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+              <Timer className="w-3.5 h-3.5 text-[var(--color-accent)]" />
               <span className={labelCls}>Live team sessions</span>
             </div>
             <ul className="space-y-1.5 max-h-44 overflow-y-auto -mx-1 px-1">
@@ -262,7 +262,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
               Share this code or the invite link:
             </p>
             <div className={`flex items-center justify-center gap-3 px-4 py-3 rounded-xl font-mono text-2xl tracking-[0.3em] font-bold ${
-              dark ? "bg-slate-800 text-cyan-400" : "bg-slate-50 text-teal-600"
+              dark ? "bg-slate-800 text-[var(--color-accent)]" : "bg-slate-50 text-[var(--color-accent)]"
             }`}>
               {createdSession.join_code}
               <button onClick={handleCopy} className="p-1.5 rounded-lg hover:bg-slate-700/50 transition-colors">
@@ -333,7 +333,7 @@ function ToggleRow({ dark, label, hint, value, onChange }) {
       <span
         className={`shrink-0 w-9 h-5 rounded-full relative transition-colors ${
           value
-            ? dark ? "bg-cyan-500" : "bg-teal-600"
+            ? "bg-[var(--color-accent)]"
             : dark ? "bg-slate-700" : "bg-slate-300"
         }`}
         aria-pressed={value}

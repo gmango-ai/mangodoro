@@ -400,39 +400,10 @@ export default function PomodoroTimer({
             <div className={`rounded-lg border p-2.5 space-y-2 ${
               dark ? "bg-slate-800/40 border-slate-700/60" : "bg-slate-50 border-slate-200"
             }`}>
-              {/* Join code + invite link + buttons (visible to all) */}
-              <div className="flex items-center justify-between gap-2 flex-wrap gap-y-1.5">
-                <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                  <span className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                    Code
-                  </span>
-                  <span className="font-mono text-sm font-bold tracking-[0.2em] text-[var(--color-accent)]">
-                    {syncSession.join_code}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => navigator.clipboard?.writeText(syncSession.join_code)}
-                    title="Copy code"
-                    className={`p-1 rounded transition-colors ${
-                      dark ? "text-slate-500 hover:text-slate-300 hover:bg-slate-700" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200"
-                    }`}
-                  >
-                    <Copy className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const url = `${window.location.origin}/pomodoro/join/${syncSession.join_code}`;
-                      navigator.clipboard?.writeText(url);
-                    }}
-                    title="Copy invite link"
-                    className={`p-1 rounded transition-colors ${
-                      dark ? "text-slate-500 hover:text-slate-300 hover:bg-slate-700" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200"
-                    }`}
-                  >
-                    <LinkIcon className="w-3 h-3" />
-                  </button>
-                </div>
+              {/* Leave / End row. The join code + copy-link affordance
+                  lives in the header chip now (clicking it copies the
+                  invite link) so we don't render the code twice. */}
+              <div className="flex items-center justify-end gap-2 flex-wrap gap-y-1.5">
                 <div className="flex gap-1 shrink-0">
                   <button
                     type="button"

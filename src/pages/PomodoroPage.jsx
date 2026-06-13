@@ -319,8 +319,8 @@ export default function PomodoroPage({ session, onOpenSync }) {
                 className={`rounded-2xl border p-5 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
               >
                 <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded-lg ${dark ? "bg-cyan-500/10" : "bg-teal-50"}`}>
-                    <UsersIcon className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+                  <div className="p-2 rounded-lg bg-[var(--color-accent-light)]">
+                    <UsersIcon className="w-5 h-5 text-[var(--color-accent)]" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-base font-bold">Start a synced session</p>
@@ -360,7 +360,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                   <div className="flex items-baseline gap-2">
                     <span className={`text-2xl font-bold font-mono ${
                       online > 0
-                        ? dark ? "text-cyan-300" : "text-teal-700"
+                        ? "text-[var(--color-accent)]"
                         : dark ? "text-slate-500" : "text-slate-400"
                     }`}>
                       {online}

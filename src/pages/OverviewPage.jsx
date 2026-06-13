@@ -176,13 +176,7 @@ export default function OverviewPage() {
         <div className="flex flex-col gap-3 pb-8">
           {/* Row 1: title + month nav */}
           <div className="flex items-center justify-between gap-3">
-            <h2
-              className={`text-2xl font-semibold bg-gradient-to-r bg-clip-text text-transparent ${
-                dark
-                  ? "from-cyan-400 via-teal-400 to-emerald-400"
-                  : "from-teal-600 to-emerald-600"
-              }`}
-            >
+            <h2 className="text-2xl font-semibold text-[var(--color-accent)]">
               Overview
             </h2>
             <div
@@ -347,16 +341,16 @@ export default function OverviewPage() {
         <div
           className={`${statCardClasses} ${
             dark
-              ? "bg-slate-900/50 backdrop-blur-2xl border-cyan-500/20 hover:border-cyan-500/40"
-              : "bg-white/80 backdrop-blur-xl border-blue-200/50 hover:border-blue-300/60"
+              ? "bg-slate-900/50 backdrop-blur-2xl border-[var(--color-accent)] hover:border-[var(--color-accent)]"
+              : "bg-white/80 backdrop-blur-xl border-[var(--color-accent-border)] hover:border-[var(--color-accent)]"
           }`}
         >
           <div className="flex items-start justify-between mb-2">
             <div
-              className={`p-1.5 rounded-lg ${dark ? "bg-cyan-500/15" : "bg-blue-50"}`}
+              className="p-1.5 rounded-lg bg-[var(--color-accent-light)]"
             >
               <TrendingUp
-                className={`w-4 h-4 sm:w-5 sm:h-5 ${dark ? "text-cyan-400" : "text-blue-600"}`}
+                className="w-4 h-4 sm:w-5 sm:h-5 text-[var(--color-accent)]"
               />
             </div>
           </div>
@@ -533,10 +527,10 @@ export default function OverviewPage() {
           {/* Calendar Header */}
           <div className="flex items-center gap-3 mb-6">
             <div
-              className={`p-2 rounded-lg ${dark ? "bg-cyan-500/10" : "bg-blue-50"}`}
+              className="p-2 rounded-lg bg-[var(--color-accent-light)]"
             >
               <CalendarIcon
-                className={`w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 ${dark ? "text-cyan-400" : "text-blue-600"}`}
+                className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 text-[var(--color-accent)]"
               />
             </div>
             <h3
@@ -585,33 +579,23 @@ export default function OverviewPage() {
                   key={day}
                   className={`aspect-square sm:aspect-[4/3] rounded-xl p-1.5 sm:p-2.5 transition-all flex flex-col relative overflow-hidden group hover:-translate-y-0.5 ${
                     hasData
-                      ? dark
-                        ? "bg-gradient-to-br from-cyan-900/40 to-teal-900/40 border-[1.5px] border-cyan-500/30 hover:shadow-[0_8px_16px_rgba(6,182,212,0.15)]"
-                        : "bg-gradient-to-br from-teal-50 to-emerald-50 border-[1.5px] border-teal-200 hover:shadow-lg hover:shadow-teal-500/10"
+                      ? "bg-[var(--color-accent-light)] border-[1.5px] border-[var(--color-accent-border)] hover:shadow-lg"
                       : dark
                         ? "bg-slate-800/20 border-[1.5px] border-slate-700/30 hover:border-slate-600/50"
                         : "bg-slate-50/50 border-[1.5px] border-slate-200/50 hover:border-slate-300/80"
-                  } ${isWeekend && !hasData ? "opacity-40" : ""} ${isToday && !hasData ? (dark ? "!border-cyan-500/50" : "!border-teal-400/50") : ""}`}
+                  } ${isWeekend && !hasData ? "opacity-40" : ""} ${isToday && !hasData ? "!border-[var(--color-accent)]" : ""}`}
                 >
                   {isToday && (
-                    <div
-                      className={`absolute top-0 right-0 w-8 h-8 -mr-4 -mt-4 rotate-45 ${dark ? "bg-cyan-500/30" : "bg-teal-400/30"}`}
-                    />
+                    <div className="absolute top-0 right-0 w-8 h-8 -mr-4 -mt-4 rotate-45 bg-[var(--color-accent-light-hover)]" />
                   )}
 
                   <div
                     className={`text-xs sm:text-sm font-bold leading-none ${
-                      hasData
-                        ? dark
-                          ? "text-cyan-300"
-                          : "text-teal-700"
-                        : isToday
-                          ? dark
-                            ? "text-cyan-400"
-                            : "text-teal-600"
-                          : dark
-                            ? "text-slate-500"
-                            : "text-slate-400"
+                      hasData || isToday
+                        ? "text-[var(--color-accent)]"
+                        : dark
+                          ? "text-slate-500"
+                          : "text-slate-400"
                     }`}
                   >
                     {day}
@@ -619,15 +603,13 @@ export default function OverviewPage() {
                   {hasData && (
                     <div className="mt-auto">
                       <div
-                        className={`font-mono font-bold leading-tight ${dark ? "text-cyan-100" : "text-teal-900"}`}
+                        className="font-mono font-bold leading-tight text-[var(--color-accent)]"
                         style={{ fontSize: "clamp(10px, 2.5vw, 12px)" }}
                       >
                         {formatDuration(data.mins)}
                       </div>
                       {hourlyRate > 0 && (
-                        <div
-                          className={`hidden sm:block text-[10px] sm:text-xs font-medium truncate mt-0.5 ${dark ? "text-cyan-500/70" : "text-teal-600/70"}`}
-                        >
+                        <div className="hidden sm:block text-[10px] sm:text-xs font-medium truncate mt-0.5 text-[var(--color-accent)] opacity-70">
                           {formatMoney(data.earnings)}
                         </div>
                       )}
@@ -644,7 +626,7 @@ export default function OverviewPage() {
           >
             <div className="flex items-center gap-2">
               <div
-                className={`w-3 h-3 rounded-md border-[1.5px] ${dark ? "bg-cyan-900/40 border-cyan-500/40" : "bg-teal-100 border-teal-300"}`}
+                className="w-3 h-3 rounded-md border-[1.5px] bg-[var(--color-accent-light)] border-[var(--color-accent)]"
               />
               <span
                 className={`text-xs font-semibold ${dark ? "text-slate-400" : "text-slate-500"}`}

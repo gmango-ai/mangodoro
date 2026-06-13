@@ -64,20 +64,18 @@ export default function PWAUpdater() {
     return (
       <div
         role="status"
-        className={`fixed bottom-5 left-1/2 z-[300] -translate-x-1/2 max-w-[min(92vw,28rem)] rounded-lg border shadow-lg flex items-center gap-3 px-4 py-2.5 text-sm ${
+        className={`fixed bottom-5 left-1/2 z-[300] -translate-x-1/2 max-w-[min(92vw,28rem)] rounded-lg border shadow-lg flex items-center gap-3 px-4 py-2.5 text-sm border-[var(--color-accent)] ${
           dark
-            ? "border-cyan-500/40 bg-slate-800 text-slate-100 shadow-black/40"
-            : "border-teal-300 bg-white text-slate-900 shadow-slate-900/10"
+            ? "bg-slate-800 text-slate-100 shadow-black/40"
+            : "bg-white text-slate-900 shadow-slate-900/10"
         }`}
       >
-        <RefreshCw className={`w-4 h-4 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+        <RefreshCw className="w-4 h-4 shrink-0 text-[var(--color-accent)]" />
         <span className="flex-1">A new version is available.</span>
         <button
           type="button"
           onClick={() => updateServiceWorker(true)}
-          className={`text-xs font-semibold px-3 py-1 rounded-md ${
-            dark ? "bg-cyan-500 text-white hover:bg-cyan-400" : "bg-teal-600 text-white hover:bg-teal-500"
-          }`}
+          className="text-xs font-semibold px-3 py-1 rounded-md bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]"
         >
           Update
         </button>

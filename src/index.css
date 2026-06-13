@@ -42,15 +42,18 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
   /* App-specific design tokens — light mode */
-  --color-bg: #f5f7ff;
+  /* Surfaces + text — neutralized from the original purple-tinted
+     blues so the accent picker doesn't read as "rose with a purple
+     background". Slate values throughout. */
+  --color-bg: #f8fafc;
   --color-surface: #ffffff;
-  --color-surface-raised: #eef1ff;
-  --color-border: #dce3fa;
-  --color-border-light: #eef1ff;
-  --color-text: #0f0d2e;
-  --color-text-secondary: #2e2b6b;
-  --color-muted: #8a8dba;
-  --color-secondary: #5a5d99;
+  --color-surface-raised: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-border-light: #f1f5f9;
+  --color-text: #0f172a;
+  --color-text-secondary: #334155;
+  --color-muted: #64748b;
+  --color-secondary: #475569;
   --color-accent: #0d9488;
   --color-accent-hover: #0f766e;
   --color-accent-light: #f0fdfa;
@@ -59,12 +62,12 @@
   --color-accent-text: #134e4a;
   --color-accent-bright: #14b8a6;
   --color-nav: #ffffff;
-  --color-nav-border: #dce3fa;
+  --color-nav-border: #e2e8f0;
   --color-modal: #ffffff;
-  --color-modal-overlay: rgba(15, 13, 46, 0.4);
+  --color-modal-overlay: rgba(15, 23, 42, 0.4);
   --color-input-bg: #ffffff;
-  --color-tag-bg: #eef1ff;
-  --color-tag-text: #5a5d99;
+  --color-tag-bg: #f1f5f9;
+  --color-tag-text: #475569;
   --color-danger: #ef4444;
   --color-danger-bg: #fef2f2;
   --color-warn-bg: #fffbeb;
