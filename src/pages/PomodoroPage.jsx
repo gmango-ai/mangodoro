@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
-import { Users as UsersIcon, Timer, Sparkles, Plus } from "lucide-react";
+import { Users as UsersIcon, Timer, Sparkles, Plus, Target } from "lucide-react";
 import PomodoroTimer from "../components/PomodoroTimer";
 import UserAvatar from "../components/UserAvatar";
 import CreateRoomModal from "../components/CreateRoomModal";
@@ -12,6 +13,7 @@ import RoomTile from "../components/RoomTile";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { resolveRoomByInviteCode } from "../lib/rooms";
+import { listCurrentWeekRetros } from "../lib/retro";
 import { notifySessionJoined } from "../sync/joinSession";
 
 export default function PomodoroPage({ session, onOpenSync }) {
@@ -72,6 +74,30 @@ export default function PomodoroPage({ session, onOpenSync }) {
   const looseSessions = activeTeamSessions.filter((s) => !s.room_id);
 
   const cleanName = (settings?.name || "").trim();
+
+  // Current week's retro goals for the user's tagged departments —
+  // stacked in a banner at the top of /pomodoro so the goal is glance-able
+  // during work blocks. Untagged users see the team-wide goal if any.
+  const [weekGoals, setWeekGoals] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!activeTeamId) { setWeekGoals([]); return; }
+      const { data } = await listCurrentWeekRetros(activeTeamId);
+      if (cancelled) return;
+      const me = (teamMembers || []).find((m) => m.user_id === session?.user?.id);
+      const myDepts = me?.departments || [];
+      // If the user has tags, show goals from those depts. Otherwise show
+      // whatever retros exist with goals (small teams without curated
+      // departments typically just have the "Team" bucket).
+      const filtered = myDepts.length
+        ? data.filter((r) => myDepts.includes(r.department))
+        : data;
+      setWeekGoals(filtered.filter((r) => (r.goal || "").trim().length > 0));
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [activeTeamId, teamMembers, session?.user?.id]);
 
   async function joinSessionRow(s) {
     if (!cleanName) {
@@ -189,6 +215,32 @@ export default function PomodoroPage({ session, onOpenSync }) {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="text-2xl font-bold">Pomodoro</h1>
       </div>
+
+      {/* This week's goals (per-department) — glance-able context above
+          the rooms grid. Stacks all goals for the user's tagged depts. */}
+      {weekGoals.length > 0 && (
+        <div className="mb-4 space-y-1.5">
+          {weekGoals.map((g) => (
+            <Link
+              key={g.id}
+              to={`/retros/${g.id}`}
+              className={`flex items-start gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
+                dark
+                  ? "bg-cyan-500/10 border-cyan-500/30 text-slate-100 hover:bg-cyan-500/15"
+                  : "bg-teal-50 border-teal-200 text-slate-800 hover:bg-teal-100"
+              }`}
+            >
+              <Target className={`w-4 h-4 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+              <div className="flex-1 min-w-0">
+                <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-cyan-300" : "text-teal-700"}`}>
+                  {g.department || "Team"} · this week
+                </p>
+                <p className="font-semibold truncate">{g.goal}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {!showTimer && (
         <div className="grid gap-4 md:grid-cols-3">

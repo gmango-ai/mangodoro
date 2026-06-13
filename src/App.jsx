@@ -18,9 +18,12 @@ import PWAUpdater from "./components/PWAUpdater";
 import LogPage from "./pages/LogPage";
 import OverviewPage from "./pages/OverviewPage";
 import PlannerPage from "./pages/PlannerPage";
+import TimeTrackerPage from "./pages/TimeTrackerPage";
 import TeamPage from "./pages/TeamPage";
 import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
 import RetroPage from "./pages/RetroPage";
+import RetrosListPage from "./pages/RetrosListPage";
+import JoinRetroPage from "./pages/JoinRetroPage";
 import PomodoroPage from "./pages/PomodoroPage";
 import JoinSyncPage from "./pages/JoinSyncPage";
 import JoinTeamPage from "./pages/JoinTeamPage";
@@ -135,12 +138,18 @@ function AppLayout({ session }) {
           <PWAUpdater />
           <Routes>
             <Route path="/" element={<LandingRedirector />} />
-            <Route path="/log" element={<LogPage />} />
-            <Route path="/overview" element={<OverviewPage />} />
-            <Route path="/planner" element={<PlannerPage />} />
+            {/* Legacy time-tracker URLs redirect into the unified page */}
+            <Route path="/log" element={<Navigate to="/time-tracker/log" replace />} />
+            <Route path="/overview" element={<Navigate to="/time-tracker/overview" replace />} />
+            <Route path="/planner" element={<Navigate to="/time-tracker/planner" replace />} />
+            <Route path="/time-tracker" element={<TimeTrackerPage />} />
+            <Route path="/time-tracker/:tab" element={<TimeTrackerPage />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
-            <Route path="/team/retro" element={<RetroPage />} />
+            {/* Retros section. /team/retro is the legacy URL — redirect. */}
+            <Route path="/team/retro" element={<Navigate to="/retros" replace />} />
+            <Route path="/retros" element={<RetrosListPage />} />
+            <Route path="/retros/:retroId" element={<RetroPage />} />
             <Route
               path="/pomodoro"
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
@@ -212,6 +221,7 @@ export default function App() {
         <Routes>
           <Route path="/pomodoro/join/:code" element={<JoinSyncPage />} />
           <Route path="/team/join/:code" element={<JoinTeamPage />} />
+          <Route path="/retros/join/:code" element={<JoinRetroPage />} />
           <Route
             path="/*"
             element={session ? <AuthenticatedApp session={session} /> : <AuthPage />}
