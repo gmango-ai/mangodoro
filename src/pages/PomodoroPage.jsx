@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Users as UsersIcon, Timer, Sparkles, Plus, Target } from "lucide-react";
 import PomodoroTimer from "../components/PomodoroTimer";
 import UserAvatar from "../components/UserAvatar";
-import CreateRoomModal from "../components/CreateRoomModal";
 import RoomTile from "../components/RoomTile";
 import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
 import RoomActionPopover from "../components/RoomActionPopover";
@@ -26,7 +25,6 @@ export default function PomodoroPage({ session, onOpenSync }) {
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
   const dark = theme === "dark";
 
-  const [showCreateRoom, setShowCreateRoom] = useState(false);
   const [codePromptRoom, setCodePromptRoom] = useState(null); // private room awaiting code
   const [codeInput, setCodeInput] = useState("");
   const [roomBusy, setRoomBusy] = useState(false);
@@ -259,27 +257,17 @@ export default function PomodoroPage({ session, onOpenSync }) {
                   >
                     Office
                   </h2>
-                  <div className="flex items-center gap-2">
-                    {(isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0)) && (
-                      <button
-                        type="button"
-                        onClick={() => navigate("/team#office")}
-                        className={`text-xs underline ${
-                          dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
-                        }`}
-                      >
-                        Edit office
-                      </button>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowCreateRoom(true)}
-                      className="h-7 text-xs"
+                  {(isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0)) && (
+                    <button
+                      type="button"
+                      onClick={() => navigate("/team#office")}
+                      className={`text-xs underline ${
+                        dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
+                      }`}
                     >
-                      <Plus className="w-3.5 h-3.5 mr-1" /> New room
-                    </Button>
-                  </div>
+                      Edit office
+                    </button>
+                  )}
                 </div>
                 {joinError && (
                   <p className={`text-xs mb-2 ${dark ? "text-red-400" : "text-red-600"}`}>{joinError}</p>
@@ -503,13 +491,6 @@ export default function PomodoroPage({ session, onOpenSync }) {
         </div>
       )}
 
-      <CreateRoomModal
-        open={showCreateRoom}
-        onClose={() => setShowCreateRoom(false)}
-        teamId={activeTeamId}
-        userId={session.user.id}
-        isAdmin={isAdmin}
-      />
 
       <RoomActionPopover
         open={!!popoverRoom}
