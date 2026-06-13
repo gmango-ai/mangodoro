@@ -9,12 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
-  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target,
+  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Briefcase,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import OrgTeamsCard from "../components/OrgTeamsCard";
 import OrgTeamMembersModal from "../components/OrgTeamMembersModal";
+import MemberHRModal from "../components/MemberHRModal";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
@@ -30,7 +31,7 @@ export default function TeamPage() {
   const {
     teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, orgTeams, loadOrgTeamsForActive,
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
-    removeMember, changeMemberRole, regenerateInviteCode,
+    removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
     activeTeamSessions, loadActiveTeamSessions,
   } = useTeam();
   const { settings, session } = useApp();
@@ -50,6 +51,7 @@ export default function TeamPage() {
   const [copied, setCopied] = useState(false);
   // Which org_team's member-management modal is open. Null = none.
   const [managingTeam, setManagingTeam] = useState(null);
+  const [hrMember, setHrMember] = useState(null);
   // Map of org_team_id -> member count. Loaded lazily for the cards.
   const [orgTeamMemberCounts, setOrgTeamMemberCounts] = useState(new Map());
 
@@ -537,11 +539,35 @@ export default function TeamPage() {
                       {m.status ? m.status : `Joined ${new Date(m.joined_at).toLocaleDateString()}`}
                     </p>
                   </div>
+                  {/* Classification badge — read-only for non-admins. */}
+                  {m.classification && (
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${
+                        m.classification === "salary"
+                          ? dark ? "border-cyan-500/40 text-cyan-300" : "border-teal-300 text-teal-700"
+                          : dark ? "border-amber-500/40 text-amber-300" : "border-amber-300 text-amber-700"
+                      }`}
+                    >
+                      {m.classification === "salary" ? "Salary" : "Hourly"}
+                    </Badge>
+                  )}
                   {/* Role badge */}
                   <Badge variant={m.role === "admin" ? "default" : "secondary"} className="text-[10px]">
                     {m.role === "admin" ? "Admin" : "Member"}
                   </Badge>
                   {/* Admin actions */}
+                  {isAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => setHrMember(m)}
+                      title="Edit HR fields (salary, rate, target hours)"
+                    >
+                      <Briefcase className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
                   {isAdmin && m.user_id !== activeTeam.created_by && (
                     <div className="flex gap-1">
                       <Button
@@ -628,6 +654,16 @@ export default function TeamPage() {
               });
             });
           }
+        }}
+      />
+
+      <MemberHRModal
+        open={!!hrMember}
+        onClose={() => setHrMember(null)}
+        member={hrMember}
+        onSave={async (patch) => {
+          if (!hrMember || !activeTeamId) return { error: { message: "No member selected" } };
+          return await updateMemberHR(activeTeamId, hrMember.user_id, patch);
         }}
       />
     </main>
