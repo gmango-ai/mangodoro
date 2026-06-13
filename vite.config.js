@@ -34,6 +34,10 @@ export default defineConfig({
         clientsClaim: true,
         cleanupOutdatedCaches: true,
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
+        // CodeMirror + markdown bring the main bundle past 2 MB. Bump
+        // the precache ceiling rather than carve out chunks; offline
+        // start still works.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
           {
             // Cache GET requests to Supabase REST/PostgREST only.

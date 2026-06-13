@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MarkdownText from "../components/MarkdownText";
+import MarkdownEditor from "../components/MarkdownEditor";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
 import {
   RETRO_LANES,
@@ -83,7 +84,18 @@ export default function RetroPage() {
   // Invite copy feedback.
   const [inviteCopied, setInviteCopied] = useState(false);
 
-  // Load the retro + its cards + participant list. Re-runs on retroId change.
+  // Stash latest switchTeam + teams in refs so the load effect can use
+  // them without depending on them. Previously the effect re-ran every
+  // time teams' identity changed in TeamContext (which is often), which
+  // re-fetched the retro and stomped the goal textarea — every retro
+  // re-render reset the textarea state and the cursor jumped to the top.
+  const switchTeamRef = useRef(switchTeam);
+  const teamsRef = useRef(teams);
+  useEffect(() => { switchTeamRef.current = switchTeam; }, [switchTeam]);
+  useEffect(() => { teamsRef.current = teams; }, [teams]);
+
+  // Load the retro + its cards + participant list. Only re-runs on
+  // retroId change — see refs above for why.
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -100,8 +112,9 @@ export default function RetroPage() {
       setRetro(data);
       // Auto-switch the active team if the retro lives in a different one
       // (e.g. clicking a /retros/:id link from a deep-link).
-      if (teams?.length && data.team_id && teams.some((t) => t.id === data.team_id)) {
-        switchTeam(data.team_id);
+      const teamsNow = teamsRef.current;
+      if (teamsNow?.length && data.team_id && teamsNow.some((t) => t.id === data.team_id)) {
+        switchTeamRef.current?.(data.team_id);
       }
       const [{ data: c }, { data: p }] = await Promise.all([
         listRetroCards(data.id),
@@ -114,7 +127,7 @@ export default function RetroPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [retroId, switchTeam, teams]);
+  }, [retroId]);
 
   useEffect(() => {
     setGoalEditing(false);
@@ -346,36 +359,17 @@ export default function RetroPage() {
             </p>
             {goalEditing && !readOnly ? (
               <div className="mt-1.5 space-y-2">
-                {/* Split editor: textarea on top, live preview below.
-                    Markdown syntax renders as you type — closest we can
-                    get to Obsidian's WYSIWYG without a real editor lib. */}
-                <textarea
+                {/* Inline markdown editor — formatting renders as you
+                    type (bold reads bolder, headings get larger, etc.).
+                    No separate preview pane. */}
+                <MarkdownEditor
                   value={goalDraft}
-                  onChange={(e) => setGoalDraft(e.target.value.slice(0, 2000))}
-                  rows={5}
-                  maxLength={2000}
-                  placeholder={"e.g.\n- Ship rooms redesign\n- 1:1 with Chase & Adam\n\n**Bold** and *italic* work; lists too."}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm font-mono leading-relaxed resize-y ${
-                    dark
-                      ? "bg-slate-900 border-slate-700 text-slate-100 placeholder:text-slate-500"
-                      : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
-                  }`}
+                  onChange={(v) => setGoalDraft(v.slice(0, 2000))}
+                  dark={dark}
                   autoFocus
+                  minHeight="140px"
+                  placeholder="What's the focus next week?"
                 />
-                {goalDraft.trim() && (
-                  <div className={`rounded-lg border p-3 ${
-                    dark ? "bg-slate-800/40 border-slate-700/60" : "bg-slate-50 border-slate-200"
-                  }`}>
-                    <p className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${
-                      dark ? "text-slate-500" : "text-slate-400"
-                    }`}>
-                      Preview
-                    </p>
-                    <MarkdownText dark={dark} className={dark ? "text-slate-200" : "text-slate-700"}>
-                      {goalDraft}
-                    </MarkdownText>
-                  </div>
-                )}
                 <div className="flex items-center gap-2">
                   <Button size="sm" onClick={handleSaveGoal} disabled={goalSaving}>
                     {goalSaving ? "Saving…" : "Save"}
