@@ -20,6 +20,7 @@ import OverviewPage from "./pages/OverviewPage";
 import PlannerPage from "./pages/PlannerPage";
 import TeamPage from "./pages/TeamPage";
 import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
+import RetroPage from "./pages/RetroPage";
 import PomodoroPage from "./pages/PomodoroPage";
 import JoinSyncPage from "./pages/JoinSyncPage";
 import JoinTeamPage from "./pages/JoinTeamPage";
@@ -139,6 +140,7 @@ function AppLayout({ session }) {
             <Route path="/planner" element={<PlannerPage />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
+            <Route path="/team/retro" element={<RetroPage />} />
             <Route
               path="/pomodoro"
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
