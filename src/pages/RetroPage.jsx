@@ -6,7 +6,7 @@ import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, Target, Plus, Pencil, Trash2, Check, X, Sparkles,
-  Heart, AlertTriangle, ArrowRight as ArrowRightIcon, Link as LinkIcon, Lock,
+  Heart, AlertTriangle, ArrowRight as ArrowRightIcon, Link as LinkIcon, Lock, Palette,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
@@ -276,35 +276,58 @@ export default function RetroPage() {
             <button
               type="button"
               onClick={() => setColorOpen((v) => !v)}
-              title="Your sticky-note color"
-              className={`w-8 h-8 rounded-md border ${
-                dark ? "border-slate-700" : "border-slate-200"
+              title="Pick your sticky-note color"
+              aria-label="Pick your sticky-note color"
+              className={`relative flex items-center justify-center w-9 h-9 rounded-lg border shadow-sm transition-shadow hover:shadow-md ${
+                dark ? "border-slate-700" : "border-slate-300"
               }`}
               style={{ background: myStickyColor || "#fde68a" }}
-            />
+            >
+              <Palette className="w-4 h-4 text-slate-800/70" />
+            </button>
             {colorOpen && (
-              <div
-                className={`absolute right-0 top-10 z-50 p-2 rounded-lg border shadow-xl ${
-                  dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
-                }`}
-              >
-                <div className="grid grid-cols-4 gap-1.5">
-                  {STICKY_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => chooseStickyColor(c)}
-                      title={c}
-                      className="w-7 h-7 rounded-md ring-2 transition-transform hover:scale-110"
-                      style={{
-                        background: c,
-                        boxShadow: myStickyColor?.toLowerCase() === c.toLowerCase()
-                          ? `0 0 0 2px ${dark ? "#fff" : "#0f172a"}` : "none",
-                      }}
-                    />
-                  ))}
+              <>
+                {/* Click-outside backdrop so the popover dismisses without
+                    requiring keyboard focus management. */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setColorOpen(false)}
+                  aria-hidden
+                />
+                <div
+                  className={`absolute right-0 top-11 z-50 p-2.5 rounded-xl border shadow-xl ${
+                    dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+                  }`}
+                >
+                  <div className="grid grid-cols-4 gap-2">
+                    {STICKY_COLORS.map((c) => {
+                      const selected = myStickyColor?.toLowerCase() === c.toLowerCase();
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => chooseStickyColor(c)}
+                          title={c}
+                          aria-label={c}
+                          aria-pressed={selected}
+                          className={`relative w-7 h-7 rounded-md border border-black/10 transition-transform hover:scale-110 ${
+                            selected
+                              ? dark
+                                ? "outline outline-2 outline-offset-2 outline-white"
+                                : "outline outline-2 outline-offset-2 outline-slate-900"
+                              : ""
+                          }`}
+                          style={{ background: c }}
+                        >
+                          {selected && (
+                            <Check className="w-3.5 h-3.5 text-slate-900 mx-auto" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
           {!readOnly && (
