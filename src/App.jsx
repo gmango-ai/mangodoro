@@ -28,7 +28,6 @@ import PomodoroPage from "./pages/PomodoroPage";
 import OfficePage from "./pages/OfficePage";
 import JoinSyncPage from "./pages/JoinSyncPage";
 import JoinTeamPage from "./pages/JoinTeamPage";
-import AccountPage from "./pages/AccountPage";
 import SettingsPage from "./pages/SettingsPage";
 import { applyAccent } from "./lib/accent";
 
@@ -167,7 +166,8 @@ function AppLayout({ session }) {
             />
             <Route path="/office" element={<OfficePage />} />
             <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/account" element={<AccountPage session={session} />} />
+            {/* /account merged into /settings → Profile section. */}
+            <Route path="/account" element={<Navigate to="/settings" replace />} />
           </Routes>
         </div>
       </div>

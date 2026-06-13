@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
-import { Sun, Moon, LogOut, Loader2, Timer, Users, Building2, Settings as SettingsIcon, Menu, X } from "lucide-react";
+import { Sun, Moon, LogOut, Loader2, Timer, Users, Building2, Settings as SettingsIcon, Menu, X, ChevronDown } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 
 const PRESENCE_DOT_COLOR = {
@@ -17,7 +17,7 @@ const PRESENCE_DOT_COLOR = {
 };
 
 export default function Nav({ onOpenPomodoro }) {
-  const { settings, todayMins, exportMsg, dataSyncing, openSettings } = useApp();
+  const { settings, todayMins, exportMsg, dataSyncing, session } = useApp();
   const { activeTeamSessions } = useTeam();
   const hasTeamSessions = (activeTeamSessions?.length || 0) > 0;
   const presenceDot = PRESENCE_DOT_COLOR[settings.presenceState] || PRESENCE_DOT_COLOR.active;
@@ -47,12 +47,13 @@ export default function Nav({ onOpenPomodoro }) {
     return () => { document.body.style.overflow = prev; };
   }, [sidebarOpen]);
 
+  // Active nav state uses the user's accent color via CSS variables —
+  // applies in both light and dark themes because applyAccent overrides
+  // them per-theme on the document root.
   const desktopNavLink = ({ isActive }) =>
     `px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
       isActive
-        ? darkMode
-          ? "bg-cyan-500/15 text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)]"
-          : "bg-teal-50 text-teal-600"
+        ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
         : darkMode
           ? "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
           : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
@@ -61,9 +62,7 @@ export default function Nav({ onOpenPomodoro }) {
   const sidebarNavLink = ({ isActive }) =>
     `flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
       isActive
-        ? darkMode
-          ? "bg-cyan-500/15 text-cyan-400"
-          : "bg-teal-50 text-teal-600"
+        ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
         : darkMode
           ? "text-slate-300 hover:text-slate-100 hover:bg-slate-800/60"
           : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"
@@ -71,7 +70,7 @@ export default function Nav({ onOpenPomodoro }) {
 
   const themeBtnCls = `p-2 rounded-lg transition-all ${
     darkMode
-      ? "bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/20"
+      ? "bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700"
       : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200"
   }`;
 
@@ -143,7 +142,7 @@ export default function Nav({ onOpenPomodoro }) {
               <NavLink to="/pomodoro" className={desktopNavLink}>
                 Pomodoro
                 {hasTeamSessions && (
-                  <span className={`ml-1.5 inline-block w-1.5 h-1.5 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse align-middle`} />
+                  <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse align-middle" />
                 )}
               </NavLink>
               <NavLink to="/office" className={desktopNavLink}>Office</NavLink>
@@ -152,84 +151,19 @@ export default function Nav({ onOpenPomodoro }) {
               <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
             </nav>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={onOpenPomodoro}
-                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  darkMode
-                    ? "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
-                    : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
-                }`}
-                title={hasTeamSessions ? "Pomodoro — a teammate has a session running" : "Pomodoro timer"}
-              >
-                <Timer className="w-4 h-4" />
-                <span>Timer</span>
-                {hasTeamSessions && (
-                  <span className={`absolute top-1 right-1.5 w-2 h-2 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
-                )}
-              </button>
-
-              {/* User chip — avatar + today's hours, tooltipped with
-                  status. Lives on the right so the brand on the left
-                  stays untouched. Click → account page. */}
-              <NavLink
-                to="/account"
-                title={`${settings.name || "You"} — ${
-                  todayMins > 0 ? `Today: ${formatDuration(todayMins)}` : "No hours logged today"
-                }${settings.status ? ` · ${settings.status}` : ""}`}
-                className={`flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full transition-colors ${
-                  darkMode ? "hover:bg-slate-800/50" : "hover:bg-slate-100"
-                }`}
-              >
-                <span className="relative">
-                  <UserAvatar url={settings.avatarUrl} name={settings.name || "?"} size={24} />
-                  <span
-                    className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ${presenceDot} ${
-                      darkMode ? "ring-slate-900" : "ring-white"
-                    }`}
-                  />
-                </span>
-                {todayMins > 0 && (
-                  <span className={`text-[10px] font-mono ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                    {formatDuration(todayMins)}
-                  </span>
-                )}
-              </NavLink>
-
-              <button onClick={toggleTheme} className={themeBtnCls} title={darkMode ? "Light mode" : "Dark mode"}>
-                {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </button>
-
-              <NavLink
-                to="/settings"
-                className={({ isActive }) =>
-                  `px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                    isActive
-                      ? darkMode
-                        ? "bg-cyan-500/15 text-cyan-200"
-                        : "bg-teal-100 text-teal-800"
-                      : darkMode
-                        ? "bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50"
-                        : "bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-lg shadow-teal-500/30"
-                  }`
-                }
-              >
-                Settings
-              </NavLink>
-
-              <button
-                onClick={() => supabase.auth.signOut()}
-                title="Sign out"
-                className={`flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                  darkMode
-                    ? "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
-                    : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
-                }`}
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Sign out</span>
-              </button>
-            </div>
+            {/* Single user-menu dropdown on the right — replaces the
+                previous strip of Timer / chip / theme / Settings / Sign
+                out buttons. The avatar is the primary handle; everything
+                else lives inside. */}
+            <UserMenu
+              dark={darkMode}
+              settings={settings}
+              todayMins={todayMins}
+              hasTeamSessions={hasTeamSessions}
+              presenceDot={presenceDot}
+              onToggleTheme={toggleTheme}
+              session={session}
+            />
           </div>
         </div>
       </header>
@@ -369,5 +303,126 @@ export default function Nav({ onOpenPomodoro }) {
         </div>
       ) : null}
     </>
+  );
+}
+
+// Dropdown menu on the right of the top bar. Replaces the previous
+// strip of independent buttons (timer / chip / theme / settings /
+// sign out) with one click target — the avatar — that reveals the
+// rest. Pattern matches Linear/Vercel/Notion: identity-as-handle.
+function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onToggleTheme, session }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function down(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    function key(e) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", down);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
+
+  const email = session?.user?.email || "";
+  const name = settings.name || email.split("@")[0] || "You";
+
+  const itemBase = `w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors`;
+  const item = dark
+    ? `${itemBase} text-slate-200 hover:bg-slate-700/70`
+    : `${itemBase} text-slate-700 hover:bg-slate-100`;
+  const destructive = dark
+    ? `${itemBase} text-red-300 hover:bg-red-500/15`
+    : `${itemBase} text-red-600 hover:bg-red-50`;
+
+  return (
+    <div ref={ref} className="hidden sm:block relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full transition-colors ${
+          dark ? "hover:bg-slate-800/50" : "hover:bg-slate-100"
+        }`}
+      >
+        <span className="relative">
+          <UserAvatar url={settings.avatarUrl} name={name} size={28} />
+          <span
+            className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ${presenceDot} ${
+              dark ? "ring-slate-900" : "ring-white"
+            }`}
+            aria-hidden
+          />
+        </span>
+        <ChevronDown className={`w-3.5 h-3.5 ${dark ? "text-slate-500" : "text-slate-400"}`} aria-hidden />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className={`absolute right-0 top-full mt-1.5 min-w-[240px] rounded-xl border shadow-lg overflow-hidden z-50 ${
+            dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+          }`}
+        >
+          {/* Identity row */}
+          <div className={`px-3 py-3 border-b ${dark ? "border-slate-700/60" : "border-slate-200/70"}`}>
+            <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
+              {name}
+            </p>
+            {email && (
+              <p className={`text-[11px] truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                {email}
+              </p>
+            )}
+            <p className={`text-[11px] mt-1 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+              {todayMins > 0 ? `Today · ${formatDuration(todayMins)}` : "No hours logged today"}
+              {hasTeamSessions && (
+                <span className={`ml-2 inline-flex items-center gap-1 ${dark ? "text-cyan-300" : "text-[var(--color-accent)]"}`}>
+                  <Timer className="w-3 h-3 animate-pulse" />
+                  session active
+                </span>
+              )}
+            </p>
+          </div>
+
+          {/* Theme toggle */}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { onToggleTheme(); setOpen(false); }}
+            className={item}
+          >
+            {dark ? <Sun className="w-4 h-4 opacity-70" /> : <Moon className="w-4 h-4 opacity-70" />}
+            {dark ? "Switch to light" : "Switch to dark"}
+          </button>
+
+          {/* Settings */}
+          <NavLink
+            to="/settings"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className={item}
+          >
+            <SettingsIcon className="w-4 h-4 opacity-70" />
+            Settings
+          </NavLink>
+
+          <div className={`my-1 h-px ${dark ? "bg-slate-700/60" : "bg-slate-200"}`} />
+
+          {/* Sign out */}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { setOpen(false); supabase.auth.signOut(); }}
+            className={destructive}
+          >
+            <LogOut className="w-4 h-4" />
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
