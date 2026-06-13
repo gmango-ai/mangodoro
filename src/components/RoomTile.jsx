@@ -1,7 +1,7 @@
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
 import UserAvatar from "./UserAvatar";
-import { Briefcase, MessageSquare, Lock, Crown, Hash, Star, Users } from "lucide-react";
+import { Briefcase, MessageSquare, Lock, Crown, Hash, Star } from "lucide-react";
 
 // Map a participant's presence_state to the dot fill used in the
 // compact tile. Falls back to neutral for unknown values.
@@ -184,15 +184,14 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
     );
   }
 
-  // Settings shared by md + lg.
+  // Shared layout choices for md + lg. Huly-inspired: name at top-left,
+  // status icon at top-right, avatars centered. No bottom CTA — the
+  // entire tile is the click target.
   const isLg = size === "lg";
-  const padding = isLg ? "p-5" : "p-4";
-  const iconBoxPad = isLg ? "p-2" : "p-1.5";
-  const iconSize = isLg ? "w-4 h-4" : "w-3.5 h-3.5";
+  const padding = isLg ? "p-4" : "p-3";
   const nameSize = isLg ? "text-base" : "text-sm";
-  const avatarSize = isLg ? 32 : 28;
+  const avatarSize = isLg ? 32 : 26;
   const maxAvatars = isLg ? 8 : 6;
-  const minAvatarRow = isLg ? "min-h-[40px]" : "min-h-[36px]";
 
   const visible = occupants.slice(0, maxAvatars);
   const overflow = Math.max(0, occupants.length - maxAvatars);
@@ -202,61 +201,65 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
       type="button"
       onClick={handlePrimary}
       disabled={busy}
-      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-all h-full w-full ${tone} ${pulse} ${
+      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full ${tone} ${pulse} ${
         dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
       }`}
     >
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-3">
-        <div
-          className={`${iconBoxPad} rounded-md shrink-0 ${
-            dark ? "bg-slate-800/60 text-slate-300" : "bg-slate-100 text-slate-600"
-          }`}
-        >
-          <Icon className={iconSize} />
-        </div>
+      {/* Top row — name + small status indicator. */}
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p
-            className={`${nameSize} font-bold truncate flex items-center gap-1.5 ${
+            className={`${nameSize} font-semibold truncate ${
               dark ? "text-slate-100" : "text-slate-800"
             }`}
           >
             {room.name}
+          </p>
+          {/* Soft secondary line — kind + (private badge) */}
+          <p className={`text-[10px] mt-0.5 inline-flex items-center gap-1 ${
+            dark ? "text-slate-500" : "text-slate-400"
+          }`}>
+            <Icon className="w-2.5 h-2.5 opacity-70" />
+            {KIND_LABEL[room.kind]}
             {room.kind === "private" && (
-              <span
-                className={`text-[9px] uppercase tracking-wider font-bold px-1 py-px rounded ${
-                  dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"
-                }`}
-              >
-                Private
+              <span className={`uppercase tracking-wider font-bold ${
+                dark ? "text-amber-300" : "text-amber-700"
+              }`}>
+                · Locked
               </span>
             )}
           </p>
-          <p
-            className={`text-[10px] uppercase tracking-wider ${
-              dark ? "text-slate-500" : "text-slate-400"
-            }`}
-          >
-            {KIND_LABEL[room.kind]}
-          </p>
         </div>
+        {/* Top-right status. Mirror Huly's video-icon-when-in-session
+            convention; here it's the pomodoro timer icon. */}
+        {isOccupied && (
+          <span
+            className={`shrink-0 inline-flex items-center gap-0.5 text-[10px] font-bold ${
+              dark ? "text-cyan-300" : "text-teal-700"
+            }`}
+            title={`${modeLabel(activeSession.mode)} · ${timeLeft(activeSession)}`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${dark ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
+            {timeLeft(activeSession)}
+          </span>
+        )}
       </div>
 
-      {/* Avatar strip */}
-      <div className={`flex items-center ${minAvatarRow} mb-3`}>
-        {isOccupied ? (
-          <>
-            <div className="flex items-center">
-              {visible.map((o) => (
-                <OccupantAvatar
-                  key={o.user_id}
-                  occupant={o}
-                  isLeader={o.user_id === activeSession.leader_id}
-                  userTeams={teamsByUserId?.get(o.user_id)}
-                  size={avatarSize}
-                />
-              ))}
-            </div>
+      {/* Body — avatars centered. Empty rooms stay visually quiet
+          (no "Nobody here" text); the whitespace itself communicates
+          emptiness, matching Huly's restraint. */}
+      <div className="flex-1 flex items-center justify-center min-h-0 my-2">
+        {isOccupied && (
+          <div className="flex items-center flex-wrap justify-center">
+            {visible.map((o) => (
+              <OccupantAvatar
+                key={o.user_id}
+                occupant={o}
+                isLeader={o.user_id === activeSession.leader_id}
+                userTeams={teamsByUserId?.get(o.user_id)}
+                size={avatarSize}
+              />
+            ))}
             {overflow > 0 && (
               <span
                 className={`-ml-1 inline-flex items-center justify-center rounded-full text-[10px] font-semibold ${
@@ -269,45 +272,8 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
                 +{overflow}
               </span>
             )}
-          </>
-        ) : (
-          <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"} inline-flex items-center gap-1.5`}>
-            <Users className="w-3 h-3 opacity-60" />
-            Nobody here
-          </span>
+          </div>
         )}
-      </div>
-
-      {/* Session line */}
-      <div className="mb-3 min-h-[16px]">
-        {isOccupied && (
-          <p className={`text-xs truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
-            <span className={dark ? "text-slate-300" : "text-slate-700"}>
-              {modeLabel(activeSession.mode)}
-            </span>
-            {" · "}
-            {timeLeft(activeSession)}
-            {" · "}
-            {activeSession.participant_count}/{activeSession.max_participants}
-          </p>
-        )}
-      </div>
-
-      {/* Status pill — the affordance that used to be a button. The
-          tile itself is the click target now; this just communicates
-          what the popover will offer. */}
-      <div className="mt-auto">
-        <span
-          className={`inline-flex items-center justify-center w-full ${
-            isLg ? "text-sm py-2" : "text-xs py-1.5"
-          } font-semibold rounded-md ${
-            isOccupied
-              ? dark ? "bg-cyan-500/15 text-cyan-200" : "bg-teal-50 text-teal-700"
-              : dark ? "bg-slate-800/60 text-slate-300" : "bg-slate-100 text-slate-600"
-          }`}
-        >
-          {isOccupied ? "Join session →" : "Open →"}
-        </span>
       </div>
     </button>
   );

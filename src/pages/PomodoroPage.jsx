@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
@@ -21,6 +21,7 @@ import { notifySessionJoined } from "../sync/joinSession";
 export default function PomodoroPage({ session, onOpenSync }) {
   const { settings, clockIn, projects, dataLoaded } = useApp();
   const { activeTeam, activeTeamId, activeTeamSessions, rooms, visibleRooms, isAdmin, teamMembers, myOrgTeamIds, myOrgTeamLeadIds, orgTeams } = useTeam();
+  const navigate = useNavigate();
   const { theme } = useTheme();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
   const dark = theme === "dark";
@@ -256,16 +257,29 @@ export default function PomodoroPage({ session, onOpenSync }) {
                   <h2
                     className={`text-sm font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`}
                   >
-                    Rooms
+                    Office
                   </h2>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowCreateRoom(true)}
-                    className="h-7 text-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1" /> New room
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {(isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0)) && (
+                      <button
+                        type="button"
+                        onClick={() => navigate("/team#office")}
+                        className={`text-xs underline ${
+                          dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
+                        }`}
+                      >
+                        Edit office
+                      </button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowCreateRoom(true)}
+                      className="h-7 text-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" /> New room
+                    </Button>
+                  </div>
                 </div>
                 {joinError && (
                   <p className={`text-xs mb-2 ${dark ? "text-red-400" : "text-red-600"}`}>{joinError}</p>
@@ -284,7 +298,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                     <div className="hidden sm:block">
                       <OfficeLayoutEditor
                         rooms={visibleRooms}
-                        readOnly={!(isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0))}
+                        readOnly={true}
                         vibe={activeTeam?.office_vibe || "quiet"}
                         busy={roomBusy}
                         onJoinRoom={handleRoomClick}

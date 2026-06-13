@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { useTeam } from "../context/TeamContext";
 import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
@@ -19,6 +19,7 @@ import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import OrgTeamsCard from "../components/OrgTeamsCard";
+import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
 import MemberHRModal from "../components/MemberHRModal";
 import MemberTeamsModal from "../components/MemberTeamsModal";
 import InviteCard from "../components/InviteCard";
@@ -47,6 +48,20 @@ export default function TeamPage() {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Scroll to a hash target (e.g. /team#office) once the page has
+  // rendered. React Router doesn't auto-scroll on hash, so we do it
+  // ourselves after content is laid out.
+  useEffect(() => {
+    if (!location.hash) return;
+    const id = location.hash.slice(1);
+    const t = setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [location.hash, teamLoading]);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [tab, setTab] = useState("manage"); // "manage" | "create" | "join"
@@ -505,15 +520,27 @@ export default function TeamPage() {
             />
           )}
 
-          {/* ─── ROOMS ───────────────────────────────────────────── */}
+          {/* ─── OFFICE ─────────────────────────────────────────── */}
           {(isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0)) && (
             <>
+              <span id="office" className="block -mt-3" aria-hidden="true" />
               <SectionHeader
                 icon={Briefcase}
-                title="Rooms"
-                subtitle="Rename, regate, or archive — drag the floor plan on /pomodoro"
+                title="Office"
+                subtitle="Drag rooms to lay out the floor plan, resize from the corner. Rename, regate, or archive below."
                 dark={dark}
               />
+              <div className={cardCls}>
+                <OfficeLayoutEditor
+                  rooms={(rooms || []).filter((r) => !r.archived_at)}
+                  readOnly={false}
+                  vibe={activeTeam?.office_vibe || "quiet"}
+                  busy={false}
+                  onJoinRoom={() => {}}
+                  onOpenRoom={() => {}}
+                  sessionByRoomId={new Map()}
+                />
+              </div>
               <RoomsAdminCard
                 dark={dark}
                 cardCls={cardCls}
