@@ -7,6 +7,7 @@ import {
 import { listActiveTeamSessions } from "../lib/syncSession";
 import { listRooms } from "../lib/rooms";
 import { listOrgTeams, listMyOrgTeams } from "../lib/orgTeam";
+import { setMemberHR as setMemberHRRpc } from "../lib/hr";
 
 const TeamContext = createContext(null);
 
@@ -325,6 +326,13 @@ export function TeamProvider({ session, children }) {
     await loadMembers();
   }
 
+  // Admin: update a member's HR fields (salary vs hourly, rate, target).
+  async function updateMemberHR(teamId, memberId, patch) {
+    const { error } = await setMemberHRRpc(teamId, memberId, patch);
+    if (!error) await loadMembers();
+    return { error };
+  }
+
   // Patch team metadata (name, icon_url, color, office_vibe). Admin-only by RLS.
   async function updateTeam(teamId, patch) {
     const allowed = {};
@@ -573,7 +581,7 @@ export function TeamProvider({ session, children }) {
         teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin,
         loadTeams, loadMembers, switchTeam,
         createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
-        removeMember, changeMemberRole, regenerateInviteCode,
+        removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
         rooms, loadRoomsForActiveTeam,

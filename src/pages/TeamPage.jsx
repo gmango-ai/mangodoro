@@ -8,13 +8,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
-  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target,
+  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
+  MoreVertical, Search, X,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import OrgTeamsCard from "../components/OrgTeamsCard";
-import OrgTeamMembersModal from "../components/OrgTeamMembersModal";
+import MemberHRModal from "../components/MemberHRModal";
+import MemberTeamsModal from "../components/MemberTeamsModal";
+import InviteCard from "../components/InviteCard";
+import RemoveMemberModal from "../components/RemoveMemberModal";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
@@ -30,14 +37,14 @@ export default function TeamPage() {
   const {
     teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, orgTeams, loadOrgTeamsForActive,
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
-    removeMember, changeMemberRole, regenerateInviteCode,
+    removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
     activeTeamSessions, loadActiveTeamSessions,
   } = useTeam();
   const { settings, session } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [tab, setTab] = useState("manage"); // "manage" | "create" | "join"
   const [newTeamName, setNewTeamName] = useState("");
@@ -47,24 +54,70 @@ export default function TeamPage() {
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   // Which org_team's member-management modal is open. Null = none.
-  const [managingTeam, setManagingTeam] = useState(null);
+  const [hrMember, setHrMember] = useState(null);
   // Map of org_team_id -> member count. Loaded lazily for the cards.
   const [orgTeamMemberCounts, setOrgTeamMemberCounts] = useState(new Map());
+  // Map of user_id → array of org_team rows the user belongs to. Drives
+  // the team chips on each member row and the MemberTeamsModal.
+  const [teamsByUserId, setTeamsByUserId] = useState(new Map());
 
-  // Fetch member counts whenever the org_teams list changes.
+  // Refetch all team memberships whenever the org_teams list changes.
   useEffect(() => {
-    if (!orgTeams || orgTeams.length === 0) { setOrgTeamMemberCounts(new Map()); return; }
+    if (!orgTeams || orgTeams.length === 0) {
+      setOrgTeamMemberCounts(new Map());
+      setTeamsByUserId(new Map());
+      return;
+    }
     let cancelled = false;
     Promise.all(orgTeams.map((t) => listOrgTeamMembers(t.id))).then((results) => {
       if (cancelled) return;
-      const m = new Map();
-      orgTeams.forEach((t, i) => m.set(t.id, (results[i]?.data || []).length));
-      setOrgTeamMemberCounts(m);
+      const counts = new Map();
+      const byUser = new Map();
+      orgTeams.forEach((t, i) => {
+        const rows = results[i]?.data || [];
+        counts.set(t.id, rows.length);
+        for (const r of rows) {
+          const list = byUser.get(r.user_id) || [];
+          list.push(t);
+          byUser.set(r.user_id, list);
+        }
+      });
+      setOrgTeamMemberCounts(counts);
+      setTeamsByUserId(byUser);
     });
     return () => { cancelled = true; };
   }, [orgTeams]);
+
+  // Per-member team-management modal — "what teams is Jacob on?". The
+  // team-centric "who's in SWE?" lives in the People filter now.
+  const [memberTeamsModalFor, setMemberTeamsModalFor] = useState(null);
+  const [memberToRemove, setMemberToRemove] = useState(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+
+  // People filter + search. Source of truth lives in URL params so an
+  // admin can deep-link to e.g. "/team?team=<id>&q=jacob" and the Teams
+  // card can drive the same state without prop-drilling.
+  const teamFilter = searchParams.get("team") || "all"; // "all" | "unassigned" | <orgTeam.id>
+  const memberSearch = searchParams.get("q") || "";
+  function updateParam(key, value) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value && value !== "all") next.set(key, value);
+      else next.delete(key);
+      return next;
+    }, { replace: true });
+  }
+  function setTeamFilter(v) { updateParam("team", v); }
+  function setMemberSearch(v) { updateParam("q", v); }
+  const peopleSectionRef = useRef(null);
+  function focusPeopleSection() {
+    requestAnimationFrame(() => {
+      peopleSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   // Auto-join from URL. Used to just pre-fill the field; now actually
   // performs the join so a one-click invite link works without the user
@@ -146,16 +199,16 @@ export default function TeamPage() {
   async function handleCopyCode() {
     if (!activeTeam?.invite_code) return;
     await navigator.clipboard.writeText(activeTeam.invite_code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
   }
 
   async function handleCopyLink() {
     if (!activeTeam?.invite_code) return;
     const link = `${window.location.origin}/team/join/${activeTeam.invite_code}`;
     await navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   }
 
   async function handleRegenerateCode() {
@@ -413,6 +466,29 @@ export default function TeamPage() {
             </div>
           )}
 
+          {/* ─── INVITE ──────────────────────────────────────────── */}
+          <InviteCard
+            dark={dark}
+            team={activeTeam}
+            isAdmin={isAdmin}
+            onCopyCode={handleCopyCode}
+            onCopyLink={handleCopyLink}
+            onRegenerate={handleRegenerateCode}
+            copiedCode={copiedCode}
+            copiedLink={copiedLink}
+            memberCount={teamMembers.length}
+          />
+
+          {/* ─── ORG ─────────────────────────────────────────────── */}
+          {isAdmin && (
+            <SectionHeader
+              icon={Building2}
+              title="Org"
+              subtitle="Profile and how others join"
+              dark={dark}
+            />
+          )}
+
           {/* Team Settings (admin only) — name, icon, accent color */}
           {isAdmin && (
             <TeamSettingsCard
@@ -430,7 +506,17 @@ export default function TeamPage() {
             />
           )}
 
-          {/* Teams (departments) admin card — only org admins */}
+          {/* ─── TEAMS ───────────────────────────────────────────── */}
+          {isAdmin && (
+            <SectionHeader
+              icon={Users2}
+              title="Teams"
+              subtitle="SWE, PM, HR — gate rooms, retros, and goals"
+              dark={dark}
+            />
+          )}
+
+          {/* OrgTeamsCard — only org admins */}
           {isAdmin && (
             <OrgTeamsCard
               dark={dark}
@@ -443,34 +529,220 @@ export default function TeamPage() {
               userId={session?.user?.id || activeTeam.created_by}
               onError={(msg) => setError(msg)}
               onSuccess={(msg) => { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }}
-              onManageMembers={(t) => setManagingTeam(t)}
+              onManageMembers={(t) => { setTeamFilter(t.id); focusPeopleSection(); }}
             />
           )}
 
-          {/* Invite Code Card (admin only) */}
-          {isAdmin && (
-            <div className={cardCls}>
-              <div className="flex items-center justify-between mb-3">
-                <p className={labelCls}>Invite Code</p>
-                <Button variant="ghost" size="sm" onClick={handleRegenerateCode} disabled={loading}>
-                  <RefreshCw className="w-3.5 h-3.5 mr-1" /> Regenerate
-                </Button>
-              </div>
-              <div className={`flex items-center gap-3 px-4 py-3 rounded-lg font-mono text-lg tracking-widest ${
-                dark ? "bg-slate-800/80 text-cyan-400" : "bg-slate-50 text-teal-600"
-              }`}>
-                <span className="flex-1">{activeTeam.invite_code}</span>
-                <Button variant="ghost" size="sm" onClick={handleCopyCode}>
-                  <Copy className="w-4 h-4" /> {copied ? "Copied!" : "Code"}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={handleCopyLink}>
-                  <Copy className="w-4 h-4" /> Link
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* ─── PEOPLE ──────────────────────────────────────────── */}
+          {(() => {
+            // Aggregate stats over the full org (not filtered) — these
+            // are org-health numbers; filtering shouldn't make them lie.
+            const adminCount = teamMembers.filter((m) => m.role === "admin").length;
+            const unassignedCount = teamMembers.filter((m) =>
+              (teamsByUserId.get(m.user_id) || []).length === 0,
+            ).length;
+            const q = memberSearch.trim().toLowerCase();
+            const activeTeamObj = orgTeams.find((t) => t.id === teamFilter);
 
-          {/* Retro Link (everyone) */}
+            // Apply filter then search. Search matches across name and
+            // the names of any teams the person is on, so "swe sarah"
+            // works as a single query when the team filter is "all".
+            const filtered = teamMembers.filter((m) => {
+              const userTeams = teamsByUserId.get(m.user_id) || [];
+              if (teamFilter === "unassigned") {
+                if (userTeams.length > 0) return false;
+              } else if (teamFilter !== "all") {
+                if (!userTeams.some((t) => t.id === teamFilter)) return false;
+              }
+              if (!q) return true;
+              const haystack = [
+                m.name || "",
+                ...userTeams.map((t) => t.name || ""),
+              ].join(" ").toLowerCase();
+              return haystack.includes(q);
+            });
+
+            const filterActive = teamFilter !== "all" || q.length > 0;
+            const subtitle = filterActive
+              ? `Showing ${filtered.length} of ${teamMembers.length} in ${activeTeam.name}`
+              : `${teamMembers.length} ${teamMembers.length === 1 ? "person" : "people"} in ${activeTeam.name}`;
+
+            return (
+              <>
+                <SectionHeader
+                  icon={Users}
+                  title="People"
+                  subtitle={subtitle}
+                  dark={dark}
+                />
+                <div ref={peopleSectionRef} className={cardCls}>
+                  {/* Health stats — at-a-glance numbers. Click
+                      "unassigned" to jump straight into that filter. */}
+                  <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 px-1 text-xs ${
+                    dark ? "text-slate-400" : "text-slate-500"
+                  }`}>
+                    {[
+                      { label: "people", value: teamMembers.length, onClick: () => setTeamFilter("all") },
+                      { label: adminCount === 1 ? "admin" : "admins", value: adminCount },
+                      { label: orgTeams.length === 1 ? "team" : "teams", value: orgTeams.length },
+                      {
+                        label: "unassigned",
+                        value: unassignedCount,
+                        accent: unassignedCount > 0,
+                        onClick: unassignedCount > 0 ? () => setTeamFilter("unassigned") : undefined,
+                      },
+                    ].map((s, i) => {
+                      const node = (
+                        <span className="inline-flex items-baseline gap-1">
+                          {i > 0 && <span className="opacity-40">·</span>}
+                          <span className={`font-bold text-sm ${
+                            s.accent
+                              ? dark ? "text-amber-300" : "text-amber-600"
+                              : dark ? "text-slate-200" : "text-slate-700"
+                          }`}>
+                            {s.value}
+                          </span>
+                          <span>{s.label}</span>
+                        </span>
+                      );
+                      return s.onClick ? (
+                        <button key={s.label} type="button" onClick={s.onClick} className="hover:underline">
+                          {node}
+                        </button>
+                      ) : (
+                        <span key={s.label}>{node}</span>
+                      );
+                    })}
+                  </div>
+
+                  {/* Filter chip strip. Horizontally scrollable so we
+                      degrade gracefully on small screens / many teams. */}
+                  <div className="-mx-1 px-1 mb-2 overflow-x-auto">
+                    <div className="flex items-center gap-1.5 min-w-max">
+                      <FilterChip
+                        label="All"
+                        active={teamFilter === "all"}
+                        count={teamMembers.length}
+                        dark={dark}
+                        onClick={() => setTeamFilter("all")}
+                      />
+                      {orgTeams.map((t) => {
+                        const count = teamMembers.filter((m) =>
+                          (teamsByUserId.get(m.user_id) || []).some((tt) => tt.id === t.id),
+                        ).length;
+                        return (
+                          <FilterChip
+                            key={t.id}
+                            label={t.name}
+                            color={t.color}
+                            active={teamFilter === t.id}
+                            count={count}
+                            dark={dark}
+                            onClick={() => setTeamFilter(t.id)}
+                          />
+                        );
+                      })}
+                      <FilterChip
+                        label="Unassigned"
+                        active={teamFilter === "unassigned"}
+                        count={unassignedCount}
+                        accent={unassignedCount > 0}
+                        dark={dark}
+                        onClick={() => setTeamFilter("unassigned")}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Search input */}
+                  <div className={`relative mb-3`}>
+                    <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${
+                      dark ? "text-slate-500" : "text-slate-400"
+                    }`} />
+                    <Input
+                      value={memberSearch}
+                      onChange={(e) => setMemberSearch(e.target.value)}
+                      placeholder="Search by name or team…"
+                      className={`pl-8 pr-8 h-9 text-sm ${inputCls}`}
+                    />
+                    {memberSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setMemberSearch("")}
+                        className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded ${
+                          dark ? "text-slate-400 hover:bg-slate-700/60" : "text-slate-500 hover:bg-slate-100"
+                        }`}
+                        aria-label="Clear search"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Active filter hint — only shown when filter is on,
+                      gives users a one-click escape. */}
+                  {filterActive && (
+                    <div className={`flex items-center justify-between mb-2 px-1 text-[11px] ${
+                      dark ? "text-slate-400" : "text-slate-500"
+                    }`}>
+                      <span>
+                        {teamFilter === "unassigned" && "Filtered to people without a team"}
+                        {teamFilter !== "all" && teamFilter !== "unassigned" && activeTeamObj &&
+                          `Filtered to ${activeTeamObj.name}`}
+                        {teamFilter === "all" && q && `Searching "${q}"`}
+                        {teamFilter !== "all" && q && ` · matching "${q}"`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { setTeamFilter("all"); setMemberSearch(""); }}
+                        className="underline font-medium"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {filtered.length === 0 ? (
+                      <div className={`text-center py-8 text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                        {q
+                          ? `No matches for "${q}".`
+                          : teamFilter === "unassigned"
+                            ? "Everyone is on at least one team."
+                            : "No one in this team yet."}
+                      </div>
+                    ) : (
+                      filtered.map((m) => (
+                        <MemberCard
+                          key={m.user_id}
+                          member={m}
+                          dark={dark}
+                          isAdmin={isAdmin}
+                          isOwner={m.user_id === activeTeam.created_by}
+                          teamsForUser={teamsByUserId.get(m.user_id) || []}
+                          onEditHR={() => setHrMember(m)}
+                          onEditTeams={() => setMemberTeamsModalFor(m)}
+                          onToggleRole={() => handleToggleRole(m.user_id, m.role)}
+                          onRemove={() => setMemberToRemove(m)}
+                          onTeamChipClick={(teamId) => {
+                            setTeamFilter(teamId);
+                            focusPeopleSection();
+                          }}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+
+          {/* ─── QUICK LINKS ─────────────────────────────────────── */}
+          <SectionHeader
+            icon={ArrowRight}
+            title="Quick links"
+            subtitle="Jump to retros, timesheets, and live sessions"
+            dark={dark}
+          />
           <button
             onClick={() => navigate("/retros")}
             className={`w-full ${cardCls} flex items-center justify-between hover:border-teal-500/50 transition-colors cursor-pointer`}
@@ -484,8 +756,6 @@ export default function TeamPage() {
             </div>
             <ArrowRight className={`w-5 h-5 ${dark ? "text-slate-500" : "text-slate-400"}`} />
           </button>
-
-          {/* Timesheets Link (admin only) */}
           {isAdmin && (
             <button
               onClick={() => navigate("/team/timesheets")}
@@ -502,76 +772,15 @@ export default function TeamPage() {
             </button>
           )}
 
-          {/* Members */}
-          <div className={cardCls}>
-            <div className="flex items-center justify-between mb-4">
-              <p className={labelCls}>Members ({teamMembers.length})</p>
-              <Badge variant="outline" className="text-xs">
-                {activeTeam.name}
-              </Badge>
-            </div>
-            <div className="space-y-2">
-              {teamMembers.map((m) => (
-                <div
-                  key={m.user_id}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${
-                    dark ? "bg-slate-800/40" : "bg-slate-50"
-                  }`}
-                >
-                  <UserAvatar url={m.avatar_url} name={m.name} size={32} className="shrink-0" />
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate flex items-center gap-1.5 ${dark ? "text-slate-200" : "text-slate-700"}`}>
-                      <span
-                        className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
-                          m.presence_state === "in_meeting" ? "bg-rose-500"
-                          : m.presence_state === "heads_down" ? "bg-violet-500"
-                          : m.presence_state === "away" ? "bg-amber-500"
-                          : "bg-emerald-500"
-                        }`}
-                        title={m.presence_state}
-                      />
-                      {m.name}
-                    </p>
-                    <p className={`text-xs truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                      {m.status ? m.status : `Joined ${new Date(m.joined_at).toLocaleDateString()}`}
-                    </p>
-                  </div>
-                  {/* Role badge */}
-                  <Badge variant={m.role === "admin" ? "default" : "secondary"} className="text-[10px]">
-                    {m.role === "admin" ? "Admin" : "Member"}
-                  </Badge>
-                  {/* Admin actions */}
-                  {isAdmin && m.user_id !== activeTeam.created_by && (
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        onClick={() => handleToggleRole(m.user_id, m.role)}
-                        title={m.role === "admin" ? "Demote to member" : "Promote to admin"}
-                      >
-                        <Crown className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
-                        onClick={() => handleRemoveMember(m.user_id)}
-                        title="Remove member"
-                      >
-                        <UserMinus className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Danger Zone */}
+          {/* ─── DANGER ──────────────────────────────────────────── */}
+          <SectionHeader
+            icon={ShieldAlert}
+            title="Danger zone"
+            subtitle="Leave or delete this org — both are permanent"
+            dark={dark}
+            danger
+          />
           <div className={`${cardCls} border-red-500/20`}>
-            <p className={`${labelCls} text-red-500`}>Danger Zone</p>
             <div className="flex gap-2 mt-3">
               {!confirmLeave ? (
                 <Button variant="outline" size="sm" onClick={() => setConfirmLeave(true)}>
@@ -611,26 +820,404 @@ export default function TeamPage() {
         </div>
       )}
 
-      <OrgTeamMembersModal
-        open={!!managingTeam}
-        onClose={() => setManagingTeam(null)}
-        orgTeam={managingTeam}
-        orgMembers={teamMembers}
+
+      <MemberHRModal
+        open={!!hrMember}
+        onClose={() => setHrMember(null)}
+        member={hrMember}
+        onSave={async (patch) => {
+          if (!hrMember || !activeTeamId) return { error: { message: "No member selected" } };
+          return await updateMemberHR(activeTeamId, hrMember.user_id, patch);
+        }}
+      />
+
+      <MemberTeamsModal
+        open={!!memberTeamsModalFor}
+        onClose={() => setMemberTeamsModalFor(null)}
+        member={memberTeamsModalFor}
+        orgTeams={orgTeams || []}
+        currentTeamIds={
+          memberTeamsModalFor
+            ? (teamsByUserId.get(memberTeamsModalFor.user_id) || []).map((t) => t.id)
+            : []
+        }
         onChange={() => {
-          // Refresh team-list + member-count side state.
+          // Realtime usually catches this via the org_team_members
+          // subscription in TeamContext, but kick a manual refresh too
+          // so the chip strip on the row updates the same tick.
           loadOrgTeamsForActive?.();
-          if (managingTeam?.id) {
-            listOrgTeamMembers(managingTeam.id).then(({ data }) => {
-              setOrgTeamMemberCounts((prev) => {
-                const next = new Map(prev);
-                next.set(managingTeam.id, (data || []).length);
-                return next;
-              });
-            });
-          }
+        }}
+      />
+
+      <RemoveMemberModal
+        open={!!memberToRemove}
+        onClose={() => { if (!removeBusy) setMemberToRemove(null); }}
+        member={memberToRemove}
+        orgName={activeTeam?.name || "this org"}
+        busy={removeBusy}
+        onConfirm={async () => {
+          if (!memberToRemove || !activeTeamId) return;
+          setRemoveBusy(true);
+          await handleRemoveMember(memberToRemove.user_id);
+          setRemoveBusy(false);
+          setMemberToRemove(null);
         }}
       />
     </main>
+  );
+}
+
+// Small section header. Used to group the page (Org → Teams →
+// Members → Quick links → Danger) so admins don't see one tall stack
+// of cards with no semantic structure.
+function SectionHeader({ icon: Icon, title, subtitle, dark, danger = false }) {
+  return (
+    <div className="flex items-start gap-2.5 px-1 pt-3">
+      <div
+        className={`p-1.5 rounded-lg shrink-0 ${
+          danger
+            ? dark ? "bg-red-500/15 text-red-300" : "bg-red-50 text-red-600"
+            : dark ? "bg-cyan-500/10 text-cyan-400" : "bg-teal-50 text-teal-600"
+        }`}
+      >
+        <Icon className="w-4 h-4" />
+      </div>
+      <div>
+        <h2 className={`text-sm font-bold uppercase tracking-wider ${
+          danger
+            ? dark ? "text-red-300" : "text-red-600"
+            : dark ? "text-slate-100" : "text-slate-800"
+        }`}>
+          {title}
+        </h2>
+        {subtitle && (
+          <p className={`text-[11px] mt-0.5 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            {subtitle}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Per-member card. Two-row layout: identity + role/classification
+// tagline on top, team chips + admin actions on the bottom. Reads as
+// "who they are, what they are, what they're on, what I can do."
+function MemberCard({
+  member: m, dark, isAdmin, isOwner,
+  teamsForUser, onEditHR, onEditTeams, onToggleRole, onRemove, onTeamChipClick,
+}) {
+  const presenceRing = (() => {
+    switch (m.presence_state) {
+      case "in_meeting": return "ring-rose-500";
+      case "heads_down": return "ring-violet-500";
+      case "away":       return "ring-amber-500";
+      default:           return "ring-emerald-500";
+    }
+  })();
+  const presenceLabel = (() => {
+    switch (m.presence_state) {
+      case "in_meeting": return "In meeting";
+      case "heads_down": return "Heads-down";
+      case "away":       return "Away";
+      case "available":  return "Available";
+      default:           return "Active";
+    }
+  })();
+  const joinedDate = new Date(m.joined_at).toLocaleDateString(undefined, {
+    month: "short", day: "numeric", year: "numeric",
+  });
+  const roleLabel = m.role === "admin" ? (isOwner ? "Owner" : "Admin") : "Member";
+  const compParts = [];
+  if (m.classification === "salary") compParts.push("Salary");
+  else if (m.classification === "hourly") {
+    compParts.push(`Hourly${m.hourly_rate ? ` · $${Number(m.hourly_rate).toFixed(0)}/hr` : ""}`);
+  }
+
+  return (
+    <div className={`rounded-xl px-3 py-3 ${dark ? "bg-slate-800/40" : "bg-slate-50"}`}>
+      {/* Row 1: identity + actions */}
+      <div className="flex items-start gap-3">
+        {/* Avatar with presence ring. Admin status is shown in the
+            tagline and (for editable rows) in the role dropdown — the
+            crown overlay used to add a third signal that just made the
+            row noisier. */}
+        <div className={`relative shrink-0 rounded-full ring-2 ring-offset-2 ${presenceRing} ${
+          dark ? "ring-offset-slate-800/40" : "ring-offset-slate-50"
+        }`}>
+          <UserAvatar url={m.avatar_url} name={m.name} size={40} />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className={`text-sm font-bold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
+              {m.name}
+            </p>
+            {/* Role pill — prominent, since the crown overlay is gone.
+                Owner gets the strongest treatment, admin a softer one,
+                regular member is implicit (no pill at all). */}
+            {m.role === "admin" && (
+              <span
+                className={`inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                  isOwner
+                    ? dark ? "bg-amber-400/15 text-amber-300" : "bg-amber-100 text-amber-700"
+                    : dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-100 text-teal-700"
+                }`}
+              >
+                <Crown className="w-2.5 h-2.5" fill="currentColor" />
+                {roleLabel}
+              </span>
+            )}
+          </div>
+          <p className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            {presenceLabel}
+            {m.status ? ` · ${m.status}` : ""}
+            {" · "}Joined {joinedDate}
+          </p>
+          {compParts.length > 0 && (
+            <p className={`text-[11px] mt-0.5 truncate ${dark ? "text-slate-300" : "text-slate-600"}`}>
+              {compParts.join(" · ")}
+            </p>
+          )}
+        </div>
+
+        {/* Admin actions. Inline: role dropdown (a primary,
+            understandable axis of control). Behind kebab: Comp + Teams
+            (less frequent) and the destructive Remove (kept off the
+            role dropdown so role-change isn't co-located with destroy). */}
+        {isAdmin && (
+          <div className="flex items-center gap-1.5 shrink-0 justify-end">
+            {!isOwner ? (
+              <Select
+                value={m.role === "admin" ? "admin" : "member"}
+                onValueChange={(v) => { if (v !== m.role) onToggleRole(); }}
+              >
+                <SelectTrigger
+                  className={`h-7 text-xs px-2 w-auto gap-1 ${
+                    dark ? "bg-slate-900/60 border-slate-700 text-slate-200" : "bg-white"
+                  }`}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-1 ${
+                dark ? "text-slate-500" : "text-slate-400"
+              }`}>
+                Owner
+              </span>
+            )}
+            <MemberActionsMenu
+              dark={dark}
+              canRemove={!isOwner}
+              onEditComp={onEditHR}
+              onEditTeams={onEditTeams}
+              onRemove={onRemove}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Row 2: team chips */}
+      {(teamsForUser.length > 0 || isAdmin) && (
+        <div className={`mt-3 pt-2.5 border-t ${dark ? "border-slate-700/40" : "border-slate-200/70"} flex flex-wrap items-center gap-1.5`}>
+          <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+            dark ? "text-slate-500" : "text-slate-400"
+          }`}>
+            Teams
+          </span>
+          {teamsForUser.length === 0 && (
+            <span className={`text-[11px] italic ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              No teams yet
+            </span>
+          )}
+          {teamsForUser.map((t) => {
+            // Chips drill into the team filter when handler is provided
+            // — so "show me everyone on PM" is one click from any row.
+            const chipStyle = {
+              background: `${t.color}22`,
+              color: dark ? "#fff" : t.color,
+              border: `1px solid ${t.color}55`,
+            };
+            const inner = (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: t.color }} />
+                {t.name}
+              </>
+            );
+            return onTeamChipClick ? (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onTeamChipClick(t.id)}
+                title={`Show only ${t.name}`}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full transition-transform hover:scale-[1.03]"
+                style={chipStyle}
+              >
+                {inner}
+              </button>
+            ) : (
+              <span
+                key={t.id}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                style={chipStyle}
+              >
+                {inner}
+              </span>
+            );
+          })}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={onEditTeams}
+              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border border-dashed transition-colors ${
+                dark
+                  ? "border-slate-600 text-slate-400 hover:border-cyan-500/60 hover:text-cyan-300"
+                  : "border-slate-300 text-slate-500 hover:border-teal-400 hover:text-teal-600"
+              }`}
+            >
+              + Manage
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Small pill used in the People filter chip strip. Active state uses
+// the team's accent color when supplied so admins can spot "filtered
+// to PM" by color even before reading the label.
+function FilterChip({ label, count, color, active, accent, dark, onClick }) {
+  const ring = color || (dark ? "#94a3b8" : "#64748b");
+  const baseCls = "inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full border whitespace-nowrap transition-colors";
+  const stateCls = active
+    ? "shadow-sm"
+    : dark
+      ? "bg-slate-800/40 border-slate-700/60 text-slate-300 hover:bg-slate-800/80"
+      : "bg-white border-slate-200 text-slate-600 hover:border-slate-300";
+  const activeStyle = active
+    ? {
+        background: color ? `${color}22` : (dark ? "#0f172a" : "#0f172a"),
+        borderColor: color ? `${color}99` : "transparent",
+        color: color ? (dark ? "#fff" : color) : "#fff",
+      }
+    : undefined;
+
+  return (
+    <button type="button" onClick={onClick} className={`${baseCls} ${stateCls}`} style={activeStyle}>
+      {color && (
+        <span className="w-1.5 h-1.5 rounded-full" style={{ background: ring }} />
+      )}
+      <span>{label}</span>
+      <span
+        className={`px-1 rounded text-[10px] font-bold ${
+          active
+            ? "bg-black/15"
+            : accent
+              ? dark ? "bg-amber-400/15 text-amber-300" : "bg-amber-100 text-amber-700"
+              : dark ? "bg-slate-700/50 text-slate-400" : "bg-slate-100 text-slate-500"
+        }`}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// Kebab overflow menu for less-frequent member actions. We close on
+// outside click and Escape — the standard expectations. Lives inline
+// (not a portal) because the row clipping isn't an issue at our card
+// widths; if we hit overflow later we can lift it into a Popover.
+function MemberActionsMenu({ dark, canRemove, onEditComp, onEditTeams, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const itemCls = `flex items-center gap-2 w-full text-left px-3 py-2 text-xs font-medium transition-colors ${
+    dark ? "text-slate-200 hover:bg-slate-700/60" : "text-slate-700 hover:bg-slate-100"
+  }`;
+  const destructiveCls = `flex items-center gap-2 w-full text-left px-3 py-2 text-xs font-medium transition-colors ${
+    dark ? "text-red-300 hover:bg-red-500/15" : "text-red-600 hover:bg-red-50"
+  }`;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Member actions"
+        className={`h-7 w-7 rounded-md border inline-flex items-center justify-center transition-colors ${
+          dark
+            ? "bg-slate-900/60 border-slate-700 text-slate-300 hover:bg-slate-700/60"
+            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+        }`}
+      >
+        <MoreVertical className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className={`absolute right-0 top-full mt-1 z-40 min-w-[160px] rounded-lg border shadow-lg overflow-hidden py-1 ${
+            dark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+          }`}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className={itemCls}
+            onClick={() => { setOpen(false); onEditComp(); }}
+          >
+            <DollarSign className="w-3.5 h-3.5 opacity-70" />
+            Edit comp
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={itemCls}
+            onClick={() => { setOpen(false); onEditTeams(); }}
+          >
+            <Users2 className="w-3.5 h-3.5 opacity-70" />
+            Edit teams
+          </button>
+          {canRemove && (
+            <>
+              <div className={`my-1 h-px ${dark ? "bg-slate-700/60" : "bg-slate-200"}`} />
+              <button
+                type="button"
+                role="menuitem"
+                className={destructiveCls}
+                onClick={() => { setOpen(false); onRemove(); }}
+              >
+                <UserMinus className="w-3.5 h-3.5" />
+                Remove from org…
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
