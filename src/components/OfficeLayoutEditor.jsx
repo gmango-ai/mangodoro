@@ -31,11 +31,12 @@ import { GripVertical } from "lucide-react";
 // so non-admin viewers see the floor plan exactly as admins do.
 
 const COLUMNS = 12;
-// Tuned for the default 3×2 tile (12 cols → ~25% width per tile, two
-// rows tall). Bigger ROW_HEIGHT gives the avatar strip + Start button
-// real vertical breathing room.
-const ROW_HEIGHT = 96;
-const GAP = 10;
+// Tuned so a single cell reads as roughly square at typical container
+// widths (~1000px → cell width ≈ 80px). The previous 96 made tiles
+// feel like tall stacks; 76 lets the floor plan breathe horizontally
+// and resize handles feel more natural.
+const ROW_HEIGHT = 76;
+const GAP = 8;
 
 export default function OfficeLayoutEditor({
   rooms,
@@ -43,6 +44,7 @@ export default function OfficeLayoutEditor({
   vibe,
   busy,
   onJoinRoom,
+  onOpenRoom,
   sessionByRoomId,
 }) {
   const { theme } = useTheme();
@@ -116,6 +118,31 @@ export default function OfficeLayoutEditor({
     }
   }
 
+  // Axis-aligned bounding-box intersection. Returns true if A and B
+  // overlap by at least one cell. Used to refuse drag/resize moves
+  // that would put two rooms on top of each other.
+  function rectsOverlap(a, b) {
+    return (
+      a.x < b.x + b.w &&
+      a.x + a.w > b.x &&
+      a.y < b.y + b.h &&
+      a.y + a.h > b.y
+    );
+  }
+
+  // Does the proposed rect collide with any other (non-self) room's
+  // current visual rect? Uses the same override-applied geometry so
+  // mid-flight optimistic moves get checked too.
+  function hasCollision(roomId, proposed) {
+    for (const other of rooms || []) {
+      if (other.id === roomId) continue;
+      const o = applyOverride(other);
+      const otherRect = { x: o.layout_x, y: o.layout_y, w: o.layout_w, h: o.layout_h };
+      if (rectsOverlap(proposed, otherRect)) return true;
+    }
+    return false;
+  }
+
   function handleDragEnd(event) {
     const { active, delta } = event;
     const room = (rooms || []).find((r) => r.id === active.id);
@@ -126,6 +153,9 @@ export default function OfficeLayoutEditor({
     if (dx === 0 && dy === 0) return;
     const x = Math.max(0, Math.min(COLUMNS - o.layout_w, o.layout_x + dx));
     const y = Math.max(0, o.layout_y + dy);
+    // Refuse the move if it would land on another room. The tile
+    // visually springs back to its origin via the transform reset.
+    if (hasCollision(room.id, { x, y, w: o.layout_w, h: o.layout_h })) return;
     persistLayout(room.id, x, y, o.layout_w, o.layout_h);
   }
 
@@ -163,7 +193,14 @@ export default function OfficeLayoutEditor({
               busy={busy}
               activeSession={sessionByRoomId?.get(room.id) || null}
               onJoinRoom={onJoinRoom}
-              onResize={(w, h) => persistLayout(room.id, r.layout_x, r.layout_y, w, h)}
+              onOpenRoom={onOpenRoom}
+              canResizeTo={(w, h) =>
+                !hasCollision(room.id, { x: r.layout_x, y: r.layout_y, w, h })
+              }
+              onResize={(w, h) => {
+                if (hasCollision(room.id, { x: r.layout_x, y: r.layout_y, w, h })) return;
+                persistLayout(room.id, r.layout_x, r.layout_y, w, h);
+              }}
             />
           );
         })}
@@ -190,7 +227,7 @@ function GridBackdrop({ columns, rows, dark }) {
 
 function LayoutTile({
   room, readOnly, cellWidth, rowHeight, gap, vibe, busy,
-  activeSession, onJoinRoom, onResize,
+  activeSession, onJoinRoom, onOpenRoom, onResize, canResizeTo,
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: room.id,
@@ -229,6 +266,9 @@ function LayoutTile({
       const dy = Math.round((ev.clientY - startY) / (rowHeight + gap));
       const newW = Math.max(1, Math.min(12 - room.layout_x, startW + dx));
       const newH = Math.max(1, Math.min(12, startH + dy));
+      // Don't grow into another room — the visual size stops at the
+      // last collision-free w/h, so the user can see the limit.
+      if (canResizeTo && !canResizeTo(newW, newH)) return;
       setResizing({ w: newW, h: newH });
     }
     function onUp() {
@@ -258,6 +298,7 @@ function LayoutTile({
           vibe={vibe}
           busy={busy}
           onJoin={onJoinRoom}
+          onOpen={onOpenRoom}
         />
       </div>
       {!readOnly && (

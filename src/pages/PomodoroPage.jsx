@@ -11,6 +11,7 @@ import UserAvatar from "../components/UserAvatar";
 import CreateRoomModal from "../components/CreateRoomModal";
 import RoomTile from "../components/RoomTile";
 import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
+import RoomActionPopover from "../components/RoomActionPopover";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { resolveRoomByInviteCode } from "../lib/rooms";
@@ -19,7 +20,7 @@ import { notifySessionJoined } from "../sync/joinSession";
 
 export default function PomodoroPage({ session, onOpenSync }) {
   const { settings, clockIn, projects, dataLoaded } = useApp();
-  const { activeTeam, activeTeamId, activeTeamSessions, rooms, visibleRooms, isAdmin, teamMembers, myOrgTeamIds, myOrgTeamLeadIds } = useTeam();
+  const { activeTeam, activeTeamId, activeTeamSessions, rooms, visibleRooms, isAdmin, teamMembers, myOrgTeamIds, myOrgTeamLeadIds, orgTeams } = useTeam();
   const { theme } = useTheme();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
   const dark = theme === "dark";
@@ -28,6 +29,8 @@ export default function PomodoroPage({ session, onOpenSync }) {
   const [codePromptRoom, setCodePromptRoom] = useState(null); // private room awaiting code
   const [codeInput, setCodeInput] = useState("");
   const [roomBusy, setRoomBusy] = useState(false);
+  // Action popover: which room (and its session) is being inspected.
+  const [popoverRoom, setPopoverRoom] = useState(null);
 
   const currentTaskHint = (() => {
     if (!clockIn) return "";
@@ -285,6 +288,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                         vibe={activeTeam?.office_vibe || "quiet"}
                         busy={roomBusy}
                         onJoinRoom={handleRoomClick}
+                        onOpenRoom={setPopoverRoom}
                         sessionByRoomId={sessionByRoomId}
                       />
                     </div>
@@ -296,6 +300,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                           activeSession={sessionByRoomId.get(room.id) || null}
                           vibe={activeTeam?.office_vibe || "quiet"}
                           busy={roomBusy}
+                          onOpen={setPopoverRoom}
                           onJoin={handleRoomClick}
                         />
                       ))}
@@ -490,6 +495,25 @@ export default function PomodoroPage({ session, onOpenSync }) {
         teamId={activeTeamId}
         userId={session.user.id}
         isAdmin={isAdmin}
+      />
+
+      <RoomActionPopover
+        open={!!popoverRoom}
+        room={popoverRoom}
+        activeSession={popoverRoom ? sessionByRoomId.get(popoverRoom.id) || null : null}
+        orgTeams={orgTeams || []}
+        busy={roomBusy}
+        onClose={() => setPopoverRoom(null)}
+        onJoin={async () => {
+          const r = popoverRoom;
+          setPopoverRoom(null);
+          if (r) await handleRoomClick(r);
+        }}
+        onStart={async () => {
+          const r = popoverRoom;
+          setPopoverRoom(null);
+          if (r) await handleRoomClick(r);
+        }}
       />
 
       {/* Private room → "Enter code" sheet */}
