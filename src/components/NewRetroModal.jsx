@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Target, Briefcase, Sparkles, Users } from "lucide-react";
-import { getOrCreateCurrentRetro, setRetroGoal } from "../lib/retro";
+import { X, Briefcase, Sparkles, Users } from "lucide-react";
+import { getOrCreateCurrentRetro } from "../lib/retro";
 import { createOrgTeam } from "../lib/orgTeam";
 import { useApp } from "../context/AppContext";
 
@@ -29,7 +29,6 @@ export default function NewRetroModal({
   const [selectedTeamId, setSelectedTeamId] = useState(preselectedTeamId ?? null);
   const [customMode, setCustomMode] = useState(false);
   const [customName, setCustomName] = useState("");
-  const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -39,7 +38,6 @@ export default function NewRetroModal({
     setSelectedTeamId(preselectedTeamId ?? firstUntaken?.id ?? null);
     setCustomMode(false);
     setCustomName("");
-    setGoal("");
     setBusy(false);
     setError("");
   }, [open, preselectedTeamId, availableTeams, existingTeamIds]);
@@ -47,7 +45,6 @@ export default function NewRetroModal({
   if (!open) return null;
 
   const alreadyExists = !customMode && existingTeamIds.has(selectedTeamId);
-  const canSetGoal = !alreadyExists && isAdmin;
   const canSubmit = customMode ? customName.trim().length > 0 : true;
 
   async function handleSubmit(e) {
@@ -80,9 +77,6 @@ export default function NewRetroModal({
       setBusy(false);
       setError(err?.message || "Could not start the retro.");
       return;
-    }
-    if (canSetGoal && goal.trim().length > 0) {
-      await setRetroGoal(data.id, goal.trim());
     }
     setBusy(false);
     onCreated?.(data);
@@ -205,32 +199,7 @@ export default function NewRetroModal({
           )}
         </div>
 
-        {/* Optional initial goal */}
-        {canSetGoal && (
-          <div className="mb-4">
-            <label className={labelCls}>Goal for next week <span className="font-normal text-slate-500">(optional)</span></label>
-            <div className="relative mt-1">
-              <Target className={`absolute left-2 top-2.5 w-4 h-4 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
-              <textarea
-                value={goal}
-                onChange={(e) => setGoal(e.target.value.slice(0, 140))}
-                rows={2}
-                maxLength={140}
-                placeholder="What's the team's focus next week?"
-                className={`w-full pl-8 pr-3 py-2 rounded-lg border text-sm ${
-                  dark
-                    ? "bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500"
-                    : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
-                }`}
-              />
-              <p className={`text-[11px] mt-1 text-right ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                {140 - goal.length} chars left
-              </p>
-            </div>
-          </div>
-        )}
-
-        {error && (
+{error && (
           <div className={`text-sm font-medium px-3 py-2 rounded-lg mb-3 ${
             dark ? "bg-red-500/15 text-red-400" : "bg-red-50 text-red-600"
           }`}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
-import { Crown, ShieldCheck, Trash2, Pencil, Rows3, LayoutGrid, X, Clock } from "lucide-react";
+import { Crown, ShieldCheck, Trash2, Pencil, X, Clock, ChevronDown, ChevronRight } from "lucide-react";
 import ConfirmRow from "./ConfirmRow";
 
 // Inline team chip strip — minimal so it fits next to a participant
@@ -63,7 +63,7 @@ function relativeTime(iso) {
   return `${days}d ago`;
 }
 
-const VIEW_KEY = "ql_sync_participants_view";
+const COLLAPSED_KEY = "ql_sync_participants_collapsed";
 
 function Avatar({ participant, size = 36, dark, isLeader }) {
   const initial = (participant.display_name || "?")[0].toUpperCase();
@@ -109,13 +109,15 @@ export default function SyncParticipantList({
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const [view, setView] = useState(() => {
-    try { return localStorage.getItem(VIEW_KEY) || "list"; } catch { return "list"; }
+  // Collapsed by default — the avatar strip alone usually tells you
+  // who's around. Expand to see names, statuses, and admin actions.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(COLLAPSED_KEY) !== "false"; } catch { return true; }
   });
   const [selectedId, setSelectedId] = useState(null);
   const [confirming, setConfirming] = useState(null); // "transfer" | "kick" | null
 
-  useEffect(() => { try { localStorage.setItem(VIEW_KEY, view); } catch { /* ignore */ } }, [view]);
+  useEffect(() => { try { localStorage.setItem(COLLAPSED_KEY, collapsed ? "true" : "false"); } catch { /* ignore */ } }, [collapsed]);
 
   // Clear selection if that participant leaves the session.
   useEffect(() => {
@@ -138,31 +140,26 @@ export default function SyncParticipantList({
     setSelectedId((cur) => (cur === userId ? null : userId));
   }
 
-  const headerCls = `flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider mb-1 ${
-    dark ? "text-slate-500" : "text-slate-400"
-  }`;
-  const toggleBtn = (active) =>
-    `p-1 rounded transition-colors ${
-      active
-        ? dark ? "bg-slate-700 text-slate-100" : "bg-slate-200 text-slate-700"
-        : dark ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800" : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-    }`;
-
   return (
     <div className="space-y-1.5">
-      <div className={headerCls}>
-        <span>In session · {participants.length}</span>
-        <div className="flex gap-0.5">
-          <button type="button" onClick={() => setView("list")} className={toggleBtn(view === "list")} title="List view" aria-label="List view">
-            <Rows3 className="w-3 h-3" />
-          </button>
-          <button type="button" onClick={() => setView("compact")} className={toggleBtn(view === "compact")} title="Compact view" aria-label="Compact view">
-            <LayoutGrid className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
+      {/* One header that toggles between avatars-strip (collapsed) and
+          full list (expanded). Collapsed is the default — the strip
+          already tells you who's around. */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className={`w-full flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider mb-1 transition-colors ${
+          dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"
+        }`}
+        aria-expanded={!collapsed}
+      >
+        <span className="inline-flex items-center gap-1">
+          {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          In session · {participants.length}
+        </span>
+      </button>
 
-      {view === "compact" ? (
+      {collapsed ? (
         <CompactView
           participants={participants}
           leaderId={leaderId}
