@@ -31,12 +31,12 @@ import { GripVertical } from "lucide-react";
 // so non-admin viewers see the floor plan exactly as admins do.
 
 const COLUMNS = 12;
-// Tuned so a single cell reads as roughly square at typical container
-// widths (~1000px → cell width ≈ 80px). The previous 96 made tiles
-// feel like tall stacks; 76 lets the floor plan breathe horizontally
-// and resize handles feel more natural.
-const ROW_HEIGHT = 76;
-const GAP = 8;
+// Cells stay square regardless of container width by setting
+// gridAutoRows = cellWidth (computed in a ResizeObserver below).
+// The constant is just a clamp ceiling so the floor plan doesn't
+// blow up on very wide screens.
+const MAX_CELL = 96;
+const GAP = 10;
 
 export default function OfficeLayoutEditor({
   rooms,
@@ -52,6 +52,8 @@ export default function OfficeLayoutEditor({
 
   const gridRef = useRef(null);
   const [cellWidth, setCellWidth] = useState(80);
+  // Cells are square: row height === cell width.
+  const cellHeight = Math.min(cellWidth, MAX_CELL);
 
   // Optimistic overrides so a drag/resize feels instant before the
   // RPC round-trip + realtime echo land.
@@ -149,7 +151,7 @@ export default function OfficeLayoutEditor({
     if (!room) return;
     const o = applyOverride(room);
     const dx = Math.round(delta.x / (cellWidth + GAP));
-    const dy = Math.round(delta.y / (ROW_HEIGHT + GAP));
+    const dy = Math.round(delta.y / (cellHeight + GAP));
     if (dx === 0 && dy === 0) return;
     const x = Math.max(0, Math.min(COLUMNS - o.layout_w, o.layout_x + dx));
     const y = Math.max(0, o.layout_y + dy);
@@ -169,7 +171,7 @@ export default function OfficeLayoutEditor({
         style={{
           display: "grid",
           gridTemplateColumns: `repeat(${COLUMNS}, minmax(0, 1fr))`,
-          gridAutoRows: `${ROW_HEIGHT}px`,
+          gridAutoRows: `${cellHeight}px`,
           gap: `${GAP}px`,
         }}
       >
@@ -187,7 +189,7 @@ export default function OfficeLayoutEditor({
               room={r}
               readOnly={readOnly}
               cellWidth={cellWidth}
-              rowHeight={ROW_HEIGHT}
+              rowHeight={cellHeight}
               gap={GAP}
               vibe={vibe}
               busy={busy}
