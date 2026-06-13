@@ -6,6 +6,7 @@ import { useTheme } from "../context/ThemeContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import { Users as UsersIcon, Timer, Plus, Target } from "lucide-react";
+import MarkdownText from "../components/MarkdownText";
 import PomodoroTimer from "../components/PomodoroTimer";
 import UserAvatar from "../components/UserAvatar";
 import RoomTile from "../components/RoomTile";
@@ -206,33 +207,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
         <h1 className="text-2xl font-bold">Pomodoro</h1>
       </div>
 
-      {/* Next-week goals from each active retro — glance-able context
-          above the rooms grid. Stacks all goals for the user's teams. */}
-      {weekGoals.length > 0 && (
-        <div className="mb-4 space-y-1.5">
-          {weekGoals.map((g) => (
-            <Link
-              key={g.id}
-              to={`/retros/${g.id}`}
-              className={`flex items-start gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
-                dark
-                  ? "bg-cyan-500/10 border-cyan-500/30 text-slate-100 hover:bg-cyan-500/15"
-                  : "bg-teal-50 border-teal-200 text-slate-800 hover:bg-teal-100"
-              }`}
-            >
-              <Target className={`w-4 h-4 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
-              <div className="flex-1 min-w-0">
-                <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-cyan-300" : "text-teal-700"}`}>
-                  {g.department || "Team"} · next week
-                </p>
-                <p className="font-semibold truncate">{g.goal}</p>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-
-      {!showTimer && (
+{!showTimer && (
         <div className="grid gap-4 md:grid-cols-3">
           <div className="md:col-span-2 space-y-4">
             {/* Rooms — the team's persistent pomodoro spaces */}
@@ -415,21 +390,24 @@ export default function PomodoroPage({ session, onOpenSync }) {
                 >
                   Goals for next week
                 </h3>
-                <ul className="space-y-2">
+                <ul className="space-y-3">
                   {weekGoals.map((g) => (
                     <li
                       key={g.id}
-                      className={`flex items-start gap-2 text-xs ${dark ? "text-slate-200" : "text-slate-700"}`}
+                      className={`text-xs ${dark ? "text-slate-200" : "text-slate-700"}`}
                     >
-                      <Target className={`w-3 h-3 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
-                      <span className="min-w-0">
-                        <span className={`block uppercase tracking-wider font-bold text-[9px] ${
+                      <Link
+                        to={`/retros/${g.id}`}
+                        className={`block group ${dark ? "hover:text-slate-50" : "hover:text-slate-900"}`}
+                      >
+                        <span className={`inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[9px] mb-1 ${
                           dark ? "text-cyan-300" : "text-teal-700"
                         }`}>
+                          <Target className="w-3 h-3" />
                           {g.org_team_name || g.department || "Team"}
                         </span>
-                        <span className="line-clamp-2">{g.goal}</span>
-                      </span>
+                        <MarkdownText dark={dark} compact>{g.goal}</MarkdownText>
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -492,21 +470,24 @@ export default function PomodoroPage({ session, onOpenSync }) {
                 >
                   Goals for next week
                 </h3>
-                <ul className="space-y-2">
+                <ul className="space-y-3">
                   {weekGoals.map((g) => (
                     <li
                       key={g.id}
-                      className={`flex items-start gap-2 text-xs ${dark ? "text-slate-200" : "text-slate-700"}`}
+                      className={`text-xs ${dark ? "text-slate-200" : "text-slate-700"}`}
                     >
-                      <Target className={`w-3 h-3 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
-                      <span className="min-w-0">
-                        <span className={`block uppercase tracking-wider font-bold text-[9px] ${
+                      <Link
+                        to={`/retros/${g.id}`}
+                        className={`block group ${dark ? "hover:text-slate-50" : "hover:text-slate-900"}`}
+                      >
+                        <span className={`inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[9px] mb-1 ${
                           dark ? "text-cyan-300" : "text-teal-700"
                         }`}>
+                          <Target className="w-3 h-3" />
                           {g.org_team_name || g.department || "Team"}
                         </span>
-                        <span className="line-clamp-2">{g.goal}</span>
-                      </span>
+                        <MarkdownText dark={dark} compact>{g.goal}</MarkdownText>
+                      </Link>
                     </li>
                   ))}
                 </ul>

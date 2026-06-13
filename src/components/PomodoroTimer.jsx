@@ -323,60 +323,82 @@ export default function PomodoroTimer({
             dark ? "border-slate-700/50" : "border-slate-100"
           }`}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <span
               className={`text-xs font-semibold uppercase tracking-widest ${dark ? "text-slate-400" : "text-slate-500"}`}
             >
               {isSynced ? "Sync" : "Pomodoro"}
             </span>
+            {/* Share shortcut promoted into the header. Click → copy
+                the join link. Was previously a small icon buried in
+                the controls; clearer affordance up here. */}
             {isSynced && (
-              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                dark ? "bg-cyan-500/15 text-cyan-400" : "bg-teal-50 text-teal-600"
-              }`}>
+              <button
+                type="button"
+                onClick={() => {
+                  const url = `${window.location.origin}/pomodoro/join/${syncSession.join_code}`;
+                  navigator.clipboard?.writeText(url);
+                }}
+                title="Copy invite link"
+                className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded transition-colors ${
+                  dark
+                    ? "bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25"
+                    : "bg-teal-50 text-teal-700 hover:bg-teal-100"
+                }`}
+              >
                 {syncSession.join_code}
-              </span>
+                <LinkIcon className="w-3 h-3 opacity-70" />
+              </button>
             )}
           </div>
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-1">
             {!isSynced && (
               <button
                 type="button"
                 onClick={onOpenSync}
                 title="Sync with coworker"
-                className={`p-1 rounded-md transition-colors ${
+                className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors ${
                   dark
-                    ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
-                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                    ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-800"
+                    : "text-slate-500 hover:text-teal-700 hover:bg-slate-100"
                 }`}
               >
                 <Users className="w-3.5 h-3.5" />
+                Sync
               </button>
             )}
             {pipSupported && (
               <button
                 type="button"
                 onClick={openPictureInPicture}
-                title="Pop out timer"
+                title="Pop out — keep the timer on top of other windows"
+                className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors ${
+                  dark
+                    ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-800"
+                    : "text-slate-500 hover:text-teal-700 hover:bg-slate-100"
+                }`}
+              >
+                <PictureInPicture2 className="w-3.5 h-3.5" />
+                Pop out
+              </button>
+            )}
+            {/* Close button only makes sense for the floating overlay.
+                On the dedicated /pomodoro page the timer IS the page;
+                there's nothing to close into. */}
+            {!embedded && (
+              <button
+                type="button"
+                onClick={onClose}
+                title="Close"
                 className={`p-1 rounded-md transition-colors ${
                   dark
                     ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
                     : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
                 }`}
               >
-                <PictureInPicture2 className="w-3.5 h-3.5" />
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              className={`p-1 rounded-md transition-colors ${
-                dark
-                  ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
-                  : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
           </div>
         </div>
 

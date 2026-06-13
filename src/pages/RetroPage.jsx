@@ -9,6 +9,7 @@ import {
   Heart, AlertTriangle, ArrowRight as ArrowRightIcon, Link as LinkIcon, Lock, Unlock,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
+import MarkdownText from "../components/MarkdownText";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
 import {
   RETRO_LANES,
@@ -345,19 +346,36 @@ export default function RetroPage() {
             </p>
             {goalEditing && !readOnly ? (
               <div className="mt-1.5 space-y-2">
+                {/* Split editor: textarea on top, live preview below.
+                    Markdown syntax renders as you type — closest we can
+                    get to Obsidian's WYSIWYG without a real editor lib. */}
                 <textarea
                   value={goalDraft}
-                  onChange={(e) => setGoalDraft(e.target.value.slice(0, 140))}
-                  rows={2}
-                  maxLength={140}
-                  placeholder="e.g. Ship the rooms redesign to 100% of the team"
-                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                  onChange={(e) => setGoalDraft(e.target.value.slice(0, 2000))}
+                  rows={5}
+                  maxLength={2000}
+                  placeholder={"e.g.\n- Ship rooms redesign\n- 1:1 with Chase & Adam\n\n**Bold** and *italic* work; lists too."}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm font-mono leading-relaxed resize-y ${
                     dark
                       ? "bg-slate-900 border-slate-700 text-slate-100 placeholder:text-slate-500"
                       : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
                   }`}
                   autoFocus
                 />
+                {goalDraft.trim() && (
+                  <div className={`rounded-lg border p-3 ${
+                    dark ? "bg-slate-800/40 border-slate-700/60" : "bg-slate-50 border-slate-200"
+                  }`}>
+                    <p className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${
+                      dark ? "text-slate-500" : "text-slate-400"
+                    }`}>
+                      Preview
+                    </p>
+                    <MarkdownText dark={dark} className={dark ? "text-slate-200" : "text-slate-700"}>
+                      {goalDraft}
+                    </MarkdownText>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <Button size="sm" onClick={handleSaveGoal} disabled={goalSaving}>
                     {goalSaving ? "Saving…" : "Save"}
@@ -370,16 +388,16 @@ export default function RetroPage() {
                     Cancel
                   </Button>
                   <p className={`text-[11px] ml-auto ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                    {140 - goalDraft.length} chars left
+                    Markdown supported · {2000 - goalDraft.length} chars left
                   </p>
                 </div>
               </div>
             ) : (
               <div className="mt-1 flex items-start gap-3">
                 {retro?.goal ? (
-                  <p className={`text-base font-semibold flex-1 ${dark ? "text-slate-100" : "text-slate-800"}`}>
-                    {retro.goal}
-                  </p>
+                  <div className={`flex-1 ${dark ? "text-slate-100" : "text-slate-800"}`}>
+                    <MarkdownText dark={dark}>{retro.goal}</MarkdownText>
+                  </div>
                 ) : (
                   <p className={`text-sm italic flex-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
                     {readOnly ? "No goal was set for this week." : "No goal set for this week yet."}
