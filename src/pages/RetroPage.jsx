@@ -6,7 +6,7 @@ import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, Target, Plus, Pencil, Trash2, Check, X, Sparkles,
-  Heart, AlertTriangle, ArrowRight as ArrowRightIcon, Link as LinkIcon, Lock, Unlock, Palette,
+  Heart, AlertTriangle, ArrowRight as ArrowRightIcon, Link as LinkIcon, Lock, Unlock,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
@@ -39,13 +39,19 @@ const LANE_ACCENT = {
 };
 
 const STICKY_COLORS = [
-  "#fde68a", "#fbcfe8", "#bfdbfe", "#bbf7d0",
-  "#ddd6fe", "#fed7aa", "#fecaca", "#e2e8f0",
+  { hex: "#fde68a", label: "Yellow" },
+  { hex: "#fbcfe8", label: "Pink" },
+  { hex: "#bfdbfe", label: "Blue" },
+  { hex: "#bbf7d0", label: "Green" },
+  { hex: "#ddd6fe", label: "Purple" },
+  { hex: "#fed7aa", label: "Orange" },
+  { hex: "#fecaca", label: "Coral" },
+  { hex: "#e2e8f0", label: "Slate" },
 ];
 
 export default function RetroPage() {
   const { retroId } = useParams();
-  const { session, stickyColor: myStickyColor, setSettings } = useApp();
+  const { session, stickyColor: myStickyColor, setStickyColor } = useApp();
   const { activeTeam, isAdmin, teams, switchTeam } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -72,8 +78,6 @@ export default function RetroPage() {
   const [editingBody, setEditingBody] = useState("");
   const editingTextareaRef = useRef(null);
 
-  // Color-picker popover toggle.
-  const [colorOpen, setColorOpen] = useState(false);
 
   // Invite copy feedback.
   const [inviteCopied, setInviteCopied] = useState(false);
@@ -203,21 +207,24 @@ export default function RetroPage() {
     setEditingBody(card.body);
   }
 
-  // Inline sticky-color picker writes to user_settings + AppContext so
-  // the change reflects across every retro the user touches.
+  // Sticky-color update is optimistic: flip AppContext state immediately
+  // so own cards re-render the same tick, then persist to user_settings.
+  // Without setStickyColor exposed (the bug behind "change doesn't take
+  // until refresh"), the local state was stuck on the loadData value.
   async function chooseStickyColor(hex) {
-    setColorOpen(false);
     if (!session?.user?.id) return;
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    // Optimistic: bump AppContext so own cards re-render immediately.
-    setSettings?.((prev) => ({ ...prev }));
-    await supabase
+    if (hex.toLowerCase() === (myStickyColor || "").toLowerCase()) return;
+    setStickyColor(hex);
+    const { error: err } = await supabase
       .from("user_settings")
       .upsert({ user_id: session.user.id, sticky_color: hex }, { onConflict: "user_id" });
-    // Trigger AppContext reload by emitting the standard auth state change
-    // we already listen to is overkill — instead nudge a settings refresh
-    // through an UPDATE that the realtime channel picks up.
-    // (Falls back to next user-driven settings save otherwise.)
+    if (err) {
+      // Revert the optimistic update if the save fails so we don't lie
+      // to the user about persistence.
+      setStickyColor(myStickyColor);
+      setError(err.message || "Couldn't save your color.");
+    }
   }
 
   async function copyInviteLink() {
@@ -287,66 +294,8 @@ export default function RetroPage() {
           </h1>
         </div>
 
-        {/* Color picker + invite link, current-week retros only */}
+        {/* Header actions — Invite + admin Close/Reopen */}
         <div className="flex items-center gap-2">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setColorOpen((v) => !v)}
-              title="Pick your sticky-note color"
-              aria-label="Pick your sticky-note color"
-              className={`relative flex items-center justify-center w-9 h-9 rounded-lg border shadow-sm transition-shadow hover:shadow-md ${
-                dark ? "border-slate-700" : "border-slate-300"
-              }`}
-              style={{ background: myStickyColor || "#fde68a" }}
-            >
-              <Palette className="w-4 h-4 text-slate-800/70" />
-            </button>
-            {colorOpen && (
-              <>
-                {/* Click-outside backdrop so the popover dismisses without
-                    requiring keyboard focus management. */}
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setColorOpen(false)}
-                  aria-hidden
-                />
-                <div
-                  className={`absolute right-0 top-11 z-50 p-2.5 rounded-xl border shadow-xl ${
-                    dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
-                  }`}
-                >
-                  <div className="grid grid-cols-4 gap-2">
-                    {STICKY_COLORS.map((c) => {
-                      const selected = myStickyColor?.toLowerCase() === c.toLowerCase();
-                      return (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() => chooseStickyColor(c)}
-                          title={c}
-                          aria-label={c}
-                          aria-pressed={selected}
-                          className={`relative w-7 h-7 rounded-md border border-black/10 transition-transform hover:scale-110 ${
-                            selected
-                              ? dark
-                                ? "outline outline-2 outline-offset-2 outline-white"
-                                : "outline outline-2 outline-offset-2 outline-slate-900"
-                              : ""
-                          }`}
-                          style={{ background: c }}
-                        >
-                          {selected && (
-                            <Check className="w-3.5 h-3.5 text-slate-900 mx-auto" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
           {!readOnly && (
             <Button
               size="sm"
@@ -451,6 +400,47 @@ export default function RetroPage() {
           </div>
         </div>
       </div>
+
+      {/* Inline sticky-color strip — always visible, instant feedback.
+          Picking a swatch updates AppContext optimistically so own cards
+          re-render the same tick. Hidden in read-only retros since no
+          new cards will be authored. */}
+      {!readOnly && (
+        <div className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg border ${
+          dark ? "bg-slate-900/40 border-slate-700/40" : "bg-white border-slate-200"
+        }`}>
+          <span className={`text-[11px] font-semibold uppercase tracking-wider ${
+            dark ? "text-slate-400" : "text-slate-500"
+          }`}>
+            Your sticky color
+          </span>
+          <div className="flex items-center gap-1.5 ml-auto sm:ml-2">
+            {STICKY_COLORS.map((c) => {
+              const selected = myStickyColor?.toLowerCase() === c.hex.toLowerCase();
+              return (
+                <button
+                  key={c.hex}
+                  type="button"
+                  onClick={() => chooseStickyColor(c.hex)}
+                  aria-label={c.label}
+                  aria-pressed={selected}
+                  title={c.label}
+                  className={`relative flex items-center justify-center w-7 h-7 rounded-md border border-black/10 transition-transform hover:scale-110 ${
+                    selected
+                      ? dark
+                        ? "outline outline-2 outline-offset-2 outline-white"
+                        : "outline outline-2 outline-offset-2 outline-slate-900"
+                      : ""
+                  }`}
+                  style={{ background: c.hex }}
+                >
+                  {selected && <Check className="w-3.5 h-3.5 text-slate-900" strokeWidth={3} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Lanes */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

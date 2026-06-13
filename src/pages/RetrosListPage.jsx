@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
@@ -9,16 +9,19 @@ import {
   listTeamRetros, getOrCreateCurrentRetro, formatRetroWeek,
 } from "../lib/retro";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
+import NewRetroModal from "../components/NewRetroModal";
 
 export default function RetrosListPage() {
   const { session } = useApp();
-  const { activeTeam, activeTeamId, teamMembers } = useTeam();
+  const { activeTeam, activeTeamId, teamMembers, isAdmin } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const navigate = useNavigate();
 
   const [retros, setRetros] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creatingDept, setCreatingDept] = useState(null);
+  const [showNewModal, setShowNewModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,7 +104,13 @@ export default function RetrosListPage() {
           <h1 className={`text-xl font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
             Team Retros
           </h1>
+          <p className={`text-xs mt-0.5 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            Weekly reflection — one per department.
+          </p>
         </div>
+        <Button onClick={() => setShowNewModal(true)} className="shrink-0">
+          <Plus className="w-4 h-4 mr-1" /> New retro
+        </Button>
       </div>
 
       {/* Current week */}
@@ -239,10 +248,33 @@ export default function RetrosListPage() {
       )}
 
       {!loading && retros.length === 0 && (
-        <p className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          No retros yet for this team. Tap a department above to start one.
-        </p>
+        <div className={`text-center py-8 rounded-2xl border border-dashed ${
+          dark ? "border-slate-700/60 text-slate-400" : "border-slate-300 text-slate-500"
+        }`}>
+          <p className="text-sm">No retros yet for this team.</p>
+          <Button onClick={() => setShowNewModal(true)} className="mt-3">
+            <Plus className="w-4 h-4 mr-1" /> Start your first retro
+          </Button>
+        </div>
       )}
+
+      <NewRetroModal
+        open={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        teamId={activeTeamId}
+        availableDepartments={availableDepartments}
+        existingDepartments={currentWeekRetros.map((r) => r.department)}
+        preselectedDepartment={myDepartments[0]}
+        isAdmin={isAdmin}
+        onCreated={(data) => {
+          // Optimistically include + navigate to the new retro.
+          setRetros((prev) => [
+            { ...data, is_current_week: true, is_live: true, card_count: 0 },
+            ...prev.filter((r) => r.id !== data.id),
+          ]);
+          navigate(`/retros/${data.id}`);
+        }}
+      />
     </main>
   );
 }
