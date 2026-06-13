@@ -7,11 +7,13 @@ export const RETRO_LANES = [
   { key: "next_week",  label: "Next week",       hint: "Carry-over + focus" },
 ];
 
-// Returns the current week's retro for the team, creating it on first
-// access. RPC verifies team membership.
-export async function getOrCreateCurrentRetro(teamId) {
+// Returns the current week's retro for (team, department), creating it
+// on first access. Department defaults to '' which means the team-wide
+// retro (used as fallback for teams without curated departments).
+export async function getOrCreateCurrentRetro(teamId, department = "") {
   const { data: retroId, error } = await supabase.rpc("get_or_create_current_retro", {
     p_team_id: teamId,
+    p_department: department || "",
   });
   if (error) return { error };
   const { data, error: fetchErr } = await supabase
@@ -21,6 +23,26 @@ export async function getOrCreateCurrentRetro(teamId) {
     .single();
   if (fetchErr) return { error: fetchErr };
   return { data };
+}
+
+// Fetch every retro for the current ISO week for the given team. Used
+// by /pomodoro to stack multiple department goals in the banner, and
+// could power a "compare goals" view later.
+export async function listCurrentWeekRetros(teamId) {
+  if (!teamId) return { data: [], error: null };
+  const today = new Date();
+  // ISO Monday-start in the client's local timezone — matches what the
+  // RPC computes server-side closely enough for the banner.
+  const day = today.getDay() || 7;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - (day - 1));
+  const weekStart = monday.toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("retros")
+    .select("*")
+    .eq("team_id", teamId)
+    .eq("week_start", weekStart);
+  return { data: data || [], error };
 }
 
 export async function listRetroCards(retroId) {

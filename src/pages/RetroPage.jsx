@@ -35,7 +35,7 @@ const LANE_ACCENT = {
 };
 
 export default function RetroPage() {
-  const { session } = useApp();
+  const { session, stickyColor: myStickyColor } = useApp();
   const { activeTeam, activeTeamId, isAdmin, teamMembers } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -44,6 +44,29 @@ export default function RetroPage() {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Department selector. Available departments = team's canonical list +
+  // a "Team" fallback (empty string) for cross-team / undeparted folks.
+  // Default selection is the user's first dept tag, or "Team" if untagged.
+  const myMember = useMemo(
+    () => teamMembers.find((m) => m.user_id === session?.user?.id) || null,
+    [teamMembers, session?.user?.id],
+  );
+  const myDepartments = myMember?.departments || [];
+  const teamDepartments = activeTeam?.departments || [];
+  // Distinct list, "" sentinel for the team-wide retro shown first.
+  const availableDepartments = useMemo(() => {
+    const set = new Set([""]);
+    for (const d of teamDepartments) set.add(d);
+    return [...set];
+  }, [teamDepartments]);
+  const [selectedDepartment, setSelectedDepartment] = useState("");
+  // Re-pick a default when the active team / my tags change.
+  useEffect(() => {
+    if (!activeTeamId) return;
+    const preferred = myDepartments[0] || "";
+    setSelectedDepartment(availableDepartments.includes(preferred) ? preferred : "");
+  }, [activeTeamId, myDepartments.join(","), availableDepartments.join(",")]);
 
   // Goal editor state.
   const [goalEditing, setGoalEditing] = useState(false);
@@ -61,14 +84,15 @@ export default function RetroPage() {
   const [editingBody, setEditingBody] = useState("");
   const editingTextareaRef = useRef(null);
 
-  // Bootstrap: get or create this week's retro for the active team,
-  // then load its cards. Re-runs when the active team changes.
+  // Bootstrap: get or create this week's retro for the active team
+  // and selected department, then load its cards. Re-runs on team or
+  // department change.
   useEffect(() => {
     let cancelled = false;
     async function load() {
       if (!activeTeamId) return;
       setLoading(true); setError("");
-      const { data, error: err } = await getOrCreateCurrentRetro(activeTeamId);
+      const { data, error: err } = await getOrCreateCurrentRetro(activeTeamId, selectedDepartment);
       if (cancelled) return;
       if (err) { setError(err.message || "Could not load retro."); setLoading(false); return; }
       setRetro(data);
@@ -79,7 +103,7 @@ export default function RetroPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [activeTeamId]);
+  }, [activeTeamId, selectedDepartment]);
 
   // Reset transient editor state when the retro id changes (e.g. team switch).
   useEffect(() => {
@@ -207,9 +231,52 @@ export default function RetroPage() {
           >
             <ArrowLeft className="w-3 h-3" /> {activeTeam.name}
           </Link>
-          <h1 className={headingCls}>Team retro · {formatRetroWeek(retro?.week_start)}</h1>
+          <h1 className={headingCls}>
+            {selectedDepartment ? `${selectedDepartment} retro` : "Team retro"}
+            {" · "}
+            {formatRetroWeek(retro?.week_start)}
+          </h1>
         </div>
       </div>
+
+      {/* Department switcher */}
+      {availableDepartments.length > 1 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Showing
+          </span>
+          {availableDepartments.map((d) => {
+            const active = d === selectedDepartment;
+            const mine = d !== "" && myDepartments.includes(d);
+            return (
+              <button
+                key={d || "__team__"}
+                type="button"
+                onClick={() => setSelectedDepartment(d)}
+                className={`relative text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                  active
+                    ? dark
+                      ? "bg-cyan-500/20 border-cyan-500/50 text-cyan-100"
+                      : "bg-teal-100 border-teal-300 text-teal-800"
+                    : dark
+                      ? "border-slate-700 text-slate-300 hover:border-slate-600"
+                      : "border-slate-200 text-slate-600 hover:border-slate-300"
+                }`}
+              >
+                {d || "Team"}
+                {mine && (
+                  <span
+                    className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ${
+                      dark ? "bg-amber-300 ring-slate-900" : "bg-amber-400 ring-white"
+                    }`}
+                    title="One of your departments"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {error && (
         <div className={`text-sm font-medium px-4 py-2 rounded-lg ${
@@ -324,12 +391,21 @@ export default function RetroPage() {
                   const author = memberByUserId.get(card.author_id);
                   const isOwn = card.author_id === session?.user?.id;
                   const editing = editingCardId === card.id;
+                  // Sticky-note background = author's chosen color.
+                  // For the current user's own cards, prefer the live
+                  // value from AppContext so an in-session color change
+                  // shows up without waiting for teamMembers to refetch.
+                  const sticky = isOwn
+                    ? myStickyColor || "#fde68a"
+                    : author?.sticky_color || "#fde68a";
+                  const stickyStyle = dark
+                    ? { background: sticky, color: "#0f172a" }
+                    : { background: sticky, color: "#1e293b" };
                   return (
                     <li
                       key={card.id}
-                      className={`group rounded-lg border px-2.5 py-2 ${
-                        dark ? "bg-slate-800/40 border-slate-700/40" : "bg-slate-50 border-slate-200/70"
-                      }`}
+                      style={stickyStyle}
+                      className="group rounded-lg border border-black/5 px-2.5 py-2 shadow-sm"
                     >
                       {editing ? (
                         <div className="space-y-2">
@@ -338,9 +414,7 @@ export default function RetroPage() {
                             value={editingBody}
                             onChange={(e) => setEditingBody(e.target.value.slice(0, 500))}
                             rows={3}
-                            className={`w-full rounded-md border px-2 py-1.5 text-sm ${
-                              dark ? "bg-slate-900 border-slate-700 text-slate-100" : "bg-white border-slate-200 text-slate-800"
-                            }`}
+                            className="w-full rounded-md border border-black/10 bg-white/80 px-2 py-1.5 text-sm text-slate-900"
                           />
                           <div className="flex items-center gap-1">
                             <Button size="sm" onClick={handleSaveCard} className="h-7 px-2">
@@ -358,7 +432,10 @@ export default function RetroPage() {
                         </div>
                       ) : (
                         <>
-                          <p className={`text-sm whitespace-pre-wrap break-words ${dark ? "text-slate-100" : "text-slate-800"}`}>
+                          {/* Sticky-tinted cards always have dark slate text;
+                              the pastel palette stays readable in either theme
+                              when paired with a dark foreground. */}
+                          <p className="text-sm whitespace-pre-wrap break-words text-slate-900">
                             {card.body}
                           </p>
                           <div className="flex items-center gap-1.5 mt-1.5">
@@ -368,7 +445,7 @@ export default function RetroPage() {
                               size={16}
                               className="shrink-0"
                             />
-                            <span className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                            <span className="text-[11px] truncate text-slate-700">
                               {author?.name || "Team member"}
                             </span>
                             {(isOwn || isAdmin) && (
@@ -377,9 +454,7 @@ export default function RetroPage() {
                                   <button
                                     type="button"
                                     onClick={() => startEditCard(card)}
-                                    className={`p-1 rounded ${
-                                      dark ? "text-slate-400 hover:bg-slate-700/60" : "text-slate-500 hover:bg-slate-200"
-                                    }`}
+                                    className="p-1 rounded text-slate-700 hover:bg-black/10"
                                     title="Edit"
                                   >
                                     <Pencil className="w-3 h-3" />
@@ -388,9 +463,7 @@ export default function RetroPage() {
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteCard(card)}
-                                  className={`p-1 rounded ${
-                                    dark ? "text-slate-400 hover:text-red-300 hover:bg-red-500/15" : "text-slate-500 hover:text-red-600 hover:bg-red-50"
-                                  }`}
+                                  className="p-1 rounded text-slate-700 hover:text-red-700 hover:bg-red-100"
                                   title="Delete"
                                 >
                                   <Trash2 className="w-3 h-3" />
