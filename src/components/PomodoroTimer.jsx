@@ -228,16 +228,12 @@ export default function PomodoroTimer({
     ? dark
       ? "text-purple-400"
       : "text-purple-600"
-    : dark
-      ? "text-cyan-400"
-      : "text-teal-600";
+    : "text-[var(--color-accent)]";
   const startBtnCls = isBreak
     ? dark
       ? "bg-purple-500 hover:bg-purple-400 shadow-purple-500/30"
       : "bg-purple-600 hover:bg-purple-500 shadow-purple-600/25"
-    : dark
-      ? "bg-cyan-500 hover:bg-cyan-400 shadow-cyan-500/30"
-      : "bg-teal-600 hover:bg-teal-500 shadow-teal-600/25";
+    : "bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] shadow-[var(--color-accent)]/30";
 
   const startLabel = isRunning ? "Pause" : secondsLeft < total ? "Resume" : "Start";
   const displayLabel = isInTransition
@@ -340,11 +336,7 @@ export default function PomodoroTimer({
                   navigator.clipboard?.writeText(url);
                 }}
                 title="Copy invite link"
-                className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded transition-colors ${
-                  dark
-                    ? "bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25"
-                    : "bg-teal-50 text-teal-700 hover:bg-teal-100"
-                }`}
+                className="inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded transition-colors bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
               >
                 {syncSession.join_code}
                 <LinkIcon className="w-3 h-3 opacity-70" />
@@ -359,8 +351,8 @@ export default function PomodoroTimer({
                 title="Sync with coworker"
                 className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors ${
                   dark
-                    ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-800"
-                    : "text-slate-500 hover:text-teal-700 hover:bg-slate-100"
+                    ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-slate-800"
+                    : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-100"
                 }`}
               >
                 <Users className="w-3.5 h-3.5" />
@@ -374,8 +366,8 @@ export default function PomodoroTimer({
                 title="Pop out — keep the timer on top of other windows"
                 className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors ${
                   dark
-                    ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-800"
-                    : "text-slate-500 hover:text-teal-700 hover:bg-slate-100"
+                    ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-slate-800"
+                    : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-100"
                 }`}
               >
                 <PictureInPicture2 className="w-3.5 h-3.5" />
@@ -414,7 +406,7 @@ export default function PomodoroTimer({
                   <span className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
                     Code
                   </span>
-                  <span className={`font-mono text-sm font-bold tracking-[0.2em] ${dark ? "text-cyan-300" : "text-teal-700"}`}>
+                  <span className="font-mono text-sm font-bold tracking-[0.2em] text-[var(--color-accent)]">
                     {syncSession.join_code}
                   </span>
                   <button
@@ -603,8 +595,8 @@ export default function PomodoroTimer({
                     onClick={() => { setStatusDraft(myStatus); setStatusEditing(true); }}
                     className={`w-full flex items-center gap-2 text-left text-[11px] px-2 py-1.5 rounded-md border transition-colors ${
                       dark
-                        ? "bg-slate-900/40 border-slate-700/60 text-slate-300 hover:border-cyan-500/40"
-                        : "bg-white border-slate-200 text-slate-700 hover:border-teal-300"
+                        ? "bg-slate-900/40 border-slate-700/60 text-slate-300 hover:border-[var(--color-accent)]"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-[var(--color-accent)]"
                     }`}
                   >
                     <span className={`w-2 h-2 rounded-full shrink-0 ${presence.color}`} />
@@ -633,8 +625,8 @@ export default function PomodoroTimer({
                   disabled={controlsLocked && !pendingTakeControl}
                   className={`w-full text-[11px] font-semibold px-2 py-1.5 rounded-md transition-colors ${
                     dark
-                      ? "bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25"
-                      : "bg-teal-50 text-teal-700 hover:bg-teal-100"
+                      ? "bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
+                      : "bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
                   }`}
                 >
                   Take control of timer
@@ -793,7 +785,7 @@ export default function PomodoroTimer({
                 !canControl || controlsLocked ? "opacity-30 cursor-default" : ""
               } ${
                 editingDuration
-                  ? dark ? "text-cyan-300 bg-slate-800" : "text-teal-700 bg-slate-100"
+                  ? dark ? "text-[var(--color-accent)] bg-slate-800" : "text-[var(--color-accent)] bg-slate-100"
                   : dark
                     ? "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
                     : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
@@ -833,7 +825,7 @@ export default function PomodoroTimer({
                       type="button"
                       onClick={() => setDraftMinutes(String(m))}
                       className={`text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors ${
-                        dark ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-700" : "text-slate-500 hover:text-teal-700 hover:bg-slate-200"
+                        dark ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-slate-700" : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-200"
                       }`}
                     >
                       {m}
@@ -874,7 +866,7 @@ export default function PomodoroTimer({
                 type="button"
                 onClick={() => requestApplyCustomDuration(draftMinutes, true)}
                 className={`w-full text-[10px] font-semibold py-1 rounded transition-colors ${
-                  dark ? "text-slate-400 hover:text-cyan-300 hover:bg-slate-700/50" : "text-slate-500 hover:text-teal-700 hover:bg-slate-200/60"
+                  dark ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-slate-700/50" : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-200/60"
                 }`}
               >
                 Apply & save as default
@@ -994,7 +986,7 @@ export default function PomodoroTimer({
                   onClick={() => setAutoTransition(!autoTransition)}
                   className={`shrink-0 w-9 h-5 rounded-full relative transition-colors ${
                     autoTransition
-                      ? dark ? "bg-cyan-500" : "bg-teal-600"
+                      ? "bg-[var(--color-accent)]"
                       : dark ? "bg-slate-600" : "bg-slate-300"
                   }`}
                 >
@@ -1028,9 +1020,7 @@ export default function PomodoroTimer({
                 key={i}
                 className={`w-2 h-2 rounded-full transition-colors ${
                   i < Math.min(sessions, WORK_SESSIONS_PER_CYCLE)
-                    ? dark
-                      ? "bg-cyan-400"
-                      : "bg-teal-500"
+                    ? "bg-[var(--color-accent)]"
                     : dark
                       ? "bg-slate-700"
                       : "bg-slate-200"

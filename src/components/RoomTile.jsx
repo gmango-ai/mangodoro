@@ -110,15 +110,13 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
 
   const tone = isOccupied
     ? dark
-      ? "bg-slate-900 border-cyan-500/30 shadow-[0_0_24px_rgba(6,182,212,0.08)]"
-      : "bg-white border-teal-300/70 shadow-md"
+      ? "bg-slate-900 border-[var(--color-accent)] shadow-md"
+      : "bg-white border-[var(--color-accent)] shadow-md"
     : dark
       ? "bg-slate-900/50 border-slate-700/60"
       : "bg-white border-slate-200";
   const pulse = isPulsing
-    ? dark
-      ? "animate-[pulse_3s_ease-in-out_infinite] border-cyan-400/50"
-      : "animate-[pulse_3s_ease-in-out_infinite] border-teal-400"
+    ? "animate-[pulse_3s_ease-in-out_infinite] border-[var(--color-accent)]"
     : "";
 
   // `handlePrimary` is the single click action for the whole tile.
@@ -146,7 +144,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
         disabled={busy}
         title={`${room.name} — ${dotTitle}`}
         className={`relative flex flex-col items-center justify-center rounded-2xl border p-2 transition-all h-full w-full text-center overflow-hidden ${tone} ${pulse} ${
-          dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
+          "hover:border-[var(--color-accent)]"
         }`}
       >
         {/* Accent stripe on the top edge — same idea as Huly's tile
@@ -208,9 +206,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
       type="button"
       onClick={handlePrimary}
       disabled={busy}
-      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full overflow-hidden ${tone} ${pulse} ${
-        dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
-      }`}
+      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full overflow-hidden ${tone} ${pulse} hover:border-[var(--color-accent)]`}
     >
       {/* Accent stripe along the top edge — the primary color
           identification cue. Kept thin so it doesn't fight tile
@@ -251,11 +247,11 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
         {isOccupied && (
           <span
             className={`shrink-0 inline-flex items-center gap-0.5 text-[10px] font-bold ${
-              dark ? "text-cyan-300" : "text-teal-700"
+              "text-[var(--color-accent)]"
             }`}
             title={`${modeLabel(activeSession.mode)} · ${timeLeft(activeSession)}`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${dark ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
             {timeLeft(activeSession)}
           </span>
         )}

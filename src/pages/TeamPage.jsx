@@ -327,8 +327,8 @@ export default function TeamPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${dark ? "bg-cyan-500/10" : "bg-teal-50"}`}>
-            <Users className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+          <div className="p-2 rounded-lg bg-[var(--color-accent-light)]">
+            <Users className="w-5 h-5 text-[var(--color-accent)]" />
           </div>
           <h1 className={`text-xl font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>Orgs</h1>
         </div>
@@ -430,7 +430,7 @@ export default function TeamPage() {
             <div className={cardCls}>
               <div className="flex items-center justify-between mb-3">
                 <p className={labelCls}>Active pomodoros</p>
-                <Timer className={`w-4 h-4 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+                <Timer className="w-4 h-4 text-[var(--color-accent)]" />
               </div>
               <div className="space-y-2">
                 {activeTeamSessions.map((s) => (
@@ -784,10 +784,10 @@ export default function TeamPage() {
           />
           <button
             onClick={() => navigate("/retros")}
-            className={`w-full ${cardCls} flex items-center justify-between hover:border-teal-500/50 transition-colors cursor-pointer`}
+            className={`w-full ${cardCls} flex items-center justify-between hover:border-[var(--color-accent)] transition-colors cursor-pointer`}
           >
             <div className="flex items-center gap-3">
-              <Target className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+              <Target className="w-5 h-5 text-[var(--color-accent)]" />
               <div className="text-left">
                 <p className={headingCls}>Team Retro</p>
                 <p className={subCls}>Review the week and plan next week's goal</p>
@@ -798,10 +798,10 @@ export default function TeamPage() {
           {isAdmin && (
             <button
               onClick={() => navigate("/team/timesheets")}
-              className={`w-full ${cardCls} flex items-center justify-between hover:border-teal-500/50 transition-colors cursor-pointer`}
+              className={`w-full ${cardCls} flex items-center justify-between hover:border-[var(--color-accent)] transition-colors cursor-pointer`}
             >
               <div className="flex items-center gap-3">
-                <FileSpreadsheet className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+                <FileSpreadsheet className="w-5 h-5 text-[var(--color-accent)]" />
                 <div className="text-left">
                   <p className={headingCls}>Team Timesheets</p>
                   <p className={subCls}>View and export member timesheets</p>
@@ -948,7 +948,7 @@ function SectionHeader({ icon: Icon, title, subtitle, dark, danger = false }) {
         className={`p-1.5 rounded-lg shrink-0 ${
           danger
             ? dark ? "bg-red-500/15 text-red-300" : "bg-red-50 text-red-600"
-            : dark ? "bg-cyan-500/10 text-cyan-400" : "bg-teal-50 text-teal-600"
+            : "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
         }`}
       >
         <Icon className="w-4 h-4" />
@@ -1040,7 +1040,7 @@ function MemberCard({
                 className={`inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
                   isOwner
                     ? dark ? "bg-amber-400/15 text-amber-300" : "bg-amber-100 text-amber-700"
-                    : dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-100 text-teal-700"
+                    : "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
                 }`}
               >
                 <Crown className="w-2.5 h-2.5" fill="currentColor" />
@@ -1166,8 +1166,8 @@ function MemberCard({
               onClick={onEditTeams}
               className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border border-dashed transition-colors ${
                 dark
-                  ? "border-slate-600 text-slate-400 hover:border-cyan-500/60 hover:text-cyan-300"
-                  : "border-slate-300 text-slate-500 hover:border-teal-400 hover:text-teal-600"
+                  ? "border-slate-600 text-slate-400 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                  : "border-slate-300 text-slate-500 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
               }`}
             >
               + Manage
@@ -1545,7 +1545,7 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
     <div className={cardCls}>
       <div className="flex items-center justify-between mb-3">
         <p className={labelCls}>Team Settings</p>
-        <Palette className={`w-4 h-4 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+        <Palette className="w-4 h-4 text-[var(--color-accent)]" />
       </div>
 
       <div className="space-y-4">

@@ -26,14 +26,14 @@ export default function InviteCard({
         onClick={() => setExpanded(true)}
         className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors text-left ${
           dark
-            ? "bg-slate-900/40 border-slate-700/60 hover:bg-slate-800/60 hover:border-cyan-500/40"
-            : "bg-white border-slate-200 hover:border-teal-300 hover:bg-teal-50/40"
+            ? "bg-slate-900/40 border-slate-700/60 hover:bg-slate-800/60 hover:border-[var(--color-accent)]"
+            : "bg-white border-slate-200 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-light)]"
         }`}
         aria-expanded="false"
         aria-label="Invite people to this org"
       >
         <div className={`p-1.5 rounded-md shrink-0 ${
-          dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-100 text-teal-700"
+          "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
         }`}>
           <Sparkles className="w-3.5 h-3.5" />
         </div>
@@ -41,7 +41,7 @@ export default function InviteCard({
           Invite people
         </span>
         <code className={`hidden sm:inline font-mono text-[11px] tracking-widest ${
-          dark ? "text-cyan-300" : "text-teal-700"
+          "text-[var(--color-accent)]"
         }`}>
           {team.invite_code}
         </code>
@@ -63,19 +63,19 @@ export default function InviteCard({
 
   const cardCls = `rounded-2xl border p-5 sm:p-6 ${
     dark
-      ? "bg-gradient-to-br from-cyan-500/10 via-slate-900/60 to-slate-900 border-cyan-500/30"
-      : "bg-gradient-to-br from-teal-50 via-white to-white border-teal-200"
+      ? "bg-gradient-to-br from-[var(--color-accent-light)] via-slate-900/60 to-slate-900 border-[var(--color-accent)]"
+      : "bg-gradient-to-br from-[var(--color-accent-light)] via-white to-white border-[var(--color-accent-border)]"
   }`;
 
   return (
     <div className={cardCls}>
       <div className="flex items-start gap-3 mb-4">
-        <div className={`p-2 rounded-lg shrink-0 ${dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-100 text-teal-700"}`}>
+        <div className="p-2 rounded-lg shrink-0 bg-[var(--color-accent-light)] text-[var(--color-accent)]">
           <Sparkles className="w-4 h-4" />
         </div>
         <div className="min-w-0 flex-1">
           <h2 className={`text-sm font-bold uppercase tracking-wider ${
-            dark ? "text-cyan-200" : "text-teal-700"
+            "text-[var(--color-accent)]"
           }`}>
             Invite people
           </h2>
@@ -141,7 +141,7 @@ export default function InviteCard({
         <span>
           Code:{" "}
           <code className={`font-mono font-bold tracking-widest ${
-            dark ? "text-cyan-300" : "text-teal-700"
+            "text-[var(--color-accent)]"
           }`}>
             {team.invite_code}
           </code>
