@@ -5,7 +5,7 @@ import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
-import { Users as UsersIcon, Timer, Sparkles, Plus, Target } from "lucide-react";
+import { Users as UsersIcon, Timer, Plus, Target } from "lucide-react";
 import PomodoroTimer from "../components/PomodoroTimer";
 import UserAvatar from "../components/UserAvatar";
 import RoomTile from "../components/RoomTile";
@@ -42,22 +42,11 @@ export default function PomodoroPage({ session, onOpenSync }) {
     return "";
   })();
 
-  const [soloMode, setSoloMode] = useState(false);
   const [joinError, setJoinError] = useState("");
 
-  const presenceLabel =
-    settings.presenceState === "in_meeting"
-      ? "In meeting"
-      : settings.presenceState === "heads_down"
-        ? "Heads-down"
-        : settings.presenceState === "away"
-          ? "Away"
-          : settings.presenceState === "available"
-            ? "Available"
-            : "Active";
 
   const inSession = !!syncSession;
-  const showTimer = inSession || soloMode;
+  const showTimer = inSession;
 
   function modeLabel(m) {
     return m === "shortBreak" ? "Short break" : m === "longBreak" ? "Long break" : "Focus";
@@ -371,50 +360,81 @@ export default function PomodoroPage({ session, onOpenSync }) {
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => setSoloMode(true)}
-              className={`w-full text-left rounded-2xl border p-4 transition-colors ${
-                dark
-                  ? "bg-slate-900/50 border-slate-700 hover:border-slate-600 hover:bg-slate-900"
-                  : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              <div className="flex items-start gap-3">
-                <div className={`p-2 rounded-lg ${dark ? "bg-slate-800" : "bg-slate-100"}`}>
-                  <Sparkles className={`w-5 h-5 ${dark ? "text-slate-300" : "text-slate-600"}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-base font-semibold">Custom pomodoro</p>
-                  <p className={`text-sm mt-0.5 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                    Just for you. Set your own durations and sound — no one else sees this one.
-                  </p>
-                </div>
-              </div>
-            </button>
           </div>
 
           <aside className="space-y-4">
-            <div
-              className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
-            >
-              <h3
-                className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
+            {/* Total people in active sessions across the org. Dedupes
+                by user_id in case anyone's somehow in two at once. */}
+            {(() => {
+              const occupantIds = new Set();
+              for (const s of activeTeamSessions || []) {
+                for (const o of s.occupants || []) {
+                  if (o.user_id) occupantIds.add(o.user_id);
+                }
+              }
+              const online = occupantIds.size;
+              return (
+                <div
+                  className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
+                >
+                  <h3
+                    className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
+                  >
+                    Online now
+                  </h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className={`text-2xl font-bold font-mono ${
+                      online > 0
+                        ? dark ? "text-cyan-300" : "text-teal-700"
+                        : dark ? "text-slate-500" : "text-slate-400"
+                    }`}>
+                      {online}
+                    </span>
+                    <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                      {online === 1 ? "person in a session" : "people in sessions"}
+                    </span>
+                  </div>
+                  {activeTeamSessions.length > 0 && (
+                    <p className={`text-[11px] mt-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                      across {activeTeamSessions.length} active {activeTeamSessions.length === 1 ? "room" : "rooms"}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Goals for next week from the user's team retros. The page
+                already surfaces these above the floor plan; the sidebar
+                copy keeps them visible while you scroll. */}
+            {weekGoals.length > 0 && (
+              <div
+                className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
               >
-                Your status
-              </h3>
-              <p className={`text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-800"}`}>
-                {presenceLabel}
-              </p>
-              {settings.status && (
-                <p className={`text-sm mt-1 truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                  {settings.status}
-                </p>
-              )}
-              <p className={`text-[11px] mt-2 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                Edit your status in Settings.
-              </p>
-            </div>
+                <h3
+                  className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
+                >
+                  Goals for next week
+                </h3>
+                <ul className="space-y-2">
+                  {weekGoals.map((g) => (
+                    <li
+                      key={g.id}
+                      className={`flex items-start gap-2 text-xs ${dark ? "text-slate-200" : "text-slate-700"}`}
+                    >
+                      <Target className={`w-3 h-3 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+                      <span className="min-w-0">
+                        <span className={`block uppercase tracking-wider font-bold text-[9px] ${
+                          dark ? "text-cyan-300" : "text-teal-700"
+                        }`}>
+                          {g.org_team_name || g.department || "Team"}
+                        </span>
+                        <span className="line-clamp-2">{g.goal}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </aside>
         </div>
       )}
@@ -422,16 +442,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
       {showTimer && (
         <div className="grid gap-4 md:grid-cols-3">
           <div className="md:col-span-2 space-y-3">
-            {soloMode && !inSession && (
-              <button
-                type="button"
-                onClick={() => setSoloMode(false)}
-                className={`text-xs ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
-              >
-                ← Back to sessions
-              </button>
-            )}
-            <PomodoroTimer
+<PomodoroTimer
               open
               embedded
               onClose={() => {}}
@@ -470,23 +481,37 @@ export default function PomodoroPage({ session, onOpenSync }) {
               </div>
             )}
 
-            <div
-              className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
-            >
-              <h3
-                className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
+            {/* Goals + online count mirror the no-session sidebar so
+                you don't lose context once you're focused in a session. */}
+            {weekGoals.length > 0 && (
+              <div
+                className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
               >
-                Your status
-              </h3>
-              <p className={`text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-800"}`}>
-                {presenceLabel}
-              </p>
-              {settings.status && (
-                <p className={`text-sm mt-1 truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                  {settings.status}
-                </p>
-              )}
-            </div>
+                <h3
+                  className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
+                >
+                  Goals for next week
+                </h3>
+                <ul className="space-y-2">
+                  {weekGoals.map((g) => (
+                    <li
+                      key={g.id}
+                      className={`flex items-start gap-2 text-xs ${dark ? "text-slate-200" : "text-slate-700"}`}
+                    >
+                      <Target className={`w-3 h-3 mt-0.5 shrink-0 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+                      <span className="min-w-0">
+                        <span className={`block uppercase tracking-wider font-bold text-[9px] ${
+                          dark ? "text-cyan-300" : "text-teal-700"
+                        }`}>
+                          {g.org_team_name || g.department || "Team"}
+                        </span>
+                        <span className="line-clamp-2">{g.goal}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </aside>
         </div>
       )}
