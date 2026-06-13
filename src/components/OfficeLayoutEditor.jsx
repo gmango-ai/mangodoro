@@ -9,7 +9,6 @@ import {
 import { useTheme } from "../context/ThemeContext";
 import RoomTile from "./RoomTile";
 import { updateRoomLayout } from "../lib/rooms";
-import { GripVertical } from "lucide-react";
 
 // Editable floor plan for rooms.
 //
@@ -255,41 +254,50 @@ function LayoutTile({
     cursor: readOnly ? "default" : isDragging ? "grabbing" : "grab",
   };
 
-  function startResize(e) {
-    if (readOnly) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startW = room.layout_w;
-    const startH = room.layout_h;
-    function onMove(ev) {
-      const dx = Math.round((ev.clientX - startX) / (cellWidth + gap));
-      const dy = Math.round((ev.clientY - startY) / (rowHeight + gap));
-      const newW = Math.max(1, Math.min(12 - room.layout_x, startW + dx));
-      const newH = Math.max(1, Math.min(12, startH + dy));
-      // Don't grow into another room — the visual size stops at the
-      // last collision-free w/h, so the user can see the limit.
-      if (canResizeTo && !canResizeTo(newW, newH)) return;
-      setResizing({ w: newW, h: newH });
-    }
-    function onUp() {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      setResizing((prev) => {
-        if (prev) onResize(prev.w, prev.h);
-        return null;
-      });
-    }
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+  // Generic edge-grab resize. `axis` controls which dimensions move:
+  //   "e" — width only (right edge)
+  //   "s" — height only (bottom edge)
+  //   "se" — both (bottom-right corner)
+  // Edge zones feel more natural than a small icon: you reach for the
+  // boundary where the tile ends.
+  function startResize(axis) {
+    return function handler(e) {
+      if (readOnly) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startW = room.layout_w;
+      const startH = room.layout_h;
+      function onMove(ev) {
+        const dx = axis.includes("e") ? Math.round((ev.clientX - startX) / (cellWidth + gap)) : 0;
+        const dy = axis.includes("s") ? Math.round((ev.clientY - startY) / (rowHeight + gap)) : 0;
+        const newW = axis.includes("e")
+          ? Math.max(1, Math.min(12 - room.layout_x, startW + dx))
+          : startW;
+        const newH = axis.includes("s")
+          ? Math.max(1, Math.min(12, startH + dy))
+          : startH;
+        if (canResizeTo && !canResizeTo(newW, newH)) return;
+        setResizing({ w: newW, h: newH });
+      }
+      function onUp() {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        setResizing((prev) => {
+          if (prev) onResize(prev.w, prev.h);
+          return null;
+        });
+      }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    };
   }
 
   return (
-    <div ref={setNodeRef} style={style} className="relative">
-      {/* Drag handle wrapping the whole tile. We attach listeners only
-          when not readOnly so non-admin viewers don't see the grabby
-          cursor or accidentally start a drag. */}
+    <div ref={setNodeRef} style={style} className="relative group">
+      {/* Drag handle wrapping the whole tile. Single-click clicks pass
+          through to RoomTile (dnd-kit only activates after 6px). */}
       <div
         {...(!readOnly && { ...listeners, ...attributes })}
         className="h-full"
@@ -304,14 +312,36 @@ function LayoutTile({
         />
       </div>
       {!readOnly && (
-        <button
-          type="button"
-          onPointerDown={startResize}
-          aria-label="Resize room"
-          className="absolute bottom-1 right-1 p-1 rounded bg-slate-900/40 hover:bg-slate-900/60 text-white/80 hover:text-white cursor-nwse-resize touch-none"
-        >
-          <GripVertical className="w-3 h-3 rotate-45" />
-        </button>
+        <>
+          {/* Right edge — drag to resize width. Invisible by default,
+              accent appears on hover so the affordance is discoverable
+              without being noisy. */}
+          <span
+            onPointerDown={startResize("e")}
+            className="absolute right-0 top-2 bottom-2 w-1.5 cursor-ew-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            aria-label="Resize width"
+          />
+          {/* Bottom edge — drag to resize height. */}
+          <span
+            onPointerDown={startResize("s")}
+            className="absolute bottom-0 left-2 right-2 h-1.5 cursor-ns-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            aria-label="Resize height"
+          />
+          {/* Bottom-right corner — drag to resize both. Small visible
+              chevron-style dot peeks on hover so users discover it. */}
+          <span
+            onPointerDown={startResize("se")}
+            className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize touch-none rounded-br-2xl"
+            aria-label="Resize"
+          >
+            <span className="block w-full h-full opacity-0 group-hover:opacity-100 transition-opacity">
+              <span
+                className="absolute right-1 bottom-1 w-1.5 h-1.5 rounded-full bg-cyan-400"
+                aria-hidden
+              />
+            </span>
+          </span>
+        </>
       )}
     </div>
   );
