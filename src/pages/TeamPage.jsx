@@ -8,8 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
-  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Briefcase, Users2, Building2, ShieldAlert,
+  ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Briefcase, Users2, Building2, ShieldAlert, DollarSign,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
@@ -17,6 +20,8 @@ import OrgTeamsCard from "../components/OrgTeamsCard";
 import OrgTeamMembersModal from "../components/OrgTeamMembersModal";
 import MemberHRModal from "../components/MemberHRModal";
 import MemberTeamsModal from "../components/MemberTeamsModal";
+import InviteCard from "../components/InviteCard";
+import RemoveMemberModal from "../components/RemoveMemberModal";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
@@ -89,6 +94,8 @@ export default function TeamPage() {
   // Per-member team-management modal (member-centric, distinct from the
   // team-centric OrgTeamMembersModal opened from the Teams card).
   const [memberTeamsModalFor, setMemberTeamsModalFor] = useState(null);
+  const [memberToRemove, setMemberToRemove] = useState(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
 
   // Auto-join from URL. Used to just pre-fill the field; now actually
   // performs the join so a one-click invite link works without the user
@@ -437,6 +444,18 @@ export default function TeamPage() {
             </div>
           )}
 
+          {/* ─── INVITE ──────────────────────────────────────────── */}
+          <InviteCard
+            dark={dark}
+            team={activeTeam}
+            isAdmin={isAdmin}
+            onCopyCode={handleCopyCode}
+            onCopyLink={handleCopyLink}
+            onRegenerate={handleRegenerateCode}
+            copiedCode={copied}
+            copiedLink={copied}
+          />
+
           {/* ─── ORG ─────────────────────────────────────────────── */}
           {isAdmin && (
             <SectionHeader
@@ -491,29 +510,6 @@ export default function TeamPage() {
             />
           )}
 
-          {/* Invite Code Card (admin only) */}
-          {isAdmin && (
-            <div className={cardCls}>
-              <div className="flex items-center justify-between mb-3">
-                <p className={labelCls}>Invite Code</p>
-                <Button variant="ghost" size="sm" onClick={handleRegenerateCode} disabled={loading}>
-                  <RefreshCw className="w-3.5 h-3.5 mr-1" /> Regenerate
-                </Button>
-              </div>
-              <div className={`flex items-center gap-3 px-4 py-3 rounded-lg font-mono text-lg tracking-widest ${
-                dark ? "bg-slate-800/80 text-cyan-400" : "bg-slate-50 text-teal-600"
-              }`}>
-                <span className="flex-1">{activeTeam.invite_code}</span>
-                <Button variant="ghost" size="sm" onClick={handleCopyCode}>
-                  <Copy className="w-4 h-4" /> {copied ? "Copied!" : "Code"}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={handleCopyLink}>
-                  <Copy className="w-4 h-4" /> Link
-                </Button>
-              </div>
-            </div>
-          )}
-
           {/* ─── MEMBERS ─────────────────────────────────────────── */}
           <SectionHeader
             icon={Users}
@@ -522,6 +518,39 @@ export default function TeamPage() {
             dark={dark}
           />
           <div className={cardCls}>
+            {/* Health stats — at-a-glance numbers so a manager knows
+                the org's shape without scanning every row. */}
+            {(() => {
+              const adminCount = teamMembers.filter((m) => m.role === "admin").length;
+              const unassignedCount = teamMembers.filter((m) =>
+                (teamsByUserId.get(m.user_id) || []).length === 0,
+              ).length;
+              const stats = [
+                { label: "members", value: teamMembers.length },
+                { label: adminCount === 1 ? "admin" : "admins", value: adminCount },
+                { label: orgTeams.length === 1 ? "team" : "teams", value: orgTeams.length },
+                { label: "unassigned", value: unassignedCount, accent: unassignedCount > 0 },
+              ];
+              return (
+                <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 px-1 text-xs ${
+                  dark ? "text-slate-400" : "text-slate-500"
+                }`}>
+                  {stats.map((s, i) => (
+                    <span key={s.label} className="inline-flex items-baseline gap-1">
+                      {i > 0 && <span className="opacity-40">·</span>}
+                      <span className={`font-bold text-sm ${
+                        s.accent
+                          ? dark ? "text-amber-300" : "text-amber-600"
+                          : dark ? "text-slate-200" : "text-slate-700"
+                      }`}>
+                        {s.value}
+                      </span>
+                      <span>{s.label}</span>
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
             <div className="space-y-2">
               {teamMembers.map((m) => (
                 <MemberCard
@@ -534,7 +563,7 @@ export default function TeamPage() {
                   onEditHR={() => setHrMember(m)}
                   onEditTeams={() => setMemberTeamsModalFor(m)}
                   onToggleRole={() => handleToggleRole(m.user_id, m.role)}
-                  onRemove={() => handleRemoveMember(m.user_id)}
+                  onRemove={() => setMemberToRemove(m)}
                 />
               ))}
             </div>
@@ -671,6 +700,21 @@ export default function TeamPage() {
           loadOrgTeamsForActive?.();
         }}
       />
+
+      <RemoveMemberModal
+        open={!!memberToRemove}
+        onClose={() => { if (!removeBusy) setMemberToRemove(null); }}
+        member={memberToRemove}
+        orgName={activeTeam?.name || "this org"}
+        busy={removeBusy}
+        onConfirm={async () => {
+          if (!memberToRemove || !activeTeamId) return;
+          setRemoveBusy(true);
+          await handleRemoveMember(memberToRemove.user_id);
+          setRemoveBusy(false);
+          setMemberToRemove(null);
+        }}
+      />
     </main>
   );
 }
@@ -778,48 +822,40 @@ function MemberCard({
           </p>
         </div>
 
-        {/* Admin actions — compact icon row aligned top-right */}
+        {/* Admin actions — labeled buttons, not mystery icons. Role
+            change goes through a dropdown rather than two crowns. */}
         {isAdmin && (
-          <div className="flex items-center gap-0.5 shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={onEditHR}
-              title="Edit HR fields"
-            >
-              <Briefcase className="w-3.5 h-3.5" />
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0 justify-end">
+            <Button variant="outline" size="sm" onClick={onEditHR} className="h-7 text-xs">
+              <DollarSign className="w-3.5 h-3.5 mr-1" /> Pay
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={onEditTeams}
-              title="Manage team memberships"
-            >
-              <Users2 className="w-3.5 h-3.5" />
+            <Button variant="outline" size="sm" onClick={onEditTeams} className="h-7 text-xs">
+              <Users2 className="w-3.5 h-3.5 mr-1" /> Teams
             </Button>
             {!isOwner && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  onClick={onToggleRole}
-                  title={m.role === "admin" ? "Demote to member" : "Promote to admin"}
+              <Select
+                value={m.role === "admin" ? "admin" : "member"}
+                onValueChange={(v) => {
+                  if (v === "remove") onRemove();
+                  else if (v !== m.role) onToggleRole();
+                }}
+              >
+                <SelectTrigger
+                  className={`h-7 text-xs px-2 w-auto gap-1 ${
+                    dark ? "bg-slate-900/60 border-slate-700 text-slate-200" : "bg-white"
+                  }`}
                 >
-                  <Crown className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
-                  onClick={onRemove}
-                  title="Remove from org"
-                >
-                  <UserMinus className="w-3.5 h-3.5" />
-                </Button>
-              </>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectSeparator />
+                  <SelectItem value="remove" className="text-red-500 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-500/10 dark:focus:text-red-300">
+                    Remove from org…
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             )}
           </div>
         )}
