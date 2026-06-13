@@ -165,7 +165,7 @@ export default function Nav({ onOpenPomodoro }) {
               </NavLink>
               <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
               <NavLink to="/retros" className={desktopNavLink}>Retros</NavLink>
-              <NavLink to="/team" className={desktopNavLink}>Team</NavLink>
+              <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
             </nav>
 
             <div className="flex items-center gap-2">
@@ -278,7 +278,7 @@ export default function Nav({ onOpenPomodoro }) {
             <span className="w-5 text-center">🎯</span> Retros
           </NavLink>
           <NavLink to="/team" className={sidebarNavLink}>
-            <Users className="w-5 h-5" /> Team
+            <Users className="w-5 h-5" /> Org
           </NavLink>
 
           <div className={`my-3 border-t ${darkMode ? "border-slate-800" : "border-slate-100"}`} />

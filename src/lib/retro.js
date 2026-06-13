@@ -10,17 +10,14 @@ export const RETRO_LANES = [
 // Returns the current week's retro for (team, department), creating it
 // on first access. Department defaults to '' which means the team-wide
 // retro (used as fallback for teams without curated departments).
-export async function getOrCreateCurrentRetro(teamId, department = "") {
-  const { data: retroId, error } = await supabase.rpc("get_or_create_current_retro", {
-    p_team_id: teamId,
-    p_department: department || "",
+export async function getOrCreateCurrentRetro(orgId, orgTeamId = null) {
+  const { data: retroId, error } = await supabase.rpc("get_or_create_current_retro_for_team", {
+    p_org_id: orgId,
+    p_org_team_id: orgTeamId,
   });
   if (error) return { error };
   const { data, error: fetchErr } = await supabase
-    .from("retros")
-    .select("*")
-    .eq("id", retroId)
-    .single();
+    .from("retros").select("*").eq("id", retroId).single();
   if (fetchErr) return { error: fetchErr };
   return { data };
 }

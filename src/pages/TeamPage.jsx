@@ -13,9 +13,12 @@ import {
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
+import OrgTeamsCard from "../components/OrgTeamsCard";
+import OrgTeamMembersModal from "../components/OrgTeamMembersModal";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
+import { listOrgTeamMembers } from "../lib/orgTeam";
 import { supabase } from "../supabase";
 
 const TEAM_COLORS = [
@@ -25,12 +28,12 @@ const TEAM_COLORS = [
 
 export default function TeamPage() {
   const {
-    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin,
+    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, orgTeams, loadOrgTeamsForActive,
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
     removeMember, changeMemberRole, regenerateInviteCode,
     activeTeamSessions, loadActiveTeamSessions,
   } = useTeam();
-  const { settings } = useApp();
+  const { settings, session } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -45,6 +48,23 @@ export default function TeamPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Which org_team's member-management modal is open. Null = none.
+  const [managingTeam, setManagingTeam] = useState(null);
+  // Map of org_team_id -> member count. Loaded lazily for the cards.
+  const [orgTeamMemberCounts, setOrgTeamMemberCounts] = useState(new Map());
+
+  // Fetch member counts whenever the org_teams list changes.
+  useEffect(() => {
+    if (!orgTeams || orgTeams.length === 0) { setOrgTeamMemberCounts(new Map()); return; }
+    let cancelled = false;
+    Promise.all(orgTeams.map((t) => listOrgTeamMembers(t.id))).then((results) => {
+      if (cancelled) return;
+      const m = new Map();
+      orgTeams.forEach((t, i) => m.set(t.id, (results[i]?.data || []).length));
+      setOrgTeamMemberCounts(m);
+    });
+    return () => { cancelled = true; };
+  }, [orgTeams]);
 
   // Auto-join from URL. Used to just pre-fill the field; now actually
   // performs the join so a one-click invite link works without the user
@@ -265,7 +285,7 @@ export default function TeamPage() {
           <div className={`p-2 rounded-lg ${dark ? "bg-cyan-500/10" : "bg-teal-50"}`}>
             <Users className={`w-5 h-5 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
           </div>
-          <h1 className={`text-xl font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>Teams</h1>
+          <h1 className={`text-xl font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>Orgs</h1>
         </div>
         <div className="flex gap-2">
           <Button
@@ -407,6 +427,23 @@ export default function TeamPage() {
               onDeleteIcon={async (url) => deleteTeamIcon(url)}
               onSuccess={(msg) => { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }}
               onError={(msg) => setError(msg)}
+            />
+          )}
+
+          {/* Teams (departments) admin card — only org admins */}
+          {isAdmin && (
+            <OrgTeamsCard
+              dark={dark}
+              cardCls={cardCls}
+              labelCls={labelCls}
+              inputCls={inputCls}
+              teams={orgTeams || []}
+              memberCountByTeamId={orgTeamMemberCounts}
+              orgId={activeTeam.id}
+              userId={session?.user?.id || activeTeam.created_by}
+              onError={(msg) => setError(msg)}
+              onSuccess={(msg) => { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }}
+              onManageMembers={(t) => setManagingTeam(t)}
             />
           )}
 
@@ -573,6 +610,26 @@ export default function TeamPage() {
           <p className={`${subCls} mt-1`}>Create a team or join one with an invite code.</p>
         </div>
       )}
+
+      <OrgTeamMembersModal
+        open={!!managingTeam}
+        onClose={() => setManagingTeam(null)}
+        orgTeam={managingTeam}
+        orgMembers={teamMembers}
+        onChange={() => {
+          // Refresh team-list + member-count side state.
+          loadOrgTeamsForActive?.();
+          if (managingTeam?.id) {
+            listOrgTeamMembers(managingTeam.id).then(({ data }) => {
+              setOrgTeamMemberCounts((prev) => {
+                const next = new Map(prev);
+                next.set(managingTeam.id, (data || []).length);
+                return next;
+              });
+            });
+          }
+        }}
+      />
     </main>
   );
 }
