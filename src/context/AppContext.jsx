@@ -688,6 +688,7 @@ export function AppProvider({ session, children }) {
       presence_state: rest.presenceState || null,
       pomodoro_sound_url: rest.pomodoroSoundUrl || null,
       pomodoro_sound_name: rest.pomodoroSoundName || null,
+      accent_color: rest.accentColor || "teal",
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" });
     if (settingsError) {
@@ -1158,6 +1159,20 @@ export function AppProvider({ session, children }) {
     });
   }
 
+  // Direct save for a single field — used by the new SettingsPage so
+  // pickers (theme, accent, etc.) commit on click without a Save step.
+  async function updateSettingsField(patch) {
+    setSettings((prev) => ({ ...prev, ...patch }));
+    const dbPatch = {};
+    if ("accentColor" in patch) dbPatch.accent_color = patch.accentColor;
+    if ("name" in patch) dbPatch.name = patch.name || null;
+    if ("status" in patch) dbPatch.status = patch.status ?? null;
+    if ("presenceState" in patch) dbPatch.presence_state = patch.presenceState || null;
+    if (Object.keys(dbPatch).length === 0) return;
+    if (!session?.user?.id) return;
+    await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);
+  }
+
   async function disconnectGoogleSheets() {
     setGoogleToken(null);
     setGoogleTokenExpiry(0);
@@ -1368,7 +1383,7 @@ export function AppProvider({ session, children }) {
     // data
     session, entries, projects, settings, templates, dataSyncing, dataLoaded,
     hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage, stickyColor, setStickyColor,
-    setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget,
+    setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget, updateSettingsField,
     updateStatus,
     // ui
     form, setForm, exportMsg, flash,

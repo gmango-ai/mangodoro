@@ -36,6 +36,7 @@ export function normalizeSettings(row) {
     isGuest: !!row.is_guest,
     pomodoroSoundUrl: row.pomodoro_sound_url || "",
     pomodoroSoundName: row.pomodoro_sound_name || "",
+    accentColor: row.accent_color || "teal",
   };
 }
 
