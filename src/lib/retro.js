@@ -94,10 +94,28 @@ export async function setRetroGoal(retroId, goal) {
 
 // Returns every retro the caller can see for a team — used by /retros
 // to list current-week and history.
-export async function listTeamRetros(teamId) {
+export async function listTeamRetros(teamId, { includeArchived = false } = {}) {
   if (!teamId) return { data: [], error: null };
-  const { data, error } = await supabase.rpc("list_team_retros", { p_team_id: teamId });
+  const { data, error } = await supabase.rpc("list_team_retros", {
+    p_team_id: teamId,
+    p_include_archived: includeArchived,
+  });
   return { data: data || [], error };
+}
+
+export async function archiveRetro(retroId) {
+  const { error } = await supabase.rpc("archive_retro", { p_retro_id: retroId });
+  return { error };
+}
+
+export async function unarchiveRetro(retroId) {
+  const { error } = await supabase.rpc("unarchive_retro", { p_retro_id: retroId });
+  return { error };
+}
+
+export async function deleteRetro(retroId) {
+  const { error } = await supabase.rpc("delete_retro", { p_retro_id: retroId });
+  return { error };
 }
 
 // Fetch one retro by id (no lazy-create). Used when navigating to
