@@ -13,7 +13,7 @@ import NewRetroModal from "../components/NewRetroModal";
 
 export default function RetrosListPage() {
   const { session } = useApp();
-  const { activeTeam, activeTeamId, teamMembers, isAdmin } = useTeam();
+  const { activeTeam, activeTeamId, teamMembers, isAdmin, orgTeams, myOrgTeamIds } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -37,20 +37,12 @@ export default function RetrosListPage() {
     return () => { cancelled = true; };
   }, [activeTeamId]);
 
-  // Active user's dept tags drive the "create current retro for my dept"
-  // CTA at the top.
-  const myDepartments = useMemo(() => {
-    const me = teamMembers.find((m) => m.user_id === session?.user?.id);
-    return me?.departments || [];
-  }, [teamMembers, session?.user?.id]);
-
-  const teamDepartments = activeTeam?.departments || [];
-  // Departments the user can land in. "" = team-wide bucket.
-  const availableDepartments = useMemo(() => {
-    const set = new Set([""]);
-    for (const d of teamDepartments) set.add(d);
-    return [...set];
-  }, [teamDepartments]);
+  // Teams the user can land a retro in: each org_team plus a synthetic
+  // "Org-wide" bucket (id null) for the team-wide retro.
+  const availableTeams = useMemo(() => {
+    const base = [{ id: null, name: "Org-wide", color: activeTeam?.color || "#14b8a6" }];
+    return base.concat((orgTeams || []).map((t) => ({ id: t.id, name: t.name, color: t.color })));
+  }, [orgTeams, activeTeam?.color]);
 
   const currentWeekRetros = retros.filter((r) => r.is_current_week);
   const pastRetros = retros.filter((r) => !r.is_current_week);
@@ -65,16 +57,15 @@ export default function RetrosListPage() {
     return [...m.entries()];
   }, [pastRetros]);
 
-  async function handleStartRetro(dept) {
+  async function handleStartRetro(orgTeamId) {
     if (!activeTeamId) return;
-    setCreatingDept(dept);
-    const { data, error } = await getOrCreateCurrentRetro(activeTeamId, dept);
+    setCreatingDept(orgTeamId || "__org__");
+    const { data, error } = await getOrCreateCurrentRetro(activeTeamId, orgTeamId);
     setCreatingDept(null);
     if (error) return;
     if (data) {
-      // Optimistically prepend so the card appears immediately.
       setRetros((prev) => [
-        { ...data, is_current_week: true, card_count: 0 },
+        { ...data, is_current_week: true, is_live: true, card_count: 0 },
         ...prev.filter((r) => r.id !== data.id),
       ]);
     }
@@ -126,14 +117,19 @@ export default function RetrosListPage() {
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {availableDepartments.map((dept) => {
-              const existing = currentWeekRetros.find((r) => r.department === dept);
-              const mine = dept !== "" && myDepartments.includes(dept);
-              const label = dept || "Team";
+            {availableTeams.map((team) => {
+              // Match retros by org_team_id; team.id === null = org-wide retro.
+              const existing = currentWeekRetros.find((r) =>
+                team.id === null
+                  ? (r.org_team_id == null)
+                  : r.org_team_id === team.id,
+              );
+              const mine = team.id !== null && myOrgTeamIds?.has(team.id);
+              const tileKey = team.id || "__org__";
               if (existing) {
                 return (
                   <Link
-                    key={dept || "__team__"}
+                    key={tileKey}
                     to={`/retros/${existing.id}`}
                     className={`${cardCls} block transition-colors ${
                       dark ? "hover:border-cyan-500/50" : "hover:border-teal-300"
@@ -141,9 +137,13 @@ export default function RetrosListPage() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"} flex items-center gap-1.5 min-w-0`}>
-                        <span className="truncate">{label}</span>
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ background: team.color }}
+                        />
+                        <span className="truncate">{team.name}</span>
                         {mine && (
-                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="One of your departments" />
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="You're on this team" />
                         )}
                       </p>
                       <span
@@ -168,12 +168,13 @@ export default function RetrosListPage() {
                   </Link>
                 );
               }
+              const busyKey = team.id || "__org__";
               return (
                 <button
-                  key={dept || "__team__"}
+                  key={tileKey}
                   type="button"
-                  onClick={() => handleStartRetro(dept)}
-                  disabled={creatingDept === dept}
+                  onClick={() => handleStartRetro(team.id)}
+                  disabled={creatingDept === busyKey}
                   className={`${cardCls} text-left transition-colors flex flex-col items-start gap-2 border-dashed ${
                     dark
                       ? "hover:border-cyan-500/50 hover:bg-slate-900"
@@ -182,9 +183,13 @@ export default function RetrosListPage() {
                 >
                   <div className="flex items-center justify-between gap-2 w-full">
                     <p className={`text-sm font-bold ${dark ? "text-slate-200" : "text-slate-700"} flex items-center gap-1.5 min-w-0`}>
-                      <span className="truncate">{label}</span>
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ background: team.color }}
+                      />
+                      <span className="truncate">{team.name}</span>
                       {mine && (
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="One of your departments" />
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? "bg-amber-300" : "bg-amber-400"}`} title="You're on this team" />
                       )}
                     </p>
                   </div>
@@ -195,10 +200,10 @@ export default function RetrosListPage() {
                         : "bg-teal-50 text-teal-700"
                     }`}
                   >
-                    {creatingDept === dept
+                    {creatingDept === busyKey
                       ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       : <Plus className="w-3.5 h-3.5" />}
-                    {creatingDept === dept ? "Creating…" : "Start retro"}
+                    {creatingDept === busyKey ? "Creating…" : "Start retro"}
                   </span>
                   <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
                     Opens a fresh board for this week.
@@ -261,13 +266,16 @@ export default function RetrosListPage() {
       <NewRetroModal
         open={showNewModal}
         onClose={() => setShowNewModal(false)}
-        teamId={activeTeamId}
-        availableDepartments={availableDepartments}
-        existingDepartments={currentWeekRetros.map((r) => r.department)}
-        preselectedDepartment={myDepartments[0]}
+        orgId={activeTeamId}
+        availableTeams={availableTeams}
+        existingTeamIds={
+          new Set(currentWeekRetros.map((r) => r.org_team_id ?? null))
+        }
+        preselectedTeamId={
+          (orgTeams || []).find((t) => myOrgTeamIds?.has(t.id))?.id ?? null
+        }
         isAdmin={isAdmin}
         onCreated={(data) => {
-          // Optimistically include + navigate to the new retro.
           setRetros((prev) => [
             { ...data, is_current_week: true, is_live: true, card_count: 0 },
             ...prev.filter((r) => r.id !== data.id),

@@ -2,84 +2,80 @@ import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Target, Briefcase, Sparkles } from "lucide-react";
+import { X, Target, Briefcase, Sparkles, Users } from "lucide-react";
 import { getOrCreateCurrentRetro, setRetroGoal } from "../lib/retro";
-import { useTeam } from "../context/TeamContext";
+import { createOrgTeam } from "../lib/orgTeam";
+import { useApp } from "../context/AppContext";
 
-// Modal for explicitly starting a retro. The user either picks a
-// department from the team's curated list (chip selector) or types a
-// custom name on the fly. For admins, a custom name they type also
-// gets added to the team's canonical `departments` list so future
-// retros surface it as a chip — naturally builds up the catalog
-// without forcing a separate "manage departments" trip.
-//
-// If a retro already exists for the chosen (team, dept, week) the
-// button reads "Open existing retro" — the lazy-create RPC returns
-// the existing row, no duplicates.
+// Modal for explicitly starting a retro. The user picks an org_team
+// (chip selector) or types a new team name on the fly. Admins who
+// type a brand-new name get an org_team created for them in the same
+// step, and that team is what the retro attaches to. Non-admins can
+// only pick from existing teams (or org-wide).
 export default function NewRetroModal({
   open,
   onClose,
-  teamId,
-  availableDepartments,
-  existingDepartments,
-  preselectedDepartment,
+  orgId,
+  availableTeams,
+  existingTeamIds,
+  preselectedTeamId,
   isAdmin,
   onCreated,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const { updateTeam, activeTeam } = useTeam();
-  const [department, setDepartment] = useState(preselectedDepartment ?? "");
+  const { session } = useApp();
+  // selectedTeamId === null means org-wide. Otherwise an org_team_id.
+  const [selectedTeamId, setSelectedTeamId] = useState(preselectedTeamId ?? null);
   const [customMode, setCustomMode] = useState(false);
-  const [customDept, setCustomDept] = useState("");
+  const [customName, setCustomName] = useState("");
   const [goal, setGoal] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  // Reset state every time the modal opens. Default to the first
-  // department that doesn't already have a retro, falling back to
-  // preselected or the "Team" bucket.
   useEffect(() => {
     if (!open) return;
-    const firstUntaken = availableDepartments.find((d) => !existingDepartments.includes(d));
-    setDepartment(preselectedDepartment ?? firstUntaken ?? availableDepartments[0] ?? "");
+    const firstUntaken = (availableTeams || []).find((t) => !existingTeamIds.has(t.id));
+    setSelectedTeamId(preselectedTeamId ?? firstUntaken?.id ?? null);
     setCustomMode(false);
-    setCustomDept("");
+    setCustomName("");
     setGoal("");
     setBusy(false);
     setError("");
-  }, [open, preselectedDepartment, availableDepartments, existingDepartments]);
+  }, [open, preselectedTeamId, availableTeams, existingTeamIds]);
 
   if (!open) return null;
 
-  const effectiveDept = customMode ? customDept.trim() : department;
-  const alreadyExists = existingDepartments.includes(effectiveDept);
+  const alreadyExists = !customMode && existingTeamIds.has(selectedTeamId);
   const canSetGoal = !alreadyExists && isAdmin;
-  const canSubmit = (() => {
-    if (customMode) return customDept.trim().length > 0;
-    return true;
-  })();
+  const canSubmit = customMode ? customName.trim().length > 0 : true;
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!teamId || !canSubmit) return;
+    if (!orgId || !canSubmit) return;
     setBusy(true); setError("");
 
-    // If admin typed a brand-new dept name, also fold it into the
-    // canonical list so future weeks surface it as a chip. Non-admins
-    // can still create a retro at that dept — the canonical list just
-    // doesn't update.
-    if (
-      customMode
-      && isAdmin
-      && effectiveDept.length > 0
-      && !availableDepartments.includes(effectiveDept)
-    ) {
-      const existing = activeTeam?.departments || [];
-      await updateTeam?.(teamId, { departments: [...existing, effectiveDept] });
+    let teamIdToUse = selectedTeamId;
+
+    if (customMode) {
+      if (!isAdmin) {
+        setBusy(false);
+        setError("Only org admins can create a new team. Pick from the list, or ask an admin to add it.");
+        return;
+      }
+      const { data: newTeam, error: teamErr } = await createOrgTeam(orgId, {
+        name: customName,
+        userId: session?.user?.id,
+      });
+      if (teamErr || !newTeam) {
+        setBusy(false);
+        setError(teamErr?.message || "Could not create the new team.");
+        return;
+      }
+      teamIdToUse = newTeam.id;
     }
 
-    const { data, error: err } = await getOrCreateCurrentRetro(teamId, effectiveDept);
+    const { data, error: err } = await getOrCreateCurrentRetro(orgId, teamIdToUse);
     if (err || !data) {
       setBusy(false);
       setError(err?.message || "Could not start the retro.");
@@ -121,23 +117,24 @@ export default function NewRetroModal({
           Start a new retro
         </h2>
         <p className={`text-xs mb-4 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          One retro per department per week. Picking one that already exists opens it instead.
+          One retro per team per week. Picking one that already exists this week opens it instead.
         </p>
 
-        {/* Department picker */}
+        {/* Team picker */}
         <div className="mb-4">
-          <label className={labelCls}>Department</label>
+          <label className={labelCls}>Team</label>
           {!customMode && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {availableDepartments.map((d) => {
-                const active = d === department;
-                const taken = existingDepartments.includes(d);
-                const label = d || "Team";
+              {(availableTeams || []).map((team) => {
+                const active = team.id === selectedTeamId;
+                const taken = existingTeamIds.has(team.id);
+                const key = team.id || "__org__";
+                const Icon = team.id ? Briefcase : Users;
                 return (
                   <button
-                    key={d || "__team__"}
+                    key={key}
                     type="button"
-                    onClick={() => setDepartment(d)}
+                    onClick={() => setSelectedTeamId(team.id)}
                     className={`relative inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
                       active
                         ? dark
@@ -149,8 +146,12 @@ export default function NewRetroModal({
                     }`}
                     title={taken ? "Already has a retro this week" : undefined}
                   >
-                    <Briefcase className="w-3 h-3" />
-                    {label}
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ background: team.color || "#14b8a6" }}
+                    />
+                    <Icon className="w-3 h-3" />
+                    {team.name}
                     {taken && (
                       <span
                         className={`text-[9px] uppercase tracking-wider px-1 py-0.5 rounded ${
@@ -165,36 +166,36 @@ export default function NewRetroModal({
                   </button>
                 );
               })}
-              <button
-                type="button"
-                onClick={() => setCustomMode(true)}
-                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border border-dashed transition-colors ${
-                  dark
-                    ? "border-slate-600 text-slate-300 hover:border-cyan-500/60 hover:text-cyan-200"
-                    : "border-slate-300 text-slate-600 hover:border-teal-400 hover:text-teal-700"
-                }`}
-              >
-                <Sparkles className="w-3 h-3" /> Custom name…
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setCustomMode(true)}
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border border-dashed transition-colors ${
+                    dark
+                      ? "border-slate-600 text-slate-300 hover:border-cyan-500/60 hover:text-cyan-200"
+                      : "border-slate-300 text-slate-600 hover:border-teal-400 hover:text-teal-700"
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3" /> New team…
+                </button>
+              )}
             </div>
           )}
           {customMode && (
             <div className="mt-2 space-y-1.5">
               <Input
-                value={customDept}
-                onChange={(e) => setCustomDept(e.target.value.slice(0, 30))}
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value.slice(0, 30))}
                 placeholder="e.g. SWE, PM, Design, HR"
                 autoFocus
                 className={dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : ""}
               />
               <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                {isAdmin
-                  ? "Saved to the team's department list so future retros pick it up too."
-                  : "Used just for this retro. Ask an admin to add it permanently."}
+                Creates the team for you and opens its retro.
                 {" · "}
                 <button
                   type="button"
-                  onClick={() => { setCustomMode(false); setCustomDept(""); }}
+                  onClick={() => { setCustomMode(false); setCustomName(""); }}
                   className={`underline ${dark ? "text-slate-400" : "text-slate-500"} hover:text-current`}
                 >
                   Pick from list

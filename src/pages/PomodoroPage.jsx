@@ -18,7 +18,7 @@ import { notifySessionJoined } from "../sync/joinSession";
 
 export default function PomodoroPage({ session, onOpenSync }) {
   const { settings, clockIn, projects, dataLoaded } = useApp();
-  const { activeTeam, activeTeamId, activeTeamSessions, rooms, isAdmin, teamMembers } = useTeam();
+  const { activeTeam, activeTeamId, activeTeamSessions, rooms, isAdmin, teamMembers, myOrgTeamIds } = useTeam();
   const { theme } = useTheme();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
   const dark = theme === "dark";
@@ -85,14 +85,12 @@ export default function PomodoroPage({ session, onOpenSync }) {
       if (!activeTeamId) { setWeekGoals([]); return; }
       const { data } = await listCurrentWeekRetros(activeTeamId);
       if (cancelled) return;
-      const me = (teamMembers || []).find((m) => m.user_id === session?.user?.id);
-      const myDepts = me?.departments || [];
-      // If the user has tags, show goals from those depts. Otherwise show
-      // whatever retros exist with goals (small teams without curated
-      // departments typically just have the "Team" bucket).
-      const filtered = myDepts.length
-        ? data.filter((r) => myDepts.includes(r.department))
-        : data;
+      // Show goals for any org_team I'm on, plus the org-wide retro
+      // (org_team_id IS NULL). Members with no team see only org-wide.
+      const filtered = data.filter((r) => {
+        if (r.org_team_id == null) return true;
+        return myOrgTeamIds?.has(r.org_team_id);
+      });
       setWeekGoals(filtered.filter((r) => (r.goal || "").trim().length > 0));
     }
     load();

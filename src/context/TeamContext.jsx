@@ -6,6 +6,7 @@ import {
 } from "../lib/utils";
 import { listActiveTeamSessions } from "../lib/syncSession";
 import { listRooms } from "../lib/rooms";
+import { listOrgTeams, listMyOrgTeams } from "../lib/orgTeam";
 
 const TeamContext = createContext(null);
 
@@ -18,6 +19,8 @@ export function TeamProvider({ session, children }) {
   const [teamLoading, setTeamLoading] = useState(false);
   const [activeTeamSessions, setActiveTeamSessions] = useState([]);
   const [rooms, setRooms] = useState([]);
+  const [orgTeams, setOrgTeams] = useState([]);
+  const [myOrgTeamIds, setMyOrgTeamIds] = useState(new Set());
 
   const userId = session?.user?.id;
   // Read the latest activeTeamId without retriggering loadTeams.
@@ -188,6 +191,48 @@ export function TeamProvider({ session, children }) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [activeTeamId, loadRoomsForActiveTeam]);
+
+  // ── Org teams (sub-teams within an org) ────────────────────
+  // These are the real "Team" entities — SWE, PM, HR, etc. —
+  // replacing the deprecated tag-on-team_member shape. Membership
+  // gates room/retro access.
+  const loadOrgTeamsForActive = useCallback(async () => {
+    if (!activeTeamId) { setOrgTeams([]); setMyOrgTeamIds(new Set()); return; }
+    const [{ data: list }, { data: mine }] = await Promise.all([
+      listOrgTeams(activeTeamId),
+      userId ? listMyOrgTeams(activeTeamId, userId) : Promise.resolve({ data: [] }),
+    ]);
+    setOrgTeams(list || []);
+    setMyOrgTeamIds(new Set((mine || []).map((r) => r.org_team_id)));
+  }, [activeTeamId, userId]);
+
+  useEffect(() => { loadOrgTeamsForActive(); }, [loadOrgTeamsForActive]);
+
+  // Realtime: pick up changes to either the team list or my memberships.
+  useEffect(() => {
+    if (!activeTeamId) return;
+    const teamIdAtSub = activeTeamId;
+    const channel = supabase
+      .channel(`org-teams:${activeTeamId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "org_teams", filter: `org_id=eq.${activeTeamId}` },
+        () => {
+          if (activeTeamIdRef.current !== teamIdAtSub) return;
+          loadOrgTeamsForActive();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "org_team_members" },
+        () => {
+          if (activeTeamIdRef.current !== teamIdAtSub) return;
+          loadOrgTeamsForActive();
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeTeamId, loadOrgTeamsForActive]);
 
   // Realtime: refresh when team sessions change.
   useEffect(() => {
@@ -532,6 +577,7 @@ export function TeamProvider({ session, children }) {
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
         rooms, loadRoomsForActiveTeam,
+        orgTeams, myOrgTeamIds, loadOrgTeamsForActive,
       }}
     >
       {children}
