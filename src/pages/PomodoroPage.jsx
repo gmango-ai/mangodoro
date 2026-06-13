@@ -10,6 +10,7 @@ import PomodoroTimer from "../components/PomodoroTimer";
 import UserAvatar from "../components/UserAvatar";
 import CreateRoomModal from "../components/CreateRoomModal";
 import RoomTile from "../components/RoomTile";
+import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { resolveRoomByInviteCode } from "../lib/rooms";
@@ -18,7 +19,7 @@ import { notifySessionJoined } from "../sync/joinSession";
 
 export default function PomodoroPage({ session, onOpenSync }) {
   const { settings, clockIn, projects, dataLoaded } = useApp();
-  const { activeTeam, activeTeamId, activeTeamSessions, rooms, isAdmin, teamMembers, myOrgTeamIds } = useTeam();
+  const { activeTeam, activeTeamId, activeTeamSessions, rooms, visibleRooms, isAdmin, teamMembers, myOrgTeamIds, myOrgTeamLeadIds } = useTeam();
   const { theme } = useTheme();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
   const dark = theme === "dark";
@@ -266,23 +267,40 @@ export default function PomodoroPage({ session, onOpenSync }) {
                 {joinError && (
                   <p className={`text-xs mb-2 ${dark ? "text-red-400" : "text-red-600"}`}>{joinError}</p>
                 )}
-                {rooms.length === 0 ? (
+                {(visibleRooms || []).length === 0 ? (
                   <p className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                    No rooms yet. Create one to start gathering your team.
+                    {(rooms || []).length > 0
+                      ? "No rooms are visible to you. Ask an admin to add you to a team."
+                      : "No rooms yet. Create one to start gathering your team."}
                   </p>
                 ) : (
-                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
-                    {rooms.map((room) => (
-                      <RoomTile
-                        key={room.id}
-                        room={room}
-                        activeSession={sessionByRoomId.get(room.id) || null}
+                  <>
+                    {/* Desktop: floor-plan grid with drag + resize.
+                        Mobile: stacked tile list (DnD on touch is too
+                        fiddly to ship at the same quality bar; see plan). */}
+                    <div className="hidden sm:block">
+                      <OfficeLayoutEditor
+                        rooms={visibleRooms}
+                        readOnly={!(isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0))}
                         vibe={activeTeam?.office_vibe || "quiet"}
                         busy={roomBusy}
-                        onJoin={handleRoomClick}
+                        onJoinRoom={handleRoomClick}
+                        sessionByRoomId={sessionByRoomId}
                       />
-                    ))}
-                  </div>
+                    </div>
+                    <div className="sm:hidden grid gap-3 grid-cols-1">
+                      {visibleRooms.map((room) => (
+                        <RoomTile
+                          key={room.id}
+                          room={room}
+                          activeSession={sessionByRoomId.get(room.id) || null}
+                          vibe={activeTeam?.office_vibe || "quiet"}
+                          busy={roomBusy}
+                          onJoin={handleRoomClick}
+                        />
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
             )}

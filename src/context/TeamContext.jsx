@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { supabase } from "../supabase";
 import {
   formatDuration, formatMoney, formatMonthLabel, weekStart, weekRangeLabel,
@@ -192,6 +192,16 @@ export function TeamProvider({ session, children }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "rooms", filter: `team_id=eq.${activeTeamId}` },
+        () => {
+          if (activeTeamIdRef.current !== teamIdAtSub) return;
+          loadRoomsForActiveTeam();
+        },
+      )
+      .on(
+        // Gating changes — a room being restricted to a team, or that
+        // restriction lifted — must refresh visibility for every viewer.
+        "postgres_changes",
+        { event: "*", schema: "public", table: "room_teams" },
         () => {
           if (activeTeamIdRef.current !== teamIdAtSub) return;
           loadRoomsForActiveTeam();
@@ -608,6 +618,24 @@ export function TeamProvider({ session, children }) {
   const activeTeam = teams.find((t) => t.id === activeTeamId) || null;
   const isAdmin = activeTeam?.role === "admin";
 
+  // Filter rooms by team gating for the current viewer.
+  //  * Admins always see every room.
+  //  * Rooms with no room_teams rows are org-wide → visible to all members.
+  //  * Rooms with gating rows are visible only when the viewer's
+  //    org_team memberships intersect the gating set.
+  // Realtime: see the team-rooms channel above — both `rooms` and
+  // `room_teams` changes trigger loadRoomsForActiveTeam, so this
+  // memo re-derives the moment gating shifts.
+  const visibleRooms = useMemo(() => {
+    if (!rooms || rooms.length === 0) return rooms;
+    if (isAdmin) return rooms;
+    return rooms.filter((r) => {
+      const gating = r.room_teams || [];
+      if (gating.length === 0) return true;
+      return gating.some((rt) => myOrgTeamIds.has(rt.org_team_id));
+    });
+  }, [rooms, isAdmin, myOrgTeamIds]);
+
   return (
     <TeamContext.Provider
       value={{
@@ -617,7 +645,7 @@ export function TeamProvider({ session, children }) {
         removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
-        rooms, loadRoomsForActiveTeam,
+        rooms, visibleRooms, loadRoomsForActiveTeam,
         orgTeams, myOrgTeamIds, myOrgTeamLeadIds, teamsByUserId, orgTeamMemberCounts, loadOrgTeamsForActive,
       }}
     >

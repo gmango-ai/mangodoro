@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
+import { useTeam } from "../context/TeamContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Briefcase, MessageSquare, Lock } from "lucide-react";
-import { createRoom } from "../lib/rooms";
+import { X, Briefcase, MessageSquare, Lock, Users2 } from "lucide-react";
+import { createRoomV2 } from "../lib/rooms";
 
 const KIND_OPTIONS = [
   {
@@ -31,9 +32,11 @@ const KIND_OPTIONS = [
 
 export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin, onCreated }) {
   const { theme } = useTheme();
+  const { orgTeams, myOrgTeamLeadIds } = useTeam();
   const dark = theme === "dark";
   const [name, setName] = useState("");
   const [kind, setKind] = useState("meeting");
+  const [selectedTeamIds, setSelectedTeamIds] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -42,6 +45,7 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
     if (open) {
       setName("");
       setKind(isAdmin ? "department" : "meeting");
+      setSelectedTeamIds([]);
       setBusy(false);
       setError("");
     }
@@ -49,11 +53,22 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
 
   if (!open) return null;
 
+  function toggleTeam(id) {
+    setSelectedTeamIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!name.trim()) { setError("Name is required."); return; }
     setBusy(true); setError("");
-    const { data, error: err } = await createRoom(teamId, { name, kind, userId });
+    const { data, error: err } = await createRoomV2(teamId, {
+      name,
+      kind,
+      orgTeamIds: selectedTeamIds,
+      userId,
+    });
     setBusy(false);
     if (err) {
       setError(err.message || "Could not create room.");
@@ -62,6 +77,12 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
     onCreated?.(data);
     onClose();
   }
+
+  // Non-admin leads may only gate to teams they actually lead. For
+  // admins, all org_teams are gating-eligible.
+  const gatingTeams = isAdmin
+    ? (orgTeams || [])
+    : (orgTeams || []).filter((t) => myOrgTeamLeadIds?.has(t.id));
 
   const cardCls = `relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
     dark ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
@@ -134,6 +155,50 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
             {KIND_OPTIONS.find((o) => o.key === kind)?.hint}
           </p>
         </div>
+
+        {/* Team gating. Empty selection = org-wide. For leads, only the
+            teams they lead show up here (server-side check enforces). */}
+        {gatingTeams.length > 0 && (
+          <div className="mb-4">
+            <label className={labelCls}>
+              <Users2 className="inline w-3 h-3 mr-1 -mt-0.5" />
+              Visible to
+            </label>
+            <p className={`text-[11px] mt-0.5 mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+              {selectedTeamIds.length === 0
+                ? "Everyone in the org (no team selected)"
+                : `Only ${selectedTeamIds.length} team${selectedTeamIds.length === 1 ? "" : "s"}`}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {gatingTeams.map((t) => {
+                const active = selectedTeamIds.includes(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => toggleTeam(t.id)}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors"
+                    style={
+                      active
+                        ? { background: `${t.color}22`, borderColor: `${t.color}99`, color: dark ? "#fff" : t.color }
+                        : undefined
+                    }
+                    {...(!active && {
+                      className: `inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors ${
+                        dark
+                          ? "bg-slate-800/40 border-slate-700 text-slate-300 hover:border-slate-600"
+                          : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
+                      }`,
+                    })}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: t.color }} />
+                    {t.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className={`text-sm font-medium px-3 py-2 rounded-lg mb-3 ${
