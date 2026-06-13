@@ -18,7 +18,7 @@ import { notifySessionJoined } from "../sync/joinSession";
 
 export default function PomodoroPage({ session, onOpenSync }) {
   const { settings, clockIn, projects, dataLoaded } = useApp();
-  const { activeTeam, activeTeamId, activeTeamSessions, rooms, isAdmin } = useTeam();
+  const { activeTeam, activeTeamId, activeTeamSessions, rooms, isAdmin, teamMembers } = useTeam();
   const { theme } = useTheme();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
   const dark = theme === "dark";
