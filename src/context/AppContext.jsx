@@ -6,6 +6,10 @@ import {
   makeEmptyForm, formatDuration, formatDecimal, formatMoney, formatMonthLabel,
   weekRangeLabel, toDisplayTime, downloadFile, unpaidBreakMins,
 } from "../lib/utils";
+import {
+  startTaskSegment, stopTaskSegment, updateOpenTaskSegment,
+  linkSegmentsToEntry, fetchCurrentTaskSegment,
+} from "../lib/taskSegments";
 
 const AppContext = createContext(null);
 
@@ -56,6 +60,9 @@ export function AppProvider({ session, children }) {
   });
   const [clockedTick, setClockedTick] = useState(0);
   const [pendingEntry, setPendingEntry] = useState(null);
+  // Currently open task segment (during a clock-in session). Null when
+  // not clocked in or hasn't been seeded yet. {id, description, started_at}.
+  const [currentTask, setCurrentTask] = useState(null);
   const clockInRef = useRef(null);
   const clockInSyncTimer = useRef(null);
   const clockInFromDBRef = useRef(false); // true when setClockIn came from a DB poll — skip write-back
@@ -135,6 +142,11 @@ export function AppProvider({ session, children }) {
         clockInFromDBRef.current = true;
         setClockIn(dbClock);
         localStorage.setItem("ql_clock_in", JSON.stringify(dbClock));
+        // Restore the open task segment too — survives refresh /
+        // cross-device because it lives in Postgres.
+        fetchCurrentTaskSegment().then(({ data: seg }) => {
+          if (seg) setCurrentTask({ id: seg.id, description: seg.description, started_at: seg.started_at });
+        });
       }
       const loadedTemplates = (templatesRes.data ?? []).map(normalizeTemplate);
       const loadedSettings = settingsRes.data ? normalizeSettings(settingsRes.data) : {};
@@ -271,6 +283,10 @@ export function AppProvider({ session, children }) {
     async function syncFromDB() {
       const { data } = await supabase.from("user_settings").select("active_clock").eq("user_id", session.user.id).maybeSingle();
       applyRemoteClock(data?.active_clock ?? null);
+      // Refresh the open task too — another tab may have switched it.
+      fetchCurrentTaskSegment().then(({ data: seg }) => {
+        setCurrentTask(seg ? { id: seg.id, description: seg.description, started_at: seg.started_at } : null);
+      });
     }
     function onVisible() { if (!document.hidden) syncFromDB(); }
     document.addEventListener("visibilitychange", onVisible);
@@ -347,14 +363,23 @@ export function AppProvider({ session, children }) {
   }, [clockIn]);
 
   // ── Clock in/out ─────────────────────────────────────────────
-  function handleClockIn(startOverride) {
+  function handleClockIn(startOverride, taskDescription) {
     const raw = startOverride || currentTimeStr();
     const start = roundTimeStr(raw, timeRounding, startOverride ? "nearest" : "down");
-    const data = { start, date: todayStr(), description: "", projectIds: [], billable: true, breaks: [], activeBreak: null };
+    const data = {
+      start, date: todayStr(),
+      description: taskDescription || "",
+      projectIds: [], billable: true, breaks: [], activeBreak: null,
+    };
     localStorage.setItem("ql_clock_in", JSON.stringify(data));
     setClockIn(data);
     if (session?.user?.id) {
       supabase.from("user_settings").update({ active_clock: data }).eq("user_id", session.user.id).then();
+      // Open the first task segment for this clock-in. Empty description
+      // is fine — the user can name it after the fact via switchTask.
+      startTaskSegment(taskDescription || "").then(({ data: id }) => {
+        if (id) setCurrentTask({ id, description: taskDescription || "", started_at: new Date().toISOString() });
+      });
     }
   }
 
@@ -391,6 +416,14 @@ export function AppProvider({ session, children }) {
       breaks = [...breaks, { id: Date.now().toString(), start: clockIn.activeBreak.start, end: currentTimeStr(), unpaid: true }];
     }
     const minutes = calcWorked(clockIn.start, end, breaks);
+    // Capture the clock-in moment so we can link only this session's
+    // segments to the entry once it's saved (rather than every
+    // unlinked segment in the user's history).
+    const sessionStartIso = (() => {
+      try {
+        return new Date(`${clockIn.date}T${clockIn.start}:00`).toISOString();
+      } catch { return null; }
+    })();
     const prefilled = {
       date: clockIn.date,
       start: clockIn.start,
@@ -400,11 +433,16 @@ export function AppProvider({ session, children }) {
       breaks,
       projectIds: clockIn.projectIds || [],
       billable: clockIn.billable !== false,
+      _sessionStartIso: sessionStartIso,
     };
     localStorage.removeItem("ql_clock_in");
     setClockIn(null);
     if (session?.user?.id) {
       supabase.from("user_settings").update({ active_clock: { stopped: true } }).eq("user_id", session.user.id).then();
+      // Close the open segment immediately so its ended_at reflects
+      // the actual clock-out time rather than the form-submit time.
+      stopTaskSegment().catch(() => {});
+      setCurrentTask(null);
     }
     return prefilled;
   }
@@ -427,6 +465,25 @@ export function AppProvider({ session, children }) {
     return diff >= 60 ? `${Math.floor(diff / 60)}h ${diff % 60}m` : `${diff}m`;
   }
 
+  // Switch the open task to a new description. Closes the existing
+  // open segment and opens a new one in a single RPC call.
+  async function switchTask(description) {
+    const { data: id, error } = await startTaskSegment(description || "");
+    if (error) return { error };
+    setCurrentTask({ id, description: description || "", started_at: new Date().toISOString() });
+    return { data: id };
+  }
+
+  // Rename the open segment without creating a new boundary — used
+  // when the user is finishing the name in place after starting tracking.
+  async function renameCurrentTask(description) {
+    const { error } = await updateOpenTaskSegment(description || "");
+    if (!error) {
+      setCurrentTask((prev) => prev ? { ...prev, description: description || "" } : prev);
+    }
+    return { error };
+  }
+
   // ── Entry CRUD ───────────────────────────────────────────────
   async function handleSubmit(f = form) {
     if (!f.date || !f.start || !f.end) return;
@@ -443,7 +500,16 @@ export function AppProvider({ session, children }) {
       billable: f.billable !== false,
     }).select().single();
     if (error) { flash("✗ Failed to save entry"); return; }
-    if (data) setEntries((prev) => [normalizeEntry(data), ...prev]);
+    if (data) {
+      setEntries((prev) => [normalizeEntry(data), ...prev]);
+      // If this submit finalized a clock-out (we tucked the session
+      // start onto the form via _sessionStartIso), attach every segment
+      // from that window to the new entry. Safe to call when not a
+      // clock-out submit — `since` will be null and we just skip.
+      if (f._sessionStartIso) {
+        linkSegmentsToEntry(data.id, f._sessionStartIso).catch(() => {});
+      }
+    }
     setForm(makeEmptyForm(settings, templates));
   }
 
@@ -1311,6 +1377,8 @@ export function AppProvider({ session, children }) {
     // clock
     clockIn, clockedTick, handleClockIn, handleClockOut, clockedElapsed, breakElapsed,
     updateClockIn, startClockBreak, endClockBreak,
+    // tasks within a clock-in session
+    currentTask, switchTask, renameCurrentTask,
     clockOutAndFill: () => { const p = handleClockOut(); if (p) setPendingEntry(p); },
     pendingEntry,
     updatePendingEntry: (fields) => setPendingEntry((prev) => prev ? { ...prev, ...fields } : prev),

@@ -4,10 +4,11 @@ import { useTheme } from "../context/ThemeContext";
 import TimeSelect from "./TimeSelect";
 import { calcWorked, formatDuration, formatDecimal, todayStr, toDisplayTime, makeEmptyForm, currentTimeStr } from "../lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Calendar, Clock, Plus } from "lucide-react";
+import { Calendar, Clock, Plus, Pencil, ArrowRightLeft, Check } from "lucide-react";
 import ProjectPicker from "./ProjectPicker";
 
 export default function LogHoursForm() {
@@ -19,12 +20,20 @@ export default function LogHoursForm() {
     clockOutAndFill, clockedTick, timeRounding, defaultEntryMode,
     logHoursRef, dateInputRef, deepseekKey, rewriteDescription, rewritingDesc,
     pendingEntry, updatePendingEntry, clearPendingEntry,
+    currentTask, switchTask, renameCurrentTask,
   } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
 
   const [mode, setMode] = useState(() => defaultEntryMode || "manual");
   const [startTime, setStartTime] = useState(() => currentTimeStr());
+  // What the user is starting the clock for. Empty is fine — the
+  // active segment just gets a blank description and can be edited.
+  const [initialTaskDraft, setInitialTaskDraft] = useState("");
+  // Inline edit / switch composer while clocked in.
+  const [taskDraft, setTaskDraft] = useState("");
+  const [taskEditMode, setTaskEditMode] = useState(null); // 'edit' | 'switch' | null
+  const [taskBusy, setTaskBusy] = useState(false);
 
   const manualDescRef = useRef(null);
   const clockDescRef = useRef(null);
@@ -124,32 +133,47 @@ export default function LogHoursForm() {
                 <div>
                   <p className={`text-base font-semibold mb-1 ${dark ? "text-white" : "text-slate-800"}`}>Ready to start?</p>
                   <p className={`text-sm max-w-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                    Clock in to start tracking time automatically.
+                    Clock in to start tracking. Name the task or skip — you can change it any time.
                     {timeRounding !== "none" && ` Times will be rounded to ${timeRounding} min.`}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex flex-col items-start gap-1">
-                    <label className={`text-xs font-medium uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                      Started at
-                    </label>
-                    <TimeSelect
-                      value={startTime}
-                      onChange={setStartTime}
-                    />
-                  </div>
-                  <div className="flex flex-col items-start gap-1">
-                    <span className="text-xs invisible select-none">-</span>
-                    <Button
-                      onClick={() => handleClockIn(startTime)}
-                      className={`px-8 py-2.5 rounded-xl text-sm font-semibold shadow-lg transition-all ${
-                        dark
-                          ? "bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-cyan-500/30 hover:shadow-cyan-500/50 hover:from-cyan-400 hover:to-teal-400"
-                          : "bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-teal-500/30 hover:from-teal-700 hover:to-emerald-700"
-                      }`}
-                    >
-                      Clock In
-                    </Button>
+                <div className="w-full max-w-md flex flex-col gap-3">
+                  <Input
+                    value={initialTaskDraft}
+                    onChange={(e) => setInitialTaskDraft(e.target.value.slice(0, 200))}
+                    placeholder="What are you working on? (optional)"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleClockIn(startTime, initialTaskDraft.trim());
+                        setInitialTaskDraft("");
+                      }
+                    }}
+                    className={inputClass}
+                  />
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="flex flex-col items-start gap-1">
+                      <label className={`text-xs font-medium uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                        Started at
+                      </label>
+                      <TimeSelect
+                        value={startTime}
+                        onChange={setStartTime}
+                      />
+                    </div>
+                    <div className="flex flex-col items-start gap-1">
+                      <span className="text-xs invisible select-none">-</span>
+                      <Button
+                        onClick={() => { handleClockIn(startTime, initialTaskDraft.trim()); setInitialTaskDraft(""); }}
+                        className={`px-8 py-2.5 rounded-xl text-sm font-semibold shadow-lg transition-all ${
+                          dark
+                            ? "bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-cyan-500/30 hover:shadow-cyan-500/50 hover:from-cyan-400 hover:to-teal-400"
+                            : "bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-teal-500/30 hover:from-teal-700 hover:to-emerald-700"
+                        }`}
+                      >
+                        Clock In
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -195,6 +219,91 @@ export default function LogHoursForm() {
                       Clock Out
                     </Button>
                   </div>
+                </div>
+
+                {/* Current task card — the task the open segment is
+                    against. Editing the name renames the open segment;
+                    Switch closes it and opens a new one with a new name. */}
+                <div className={subCardCls}>
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <h3 className={`text-xs font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                      Current task
+                    </h3>
+                    {currentTask?.started_at && (
+                      <span className={`text-[11px] font-mono ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                        since {toDisplayTime(new Date(currentTask.started_at).toTimeString().slice(0, 5))}
+                      </span>
+                    )}
+                  </div>
+                  {taskEditMode ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        autoFocus
+                        value={taskDraft}
+                        onChange={(e) => setTaskDraft(e.target.value.slice(0, 200))}
+                        onKeyDown={async (e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const next = taskDraft.trim();
+                            setTaskBusy(true);
+                            if (taskEditMode === "switch") await switchTask(next);
+                            else await renameCurrentTask(next);
+                            setTaskBusy(false);
+                            setTaskEditMode(null);
+                          }
+                          if (e.key === "Escape") setTaskEditMode(null);
+                        }}
+                        placeholder={taskEditMode === "switch" ? "What are you switching to?" : "Name this task"}
+                        className={inputClass}
+                      />
+                      <Button
+                        type="button"
+                        onClick={async () => {
+                          const next = taskDraft.trim();
+                          setTaskBusy(true);
+                          if (taskEditMode === "switch") await switchTask(next);
+                          else await renameCurrentTask(next);
+                          setTaskBusy(false);
+                          setTaskEditMode(null);
+                        }}
+                        disabled={taskBusy}
+                        className="h-10"
+                      >
+                        <Check className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <p className={`flex-1 text-base font-semibold truncate ${
+                        currentTask?.description
+                          ? dark ? "text-white" : "text-slate-800"
+                          : dark ? "text-slate-500 italic" : "text-slate-400 italic"
+                      }`}>
+                        {currentTask?.description || "Untitled task — click edit to name it"}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => { setTaskDraft(currentTask?.description || ""); setTaskEditMode("edit"); }}
+                        title="Edit name"
+                        className={`p-2 rounded-md transition-colors ${
+                          dark ? "text-slate-400 hover:bg-slate-700/60 hover:text-slate-200" : "text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                        }`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setTaskDraft(""); setTaskEditMode("switch"); }}
+                        title="Switch task"
+                        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-colors ${
+                          dark ? "bg-slate-800 text-cyan-300 hover:bg-slate-700" : "bg-slate-100 text-teal-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        <ArrowRightLeft className="w-3.5 h-3.5" />
+                        Switch
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-4 mt-2">
