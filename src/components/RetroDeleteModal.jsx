@@ -1,26 +1,19 @@
-import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { X, AlertTriangle, Trash2 } from "lucide-react";
 import { formatRetroWeek } from "../lib/retro";
 
-// Hard-delete confirmation. The retro week label has to be typed
-// verbatim — this is irrecoverable and cascades to retro_cards +
-// retro_guests. Mirror RemoveMemberModal in shape.
+// Hard-delete confirmation. The action is destructive and cascades to
+// retro_cards + retro_guests, but we trust admins to read the message
+// rather than gate behind a type-to-confirm step — Archive remains the
+// safe path for "I might want this back".
 export default function RetroDeleteModal({ open, onClose, retro, busy, onConfirm }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const [draft, setDraft] = useState("");
-
-  useEffect(() => {
-    if (open) setDraft("");
-  }, [open]);
 
   if (!open || !retro) return null;
 
   const label = formatRetroWeek(retro.week_start);
-  const matches = draft.trim().toLowerCase() === label.toLowerCase();
   const retroName = retro.org_team_name || retro.department || "Team";
 
   return (
@@ -72,21 +65,6 @@ export default function RetroDeleteModal({ open, onClose, retro, busy, onConfirm
           </p>
         </div>
 
-        <div className="mb-4">
-          <label className={`text-[10px] font-semibold uppercase tracking-wider ${
-            dark ? "text-slate-400" : "text-slate-500"
-          }`}>
-            Type "{label}" to confirm
-          </label>
-          <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={label}
-            className={`mt-1 ${dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : ""}`}
-            autoFocus
-          />
-        </div>
-
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             Cancel
@@ -94,7 +72,7 @@ export default function RetroDeleteModal({ open, onClose, retro, busy, onConfirm
           <Button
             type="button"
             onClick={onConfirm}
-            disabled={busy || !matches}
+            disabled={busy}
             className={dark ? "bg-red-500 hover:bg-red-400 text-white" : "bg-red-500 hover:bg-red-600 text-white"}
           >
             <Trash2 className="w-4 h-4 mr-1.5" />

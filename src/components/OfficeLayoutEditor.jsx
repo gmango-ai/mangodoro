@@ -195,18 +195,46 @@ export default function OfficeLayoutEditor({
               activeSession={sessionByRoomId?.get(room.id) || null}
               onJoinRoom={onJoinRoom}
               onOpenRoom={onOpenRoom}
-              canResizeTo={(w, h) =>
-                !hasCollision(room.id, { x: r.layout_x, y: r.layout_y, w, h })
+              canResizeTo={(x, y, w, h) =>
+                !hasCollision(room.id, { x, y, w, h })
               }
-              onResize={(w, h) => {
-                if (hasCollision(room.id, { x: r.layout_x, y: r.layout_y, w, h })) return;
-                persistLayout(room.id, r.layout_x, r.layout_y, w, h);
+              onResize={(x, y, w, h) => {
+                if (hasCollision(room.id, { x, y, w, h })) return;
+                persistLayout(room.id, x, y, w, h);
               }}
             />
           );
         })}
       </div>
     </DndContext>
+  );
+}
+
+// Small corner hot zone with a hover dot. `pos` is "nw"|"ne"|"sw"|"se".
+function CornerHandle({ pos, cursor, onPointerDown }) {
+  const posCls = {
+    nw: "top-0 left-0",
+    ne: "top-0 right-0",
+    sw: "bottom-0 left-0",
+    se: "bottom-0 right-0",
+  }[pos];
+  const dotPos = {
+    nw: "top-1 left-1",
+    ne: "top-1 right-1",
+    sw: "bottom-1 left-1",
+    se: "bottom-1 right-1",
+  }[pos];
+  return (
+    <span
+      onPointerDown={onPointerDown}
+      className={`absolute w-3 h-3 ${posCls} ${cursor} touch-none`}
+      aria-label={`Resize ${pos}`}
+    >
+      <span
+        className={`absolute ${dotPos} w-1.5 h-1.5 rounded-full bg-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity`}
+        aria-hidden
+      />
+    </span>
   );
 }
 
@@ -235,17 +263,20 @@ function LayoutTile({
     disabled: readOnly,
   });
 
-  // Local resize overlay state. We mutate w/h visually as the user
-  // drags the corner, then commit on pointerup via onResize. The
-  // computed style for the tile uses these when set.
-  const [resizing, setResizing] = useState(null); // {w, h} during drag
+  // Local resize overlay state. We mutate x/y/w/h visually as the user
+  // drags an edge or corner, then commit on pointerup via onResize.
+  // Storing x/y here too — top/left edges move the tile origin while
+  // they resize, so the visual must update both.
+  const [resizing, setResizing] = useState(null); // {x, y, w, h} during drag
 
+  const x = resizing?.x ?? room.layout_x;
+  const y = resizing?.y ?? room.layout_y;
   const w = resizing?.w ?? room.layout_w;
   const h = resizing?.h ?? room.layout_h;
 
   const style = {
-    gridColumn: `${room.layout_x + 1} / span ${w}`,
-    gridRow: `${room.layout_y + 1} / span ${h}`,
+    gridColumn: `${x + 1} / span ${w}`,
+    gridRow: `${y + 1} / span ${h}`,
     transform: transform
       ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
       : undefined,
@@ -254,38 +285,52 @@ function LayoutTile({
     cursor: readOnly ? "default" : isDragging ? "grabbing" : "grab",
   };
 
-  // Generic edge-grab resize. `axis` controls which dimensions move:
-  //   "e" — width only (right edge)
-  //   "s" — height only (bottom edge)
-  //   "se" — both (bottom-right corner)
-  // Edge zones feel more natural than a small icon: you reach for the
-  // boundary where the tile ends.
-  function startResize(axis) {
+  // Generic edge-grab resize. `dirs` is an object with which sides
+  // are being dragged: any of {n, e, s, w}. Top/left edges (n, w) move
+  // the tile's origin in addition to changing w/h — they pull the
+  // boundary toward the pointer instead of growing from a fixed
+  // corner.
+  function startResize(dirs) {
     return function handler(e) {
       if (readOnly) return;
       e.preventDefault();
       e.stopPropagation();
-      const startX = e.clientX;
-      const startY = e.clientY;
+      const startPX = e.clientX;
+      const startPY = e.clientY;
+      const startX = room.layout_x;
+      const startY = room.layout_y;
       const startW = room.layout_w;
       const startH = room.layout_h;
       function onMove(ev) {
-        const dx = axis.includes("e") ? Math.round((ev.clientX - startX) / (cellWidth + gap)) : 0;
-        const dy = axis.includes("s") ? Math.round((ev.clientY - startY) / (rowHeight + gap)) : 0;
-        const newW = axis.includes("e")
-          ? Math.max(1, Math.min(12 - room.layout_x, startW + dx))
-          : startW;
-        const newH = axis.includes("s")
-          ? Math.max(1, Math.min(12, startH + dy))
-          : startH;
-        if (canResizeTo && !canResizeTo(newW, newH)) return;
-        setResizing({ w: newW, h: newH });
+        const dx = Math.round((ev.clientX - startPX) / (cellWidth + gap));
+        const dy = Math.round((ev.clientY - startPY) / (rowHeight + gap));
+
+        let nx = startX;
+        let ny = startY;
+        let nw = startW;
+        let nh = startH;
+        if (dirs.e) nw = startW + dx;
+        if (dirs.w) { nx = startX + dx; nw = startW - dx; }
+        if (dirs.s) nh = startH + dy;
+        if (dirs.n) { ny = startY + dy; nh = startH - dy; }
+
+        // Clamp sizes to a sane range; bound positions so the tile
+        // stays inside the 12-column grid.
+        nw = Math.max(1, Math.min(12, nw));
+        nh = Math.max(1, Math.min(12, nh));
+        nx = Math.max(0, Math.min(12 - nw, nx));
+        ny = Math.max(0, ny);
+
+        // Refuse moves that would overlap a neighbor — the tile stops
+        // at the last collision-free position, mirroring drag behavior.
+        if (canResizeTo && !canResizeTo(nx, ny, nw, nh)) return;
+        setResizing({ x: nx, y: ny, w: nw, h: nh });
       }
       function onUp() {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         setResizing((prev) => {
-          if (prev) onResize(prev.w, prev.h);
+          if (prev) onResize(prev.x, prev.y, prev.w, prev.h);
           return null;
         });
       }
@@ -313,34 +358,35 @@ function LayoutTile({
       </div>
       {!readOnly && (
         <>
-          {/* Right edge — drag to resize width. Invisible by default,
-              accent appears on hover so the affordance is discoverable
-              without being noisy. */}
+          {/* Edge zones — invisible by default, fade in a cyan accent on
+              hover so the affordance is discoverable without being noisy. */}
           <span
-            onPointerDown={startResize("e")}
-            className="absolute right-0 top-2 bottom-2 w-1.5 cursor-ew-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
-            aria-label="Resize width"
+            onPointerDown={startResize({ n: true })}
+            className="absolute top-0 left-3 right-3 h-1.5 cursor-ns-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            aria-label="Resize from top"
           />
-          {/* Bottom edge — drag to resize height. */}
           <span
-            onPointerDown={startResize("s")}
-            className="absolute bottom-0 left-2 right-2 h-1.5 cursor-ns-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
-            aria-label="Resize height"
+            onPointerDown={startResize({ s: true })}
+            className="absolute bottom-0 left-3 right-3 h-1.5 cursor-ns-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            aria-label="Resize from bottom"
           />
-          {/* Bottom-right corner — drag to resize both. Small visible
-              chevron-style dot peeks on hover so users discover it. */}
           <span
-            onPointerDown={startResize("se")}
-            className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize touch-none rounded-br-2xl"
-            aria-label="Resize"
-          >
-            <span className="block w-full h-full opacity-0 group-hover:opacity-100 transition-opacity">
-              <span
-                className="absolute right-1 bottom-1 w-1.5 h-1.5 rounded-full bg-cyan-400"
-                aria-hidden
-              />
-            </span>
-          </span>
+            onPointerDown={startResize({ w: true })}
+            className="absolute left-0 top-3 bottom-3 w-1.5 cursor-ew-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            aria-label="Resize from left"
+          />
+          <span
+            onPointerDown={startResize({ e: true })}
+            className="absolute right-0 top-3 bottom-3 w-1.5 cursor-ew-resize touch-none rounded bg-transparent hover:bg-cyan-500/40 transition-colors"
+            aria-label="Resize from right"
+          />
+          {/* Corner zones — rendered after edges so they sit on top and
+              own the corner regions. Each corner shows a small cyan dot
+              on tile hover for discoverability. */}
+          <CornerHandle pos="nw" cursor="cursor-nwse-resize" onPointerDown={startResize({ n: true, w: true })} />
+          <CornerHandle pos="ne" cursor="cursor-nesw-resize" onPointerDown={startResize({ n: true, e: true })} />
+          <CornerHandle pos="sw" cursor="cursor-nesw-resize" onPointerDown={startResize({ s: true, w: true })} />
+          <CornerHandle pos="se" cursor="cursor-nwse-resize" onPointerDown={startResize({ s: true, e: true })} />
         </>
       )}
     </div>
