@@ -14,12 +14,10 @@ import { X, RotateCcw, PictureInPicture2, ChevronDown, ChevronUp, Users, LogOut,
 import {
   loadPomodoroSoundSettings,
   savePomodoroSoundSettings,
-  playCompletionSound,
-  stopCompletionSound,
-  POMODORO_SOUND_PRESETS,
   USER_SOUND_PREFIX,
   TEAM_SOUND_PREFIX,
 } from "../lib/pomodoroSound";
+import SoundLibrary from "./SoundLibrary";
 import { setBadge, clearBadge, formatTimerTitle } from "../lib/badge";
 import { setSyncVisibility } from "../lib/syncSession";
 import { getShareableBaseUrl } from "../lib/platform";
@@ -32,12 +30,6 @@ import {
   PIP_VIEW_SIZES,
   PIP_CONFIRM_EXTRA_H,
 } from "./pomodoro/PomodoroPipParts";
-
-const SOUND_CATEGORY_LABELS = {
-  calm: "Calm",
-  standard: "Standard",
-  aggressive: "Aggressive / loud",
-};
 
 export default function PomodoroTimer({
   open, onClose, userId,
@@ -914,103 +906,23 @@ export default function PomodoroTimer({
           </button>
 
           {soundOpen && (
-            <div
-              className={`space-y-3 rounded-lg px-3 py-3 text-xs ${
-                dark ? "border border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "bg-slate-50 border border-slate-100"
-              }`}
-            >
-              {[
-                { field: "workEndPreset", label: "When focus ends", event: "work" },
-                { field: "breakEndPreset", label: "When break ends", event: "break" },
-              ].map(({ field, label, event }) => (
-                <div key={field} className={`flex flex-col gap-1 ${dark ? "text-slate-400" : "text-slate-600"}`}>
-                  <div className="flex items-center justify-between">
-                    <span>{label}</span>
-                    <button
-                      type="button"
-                      onClick={() => playCompletionSound(soundSettings, { event, customSoundUrl, customSoundsByPresetId })}
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                        dark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      Test
-                    </button>
-                  </div>
-                  <select
-                    value={soundSettings[field]}
-                    onChange={(e) => updateSound({ [field]: e.target.value })}
-                    className={`rounded-md border px-2 py-1.5 text-sm ${
-                      dark
-                        ? "bg-[var(--color-surface)] border-slate-600 text-slate-200"
-                        : "bg-white border-slate-200 text-slate-800"
-                    }`}
-                  >
-                    {userCustomSounds.length > 0 && (
-                      <optgroup label="Your sounds">
-                        {userCustomSounds.map((s) => (
-                          <option key={s.id} value={`${USER_SOUND_PREFIX}${s.id}`}>{s.name}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {teamCustomSounds.length > 0 && (
-                      <optgroup label="Team sounds">
-                        {teamCustomSounds.map((s) => (
-                          <option key={s.id} value={`${TEAM_SOUND_PREFIX}${s.id}`}>{s.name}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {["calm", "standard", "aggressive"].map((cat) => (
-                      <optgroup key={cat} label={SOUND_CATEGORY_LABELS[cat]}>
-                        {POMODORO_SOUND_PRESETS.filter((p) => p.category === cat).map((p) => (
-                          <option key={p.id} value={p.id}>{p.label}</option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </div>
-              ))}
-
-              <label className={`flex flex-col gap-1 ${dark ? "text-slate-400" : "text-slate-600"}`}>
-                Volume ({Math.round(soundSettings.volume * 100)}%)
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={Math.round(soundSettings.volume * 100)}
-                  onChange={(e) => updateSound({ volume: Number(e.target.value) / 100 })}
-                  className="w-full accent-teal-600"
-                />
-              </label>
-              <label className={`flex flex-col gap-1 ${dark ? "text-slate-400" : "text-slate-600"}`}>
-                Pitch ({soundSettings.pitch.toFixed(2)}×)
-                <input
-                  type="range"
-                  min={50}
-                  max={150}
-                  value={Math.round(soundSettings.pitch * 100)}
-                  onChange={(e) => updateSound({ pitch: Number(e.target.value) / 100 })}
-                  className="w-full accent-teal-600"
-                />
-              </label>
-              <label className={`flex flex-col gap-1 ${dark ? "text-slate-400" : "text-slate-600"}`}>
-                Repeat
-                <select
-                  value={soundSettings.repeat}
-                  onChange={(e) => updateSound({ repeat: Number(e.target.value) })}
-                  className={`rounded-md border px-2 py-1.5 text-sm ${
-                    dark
-                      ? "bg-[var(--color-surface)] border-slate-600 text-slate-200"
-                      : "bg-white border-slate-200 text-slate-800"
-                  }`}
-                >
-                  <option value={1}>Once</option>
-                  <option value={2}>Twice</option>
-                  <option value={3}>3 times</option>
-                  <option value={5}>5 times</option>
-                  <option value={0}>Until I dismiss it</option>
-                </select>
-              </label>
-              <label className={`flex items-center justify-between gap-2 ${dark ? "text-slate-400" : "text-slate-600"}`}>
+            <div className="space-y-4">
+              <SoundLibrary
+                mode="pick"
+                userSounds={userCustomSounds}
+                teamSounds={teamCustomSounds}
+                soundSettings={soundSettings}
+                onSelectFocus={(presetId) => updateSound({ workEndPreset: presetId })}
+                onSelectBreak={(presetId) => updateSound({ breakEndPreset: presetId })}
+                onUpdateSettings={updateSound}
+              />
+              <label
+                className={`flex items-center justify-between gap-2 rounded-xl border p-3 text-xs ${
+                  dark
+                    ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300"
+                    : "bg-slate-50 border-slate-200 text-slate-600"
+                }`}
+              >
                 <span>5-second countdown before breaks</span>
                 <button
                   type="button"
@@ -1030,17 +942,6 @@ export default function PomodoroTimer({
                   />
                 </button>
               </label>
-              <button
-                type="button"
-                onClick={stopCompletionSound}
-                className={`w-full py-1.5 rounded-md text-[11px] font-semibold ${
-                  dark
-                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                    : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                Stop sound
-              </button>
             </div>
           )}
           </>

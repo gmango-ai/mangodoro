@@ -376,9 +376,26 @@ export function PomodoroProvider({ userId, children }) {
       return;
     }
     const endsAt = endsAtMsRef.current || Date.now() + secondsLeft * 1000;
-    schedulePomodoroNotification({ endsAtMs: endsAt, mode, isSynced });
+    // The preset that should play depends on which phase is ending:
+    // a running work phase ends with the focus-end alarm, a running
+    // break phase ends with the break-end alarm. We read fresh from
+    // localStorage so changes in the picker take effect on the next
+    // scheduling round-trip without us having to hoist the settings
+    // into context.
+    const settings = loadPomodoroSoundSettings();
+    const presetId = mode === "work"
+      ? settings.workEndPreset
+      : settings.breakEndPreset;
+    schedulePomodoroNotification({
+      endsAtMs: endsAt,
+      mode,
+      isSynced,
+      presetId,
+      userSounds: appCtx?.settings?.customSounds || [],
+      teamSounds: teamCtx?.teamSounds || [],
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- secondsLeft is read at scheduling time only; ticking does not reschedule
-  }, [isRunning, mode, sessions, pendingMode, isSynced]);
+  }, [isRunning, mode, sessions, pendingMode, isSynced, appCtx?.settings?.customSounds, teamCtx?.teamSounds]);
 
   // Completion + transition
   useEffect(() => {

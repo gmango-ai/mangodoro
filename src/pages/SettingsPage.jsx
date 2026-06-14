@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context/AppContext";
+import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { Button } from "@/components/ui/button";
@@ -16,9 +17,11 @@ import {
 } from "lucide-react";
 import { ACCENTS } from "../lib/accent";
 import AvatarUploader from "../components/AvatarUploader";
-import FileDropZone from "../components/FileDropZone";
+import SoundLibrary from "../components/SoundLibrary";
 import TimeSelect from "../components/TimeSelect";
 import { toDisplayTime } from "../lib/utils";
+import { loadPomodoroSoundSettings, savePomodoroSoundSettings, USER_SOUND_PREFIX } from "../lib/pomodoroSound";
+import { clearCachedNotificationSound } from "../lib/nativeNotifications";
 
 // Settings as a real page. Left rail of sections, right pane renders
 // the active section. Sections persist on field commit (blur/change)
@@ -183,6 +186,15 @@ function ProfileSection({ dark }) {
     updateSettingsField,
     addCustomSound, renameCustomSound, removeCustomSound,
   } = useApp();
+  const { teamSounds } = useTeam();
+  const [soundSettings, setSoundSettings] = useState(() => loadPomodoroSoundSettings());
+  function updateSound(patch) {
+    setSoundSettings((prev) => {
+      const next = { ...prev, ...patch };
+      savePomodoroSoundSettings(next);
+      return next;
+    });
+  }
   const userId = session?.user?.id;
 
   const [name, setName] = useState(settings.name || "");
@@ -345,158 +357,41 @@ function ProfileSection({ dark }) {
       </SectionCard>
 
       <SectionCard
-        title="Your pomodoro sounds"
-        hint="Upload any number of alarms. Pick one for focus end and break end inside the timer's Sound panel."
+        title="Pomodoro sounds"
+        hint="Upload your own alarms or pick from the built-in library. Tap a card to preview; the Focus / Break pills assign it as the alarm for that phase."
         dark={dark}
       >
-        <SoundList
-          dark={dark}
-          sounds={settings.customSounds || []}
-          canMutate
-          onAdd={async (file) => {
+        <SoundLibrary
+          mode="manage"
+          userSounds={settings.customSounds || []}
+          teamSounds={teamSounds || []}
+          soundSettings={soundSettings}
+          onSelectFocus={(presetId) => { updateSound({ workEndPreset: presetId }); flashSaved(); }}
+          onSelectBreak={(presetId) => { updateSound({ breakEndPreset: presetId }); flashSaved(); }}
+          onUpdateSettings={updateSound}
+          onAddSound={async (file) => {
             const r = await addCustomSound(file);
             if (r.error) setError(r.error.message || "Upload failed");
             else flashSaved();
           }}
-          onRename={async (id, name) => {
+          onRenameSound={async (id, name) => {
             const r = await renameCustomSound(id, name);
             if (r.error) setError(r.error.message); else flashSaved();
           }}
-          onRemove={async (sound) => {
+          onRemoveSound={async (sound) => {
             const r = await removeCustomSound(sound.id);
-            if (r.error) setError(r.error.message); else flashSaved();
+            if (r.error) { setError(r.error.message); return; }
+            // Drop the cached copy from Library/Sounds so we don't
+            // leak a stale MP3 if the user uploads a new one with
+            // the same name later.
+            clearCachedNotificationSound(`${USER_SOUND_PREFIX}${sound.id}`);
+            flashSaved();
           }}
           onError={setError}
         />
       </SectionCard>
 
     </>
-  );
-}
-
-// Reusable list of audio sounds with inline rename + preview + delete.
-// `canMutate` controls whether add/rename/remove affordances render —
-// members of a team see the team sound list but can't change it.
-function SoundList({ dark, sounds, canMutate, onAdd, onRename, onRemove, onError }) {
-  const [renamingId, setRenamingId] = useState(null);
-  const [renameDraft, setRenameDraft] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const playingRef = useRef(null);
-  const [playingId, setPlayingId] = useState(null);
-
-  function togglePreview(sound) {
-    if (playingId === sound.id) {
-      if (playingRef.current) { try { playingRef.current.pause(); } catch { /* ignore */ } }
-      playingRef.current = null;
-      setPlayingId(null);
-      return;
-    }
-    if (playingRef.current) { try { playingRef.current.pause(); } catch { /* ignore */ } }
-    const audio = new Audio(sound.url);
-    playingRef.current = audio;
-    audio.addEventListener("ended", () => {
-      if (playingRef.current === audio) { playingRef.current = null; setPlayingId(null); }
-    });
-    audio.play().then(() => setPlayingId(sound.id)).catch(() => onError?.("Couldn't play sound"));
-  }
-
-  function startRename(sound) {
-    setRenamingId(sound.id);
-    setRenameDraft(sound.name || "");
-  }
-  function commitRename() {
-    const id = renamingId;
-    const next = renameDraft.trim();
-    setRenamingId(null);
-    if (next) onRename?.(id, next);
-  }
-
-  async function handleFile(file) {
-    if (!file) return;
-    setUploading(true);
-    try {
-      await onAdd?.(file);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="space-y-2">
-        {sounds.length === 0 && (
-          <p className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
-            {canMutate ? "No sounds yet. Upload your first one below." : "Your team admins haven't added any sounds yet."}
-          </p>
-        )}
-        {sounds.map((s) => (
-          <div
-            key={s.id}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
-              dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "bg-slate-50 border-slate-200"
-            }`}
-          >
-            {renamingId === s.id ? (
-              <Input
-                autoFocus
-                value={renameDraft}
-                onChange={(e) => setRenameDraft(e.target.value.slice(0, 80))}
-                onBlur={commitRename}
-                onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null); }}
-                className="h-8 max-w-xs"
-                maxLength={80}
-              />
-            ) : (
-              <p className={`flex-1 min-w-0 truncate text-sm font-semibold ${dark ? "text-slate-100" : "text-slate-800"}`}>
-                {s.name || "Untitled sound"}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={() => togglePreview(s)}
-              className={`text-xs font-semibold px-2 py-1 rounded ${
-                dark ? "text-slate-300 hover:bg-slate-700" : "text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              {playingId === s.id ? "Stop" : "Preview"}
-            </button>
-            {canMutate && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => startRename(s)}
-                  className={`text-xs font-semibold px-2 py-1 rounded ${
-                    dark ? "text-slate-300 hover:bg-slate-700" : "text-slate-600 hover:bg-slate-200"
-                  }`}
-                >
-                  Rename
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onRemove?.(s)}
-                  className={`text-xs px-2 py-1 rounded ${
-                    dark ? "text-slate-400 hover:text-red-300" : "text-slate-500 hover:text-red-500"
-                  }`}
-                >
-                  Delete
-                </button>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-      {canMutate && (
-        <FileDropZone
-          accept={{ "audio/*": [] }}
-          maxSize={5 * 1024 * 1024}
-          uploading={uploading}
-          buttonLabel="Upload sound"
-          hint="Click or drop an audio file · MP3 / WAV / OGG / M4A / FLAC · up to 5 MB"
-          onFile={handleFile}
-          onReject={onError}
-        />
-      )}
-    </div>
   );
 }
 
