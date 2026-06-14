@@ -17,6 +17,11 @@ import {
   schedulePomodoroNotification,
 } from "../lib/nativeNotifications";
 import {
+  hasPersistentTimerSurface,
+  startPersistentTimer,
+  stopPersistentTimer,
+} from "../lib/persistentTimer";
+import {
   loadPomodoroSoundSettings, playCompletionSound,
   USER_SOUND_PREFIX, TEAM_SOUND_PREFIX,
 } from "../lib/pomodoroSound";
@@ -396,6 +401,25 @@ export function PomodoroProvider({ userId, children }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- secondsLeft is read at scheduling time only; ticking does not reschedule
   }, [isRunning, mode, sessions, pendingMode, isSynced, appCtx?.settings?.customSounds, teamCtx?.teamSounds]);
+
+  // Drive the live-countdown surfaces — iOS Live Activity (lockscreen +
+  // Dynamic Island), Android ongoing notification with chronometer, and
+  // the Electron tray. Each one self-ticks from the OS once we hand it
+  // the end timestamp, so this effect only fires on phase boundaries.
+  // We deliberately use the same dependency set as the alarm scheduling
+  // above for the same reason: secondsLeft would cause a reschedule on
+  // every tick.
+  useEffect(() => {
+    if (!hasPersistentTimerSurface) return;
+    if (!isRunning) {
+      stopPersistentTimer();
+      return;
+    }
+    const endsAt = endsAtMsRef.current || Date.now() + secondsLeft * 1000;
+    const phaseMode = pendingMode || mode;
+    startPersistentTimer({ endsAtMs: endsAt, mode: phaseMode, isSynced });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally excludes secondsLeft so ticks don't trigger restarts
+  }, [isRunning, mode, sessions, pendingMode, isSynced]);
 
   // Completion + transition
   useEffect(() => {

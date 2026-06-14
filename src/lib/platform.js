@@ -12,7 +12,14 @@ const NATIVE_URL_SCHEME = "mangodoro";
 
 export const isMobileApp = Capacitor.isNativePlatform();
 
+// Electron exposes a `__electronTimer` bridge on window via preload. We
+// key off that rather than UA sniffing — the bridge is the actual
+// capability we depend on, so its presence is what matters.
+export const isElectron =
+  typeof window !== "undefined" && !!window.__electronTimer;
+
 export function getPlatform() {
+  if (isElectron) return "electron";
   return Capacitor.getPlatform(); // "ios" | "android" | "web"
 }
 
