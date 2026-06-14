@@ -11,6 +11,11 @@ import { supabase } from "../supabase";
 import { useApp } from "../context/AppContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { useTeam } from "../context/TeamContext";
+import { isMobileApp } from "../lib/platform";
+import {
+  cancelPomodoroNotification,
+  schedulePomodoroNotification,
+} from "../lib/nativeNotifications";
 import {
   loadPomodoroSoundSettings, playCompletionSound,
   USER_SOUND_PREFIX, TEAM_SOUND_PREFIX,
@@ -354,6 +359,27 @@ export function PomodoroProvider({ userId, children }) {
 
   useTimerTick({ isRunning, userId, endsAtMsRef, setSecondsLeft });
 
+  // Schedule (or cancel) the native local notification that fires when
+  // the current phase ends. Native WebViews get suspended a few dozen
+  // seconds after backgrounding — the in-page completion effect below
+  // never runs, so the alarm has to come from the OS. We re-schedule on
+  // every phase transition (mode/sessions change) and key off
+  // endsAtMsRef when it's been populated by the DB round-trip,
+  // falling back to a local clock derivation for the first frame
+  // after toggleRun flips isRunning to true. secondsLeft is read from
+  // the closure intentionally — adding it to deps would reschedule on
+  // every tick.
+  useEffect(() => {
+    if (!isMobileApp) return;
+    if (!isRunning) {
+      cancelPomodoroNotification();
+      return;
+    }
+    const endsAt = endsAtMsRef.current || Date.now() + secondsLeft * 1000;
+    schedulePomodoroNotification({ endsAtMs: endsAt, mode, isSynced });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- secondsLeft is read at scheduling time only; ticking does not reschedule
+  }, [isRunning, mode, sessions, pendingMode, isSynced]);
+
   // Completion + transition
   useEffect(() => {
     if (!isRunning || secondsLeft > 0) return;
@@ -381,7 +407,10 @@ export function PomodoroProvider({ userId, children }) {
         customSoundsByPresetId,
       });
 
-      if ("Notification" in window && Notification.permission === "granted") {
+      // Web-only browser notification. On native the foreground/background
+      // alarm is handled by the OS via @capacitor/local-notifications —
+      // scheduled in the effect below the moment a phase starts running.
+      if (!isMobileApp && "Notification" in window && Notification.permission === "granted") {
         new Notification(
           currentMode === "work"
             ? isSynced

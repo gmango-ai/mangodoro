@@ -28,6 +28,7 @@ import RemoveMemberModal from "../components/RemoveMemberModal";
 import { archiveRoomV2 } from "../lib/rooms";
 import RoomSettingsModal from "../components/RoomSettingsModal";
 import { joinSyncSession } from "../lib/syncSession";
+import { getShareableBaseUrl } from "../lib/platform";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
 import { compressImage } from "../lib/imageCompress";
@@ -200,7 +201,7 @@ export default function TeamPage() {
 
   async function handleCopyLink() {
     if (!activeTeam?.invite_code) return;
-    const link = `${window.location.origin}/team/join/${activeTeam.invite_code}`;
+    const link = `${getShareableBaseUrl()}/team/join/${activeTeam.invite_code}`;
     await navigator.clipboard.writeText(link);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);

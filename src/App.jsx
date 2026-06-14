@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { App as CapApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
 import { supabase } from "./supabase";
+import { isMobileApp } from "./lib/platform";
+import { requestNotificationPermissions } from "./lib/nativeNotifications";
 import AuthPage from "./AuthPage";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -274,6 +278,74 @@ export default function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Ask once for notification permission on native launch. The actual
+  // OS prompt only appears on first call; subsequent calls just return
+  // the current grant state. Web builds use the in-page Notification
+  // API which is requested lazily from PomodoroContext.toggleRun.
+  useEffect(() => {
+    if (!isMobileApp) return;
+    requestNotificationPermissions();
+  }, []);
+
+  // Lock the viewport on native. iOS auto-zooms when the user taps an
+  // input whose font-size renders below 16 CSS px and then doesn't
+  // expose a way to zoom back out — the app gets stuck zoomed in.
+  // maximum-scale + user-scalable=no kills the auto-zoom. We keep web
+  // unrestricted because pinch-zoom is an accessibility win there;
+  // iOS Safari still allows system-level accessibility zoom regardless.
+  useEffect(() => {
+    if (!isMobileApp) return;
+    const viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport) {
+      viewport.setAttribute(
+        "content",
+        "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+      );
+    }
+  }, []);
+
+  // Native deep-link bridge. AuthPage opens the Supabase OAuth URL in
+  // an in-app browser; Supabase redirects to mangodoro://auth/callback
+  // when done; iOS/Android routes that URL back into the app via
+  // @capacitor/app's appUrlOpen event. Supabase returns one of two
+  // shapes depending on the flow:
+  //   - PKCE:     ?code=<auth_code>  → exchangeCodeForSession(code)
+  //   - implicit: #access_token=...&refresh_token=...  → setSession(...)
+  // signInWithOAuth defaults to the implicit shape for OAuth providers
+  // regardless of the client's flowType, so we handle both. Session
+  // state then propagates via the onAuthStateChange listener above.
+  useEffect(() => {
+    if (!isMobileApp) return;
+    let handle;
+    (async () => {
+      handle = await CapApp.addListener("appUrlOpen", async ({ url }) => {
+        if (!url || !url.startsWith("mangodoro://")) return;
+        try {
+          const u = new URL(url);
+          const code = u.searchParams.get("code");
+          if (code) {
+            await supabase.auth.exchangeCodeForSession(code);
+          } else if (u.hash) {
+            const params = new URLSearchParams(
+              u.hash.startsWith("#") ? u.hash.slice(1) : u.hash
+            );
+            const access_token = params.get("access_token");
+            const refresh_token = params.get("refresh_token");
+            if (access_token && refresh_token) {
+              await supabase.auth.setSession({ access_token, refresh_token });
+            }
+          }
+        } catch (e) {
+          console.error("[auth] deep-link handler failed", e);
+        }
+        Browser.close().catch(() => { /* already closed */ });
+      });
+    })();
+    return () => {
+      handle?.remove?.();
+    };
   }, []);
 
   if (session === undefined) {

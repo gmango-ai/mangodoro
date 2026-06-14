@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useApp } from "../context/AppContext";
-import { formatDuration, formatDecimal, formatMoney, toDisplayTime, weekStart, formatMonthLabel, weekRangeLabel, unpaidBreakMins, todayStr } from "../lib/utils";
+import { formatDuration, formatDecimal, formatMoney, toDisplayTime, weekStart, formatMonthLabel, weekRangeLabel, unpaidBreakMins, todayStr, downloadFile } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -166,7 +166,7 @@ export default function InvoiceModal() {
     }
 
     const filename = `${settings.name ? settings.name.toLowerCase().replace(/\s+/g, "_") + "_" : ""}invoice_${invoiceNumber}.pdf`;
-    doc.save(filename);
+    await downloadFile(doc.output("blob"), filename);
   }
 
   if (!showInvoice) return null;

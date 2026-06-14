@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { X, Copy, Users, Plus, LogIn, Link as LinkIcon, Timer } from "lucide-react";
 import { supabase } from "../supabase";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
+import { getShareableBaseUrl } from "../lib/platform";
 import UserAvatar from "./UserAvatar";
 
 function modeLabel(m) {
@@ -118,7 +119,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
   }
 
   async function handleCopyLink() {
-    const url = `${window.location.origin}/pomodoro/join/${createdSession.join_code}`;
+    const url = `${getShareableBaseUrl()}/pomodoro/join/${createdSession.join_code}`;
     await navigator.clipboard.writeText(url);
     setLinkCopied(true);
     setTimeout(() => setLinkCopied(false), 2000);

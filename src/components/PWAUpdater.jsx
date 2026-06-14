@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { useTheme } from "../context/ThemeContext";
+import { isMobileApp } from "../lib/platform";
 import { RefreshCw } from "lucide-react";
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // hourly background check
 const PENDING_KEY = "ql_pwa_pending_reload";
 
 export default function PWAUpdater() {
+  // Inside Capacitor the WebView is served by the native asset loader,
+  // not a registered service worker — useRegisterSW would no-op but
+  // still install visibility listeners we don't need.
+  if (isMobileApp) return null;
+  return <PWAUpdaterWeb />;
+}
+
+function PWAUpdaterWeb() {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [showUpdated, setShowUpdated] = useState(false);

@@ -25,6 +25,7 @@ import {
   isRetroCurrentWeek,
   setRetroLive,
 } from "../lib/retro";
+import { getShareableBaseUrl } from "../lib/platform";
 import { supabase } from "../supabase";
 
 const LANE_ICON = {
@@ -243,7 +244,7 @@ export default function RetroPage() {
 
   async function copyInviteLink() {
     if (!retro?.invite_code) return;
-    const url = `${window.location.origin}/retros/join/${retro.invite_code}`;
+    const url = `${getShareableBaseUrl()}/retros/join/${retro.invite_code}`;
     try { await navigator.clipboard.writeText(url); } catch { /* ignore */ }
     setInviteCopied(true);
     setTimeout(() => setInviteCopied(false), 2000);
