@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Pencil, Users, Timer } from "lucide-react";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { resolveRoomByInviteCode } from "../lib/rooms";
-import { notifySessionJoined } from "../sync/joinSession";
 
 // The "office" — a god's-eye view of every visible room with live
 // occupants. Read-only by design; the editor lives on /team#office.
@@ -61,7 +60,12 @@ export default function OfficePage() {
     const { data, error } = await joinSyncSession(s.join_code, displayName);
     setRoomBusy(false);
     if (error) { setJoinError(error.message || "Could not join."); return; }
-    if (data) { joinSyncCtx(data); notifySessionJoined(data); }
+    // join_sync_session returns { session, participant } — unwrap the
+    // session row before handing it to the context. Passing the wrapper
+    // stored sessionId:undefined in localStorage and left the timer
+    // unable to sync, which is why a second "Sync → Join" click on
+    // /pomodoro was needed to recover.
+    if (data?.session) joinSyncCtx(data.session);
     navigate("/pomodoro");
   }
 
@@ -79,7 +83,10 @@ export default function OfficePage() {
     });
     setRoomBusy(false);
     if (error) { setJoinError(error.message || "Could not start session."); return; }
-    if (data) { joinSyncCtx(data); notifySessionJoined(data); }
+    // createSyncSession returns the session row directly (not wrapped),
+    // so we hand it straight to the context. joinSyncCtx handles the
+    // localStorage write + event dispatch internally.
+    if (data) joinSyncCtx(data);
     navigate("/pomodoro");
   }
 
