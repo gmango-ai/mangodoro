@@ -1,10 +1,14 @@
 import { useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { uploadAvatar } from "../lib/avatar";
+import { compressImage } from "../lib/imageCompress";
 import { X } from "lucide-react";
 import FileDropZone from "./FileDropZone";
 
-const MAX_BYTES = 2 * 1024 * 1024;
+// Input cap is generous (25 MB) because we auto-compress before upload.
+// The storage cap inside uploadAvatar still rejects anything > 2 MB —
+// belt-and-braces in case compression fails on an exotic format.
+const INPUT_MAX_BYTES = 25 * 1024 * 1024;
 
 export default function AvatarUploader({
   userId,
@@ -24,7 +28,18 @@ export default function AvatarUploader({
     if (!file) return;
     setUploading(true); setError("");
     try {
-      const { data, error: err } = await uploadAvatar(file, userId);
+      // Resize + re-encode large photos (5–15 MB phone shots are common).
+      // No-op for already-small images. GIFs lose animation on this path
+      // — acceptable trade-off for an avatar.
+      let toUpload = file;
+      try {
+        toUpload = await compressImage(file);
+      } catch {
+        // If decode fails (rare formats, corrupt files), fall back to
+        // raw upload and let uploadAvatar's size cap surface the error.
+        toUpload = file;
+      }
+      const { data, error: err } = await uploadAvatar(toUpload, userId);
       if (err) {
         const msg = err.message || "Upload failed";
         setError(msg);
@@ -56,10 +71,10 @@ export default function AvatarUploader({
   return (
     <FileDropZone
       accept={{ "image/*": [] }}
-      maxSize={MAX_BYTES}
+      maxSize={INPUT_MAX_BYTES}
       uploading={uploading}
       buttonLabel={value ? "Change photo" : "Upload photo"}
-      hint="Click or drop an image · max 2 MB"
+      hint="Click or drop an image · large photos auto-compress"
       error={error}
       onFile={processFile}
       onReject={handleReject}
@@ -77,7 +92,7 @@ export default function AvatarUploader({
     >
       <div
         className={`relative rounded-full overflow-hidden border-2 ${
-          dark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-100"
+          dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "border-slate-200 bg-slate-100"
         }`}
         style={{ width: px, height: px }}
       >

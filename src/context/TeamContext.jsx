@@ -8,6 +8,10 @@ import { listActiveTeamSessions } from "../lib/syncSession";
 import { listRooms } from "../lib/rooms";
 import { listOrgTeams, listMyOrgTeams, listOrgTeamMembershipsForOrg } from "../lib/orgTeam";
 import { setMemberHR as setMemberHRRpc } from "../lib/hr";
+import {
+  listTeamSounds, addTeamSound as addTeamSoundRpc,
+  renameTeamSound as renameTeamSoundRpc, removeTeamSound as removeTeamSoundRpc,
+} from "../lib/teamSound";
 
 const TeamContext = createContext(null);
 
@@ -20,6 +24,7 @@ export function TeamProvider({ session, children }) {
   const [teamLoading, setTeamLoading] = useState(false);
   const [activeTeamSessions, setActiveTeamSessions] = useState([]);
   const [rooms, setRooms] = useState([]);
+  const [teamSounds, setTeamSounds] = useState([]);
   const [orgTeams, setOrgTeams] = useState([]);
   const [myOrgTeamIds, setMyOrgTeamIds] = useState(new Set());
   const [myOrgTeamLeadIds, setMyOrgTeamLeadIds] = useState(new Set());
@@ -50,7 +55,7 @@ export function TeamProvider({ session, children }) {
     setTeamLoading(true);
     const { data, error } = await supabase
       .from("team_members")
-      .select("team_id, role, teams(id, name, invite_code, created_by, created_at, icon_url, color, office_vibe)")
+      .select("team_id, role, teams(id, name, invite_code, created_by, created_at, icon_url, color, office_vibe, sounds_admin_only)")
       .eq("user_id", userId);
     setTeamLoading(false);
 
@@ -182,6 +187,69 @@ export function TeamProvider({ session, children }) {
   }, [activeTeamId]);
 
   useEffect(() => { loadRoomsForActiveTeam(); }, [loadRoomsForActiveTeam]);
+
+  // ── Team sounds (shared with all team members) ─────────────
+  const loadTeamSoundsForActive = useCallback(async () => {
+    if (!activeTeamId) { setTeamSounds([]); return; }
+    const { data } = await listTeamSounds(activeTeamId);
+    setTeamSounds(data || []);
+  }, [activeTeamId]);
+
+  useEffect(() => { loadTeamSoundsForActive(); }, [loadTeamSoundsForActive]);
+
+  // Realtime so a new upload from another admin shows up everywhere
+  // without a refresh.
+  useEffect(() => {
+    if (!activeTeamId) return;
+    const teamIdAtSub = activeTeamId;
+    const channel = supabase
+      .channel(`team-sounds:${activeTeamId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "team_sounds", filter: `team_id=eq.${activeTeamId}` },
+        () => {
+          if (activeTeamIdRef.current !== teamIdAtSub) return;
+          loadTeamSoundsForActive();
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeTeamId, loadTeamSoundsForActive]);
+
+  async function addTeamSound(file, name) {
+    if (!activeTeamId || !userId) return { error: { message: "Not signed in" } };
+    const res = await addTeamSoundRpc({ teamId: activeTeamId, file, userId, name });
+    if (!res.error && res.data) setTeamSounds((prev) => [...prev, res.data]);
+    return res;
+  }
+
+  async function renameTeamSound(soundId, name) {
+    const res = await renameTeamSoundRpc(soundId, name);
+    if (!res.error && res.data) {
+      setTeamSounds((prev) => prev.map((s) => s.id === res.data.id ? res.data : s));
+    }
+    return res;
+  }
+
+  async function removeTeamSound(sound) {
+    const res = await removeTeamSoundRpc(sound);
+    if (!res.error) setTeamSounds((prev) => prev.filter((s) => s.id !== sound.id));
+    return res;
+  }
+
+  // Permission helpers — the page UI consults these rather than checking
+  // role + flag inline at every render. RLS still enforces; this is for UX.
+  // We resolve activeTeam + isAdmin inline because the memoized versions
+  // further down in this provider aren't in scope yet at this point.
+  const activeTeamForFlag = teams.find((t) => t.id === activeTeamId) || null;
+  const isAdminForFlag = activeTeamForFlag?.role === "admin";
+  const teamSoundsAdminOnly = activeTeamForFlag?.sounds_admin_only !== false; // default true
+  const canUploadTeamSound = !!activeTeamForFlag && (isAdminForFlag || !teamSoundsAdminOnly);
+  function canManageTeamSound(sound) {
+    if (!sound) return false;
+    if (isAdminForFlag) return true;
+    return sound.created_by === userId;
+  }
 
   // Realtime: refresh rooms when any change to this team's rooms lands.
   useEffect(() => {
@@ -383,6 +451,7 @@ export function TeamProvider({ session, children }) {
     if (patch.icon_url !== undefined) allowed.icon_url = patch.icon_url;
     if (patch.color !== undefined) allowed.color = patch.color;
     if (patch.office_vibe !== undefined) allowed.office_vibe = patch.office_vibe;
+    if (patch.sounds_admin_only !== undefined) allowed.sounds_admin_only = patch.sounds_admin_only;
     if (Object.keys(allowed).length === 0) return { data: null };
     const { data, error } = await supabase
       .from("teams")
@@ -646,6 +715,8 @@ export function TeamProvider({ session, children }) {
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
         rooms, visibleRooms, loadRoomsForActiveTeam,
+        teamSounds, loadTeamSoundsForActive, addTeamSound, renameTeamSound, removeTeamSound,
+        teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
         orgTeams, myOrgTeamIds, myOrgTeamLeadIds, teamsByUserId, orgTeamMemberCounts, loadOrgTeamsForActive,
       }}
     >

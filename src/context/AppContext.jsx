@@ -10,6 +10,7 @@ import {
   startTaskSegment, stopTaskSegment, updateOpenTaskSegment,
   linkSegmentsToEntry, fetchCurrentTaskSegment,
 } from "../lib/taskSegments";
+import { uploadUserSound, deleteCustomSound } from "../lib/customSound";
 
 const AppContext = createContext(null);
 
@@ -169,6 +170,28 @@ export function AppProvider({ session, children }) {
       // where to send the user *before* the AppContext fetch resolves.
       try { localStorage.setItem("ql_default_landing", landing); } catch { /* ignore */ }
       setStickyColor(settingsRes.data?.sticky_color || "#fde68a");
+
+      // One-time migration: if the legacy single-sound fields are set
+      // but the multi-sound list is empty, fold the legacy sound into
+      // the list so the picker shows it. The legacy columns stay until
+      // the next release for safety.
+      const customs = Array.isArray(settingsRes.data?.custom_sounds) ? settingsRes.data.custom_sounds : [];
+      const legacyUrl = settingsRes.data?.pomodoro_sound_url;
+      const legacyName = settingsRes.data?.pomodoro_sound_name;
+      if (customs.length === 0 && legacyUrl) {
+        const migrated = [{
+          id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `s${Date.now().toString(36)}`,
+          name: legacyName || "My sound",
+          url: legacyUrl,
+          path: "", // unknown — old uploads predate path tracking
+        }];
+        await supabase.from("user_settings").upsert({
+          user_id: session.user.id,
+          custom_sounds: migrated,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id" });
+        setSettings((prev) => ({ ...prev, customSounds: migrated }));
+      }
       // Prefer provider_token from OAuth redirect over stale DB value
       if (session?.provider_token) {
         const expiry = Date.now() + 3500 * 1000;
@@ -1173,6 +1196,68 @@ export function AppProvider({ session, children }) {
     await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);
   }
 
+  // ── Custom sounds (user) ─────────────────────────────────────
+  // Stored as a JSONB array on user_settings.custom_sounds. We round-trip
+  // the whole list through one upsert per change — small lists, low write
+  // frequency, no need for a separate table.
+
+  function pickId() {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+    return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  async function persistCustomSounds(next) {
+    if (!session?.user?.id) return { error: { message: "Not signed in" } };
+    setSettings((s) => ({ ...s, customSounds: next }));
+    const { error } = await supabase
+      .from("user_settings")
+      .upsert({
+        user_id: session.user.id,
+        custom_sounds: next,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
+    return { error };
+  }
+
+  async function addCustomSound(file, name) {
+    if (!session?.user?.id) return { error: { message: "Not signed in" } };
+    const up = await uploadUserSound(file, session.user.id);
+    if (up.error) return { error: up.error };
+    const entry = {
+      id: pickId(),
+      name: (name || file.name || "Custom sound").trim().slice(0, 80),
+      url: up.data.url,
+      path: up.data.path,
+    };
+    const next = [...(settings.customSounds || []), entry];
+    const { error } = await persistCustomSounds(next);
+    if (error) {
+      await deleteCustomSound(up.data.path);
+      return { error };
+    }
+    return { data: entry };
+  }
+
+  async function renameCustomSound(id, name) {
+    const clean = (name || "").trim().slice(0, 80);
+    if (!clean) return { error: { message: "Name can't be empty" } };
+    const next = (settings.customSounds || []).map((s) =>
+      s.id === id ? { ...s, name: clean } : s,
+    );
+    return persistCustomSounds(next);
+  }
+
+  async function removeCustomSound(id) {
+    const sound = (settings.customSounds || []).find((s) => s.id === id);
+    if (!sound) return { error: { message: "Sound not found" } };
+    const next = (settings.customSounds || []).filter((s) => s.id !== id);
+    const { error } = await persistCustomSounds(next);
+    if (error) return { error };
+    if (sound.path) await deleteCustomSound(sound.path);
+    else if (sound.url) await deleteCustomSound(sound.url);
+    return { error: null };
+  }
+
   async function disconnectGoogleSheets() {
     setGoogleToken(null);
     setGoogleTokenExpiry(0);
@@ -1384,6 +1469,12 @@ export function AppProvider({ session, children }) {
     session, entries, projects, settings, templates, dataSyncing, dataLoaded,
     hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage, stickyColor, setStickyColor,
     setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget, updateSettingsField,
+    // setters used by the SettingsPage's immediate-save flow
+    setTemplates, setProjects,
+    setDeepseekKey, setReminderTime, setTimeRounding,
+    setDefaultEntryMode, setDefaultLandingPage,
+    // custom sounds (user)
+    addCustomSound, renameCustomSound, removeCustomSound,
     updateStatus,
     // ui
     form, setForm, exportMsg, flash,
