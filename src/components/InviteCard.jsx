@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Copy, Mail, RefreshCw, Sparkles, Check, ChevronDown } from "lucide-react";
+import { getShareableBaseUrl } from "../lib/platform";
 
 // Prominent invite card. Lives at the top of /team because the single
 // most important action for a new org is bringing in teammates — the
@@ -53,7 +54,7 @@ export default function InviteCard({
   // --- Expanded (full) variant ---
   function handleEmail() {
     const subject = encodeURIComponent(`Join ${team.name} on Mangodoro`);
-    const link = `${window.location.origin}/team/join/${team.invite_code}`;
+    const link = `${getShareableBaseUrl()}/team/join/${team.invite_code}`;
     const body = encodeURIComponent(
       `Hey,\n\nI added you to my org "${team.name}" on Mangodoro. Use this link to join:\n\n${link}\n\nOr the invite code: ${team.invite_code}`,
     );

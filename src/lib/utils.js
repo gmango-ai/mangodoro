@@ -1,5 +1,8 @@
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { Filesystem, Directory } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
+import { isMobileApp } from "./platform";
 
 export function cn(...inputs) { return twMerge(clsx(inputs)); }
 
@@ -185,12 +188,58 @@ export function makeEmptyForm(s = {}, templates = []) {
   };
 }
 
-export function downloadFile(blob, filename) {
-  const a = Object.assign(document.createElement("a"), {
-    href: URL.createObjectURL(blob),
-    download: filename,
+// Trigger a file download. On web this builds an <a download> and clicks
+// it. iOS WebView ignores the download attribute (the blob just opens
+// in-tab), so on native we write the blob to the app's cache directory
+// and surface it via the platform Share sheet — Save to Files / AirDrop /
+// email all become one-tap from there.
+export async function downloadFile(blob, filename) {
+  if (!isMobileApp) {
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(blob),
+      download: filename,
+    });
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return;
+  }
+
+  try {
+    const base64 = await blobToBase64(blob);
+    const { uri } = await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Cache,
+    });
+    await Share.share({
+      title: filename,
+      url: uri,
+      dialogTitle: `Save ${filename}`,
+    });
+  } catch (e) {
+    // Share.share rejects when the user dismisses the sheet without
+    // picking an action. That's a normal cancellation, not an error.
+    // Filesystem failures (read-only volume, etc.) are rare but real —
+    // log but don't throw, since most callers fire-and-forget.
+    if (!/cancel/i.test(e?.message || "")) {
+      console.warn("[downloadFile] native share failed", e);
+    }
+  }
+}
+
+// FileReader gives us a base64 string without blowing the JS stack on
+// larger blobs — btoa(String.fromCharCode(...uint8)) chokes around a
+// few MB, which timesheet XLSX exports can hit.
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      const comma = dataUrl.indexOf(",");
+      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : "");
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
   });
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
 }

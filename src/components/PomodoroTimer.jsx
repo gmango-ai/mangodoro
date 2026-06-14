@@ -22,6 +22,7 @@ import {
 } from "../lib/pomodoroSound";
 import { setBadge, clearBadge, formatTimerTitle } from "../lib/badge";
 import { setSyncVisibility } from "../lib/syncSession";
+import { getShareableBaseUrl } from "../lib/platform";
 import SyncParticipantList from "./SyncParticipantList";
 import ConfirmRow from "./ConfirmRow";
 import {
@@ -343,7 +344,7 @@ export default function PomodoroTimer({
               <button
                 type="button"
                 onClick={() => {
-                  const url = `${window.location.origin}/pomodoro/join/${syncSession.join_code}`;
+                  const url = `${getShareableBaseUrl()}/pomodoro/join/${syncSession.join_code}`;
                   navigator.clipboard?.writeText(url);
                 }}
                 title="Copy invite link"
@@ -443,7 +444,7 @@ export default function PomodoroTimer({
                   <button
                     type="button"
                     onClick={() => {
-                      const url = `${window.location.origin}/pomodoro/join/${syncSession.join_code}`;
+                      const url = `${getShareableBaseUrl()}/pomodoro/join/${syncSession.join_code}`;
                       navigator.clipboard?.writeText(url);
                     }}
                     title="Copy invite link"

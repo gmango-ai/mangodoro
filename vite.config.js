@@ -9,6 +9,12 @@ export default defineConfig({
     tailwindcss(),
     react(),
     VitePWA({
+      // Capacitor serves the WebView from its own asset server; the
+      // Workbox service worker is irrelevant there and its precache
+      // collides with Capacitor's loader. CAPACITOR_BUILD=1 disables
+      // SW + manifest generation but keeps the virtual:pwa-register
+      // module resolvable so PWAUpdater still imports cleanly.
+      disable: process.env.CAPACITOR_BUILD === "1",
       registerType: "prompt",
       injectRegister: false,
       includeAssets: ["favicon.ico", "logo.svg", "apple-touch-icon-180x180.png"],

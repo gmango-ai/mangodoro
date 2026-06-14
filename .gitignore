@@ -3,3 +3,19 @@ dist/
 .DS_Store
 *.local
 .vercel
+
+# Claude Code session-local config and worktree scratch.
+.claude/
+
+# Capacitor native build artifacts (the project skeletons themselves
+# are committed; these are derived outputs).
+ios/App/Pods/
+ios/App/Podfile.lock
+ios/App/build/
+ios/DerivedData/
+ios/App/App/public/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/public/
+android/local.properties

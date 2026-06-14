@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { Browser } from "@capacitor/browser";
 import { supabase } from "./supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { isMobileApp, getAuthRedirectUrl, getEmailRedirectUrl } from "./lib/platform";
 
 export default function AuthPage() {
   const [mode, setMode] = useState("signin"); // "signin" | "signup"
@@ -15,15 +17,29 @@ export default function AuthPage() {
   async function handleGoogleSignIn() {
     setError("");
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
+    // On native we open the OAuth URL ourselves in an in-app browser and
+    // catch the redirect via the appUrlOpen listener in App.jsx. Letting
+    // Supabase do its default window-redirect would navigate the WebView
+    // away from capacitor://localhost and break the session bridge.
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      // Use the full current URL so deep-links like /team/join/:code survive
-      // the OAuth round-trip instead of dropping the user back at /.
-      options: { redirectTo: window.location.href },
+      options: {
+        redirectTo: getAuthRedirectUrl(),
+        skipBrowserRedirect: isMobileApp,
+      },
     });
     if (error) {
       setError(error.message);
       setLoading(false);
+      return;
+    }
+    if (isMobileApp && data?.url) {
+      await Browser.open({ url: data.url, presentationStyle: "popover" });
+      // Loading stays true until the deep-link listener fires
+      // exchangeCodeForSession and onAuthStateChange flips us to the
+      // authed app. If the user dismisses the browser without signing
+      // in, the spinner clears via Browser.addListener('browserFinished')
+      // below — wired in App.jsx so it lives across navigations.
     }
   }
 
@@ -41,7 +57,7 @@ export default function AuthPage() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: window.location.origin },
+        options: { emailRedirectTo: getEmailRedirectUrl() },
       });
       if (error) {
         setError(error.message);
