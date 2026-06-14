@@ -10,7 +10,7 @@ export function Skeleton({ className = "", style }) {
     <div
       style={style}
       className={`animate-pulse rounded ${
-        dark ? "bg-slate-800/60" : "bg-slate-200/70"
+        dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-200/70"
       } ${className}`}
     />
   );
@@ -50,7 +50,7 @@ export function SkeletonCard({ children, className = "" }) {
     <div
       className={`rounded-2xl border p-4 ${
         dark
-          ? "bg-slate-900/60 border-slate-700/50"
+          ? "bg-[var(--color-surface)] border-[var(--color-border-light)]"
           : "bg-white border-slate-200"
       } ${className}`}
     >

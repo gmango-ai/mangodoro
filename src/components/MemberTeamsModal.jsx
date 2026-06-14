@@ -72,7 +72,7 @@ export default function MemberTeamsModal({
   }
 
   const cardCls = `relative w-full max-w-md rounded-2xl border p-5 sm:p-6 max-h-[80vh] flex flex-col ${
-    dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
   }`;
 
   return (
@@ -85,7 +85,7 @@ export default function MemberTeamsModal({
           type="button"
           onClick={onClose}
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
           aria-label="Close"
         >
@@ -118,7 +118,7 @@ export default function MemberTeamsModal({
                 <li
                   key={t.id}
                   className={`flex items-center gap-3 px-2.5 py-2 rounded-lg ${
-                    dark ? "bg-slate-800/40" : "bg-slate-50"
+                    dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"
                   }`}
                 >
                   <span
@@ -146,7 +146,7 @@ export default function MemberTeamsModal({
                             ? "bg-violet-500/15 border-violet-400/40 text-violet-200 hover:bg-violet-500/25"
                             : "bg-violet-100 border-violet-300 text-violet-700 hover:bg-violet-200"
                           : dark
-                            ? "bg-transparent border-slate-700 text-slate-400 hover:text-violet-300 hover:border-violet-500/40"
+                            ? "bg-transparent border-[var(--color-border)] text-slate-400 hover:text-violet-300 hover:border-violet-500/40"
                             : "bg-transparent border-slate-300 text-slate-500 hover:text-violet-600 hover:border-violet-400"
                       }`}
                     >

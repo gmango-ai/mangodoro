@@ -118,7 +118,7 @@ export default function OfficePage() {
           <p className={`text-xs mt-0.5 inline-flex items-center gap-3 ${dark ? "text-slate-400" : "text-slate-500"}`}>
             <span className="inline-flex items-center gap-1">
               <Users className="w-3 h-3" />
-              <span className={`font-semibold ${onlineCount > 0 ? (dark ? "text-cyan-300" : "text-teal-700") : ""}`}>
+              <span className={`font-semibold ${onlineCount > 0 ? "text-[var(--color-accent)]" : ""}`}>
                 {onlineCount}
               </span>
               {onlineCount === 1 ? "person online" : "people online"}
@@ -150,7 +150,7 @@ export default function OfficePage() {
 
       {(visibleRooms || []).length === 0 ? (
         <div className={`text-center py-10 rounded-2xl border border-dashed ${
-          dark ? "border-slate-700/60 text-slate-400" : "border-slate-300 text-slate-500"
+          dark ? "border-[var(--color-border)] text-slate-400" : "border-slate-300 text-slate-500"
         }`}>
           <p className="text-sm">No rooms in this office yet.</p>
           {canEdit && (
@@ -184,8 +184,8 @@ export default function OfficePage() {
                   key={room.id}
                   type="button"
                   onClick={() => setPopoverRoom(room)}
-                  className={`text-left rounded-2xl border p-3 transition-colors ${
-                    dark ? "bg-slate-900 border-slate-700 hover:border-cyan-500/50" : "bg-white border-slate-200 hover:border-teal-300"
+                  className={`text-left rounded-2xl border p-3 transition-colors hover:border-[var(--color-accent)] ${
+                    dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
                   }`}
                   style={{ borderTopColor: room.color, borderTopWidth: 4 }}
                 >
@@ -261,7 +261,7 @@ function PrivateRoomCodeSheet({ room, onClose, onConfirm, dark }) {
       <div
         onClick={(e) => e.stopPropagation()}
         className={`relative w-full max-w-sm rounded-2xl border p-5 ${
-          dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+          dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
         }`}
       >
         <h2 className={`text-base font-bold mb-1 ${dark ? "text-slate-100" : "text-slate-800"}`}>
@@ -276,7 +276,7 @@ function PrivateRoomCodeSheet({ room, onClose, onConfirm, dark }) {
           onChange={(e) => setCode(e.target.value.slice(0, 12))}
           placeholder="ABCDEF"
           className={`w-full px-3 py-2 rounded-lg border text-sm font-mono uppercase tracking-widest ${
-            dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : "bg-white border-slate-200 text-slate-800"
+            dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"
           }`}
         />
         <div className="flex justify-end gap-2 mt-4">

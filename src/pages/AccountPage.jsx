@@ -140,11 +140,11 @@ export default function AccountPage({ session }) {
 
   // ── Render ────────────────────────────────────────────────
   const sectionCls = `rounded-2xl border p-5 ${
-    dark ? "bg-slate-900/60 border-slate-700/50" : "bg-white border-slate-200 shadow-sm"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border-light)]" : "bg-white border-slate-200 shadow-sm"
   }`;
   const labelCls = `text-xs font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`;
   const inputCls = `w-full max-w-sm h-10 px-3 rounded-md border text-sm ${
-    dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : "bg-white border-slate-200 text-slate-800"
+    dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"
   }`;
 
   return (
@@ -217,7 +217,7 @@ export default function AccountPage({ session }) {
                 type="button"
                 onClick={togglePreview}
                 className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
-                  dark ? "bg-slate-800 text-slate-200 border border-slate-700" : "bg-white text-slate-700 border border-slate-200"
+                  dark ? "bg-[var(--color-surface-raised)] text-slate-200 border border-[var(--color-border)]" : "bg-white text-slate-700 border border-slate-200"
                 }`}
               >
                 {playing ? "Stop" : "Preview"}

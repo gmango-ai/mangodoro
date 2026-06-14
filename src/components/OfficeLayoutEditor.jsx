@@ -165,7 +165,7 @@ export default function OfficeLayoutEditor({
       <div
         ref={gridRef}
         className={`relative rounded-xl border p-2 ${
-          dark ? "bg-slate-900/40 border-slate-700/60" : "bg-slate-50 border-slate-200"
+          dark ? "bg-[var(--color-bg)] border-[var(--color-border)]" : "bg-slate-50 border-slate-200"
         }`}
         style={{
           display: "grid",
@@ -246,7 +246,7 @@ function GridBackdrop({ columns, rows, dark }) {
         <span
           key={`${x}-${y}`}
           style={{ gridColumn: `${x + 1}`, gridRow: `${y + 1}` }}
-          className={`rounded ${dark ? "bg-slate-800/30" : "bg-white/60"}`}
+          className={`rounded ${dark ? "bg-[var(--color-surface-raised)]" : "bg-white/60"}`}
         />,
       );
     }

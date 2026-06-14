@@ -114,12 +114,18 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
-  /* App-specific design tokens — dark mode */
-  --color-bg: #050505;
-  --color-surface: rgba(14, 20, 26, 0.85);
-  --color-surface-raised: rgba(20, 28, 36, 0.90);
-  --color-border: rgba(45, 212, 191, 0.12);
-  --color-border-light: rgba(45, 212, 191, 0.06);
+  /* App-specific design tokens — dark mode.
+     Neutrals are tinted toward the active accent via color-mix() so the
+     dark theme feels cohesive with whatever color the user picks (rose,
+     blue, amber, …) rather than reading as "neutral dark + accent badge".
+     The accent's own values (--color-accent, --color-accent-light, etc.)
+     are overridden inline by applyAccent() — these mixes feed off whatever
+     it set, so changing accent recolors the whole surface stack. */
+  --color-bg: color-mix(in srgb, var(--color-accent) 4%, #050505);
+  --color-surface: color-mix(in srgb, var(--color-accent) 6%, rgba(14, 20, 26, 0.85));
+  --color-surface-raised: color-mix(in srgb, var(--color-accent) 8%, rgba(20, 28, 36, 0.90));
+  --color-border: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  --color-border-light: color-mix(in srgb, var(--color-accent) 10%, transparent);
   --color-text: #f0f2f5;
   --color-text-secondary: rgba(210, 220, 232, 0.82);
   --color-muted: rgba(150, 165, 185, 0.50);
@@ -131,13 +137,13 @@
   --color-accent-border: rgba(45, 212, 191, 0.35);
   --color-accent-text: #99f6e4;
   --color-accent-bright: #14b8a6;
-  --color-nav: rgba(8, 12, 16, 0.88);
-  --color-nav-border: rgba(45, 212, 191, 0.10);
-  --color-modal: rgba(6, 8, 12, 0.96);
+  --color-nav: color-mix(in srgb, var(--color-accent) 4%, rgba(8, 12, 16, 0.88));
+  --color-nav-border: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --color-modal: color-mix(in srgb, var(--color-accent) 4%, rgba(6, 8, 12, 0.96));
   --color-modal-overlay: rgba(0, 0, 0, 0.85);
-  --color-input-bg: rgba(10, 16, 22, 0.70);
-  --color-tag-bg: rgba(45, 212, 191, 0.10);
-  --color-tag-text: rgba(153, 246, 228, 0.75);
+  --color-input-bg: color-mix(in srgb, var(--color-accent) 5%, rgba(10, 16, 22, 0.70));
+  --color-tag-bg: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --color-tag-text: color-mix(in srgb, var(--color-accent) 75%, #f0f2f5);
   --color-danger: #f87171;
   --color-danger-bg: rgba(69, 10, 10, 0.55);
   --color-warn-bg: rgba(28, 18, 7, 0.65);
@@ -145,8 +151,8 @@
   --color-warn-text: #fef3c7;
   --color-warn-muted: #fde68a;
   --color-success: #4ade80;
-  --color-toggle-shadow: 0 0 0 1px rgba(45, 212, 191, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  --color-modal-shadow: 0 0 0 1px rgba(45, 212, 191, 0.10), 0 32px 80px rgba(0, 0, 0, 0.90), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --color-toggle-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --color-modal-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent), 0 32px 80px rgba(0, 0, 0, 0.90), inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 @theme inline {

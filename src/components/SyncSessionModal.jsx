@@ -127,7 +127,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
   const overlayCls = "fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4";
   const modalCls = `relative w-full max-w-sm rounded-2xl border p-5 sm:p-6 max-h-[calc(100dvh-1.5rem)] overflow-y-auto ${
     dark
-      ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40"
+      ? "shadow-2xl shadow-black/40 bg-[var(--color-surface)] border-[var(--color-border)]"
       : "bg-white border-slate-200 shadow-xl"
   }`;
 
@@ -141,7 +141,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
         <button
           onClick={onClose}
           className={`absolute top-3 right-3 p-1.5 rounded-lg transition-colors ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
         >
           <X className="w-4 h-4" />
@@ -161,7 +161,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value.slice(0, 60))}
               placeholder="Required"
-              className={`mt-1 ${dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : ""}`}
+              className={`mt-1 ${dark ? "border bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : ""}`}
             />
           </div>
         )}
@@ -177,7 +177,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
                 <li
                   key={s.id}
                   className={`flex items-center gap-2 px-2.5 py-2 rounded-lg ${
-                    dark ? "bg-slate-800/50 hover:bg-slate-800/80" : "bg-slate-50 hover:bg-slate-100"
+                    dark ? "bg-[var(--color-surface-raised)] hover:bg-slate-800/80" : "bg-slate-50 hover:bg-slate-100"
                   } transition-colors`}
                 >
                   <UserAvatar url={s.leader_avatar} name={s.leader_name} size={28} className="shrink-0" />
@@ -262,7 +262,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
               Share this code or the invite link:
             </p>
             <div className={`flex items-center justify-center gap-3 px-4 py-3 rounded-xl font-mono text-2xl tracking-[0.3em] font-bold ${
-              dark ? "bg-slate-800 text-[var(--color-accent)]" : "bg-slate-50 text-[var(--color-accent)]"
+              dark ? "bg-[var(--color-surface-raised)] text-[var(--color-accent)]" : "bg-slate-50 text-[var(--color-accent)]"
             }`}>
               {createdSession.join_code}
               <button onClick={handleCopy} className="p-1.5 rounded-lg hover:bg-slate-700/50 transition-colors">
@@ -274,7 +274,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
               onClick={handleCopyLink}
               className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-colors ${
                 dark
-                  ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  ? "bg-[var(--color-surface-raised)] text-slate-300 hover:bg-slate-700"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
@@ -301,7 +301,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                 maxLength={6}
                 className={`flex-1 font-mono text-center text-lg tracking-widest ${
-                  dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : ""
+                  dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : ""
                 }`}
               />
               <Button type="submit" disabled={loading || joinCode.length < 3 || !hasName}>
@@ -322,7 +322,7 @@ function ToggleRow({ dark, label, hint, value, onChange }) {
       onClick={() => onChange(!value)}
       className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg border transition-colors text-left ${
         dark
-          ? "bg-slate-800/40 border-slate-700 hover:bg-slate-800/70"
+          ? "border bg-[var(--color-surface-raised)] border-[var(--color-border)]"
           : "bg-slate-50 border-slate-200 hover:bg-slate-100"
       }`}
     >

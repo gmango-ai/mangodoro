@@ -47,7 +47,7 @@ export default function MarkdownText({ children, dark = false, compact = false, 
             return (
               <a
                 href={href}
-                className={`underline ${dark ? "text-cyan-300 hover:text-cyan-200" : "text-teal-700 hover:text-teal-800"}`}
+                className="underline text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
                 {...rest}
                 {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
               >
@@ -57,11 +57,11 @@ export default function MarkdownText({ children, dark = false, compact = false, 
           },
           code: ({ inline, children }) => (
             inline
-              ? <code className={`px-1 py-0.5 rounded text-[0.85em] font-mono ${dark ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-800"}`}>{children}</code>
+              ? <code className={`px-1 py-0.5 rounded text-[0.85em] font-mono ${dark ? "bg-[var(--color-surface-raised)] text-slate-200" : "bg-slate-100 text-slate-800"}`}>{children}</code>
               : <code className="font-mono text-xs">{children}</code>
           ),
           pre: ({ children }) => (
-            <pre className={`my-1.5 p-2 rounded-md overflow-x-auto text-xs ${dark ? "bg-slate-900 border border-slate-700" : "bg-slate-50 border border-slate-200"}`}>
+            <pre className={`my-1.5 p-2 rounded-md overflow-x-auto text-xs ${dark ? "bg-[var(--color-surface)] border border-[var(--color-border)]" : "bg-slate-50 border border-slate-200"}`}>
               {children}
             </pre>
           ),
@@ -72,7 +72,7 @@ export default function MarkdownText({ children, dark = false, compact = false, 
           ),
           strong: ({ children }) => <strong className={`font-bold ${dark ? "text-slate-100" : "text-slate-900"}`}>{children}</strong>,
           em: ({ children }) => <em>{children}</em>,
-          hr: () => <hr className={`my-2 ${dark ? "border-slate-700" : "border-slate-200"}`} />,
+          hr: () => <hr className={`my-2 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`} />,
         }}
       >
         {children || ""}

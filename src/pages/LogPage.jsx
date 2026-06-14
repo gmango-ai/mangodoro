@@ -121,7 +121,7 @@ export default function LogPage() {
                 {/* Month Header */}
                 <div className={`p-4 sm:p-5 rounded-xl transition-all ${
                   dark
-                    ? "bg-slate-900/40 backdrop-blur-xl border border-slate-800/50 hover:border-[var(--color-accent)]"
+                    ? "bg-[var(--color-bg)] backdrop-blur-xl border border-slate-800/50 hover:border-[var(--color-accent)]"
                     : "bg-white/40 backdrop-blur-xl border border-slate-200/60 hover:border-blue-300/60"
                 }`}>
                   {/* Row 1: toggle + name + duration */}
@@ -205,7 +205,7 @@ export default function LogPage() {
                             onClick={() => toggleWeek(weekKey)}
                             className={`w-full flex items-center justify-between p-4 rounded-lg transition-all ${
                               dark
-                                ? "bg-slate-800/30 border border-slate-700/50 hover:border-slate-600/50"
+                                ? "bg-[var(--color-surface-raised)] border border-[var(--color-border-light)] hover:border-slate-600/50"
                                 : "bg-slate-50/50 border border-slate-200/50 hover:border-slate-300/60"
                             }`}
                           >
@@ -239,7 +239,7 @@ export default function LogPage() {
                                     key={date}
                                     className={`rounded-xl border overflow-hidden transition-all ${
                                       dark
-                                        ? "bg-slate-900/30 backdrop-blur-xl border-slate-800/50"
+                                        ? "bg-[var(--color-bg)] backdrop-blur-xl border-slate-800/50"
                                         : "bg-white/50 backdrop-blur-xl border-slate-200/50"
                                     }`}
                                   >
@@ -263,7 +263,7 @@ export default function LogPage() {
                                             <div className={`flex justify-between text-xs mb-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
                                               <span>8 AM</span><span>12 PM</span><span>4 PM</span><span>8 PM</span>
                                             </div>
-                                            <div className={`h-3 rounded-full relative overflow-hidden ${dark ? "bg-slate-800/50" : "bg-slate-200/50"}`}>
+                                            <div className={`h-3 rounded-full relative overflow-hidden ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-200/50"}`}>
                                               {dayEntries.map((entry, i) => {
                                                 const startH = timeToHour(entry.start);
                                                 const endH = timeToHour(entry.end);
@@ -273,8 +273,8 @@ export default function LogPage() {
                                                 const barColor = firstProject
                                                   ? firstProject.color + (entry.billable !== false ? "cc" : "66")
                                                   : entry.billable !== false
-                                                    ? dark ? "#06b6d4cc" : "#14b8a6cc"
-                                                    : dark ? "#134e4acc" : "#115e59cc";
+                                                    ? "color-mix(in srgb, var(--color-accent) 80%, transparent)"
+                                                    : "color-mix(in srgb, var(--color-accent) 35%, transparent)";
                                                 return (
                                                   <div
                                                     key={i}
@@ -285,7 +285,9 @@ export default function LogPage() {
                                               })}
                                               {dayEntries.flatMap((entry, i) => {
                                                 const firstProject = projects.find((p) => (entry.project_ids || [])[0] === p.id);
-                                                const breakColor = firstProject ? firstProject.color + "44" : dark ? "#67e8f944" : "#99f6e4";
+                                                const breakColor = firstProject
+                                                  ? firstProject.color + "44"
+                                                  : "color-mix(in srgb, var(--color-accent) 25%, transparent)";
                                                 return (entry.breaks || []).filter((b) => b.unpaid).map((b, j) => {
                                                   const bLeft = Math.max(0, ((timeToHour(b.start) - 8) / 12) * 100);
                                                   const bWidth = Math.max(0, ((timeToHour(b.end) - timeToHour(b.start)) / 12) * 100);
@@ -329,13 +331,13 @@ export default function LogPage() {
                                           </div>
                                         </div>
                                         {/* Right: totals */}
-                                        <div className="sm:text-right flex-shrink-0 ml-0 sm:ml-4 flex items-center justify-between sm:block border-t sm:border-t-0 pt-3 sm:pt-0 mt-2 sm:mt-0 border-slate-200 dark:border-slate-800">
+                                        <div className="sm:text-right flex-shrink-0 ml-0 sm:ml-4 flex items-center justify-between sm:block border-t sm:border-t-0 pt-3 sm:pt-0 mt-2 sm:mt-0 border-slate-200 dark:border-[var(--color-border-light)]">
                                           {hourlyRate > 0 && (
                                             <div className={`text-xs font-mono mb-0.5 ${dark ? "text-slate-400" : "text-slate-500"}`}>
                                               {formatMoney((dayTotal / 60) * hourlyRate)}
                                             </div>
                                           )}
-                                          <div className={`text-xl font-mono font-semibold ${dark ? "text-cyan-400" : "text-teal-600"}`}>
+                                          <div className="text-xl font-mono font-semibold text-[var(--color-accent)]">
                                             {formatDuration(dayTotal)}
                                           </div>
                                           <p className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>

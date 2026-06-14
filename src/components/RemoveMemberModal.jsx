@@ -15,7 +15,7 @@ export default function RemoveMemberModal({
   if (!open || !member) return null;
 
   const cardCls = `relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
-    dark ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border)] shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
   }`;
 
   return (
@@ -28,7 +28,7 @@ export default function RemoveMemberModal({
           type="button"
           onClick={onClose}
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
           aria-label="Close"
         >
@@ -53,7 +53,7 @@ export default function RemoveMemberModal({
 
         {/* Member preview */}
         <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg mb-4 ${
-          dark ? "bg-slate-800/40" : "bg-slate-50"
+          dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"
         }`}>
           <UserAvatar url={member.avatar_url} name={member.name} size={36} />
           <div className="min-w-0 flex-1">
@@ -68,7 +68,7 @@ export default function RemoveMemberModal({
 
         {/* What happens */}
         <div className={`rounded-lg border p-3 mb-4 ${
-          dark ? "bg-slate-800/30 border-slate-700/60" : "bg-slate-50 border-slate-200"
+          dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-slate-50 border-slate-200"
         }`}>
           <p className={`text-[10px] font-semibold uppercase tracking-wider mb-2 ${
             dark ? "text-slate-400" : "text-slate-500"

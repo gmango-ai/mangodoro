@@ -81,10 +81,10 @@ export default function JoinSyncPage() {
   }
 
   const wrapCls = `min-h-screen w-full flex items-center justify-center px-4 ${
-    dark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-800"
+    dark ? "bg-[var(--color-bg)] text-slate-100" : "bg-slate-50 text-slate-800"
   }`;
   const cardCls = `w-full max-w-md rounded-2xl border p-6 ${
-    dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200 shadow-md"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200 shadow-md"
   }`;
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`;
 
@@ -104,7 +104,7 @@ export default function JoinSyncPage() {
         <h1 className="text-xl font-bold mb-1">Join Pomodoro session</h1>
         <p className={`text-sm mb-4 ${dark ? "text-slate-400" : "text-slate-500"}`}>
           Code:{" "}
-          <span className={`font-mono font-bold tracking-widest ${dark ? "text-cyan-400" : "text-teal-600"}`}>
+          <span className="font-mono font-bold tracking-widest text-[var(--color-accent)]">
             {(code || "").toUpperCase()}
           </span>
         </p>
@@ -116,7 +116,7 @@ export default function JoinSyncPage() {
             {previewError}
           </div>
         ) : preview ? (
-          <div className={`text-xs mb-4 px-3 py-2 rounded-lg ${dark ? "bg-slate-800/60" : "bg-slate-50"}`}>
+          <div className={`text-xs mb-4 px-3 py-2 rounded-lg ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"}`}>
             Hosted by <strong>{preview.leader_name}</strong> · {MODE_LABELS[preview.mode] || preview.mode} ·{" "}
             {preview.participants}/{preview.max_participants} in session
           </div>
@@ -130,7 +130,7 @@ export default function JoinSyncPage() {
             value={name}
             onChange={(e) => setName(e.target.value.slice(0, 60))}
             placeholder="Required"
-            className={`mt-1 ${dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : ""}`}
+            className={`mt-1 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : ""}`}
           />
         </div>
 

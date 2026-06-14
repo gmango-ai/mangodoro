@@ -74,10 +74,10 @@ export default function RoomSettingsModal({
   }
 
   const cardCls = `relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
-    dark ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border)] shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
   }`;
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`;
-  const inputCls = dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : "";
+  const inputCls = dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "";
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4" onClick={onClose}>
@@ -87,7 +87,7 @@ export default function RoomSettingsModal({
           onClick={onClose}
           aria-label="Close"
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
         >
           <X className="w-4 h-4" />
@@ -170,7 +170,7 @@ export default function RoomSettingsModal({
                     {...(!active && {
                       className: `inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors ${
                         dark
-                          ? "bg-slate-800/40 border-slate-700 text-slate-300 hover:border-slate-600"
+                          ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300 hover:border-slate-600"
                           : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
                       }`,
                     })}

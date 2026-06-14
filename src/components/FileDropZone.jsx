@@ -68,7 +68,7 @@ export default function FileDropZone({
   const stateCls = isDragActive
     ? "border-[var(--color-accent)] bg-[var(--color-accent-light)]"
     : dark
-      ? "border-slate-700 bg-slate-800/30"
+      ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]"
       : "border-slate-200 bg-slate-50";
 
   return (

@@ -45,7 +45,7 @@ export default function RoomActionPopover({
       <div
         onClick={(e) => e.stopPropagation()}
         className={`relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
-          dark ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
+          dark ? "bg-[var(--color-surface)] border-[var(--color-border)] shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
         }`}
       >
         <button
@@ -53,7 +53,7 @@ export default function RoomActionPopover({
           onClick={onClose}
           aria-label="Close"
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
         >
           <X className="w-4 h-4" />
@@ -63,8 +63,8 @@ export default function RoomActionPopover({
         <div className="flex items-start gap-3 mb-4">
           <div className={`p-2 rounded-lg shrink-0 ${
             isOccupied
-              ? dark ? "bg-cyan-500/15 text-cyan-300" : "bg-teal-100 text-teal-700"
-              : dark ? "bg-slate-800/60 text-slate-300" : "bg-slate-100 text-slate-600"
+              ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
+              : dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-100 text-slate-600"
           }`}>
             <Icon className="w-5 h-5" />
           </div>
@@ -99,7 +99,7 @@ export default function RoomActionPopover({
 
         {/* Session state */}
         <div className={`rounded-lg border p-3 mb-4 ${
-          dark ? "bg-slate-800/40 border-slate-700/60" : "bg-slate-50 border-slate-200"
+          dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-slate-50 border-slate-200"
         }`}>
           {isOccupied ? (
             <>
@@ -117,7 +117,7 @@ export default function RoomActionPopover({
                     <span
                       key={o.user_id}
                       className={`inline-flex items-center gap-1.5 text-xs px-1.5 py-0.5 rounded-md ${
-                        dark ? "bg-slate-900/60 text-slate-200" : "bg-white text-slate-700 border border-slate-200"
+                        dark ? "bg-[var(--color-surface)] text-slate-200" : "bg-white text-slate-700 border border-slate-200"
                       }`}
                       title={userTeams.map((t) => t.name).join(" · ")}
                     >

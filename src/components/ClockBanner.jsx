@@ -29,7 +29,7 @@ export default function ClockBanner() {
 
   return (
     <div className={`fixed bottom-0 left-0 right-0 z-50 border-t backdrop-blur-xl ${
-      dark ? "bg-slate-900/95 border-slate-700/60" : "bg-white/95 border-slate-200"
+      dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white/95 border-slate-200"
     }`}>
       <div className="flex items-center gap-3 px-4 py-3">
         {/* Left: status indicator + time + projects */}
@@ -101,11 +101,7 @@ export default function ClockBanner() {
           {/* Stop button */}
           <button
             onClick={handleStop}
-            className={`flex items-center gap-2 font-semibold px-5 py-2.5 rounded-xl border transition-colors text-sm ${
-              dark
-                ? "border-cyan-500/40 text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 hover:border-cyan-500/60"
-                : "border-teal-500 text-teal-700 bg-teal-50 hover:bg-teal-100"
-            }`}
+            className="flex items-center gap-2 font-semibold px-5 py-2.5 rounded-xl border transition-colors text-sm border-[var(--color-accent)] text-[var(--color-accent)] bg-[var(--color-accent-light)] hover:bg-[var(--color-accent-light-hover)]"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />

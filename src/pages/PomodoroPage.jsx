@@ -213,7 +213,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
             {/* Rooms — the team's persistent pomodoro spaces */}
             {activeTeamId && (
               <div
-                className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
+                className={`rounded-2xl border p-4 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
               >
                 <div className="flex items-center justify-between mb-3">
                   <h2
@@ -279,7 +279,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
             {/* Loose sessions (no room) — kept for back-compat */}
             {looseSessions.length > 0 && (
               <div
-                className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
+                className={`rounded-2xl border p-4 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
               >
                 <h2
                   className={`text-sm font-semibold uppercase tracking-wider mb-3 ${dark ? "text-slate-400" : "text-slate-500"}`}
@@ -291,7 +291,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                     <li
                       key={s.id}
                       className={`flex items-center gap-3 px-3 py-2 rounded-lg ${
-                        dark ? "bg-slate-800/40" : "bg-slate-50"
+                        dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"
                       }`}
                     >
                       <UserAvatar url={s.leader_avatar} name={s.leader_name} size={36} className="shrink-0" />
@@ -316,7 +316,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                 not in a team yet, or want a non-room session. */}
             {!activeTeamId && (
               <div
-                className={`rounded-2xl border p-5 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
+                className={`rounded-2xl border p-5 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
               >
                 <div className="flex items-start gap-3">
                   <div className="p-2 rounded-lg bg-[var(--color-accent-light)]">
@@ -350,7 +350,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
               const online = occupantIds.size;
               return (
                 <div
-                  className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
+                  className={`rounded-2xl border p-4 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
                 >
                   <h3
                     className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
@@ -383,7 +383,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                 copy keeps them visible while you scroll. */}
             {weekGoals.length > 0 && (
               <div
-                className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
+                className={`rounded-2xl border p-4 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
               >
                 <h3
                   className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
@@ -400,9 +400,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                         to={`/retros/${g.id}`}
                         className={`block group ${dark ? "hover:text-slate-50" : "hover:text-slate-900"}`}
                       >
-                        <span className={`inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[9px] mb-1 ${
-                          dark ? "text-cyan-300" : "text-teal-700"
-                        }`}>
+                        <span className="inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[9px] mb-1 text-[var(--color-accent)]">
                           <Target className="w-3 h-3" />
                           {g.org_team_name || g.department || "Team"}
                         </span>
@@ -433,7 +431,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
           <aside className="space-y-4">
             {inSession && activeTeamSessions.length > 0 && (
               <div
-                className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
+                className={`rounded-2xl border p-4 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
               >
                 <h3
                   className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
@@ -463,7 +461,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                 you don't lose context once you're focused in a session. */}
             {weekGoals.length > 0 && (
               <div
-                className={`rounded-2xl border p-4 ${dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}
+                className={`rounded-2xl border p-4 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
               >
                 <h3
                   className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
@@ -480,9 +478,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                         to={`/retros/${g.id}`}
                         className={`block group ${dark ? "hover:text-slate-50" : "hover:text-slate-900"}`}
                       >
-                        <span className={`inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[9px] mb-1 ${
-                          dark ? "text-cyan-300" : "text-teal-700"
-                        }`}>
+                        <span className="inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[9px] mb-1 text-[var(--color-accent)]">
                           <Target className="w-3 h-3" />
                           {g.org_team_name || g.department || "Team"}
                         </span>
@@ -525,7 +521,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
         >
           <div
             className={`relative w-full max-w-sm rounded-2xl border p-5 sm:p-6 ${
-              dark ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)] shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
             }`}
             onClick={(e) => e.stopPropagation()}
           >
@@ -543,7 +539,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
               autoFocus
               placeholder="ABC123"
               className={`w-full h-10 px-3 rounded-md border text-center text-lg font-mono tracking-widest ${
-                dark ? "bg-slate-800 border-slate-700 text-slate-100" : "bg-white border-slate-200 text-slate-800"
+                dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"
               }`}
               onKeyDown={(e) => { if (e.key === "Enter") submitPrivateCode(); }}
             />

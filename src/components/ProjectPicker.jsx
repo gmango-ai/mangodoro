@@ -17,7 +17,7 @@ export default function ProjectPicker({ selectedIds = [], onChange }) {
   const [newColor, setNewColor] = useState(PRESET_COLORS[0]);
   const [saving, setSaving] = useState(false);
 
-  const containerCls = `flex flex-wrap gap-2 p-3 rounded-lg border ${dark ? "bg-slate-900/50 border-slate-700/50" : "bg-white/80 border-slate-200"}`;
+  const containerCls = `flex flex-wrap gap-2 p-3 rounded-lg border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border-light)]" : "bg-white/80 border-slate-200"}`;
 
   async function handleAdd() {
     if (!newName.trim()) return;
@@ -59,7 +59,7 @@ export default function ProjectPicker({ selectedIds = [], onChange }) {
       })}
 
       {adding ? (
-        <div className={`w-full mt-1 pt-2 border-t ${dark ? "border-slate-700/50" : "border-slate-200"}`}>
+        <div className={`w-full mt-1 pt-2 border-t ${dark ? "border-[var(--color-border-light)]" : "border-slate-200"}`}>
           <div className="flex flex-wrap gap-1.5 mb-2">
             {PRESET_COLORS.map((c) => (
               <button
@@ -84,19 +84,17 @@ export default function ProjectPicker({ selectedIds = [], onChange }) {
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAdd(); } if (e.key === "Escape") handleCancel(); }}
               placeholder="Project name"
               autoFocus
-              className={`flex-1 text-xs px-2 py-1.5 rounded border outline-none ${
+              className={`flex-1 text-xs px-2 py-1.5 rounded border outline-none focus:border-[var(--color-accent)] ${
                 dark
-                  ? "bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-500"
-                  : "bg-white border-slate-300 text-slate-800 placeholder:text-slate-400 focus:border-teal-400"
+                  ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-white placeholder:text-slate-500"
+                  : "bg-white border-slate-300 text-slate-800 placeholder:text-slate-400"
               }`}
             />
             <button
               type="button"
               onClick={handleAdd}
               disabled={!newName.trim() || saving}
-              className={`text-xs px-2.5 py-1.5 rounded font-medium transition-all disabled:opacity-50 ${
-                dark ? "bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30" : "bg-teal-100 text-teal-700 hover:bg-teal-200"
-              }`}
+              className="text-xs px-2.5 py-1.5 rounded font-medium transition-all disabled:opacity-50 bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
             >
               {saving ? "…" : "Add"}
             </button>

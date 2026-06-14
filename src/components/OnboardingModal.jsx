@@ -69,13 +69,13 @@ export default function OnboardingModal({ open, onClose, userId }) {
   const overlayCls = "fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4";
   const modalCls = `relative w-full max-w-md rounded-2xl border p-6 sm:p-8 ${
     dark
-      ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40"
+      ? "shadow-2xl shadow-black/40 bg-[var(--color-surface)] border-[var(--color-border)]"
       : "bg-white border-slate-200 shadow-xl"
   }`;
   const labelCls = `text-xs font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`;
   const helpCls = `text-xs mt-1 ${dark ? "text-slate-500" : "text-slate-400"}`;
   const inputCls = `${
-    dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : ""
+    dark ? "border bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : ""
   }`;
 
   return (
@@ -133,7 +133,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
                         ? "bg-[var(--color-accent-light-hover)] text-[var(--color-accent)]"
                         : "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
                       : dark
-                        ? "bg-slate-800 text-slate-400"
+                        ? "bg-[var(--color-surface-raised)] text-slate-400"
                         : "bg-slate-100 text-slate-500"
                   }`}
                 >
@@ -148,7 +148,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
                         ? "bg-[var(--color-accent-light-hover)] text-[var(--color-accent)]"
                         : "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
                       : dark
-                        ? "bg-slate-800 text-slate-400"
+                        ? "bg-[var(--color-surface-raised)] text-slate-400"
                         : "bg-slate-100 text-slate-500"
                   }`}
                 >

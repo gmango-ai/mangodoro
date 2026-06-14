@@ -57,7 +57,7 @@ export default function SalaryClockCard() {
   const isClocked = !!clockIn?.start;
 
   const cardCls = `rounded-2xl border p-5 ${
-    dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200 shadow-sm"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200 shadow-sm"
   }`;
 
   return (
@@ -73,7 +73,7 @@ export default function SalaryClockCard() {
             {isClocked ? "On the clock" : "Off the clock"}
           </h2>
           {isClocked && (
-            <p className={`text-xs mt-0.5 ${dark ? "text-cyan-300" : "text-teal-600"} font-mono`}>
+            <p className="text-xs mt-0.5 text-[var(--color-accent)] font-mono">
               {fmtHm(activeMins)} this session
             </p>
           )}
@@ -95,7 +95,7 @@ export default function SalaryClockCard() {
 
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-3 mb-3">
-        <div className={`rounded-lg px-3 py-2 ${dark ? "bg-slate-800/40" : "bg-slate-50"}`}>
+        <div className={`rounded-lg px-3 py-2 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"}`}>
           <p className={`text-[10px] font-semibold uppercase tracking-wider ${
             dark ? "text-slate-500" : "text-slate-400"
           }`}>
@@ -105,7 +105,7 @@ export default function SalaryClockCard() {
             {fmtHm(todayTotalMins)}
           </p>
         </div>
-        <div className={`rounded-lg px-3 py-2 ${dark ? "bg-slate-800/40" : "bg-slate-50"}`}>
+        <div className={`rounded-lg px-3 py-2 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"}`}>
           <p className={`text-[10px] font-semibold uppercase tracking-wider ${
             dark ? "text-slate-500" : "text-slate-400"
           }`}>
@@ -133,12 +133,12 @@ export default function SalaryClockCard() {
             {progressPct}%
           </span>
         </div>
-        <div className={`h-2 rounded-full overflow-hidden ${dark ? "bg-slate-800" : "bg-slate-100"}`}>
+        <div className={`h-2 rounded-full overflow-hidden ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
           <div
             className={`h-full rounded-full transition-all ${
               progressPct >= 100
                 ? dark ? "bg-emerald-400" : "bg-emerald-500"
-                : dark ? "bg-cyan-400" : "bg-teal-500"
+                : "bg-[var(--color-accent)]"
             }`}
             style={{ width: `${progressPct}%` }}
           />

@@ -94,7 +94,7 @@ export default function OrgTeamsCard({
     <div className={cardCls}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Users className={`w-4 h-4 ${dark ? "text-cyan-400" : "text-teal-600"}`} />
+          <Users className="w-4 h-4 text-[var(--color-accent)]" />
           <p className={labelCls}>Teams</p>
         </div>
         {!adding && (
@@ -111,7 +111,7 @@ export default function OrgTeamsCard({
       {/* Add form */}
       {adding && (
         <div className={`mb-3 rounded-lg border p-3 ${
-          dark ? "bg-slate-800/40 border-slate-700/60" : "bg-slate-50 border-slate-200"
+          dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-slate-50 border-slate-200"
         }`}>
           <div className="flex gap-2 mb-2">
             <Input
@@ -157,8 +157,8 @@ export default function OrgTeamsCard({
             <Checkbox
               checked={draftCreateRoom}
               onCheckedChange={(v) => setDraftCreateRoom(!!v)}
-              className={`w-4 h-4 rounded border ${
-                dark ? "border-slate-600 data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500" : "border-slate-300 data-[state=checked]:bg-teal-600 data-[state=checked]:border-teal-600"
+              className={`w-4 h-4 rounded border data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)] ${
+                dark ? "border-slate-600" : "border-slate-300"
               }`}
             />
             <Briefcase className={`w-3.5 h-3.5 ${dark ? "text-slate-400" : "text-slate-500"}`} />
@@ -181,7 +181,7 @@ export default function OrgTeamsCard({
               <li
                 key={t.id}
                 className={`flex items-center gap-2 px-2.5 py-2 rounded-lg ${
-                  dark ? "bg-slate-800/40" : "bg-slate-50"
+                  dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"
                 }`}
               >
                 {/* Color swatch (click cycles palette) */}

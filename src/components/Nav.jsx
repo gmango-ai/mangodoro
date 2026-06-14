@@ -56,7 +56,7 @@ export default function Nav({ onOpenPomodoro }) {
       isActive
         ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
         : darkMode
-          ? "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
+          ? "text-slate-400 hover:text-slate-300 hover:bg-[var(--color-surface-raised)]"
           : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
     }`;
 
@@ -65,13 +65,13 @@ export default function Nav({ onOpenPomodoro }) {
       isActive
         ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
         : darkMode
-          ? "text-slate-300 hover:text-slate-100 hover:bg-slate-800/60"
+          ? "text-slate-300 hover:text-slate-100 hover:bg-[var(--color-surface-raised)]"
           : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"
     }`;
 
   const themeBtnCls = `p-2 rounded-lg transition-all ${
     darkMode
-      ? "bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700"
+      ? "border bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300 hover:bg-[var(--color-bg)]"
       : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200"
   }`;
 
@@ -85,19 +85,20 @@ export default function Nav({ onOpenPomodoro }) {
       <header
         className={`sticky top-0 z-50 border-b transition-all ${
           darkMode
-            ? "bg-slate-900/40 backdrop-blur-2xl border-cyan-500/10 shadow-[0_4px_24px_rgba(6,182,212,0.1)]"
-            : "bg-white/60 backdrop-blur-xl border-blue-200/50 shadow-sm"
+            ? "bg-[var(--color-bg)] backdrop-blur-2xl border-[var(--color-accent-border)]"
+            : "bg-white/60 backdrop-blur-xl border-[var(--color-accent-border)] shadow-sm"
         }`}
+        style={
+          darkMode
+            ? { boxShadow: "0 4px 24px color-mix(in srgb, var(--color-accent) 12%, transparent)" }
+            : undefined
+        }
       >
         {dataSyncing && (
           <div
             role="status"
             aria-live="polite"
-            className={`flex items-center justify-center gap-2 px-4 py-1.5 text-[11px] font-medium border-b ${
-              darkMode
-                ? "border-cyan-500/15 bg-cyan-500/5 text-cyan-300/95"
-                : "border-teal-200/60 bg-teal-50/80 text-teal-900"
-            }`}
+            className="flex items-center justify-center gap-2 px-4 py-1.5 text-[11px] font-medium border-b border-[var(--color-accent-border)] bg-[var(--color-accent-light)] text-[var(--color-accent)]"
           >
             <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin opacity-90" aria-hidden />
             Syncing your data…
@@ -111,7 +112,7 @@ export default function Nav({ onOpenPomodoro }) {
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
             className={`sm:hidden p-2 -ml-2 rounded-lg ${
-              darkMode ? "text-slate-300 hover:bg-slate-800/50" : "text-slate-600 hover:bg-slate-100"
+              darkMode ? "text-slate-300 hover:bg-[var(--color-surface-raised)]" : "text-slate-600 hover:bg-slate-100"
             }`}
           >
             <Menu className="w-5 h-5" />
@@ -182,13 +183,13 @@ export default function Nav({ onOpenPomodoro }) {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${
           darkMode
-            ? "bg-slate-900 border-r border-slate-700/60"
+            ? "border-r bg-[var(--color-surface)] border-[var(--color-border)]"
             : "bg-white border-r border-slate-200"
         }`}
         aria-hidden={!sidebarOpen}
       >
         <div className={`flex items-center justify-between px-4 py-3 border-b ${
-          darkMode ? "border-slate-700/60" : "border-slate-200"
+          darkMode ? "border-[var(--color-border)]" : "border-slate-200"
         }`}>
           <div className="flex items-center gap-2 min-w-0">
             {settings.avatarUrl ? (
@@ -207,7 +208,7 @@ export default function Nav({ onOpenPomodoro }) {
             onClick={() => setSidebarOpen(false)}
             aria-label="Close menu"
             className={`p-1.5 rounded-lg ${
-              darkMode ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"
+              darkMode ? "text-slate-400 hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:bg-slate-100"
             }`}
           >
             <X className="w-5 h-5" />
@@ -218,7 +219,7 @@ export default function Nav({ onOpenPomodoro }) {
           <NavLink to="/pomodoro" className={sidebarNavLink}>
             <Timer className="w-5 h-5" /> Pomodoro
             {hasTeamSessions && (
-              <span className={`ml-auto w-2 h-2 rounded-full ${darkMode ? "bg-cyan-400" : "bg-teal-500"} animate-pulse`} />
+              <span className="ml-auto w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse" />
             )}
           </NavLink>
           <NavLink to="/office" className={sidebarNavLink}>
@@ -234,14 +235,14 @@ export default function Nav({ onOpenPomodoro }) {
             <Users className="w-5 h-5" /> Org
           </NavLink>
 
-          <div className={`my-3 border-t ${darkMode ? "border-slate-800" : "border-slate-100"}`} />
+          <div className={`my-3 border-t ${darkMode ? "border-[var(--color-border-light)]" : "border-slate-100"}`} />
 
           <button
             type="button"
             onClick={() => { setSidebarOpen(false); onOpenPomodoro?.(); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
               darkMode
-                ? "text-slate-300 hover:text-slate-100 hover:bg-slate-800/60"
+                ? "text-slate-300 hover:text-slate-100 hover:bg-[var(--color-surface-raised)]"
                 : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"
             }`}
           >
@@ -253,7 +254,7 @@ export default function Nav({ onOpenPomodoro }) {
             onClick={() => setSidebarOpen(false)}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
               darkMode
-                ? "text-slate-300 hover:text-slate-100 hover:bg-slate-800/60"
+                ? "text-slate-300 hover:text-slate-100 hover:bg-[var(--color-surface-raised)]"
                 : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"
             }`}
           >
@@ -265,7 +266,7 @@ export default function Nav({ onOpenPomodoro }) {
             onClick={() => { toggleTheme(); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
               darkMode
-                ? "text-slate-300 hover:text-slate-100 hover:bg-slate-800/60"
+                ? "text-slate-300 hover:text-slate-100 hover:bg-[var(--color-surface-raised)]"
                 : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"
             }`}
           >
@@ -274,7 +275,7 @@ export default function Nav({ onOpenPomodoro }) {
           </button>
         </nav>
 
-        <div className={`px-3 py-3 border-t ${darkMode ? "border-slate-800" : "border-slate-100"}`}>
+        <div className={`px-3 py-3 border-t ${darkMode ? "border-[var(--color-border-light)]" : "border-slate-100"}`}>
           <button
             type="button"
             onClick={signOut}
@@ -294,7 +295,7 @@ export default function Nav({ onOpenPomodoro }) {
           role="status"
           className={`fixed bottom-5 left-1/2 z-[100] max-w-[min(92vw,28rem)] -translate-x-1/2 rounded-lg border px-4 py-2.5 text-sm shadow-lg ${
             darkMode
-              ? "border-slate-600 bg-slate-800 text-slate-100 shadow-black/40"
+              ? "border-slate-600 bg-[var(--color-surface-raised)] text-slate-100 shadow-black/40"
               : "border-slate-200 bg-white text-slate-900 shadow-slate-900/10"
           }`}
         >
@@ -344,7 +345,7 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
         aria-haspopup="menu"
         aria-expanded={open}
         className={`flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full transition-colors ${
-          dark ? "hover:bg-slate-800/50" : "hover:bg-slate-100"
+          dark ? "hover:bg-[var(--color-surface-raised)]" : "hover:bg-slate-100"
         }`}
       >
         <span className="relative">
@@ -362,11 +363,11 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
         <div
           role="menu"
           className={`absolute right-0 top-full mt-1.5 min-w-[240px] rounded-xl border shadow-lg overflow-hidden z-50 ${
-            dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+            dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
           }`}
         >
           {/* Identity row */}
-          <div className={`px-3 py-3 border-b ${dark ? "border-slate-700/60" : "border-slate-200/70"}`}>
+          <div className={`px-3 py-3 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200/70"}`}>
             <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
               {name}
             </p>
@@ -378,7 +379,7 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
             <p className={`text-[11px] mt-1 ${dark ? "text-slate-400" : "text-slate-500"}`}>
               {todayMins > 0 ? `Today · ${formatDuration(todayMins)}` : "No hours logged today"}
               {hasTeamSessions && (
-                <span className={`ml-2 inline-flex items-center gap-1 ${dark ? "text-cyan-300" : "text-[var(--color-accent)]"}`}>
+                <span className="ml-2 inline-flex items-center gap-1 text-[var(--color-accent)]">
                   <Timer className="w-3 h-3 animate-pulse" />
                   session active
                 </span>
