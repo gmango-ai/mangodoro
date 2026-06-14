@@ -8,7 +8,6 @@ import { TeamProvider } from "./context/TeamContext";
 import { SyncSessionProvider, useSyncSession } from "./context/SyncSessionContext";
 import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import Nav from "./components/Nav";
-import SettingsModal from "./components/SettingsModal";
 import InvoiceModal from "./components/InvoiceModal";
 import ClockBanner from "./components/ClockBanner";
 import PomodoroTimer from "./components/PomodoroTimer";
@@ -45,6 +44,18 @@ function AppLayout({ session }) {
   useEffect(() => {
     applyAccent(settings.accentColor || "teal", darkMode);
   }, [settings.accentColor, darkMode]);
+
+  // Mount the `.dark` class on <html> rather than a wrapper div. Two reasons:
+  //   1. CSS variable inheritance — if `.dark { --color-accent: cyan }` is
+  //      defined on a child of <html>, descendants inherit the child's
+  //      value even when applyAccent writes `--color-accent: pink !important`
+  //      on <html>. Putting .dark on <html> aligns both sources.
+  //   2. Portal-rendered content (PiP window, modals) sees dark mode.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (darkMode) root.classList.add("dark");
+    else root.classList.remove("dark");
+  }, [darkMode]);
 
   useEffect(() => {
     const prevent = (e) => {
@@ -84,21 +95,43 @@ function AppLayout({ session }) {
   }
 
   return (
-    <div className={darkMode ? "dark" : ""}>
+    <div>
       <div className="relative min-h-screen w-full overflow-hidden transition-colors duration-300">
+        {/*
+          Animated background glows tinted by the user's accent (and its
+          color-theory partner --color-break). We use color-mix() against
+          the live CSS vars so picking a new accent recolors the entire
+          background without a reload. The previous version baked in cyan/
+          teal/purple/pink/blue which made dark mode look identical regardless
+          of accent.
+        */}
         {darkMode && (
-          <div className="fixed inset-0 bg-slate-950 z-0">
+          <div className="fixed inset-0 z-0" style={{ background: "var(--color-bg)" }}>
             <div
-              className="absolute top-0 right-1/4 w-[600px] h-[600px] bg-gradient-to-br from-cyan-500/20 via-teal-500/15 to-transparent rounded-full blur-3xl animate-pulse"
-              style={{ animationDuration: "8s" }}
+              className="absolute top-0 right-1/4 w-[600px] h-[600px] rounded-full blur-3xl animate-pulse"
+              style={{
+                background:
+                  "radial-gradient(circle, color-mix(in srgb, var(--color-accent) 22%, transparent), transparent 70%)",
+                animationDuration: "8s",
+              }}
             />
             <div
-              className="absolute bottom-0 left-1/4 w-[700px] h-[700px] bg-gradient-to-br from-purple-500/15 via-pink-500/10 to-transparent rounded-full blur-3xl animate-pulse"
-              style={{ animationDuration: "10s", animationDelay: "2s" }}
+              className="absolute bottom-0 left-1/4 w-[700px] h-[700px] rounded-full blur-3xl animate-pulse"
+              style={{
+                background:
+                  "radial-gradient(circle, color-mix(in srgb, var(--color-break) 18%, transparent), transparent 70%)",
+                animationDuration: "10s",
+                animationDelay: "2s",
+              }}
             />
             <div
-              className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-br from-blue-500/10 via-indigo-500/10 to-transparent rounded-full blur-3xl animate-pulse"
-              style={{ animationDuration: "12s", animationDelay: "4s" }}
+              className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full blur-3xl animate-pulse"
+              style={{
+                background:
+                  "radial-gradient(circle, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%)",
+                animationDuration: "12s",
+                animationDelay: "4s",
+              }}
             />
             <div
               className="absolute inset-0 opacity-[0.015]"
@@ -107,21 +140,52 @@ function AppLayout({ session }) {
                   "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
               }}
             />
-            <div className="absolute inset-0 bg-[linear-gradient(rgba(6,182,212,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(6,182,212,0.03)_1px,transparent_1px)] bg-[size:64px_64px]" />
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundImage:
+                  "linear-gradient(color-mix(in srgb, var(--color-accent) 4%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 4%, transparent) 1px, transparent 1px)",
+                backgroundSize: "64px 64px",
+              }}
+            />
           </div>
         )}
 
         {!darkMode && (
-          <div className="fixed inset-0 bg-gradient-to-br from-slate-50 via-blue-50/40 to-purple-50/40 z-0">
-            <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-gradient-to-br from-blue-400/15 to-cyan-400/10 rounded-full blur-3xl" />
-            <div className="absolute bottom-0 left-1/4 w-[600px] h-[600px] bg-gradient-to-br from-purple-400/10 to-pink-400/10 rounded-full blur-3xl" />
-            <div className="absolute inset-0 bg-[linear-gradient(rgba(59,130,246,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(59,130,246,0.02)_1px,transparent_1px)] bg-[size:48px_48px]" />
+          <div
+            className="fixed inset-0 z-0"
+            style={{
+              background:
+                "linear-gradient(135deg, #f8fafc 0%, color-mix(in srgb, var(--color-accent) 6%, #f8fafc) 50%, color-mix(in srgb, var(--color-break) 6%, #f8fafc) 100%)",
+            }}
+          >
+            <div
+              className="absolute top-0 right-1/4 w-[500px] h-[500px] rounded-full blur-3xl"
+              style={{
+                background:
+                  "radial-gradient(circle, color-mix(in srgb, var(--color-accent) 15%, transparent), transparent 70%)",
+              }}
+            />
+            <div
+              className="absolute bottom-0 left-1/4 w-[600px] h-[600px] rounded-full blur-3xl"
+              style={{
+                background:
+                  "radial-gradient(circle, color-mix(in srgb, var(--color-break) 12%, transparent), transparent 70%)",
+              }}
+            />
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundImage:
+                  "linear-gradient(color-mix(in srgb, var(--color-accent) 3%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 3%, transparent) 1px, transparent 1px)",
+                backgroundSize: "48px 48px",
+              }}
+            />
           </div>
         )}
 
         <div className="relative z-10 min-h-screen">
           <Nav onOpenPomodoro={() => setShowPomodoro(true)} />
-          <SettingsModal />
           <InvoiceModal />
           <ClockBanner />
           {!onPomodoroPage && (

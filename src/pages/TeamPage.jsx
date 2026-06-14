@@ -13,7 +13,7 @@ import {
 import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
   ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
-  MoreVertical, Search, X, Star, Briefcase, Pencil, Archive,
+  MoreVertical, Search, X, Star, Briefcase, Pencil, Archive, Volume2,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
@@ -30,6 +30,7 @@ import RoomSettingsModal from "../components/RoomSettingsModal";
 import { joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
+import { compressImage } from "../lib/imageCompress";
 import { supabase } from "../supabase";
 
 const TEAM_COLORS = [
@@ -45,6 +46,8 @@ export default function TeamPage() {
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
     removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
     activeTeamSessions, loadActiveTeamSessions,
+    teamSounds, addTeamSound, renameTeamSound, removeTeamSound,
+    teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
   } = useTeam();
   const { settings, session } = useApp();
   const { theme } = useTheme();
@@ -271,14 +274,14 @@ export default function TeamPage() {
 
   const cardCls = `rounded-xl border p-5 ${
     dark
-      ? "bg-slate-900/60 border-slate-700/50 shadow-lg shadow-black/20"
+      ? "border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg shadow-black/20"
       : "bg-white border-slate-200 shadow-sm"
   }`;
   const labelCls = `text-xs font-medium uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`;
   const headingCls = `text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`;
   const subCls = `text-sm ${dark ? "text-slate-400" : "text-slate-500"}`;
   const inputCls = dark
-    ? "bg-slate-800/60 border-slate-700 text-slate-100 placeholder:text-slate-500"
+    ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500"
     : "";
 
   // Show the skeleton until TeamContext has at least tried to load teams
@@ -437,7 +440,7 @@ export default function TeamPage() {
                   <div
                     key={s.id}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${
-                      dark ? "bg-slate-800/40" : "bg-slate-50"
+                      dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"
                     }`}
                   >
                     <div className="flex-1 min-w-0">
@@ -493,12 +496,54 @@ export default function TeamPage() {
               labelCls={labelCls}
               inputCls={inputCls}
               onSave={(patch) => updateTeam(activeTeam.id, patch)}
-              onUploadIcon={async (file) => uploadTeamIcon(file, activeTeam.id)}
+              onUploadIcon={async (file) => {
+                // Auto-compress raster images; SVGs pass through unchanged.
+                let toUpload = file;
+                if (file && file.type && file.type !== "image/svg+xml") {
+                  try { toUpload = await compressImage(file); } catch { /* fall back to raw */ }
+                }
+                return uploadTeamIcon(toUpload, activeTeam.id);
+              }}
               onDeleteIcon={async (url) => deleteTeamIcon(url)}
               onSuccess={(msg) => { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }}
               onError={(msg) => setError(msg)}
             />
           )}
+
+          {/* Org-shared pomodoro sounds. Every member sees the list and
+              can pick one inside the timer's Sound panel; whether they can
+              upload depends on the team's sounds_admin_only flag. */}
+          <TeamSoundsCard
+            dark={dark}
+            cardCls={cardCls}
+            labelCls={labelCls}
+            isAdmin={isAdmin}
+            teamName={activeTeam.name}
+            adminOnly={teamSoundsAdminOnly}
+            canUpload={canUploadTeamSound}
+            sounds={teamSounds || []}
+            canManageSound={canManageTeamSound}
+            onToggleAdminOnly={async () => {
+              const next = !teamSoundsAdminOnly;
+              const { error } = await updateTeam(activeTeam.id, { sounds_admin_only: next });
+              if (error) setError(error.message);
+              else { setSuccess(next ? "Only admins can upload sounds now" : "Members can upload sounds now"); setTimeout(() => setSuccess(""), 2500); }
+            }}
+            onAdd={async (file) => {
+              const r = await addTeamSound(file);
+              if (r.error) setError(r.error.message || "Upload failed");
+              else { setSuccess("Sound added"); setTimeout(() => setSuccess(""), 2000); }
+            }}
+            onRename={async (id, name) => {
+              const r = await renameTeamSound(id, name);
+              if (r.error) setError(r.error.message);
+            }}
+            onRemove={async (sound) => {
+              const r = await removeTeamSound(sound);
+              if (r.error) setError(r.error.message);
+            }}
+            onError={(msg) => setError(msg)}
+          />
 
           {/* ─── TEAMS ───────────────────────────────────────────── */}
           {isAdmin && (
@@ -1014,7 +1059,7 @@ function MemberCard({
   }
 
   return (
-    <div className={`rounded-xl px-3 py-3 ${dark ? "bg-slate-800/40" : "bg-slate-50"}`}>
+    <div className={`rounded-xl px-3 py-3 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"}`}>
       {/* Row 1: identity + actions */}
       <div className="flex items-start gap-3">
         {/* Avatar with presence ring. Admin status is shown in the
@@ -1084,7 +1129,7 @@ function MemberCard({
               >
                 <SelectTrigger
                   className={`h-7 text-xs px-2 w-auto gap-1 ${
-                    dark ? "bg-slate-900/60 border-slate-700 text-slate-200" : "bg-white"
+                    dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white"
                   }`}
                 >
                   <SelectValue />
@@ -1114,7 +1159,7 @@ function MemberCard({
 
       {/* Row 2: team chips */}
       {(teamsForUser.length > 0 || isAdmin) && (
-        <div className={`mt-3 pt-2.5 border-t ${dark ? "border-slate-700/40" : "border-slate-200/70"} flex flex-wrap items-center gap-1.5`}>
+        <div className={`mt-3 pt-2.5 border-t ${dark ? "border-[var(--color-border-light)]" : "border-slate-200/70"} flex flex-wrap items-center gap-1.5`}>
           <span className={`text-[10px] font-semibold uppercase tracking-wider ${
             dark ? "text-slate-500" : "text-slate-400"
           }`}>
@@ -1188,7 +1233,7 @@ function FilterChip({ label, count, color, active, accent, dark, onClick }) {
   const stateCls = active
     ? "shadow-sm"
     : dark
-      ? "bg-slate-800/40 border-slate-700/60 text-slate-300 hover:bg-slate-800/80"
+      ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300 hover:bg-slate-800/80"
       : "bg-white border-slate-200 text-slate-600 hover:border-slate-300";
   const activeStyle = active
     ? {
@@ -1260,7 +1305,7 @@ function MemberActionsMenu({ dark, canRemove, onEditComp, onEditTeams, onRemove 
         aria-label="Member actions"
         className={`h-7 w-7 rounded-md border inline-flex items-center justify-center transition-colors ${
           dark
-            ? "bg-slate-900/60 border-slate-700 text-slate-300 hover:bg-slate-700/60"
+            ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-300 hover:bg-slate-700/60"
             : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
         }`}
       >
@@ -1270,7 +1315,7 @@ function MemberActionsMenu({ dark, canRemove, onEditComp, onEditTeams, onRemove 
         <div
           role="menu"
           className={`absolute right-0 top-full mt-1 z-40 min-w-[160px] rounded-lg border shadow-lg overflow-hidden py-1 ${
-            dark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+            dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-white border-slate-200"
           }`}
         >
           <button
@@ -1360,7 +1405,7 @@ function RoomsAdminCard({
             <div
               key={r.id}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${
-                dark ? "bg-slate-800/40" : "bg-slate-50"
+                dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"
               }`}
             >
               {/* Color swatch instead of the generic Briefcase icon — at
@@ -1484,6 +1529,160 @@ function TeamIcon({ team, size = 32 }) {
   );
 }
 
+function TeamSoundsCard({
+  dark, cardCls, labelCls,
+  isAdmin, teamName, adminOnly, canUpload, sounds,
+  canManageSound,
+  onToggleAdminOnly, onAdd, onRename, onRemove, onError,
+}) {
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const playingRef = useRef(null);
+  const [playingId, setPlayingId] = useState(null);
+
+  function togglePreview(sound) {
+    if (playingId === sound.id) {
+      if (playingRef.current) { try { playingRef.current.pause(); } catch { /* ignore */ } }
+      playingRef.current = null;
+      setPlayingId(null);
+      return;
+    }
+    if (playingRef.current) { try { playingRef.current.pause(); } catch { /* ignore */ } }
+    const audio = new Audio(sound.url);
+    playingRef.current = audio;
+    audio.addEventListener("ended", () => {
+      if (playingRef.current === audio) { playingRef.current = null; setPlayingId(null); }
+    });
+    audio.play().then(() => setPlayingId(sound.id)).catch(() => onError?.("Couldn't play sound"));
+  }
+
+  function startRename(sound) {
+    setRenamingId(sound.id);
+    setRenameDraft(sound.name || "");
+  }
+  function commitRename() {
+    const id = renamingId;
+    const next = renameDraft.trim();
+    setRenamingId(null);
+    if (next) onRename?.(id, next);
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    setUploading(true);
+    try { await onAdd?.(file); } finally { setUploading(false); }
+  }
+
+  return (
+    <div className={cardCls}>
+      <div className="flex items-center justify-between mb-3">
+        <p className={labelCls}>Org Sounds</p>
+        <Volume2 className="w-4 h-4 text-[var(--color-accent)]" />
+      </div>
+      <p className={`text-xs mb-3 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+        Sounds shared with the whole org — every member can pick them inside the timer's Sound panel.
+      </p>
+
+      {isAdmin && (
+        <label className={`flex items-center gap-2 mb-4 text-xs cursor-pointer ${dark ? "text-slate-200" : "text-slate-700"}`}>
+          <input
+            type="checkbox"
+            checked={!!adminOnly}
+            onChange={onToggleAdminOnly}
+            className="h-3.5 w-3.5"
+            style={{ accentColor: "var(--color-accent)" }}
+          />
+          <span>Only admins can upload sounds</span>
+          <span className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            {adminOnly ? "(members can listen only)" : "(any member can upload)"}
+          </span>
+        </label>
+      )}
+
+      <div className="space-y-2 mb-3">
+        {sounds.length === 0 && (
+          <p className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            {canUpload
+              ? `No sounds yet. Upload one to share it with everyone in ${teamName}.`
+              : `No sounds yet. Ask an admin to add one for ${teamName}.`}
+          </p>
+        )}
+        {sounds.map((s) => {
+          const canManage = canManageSound?.(s);
+          return (
+            <div
+              key={s.id}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              {renamingId === s.id ? (
+                <Input
+                  autoFocus
+                  value={renameDraft}
+                  onChange={(e) => setRenameDraft(e.target.value.slice(0, 80))}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null); }}
+                  className="h-8 max-w-xs"
+                  maxLength={80}
+                />
+              ) : (
+                <p className={`flex-1 min-w-0 truncate text-sm font-semibold ${dark ? "text-slate-100" : "text-slate-800"}`}>
+                  {s.name || "Untitled sound"}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => togglePreview(s)}
+                className={`text-xs font-semibold px-2 py-1 rounded ${
+                  dark ? "text-slate-300 hover:bg-slate-700" : "text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {playingId === s.id ? "Stop" : "Preview"}
+              </button>
+              {canManage && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => startRename(s)}
+                    className={`text-xs font-semibold px-2 py-1 rounded ${
+                      dark ? "text-slate-300 hover:bg-slate-700" : "text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemove?.(s)}
+                    className={`text-xs px-2 py-1 rounded ${
+                      dark ? "text-slate-400 hover:text-red-300" : "text-slate-500 hover:text-red-500"
+                    }`}
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {canUpload && (
+        <FileDropZone
+          accept={{ "audio/*": [] }}
+          maxSize={5 * 1024 * 1024}
+          uploading={uploading}
+          buttonLabel="Upload sound"
+          hint="Click or drop an audio file · MP3 / WAV / OGG / M4A / FLAC · up to 5 MB"
+          onFile={handleFile}
+          onReject={onError}
+        />
+      )}
+    </div>
+  );
+}
+
 function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onUploadIcon, onDeleteIcon, onSuccess, onError }) {
   const [nameDraft, setNameDraft] = useState(team.name || "");
   const [colorDraft, setColorDraft] = useState(team.color || "#14b8a6");
@@ -1551,10 +1750,10 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
       <div className="space-y-4">
         <FileDropZone
           accept={{ "image/*": [] }}
-          maxSize={2 * 1024 * 1024}
+          maxSize={25 * 1024 * 1024}
           uploading={uploading}
           buttonLabel={iconUrl ? "Replace icon" : "Upload icon"}
-          hint="Click or drop an image · max 2 MB"
+          hint="Click or drop an image · large photos auto-compress"
           onFile={processFile}
           onReject={(msg) => onError?.(msg)}
           actions={iconUrl ? (
@@ -1629,7 +1828,7 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
           <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"} mt-0.5 mb-2`}>
             How active the rooms grid feels when a session is running.
           </p>
-          <div className={`inline-flex rounded-lg p-0.5 ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
+          <div className={`inline-flex rounded-lg p-0.5 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
             {[
               ["quiet", "Quiet"],
               ["active", "Active"],

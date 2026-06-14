@@ -10,7 +10,11 @@ import {
 import { supabase } from "../supabase";
 import { useApp } from "../context/AppContext";
 import { useSyncSession } from "../context/SyncSessionContext";
-import { loadPomodoroSoundSettings, playCompletionSound } from "../lib/pomodoroSound";
+import { useTeam } from "../context/TeamContext";
+import {
+  loadPomodoroSoundSettings, playCompletionSound,
+  USER_SOUND_PREFIX, TEAM_SOUND_PREFIX,
+} from "../lib/pomodoroSound";
 import { evaluateRemoteRow, remoteRemainingSeconds } from "./applyRemoteRow";
 import {
   beginTransition as beginTransitionCmd,
@@ -34,7 +38,21 @@ const PomodoroContext = createContext(null);
 
 export function PomodoroProvider({ userId, children }) {
   const appCtx = useApp();
+  const teamCtx = useTeam();
   const customSoundUrl = appCtx?.settings?.pomodoroSoundUrl || "";
+  // Flatten user + team custom sound lists into a single lookup keyed
+  // by preset id, so playCompletionSound can resolve whichever the user
+  // picked without us caring which scope it came from.
+  const customSoundsByPresetId = useMemo(() => {
+    const map = {};
+    for (const s of appCtx?.settings?.customSounds || []) {
+      if (s?.url) map[`${USER_SOUND_PREFIX}${s.id}`] = { url: s.url, name: s.name };
+    }
+    for (const s of teamCtx?.teamSounds || []) {
+      if (s?.url) map[`${TEAM_SOUND_PREFIX}${s.id}`] = { url: s.url, name: s.name };
+    }
+    return map;
+  }, [appCtx?.settings?.customSounds, teamCtx?.teamSounds]);
   const { syncSession, leaveSession } = useSyncSession();
 
   const [mode, setMode] = useState("work");
@@ -360,6 +378,7 @@ export function PomodoroProvider({ userId, children }) {
       playCompletionSound(loadPomodoroSoundSettings(), {
         event: currentMode === "work" ? "work" : "break",
         customSoundUrl,
+        customSoundsByPresetId,
       });
 
       if ("Notification" in window && Notification.permission === "granted") {
@@ -396,6 +415,7 @@ export function PomodoroProvider({ userId, children }) {
     secondsLeft,
     isRunning,
     customSoundUrl,
+    customSoundsByPresetId,
     isSynced,
     isController,
     beginTransition,

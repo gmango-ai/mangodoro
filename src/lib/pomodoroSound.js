@@ -23,10 +23,36 @@ export const POMODORO_SOUND_DEFAULTS = {
 
 export const SOUND_CATEGORIES = ["custom", "calm", "standard", "aggressive"];
 
-// Sentinel preset id used when the user wants their uploaded file. The
-// URL itself is supplied at play time via settings.customSoundUrl (mirrored
-// from user_settings.pomodoro_sound_url so it syncs cross-device).
+// Prefix used by per-user and per-team uploaded sounds.
+//   usound:<sound-id>   → entry in user_settings.custom_sounds
+//   tsound:<row-uuid>   → row in team_sounds
+// The legacy "custom" sentinel still resolves — see resolveCustomSound().
 export const CUSTOM_PRESET_ID = "custom";
+export const USER_SOUND_PREFIX = "usound:";
+export const TEAM_SOUND_PREFIX = "tsound:";
+
+export function isCustomPresetId(id) {
+  if (!id) return false;
+  return id === CUSTOM_PRESET_ID
+    || id.startsWith(USER_SOUND_PREFIX)
+    || id.startsWith(TEAM_SOUND_PREFIX);
+}
+
+// Resolve a custom preset id to a playable URL using the per-user and
+// per-team sound lists. Caller passes a `customSounds` map keyed by
+// preset id ({ "usound:abc": { url, name }, ... }). Falls back to the
+// `legacyCustomUrl` if the preset id is the bare "custom" sentinel.
+export function resolveCustomSound(presetId, customSounds, legacyCustomUrl) {
+  if (!presetId) return null;
+  if (presetId === CUSTOM_PRESET_ID) {
+    if (legacyCustomUrl) return { url: legacyCustomUrl, name: "Custom" };
+    // No explicit "custom" sound configured — fall back to first user sound.
+    const firstKey = customSounds && Object.keys(customSounds).find((k) => k.startsWith(USER_SOUND_PREFIX));
+    return firstKey ? customSounds[firstKey] : null;
+  }
+  if (customSounds && customSounds[presetId]) return customSounds[presetId];
+  return null;
+}
 
 // Each preset describes how to play one "ring".
 // `kind: "synth"` invokes the synth() function with the given recipe.
@@ -82,8 +108,8 @@ export function loadPomodoroSoundSettings() {
 
     return {
       volume: typeof parsed.volume === "number" ? clamp(parsed.volume, 0, 1) : POMODORO_SOUND_DEFAULTS.volume,
-      workEndPreset: (PRESET_BY_ID[workEnd] || workEnd === CUSTOM_PRESET_ID) ? workEnd : POMODORO_SOUND_DEFAULTS.workEndPreset,
-      breakEndPreset: (PRESET_BY_ID[breakEnd] || breakEnd === CUSTOM_PRESET_ID) ? breakEnd : POMODORO_SOUND_DEFAULTS.breakEndPreset,
+      workEndPreset: (PRESET_BY_ID[workEnd] || isCustomPresetId(workEnd)) ? workEnd : POMODORO_SOUND_DEFAULTS.workEndPreset,
+      breakEndPreset: (PRESET_BY_ID[breakEnd] || isCustomPresetId(breakEnd)) ? breakEnd : POMODORO_SOUND_DEFAULTS.breakEndPreset,
       pitch: typeof parsed.pitch === "number" ? clamp(parsed.pitch, 0.5, 1.5) : POMODORO_SOUND_DEFAULTS.pitch,
       repeat: Number.isFinite(parsed.repeat) ? clamp(Math.floor(parsed.repeat), 0, 10) : POMODORO_SOUND_DEFAULTS.repeat,
       repeatGapMs: Number.isFinite(parsed.repeatGapMs)
@@ -150,10 +176,15 @@ export async function playCompletionSound(settings = POMODORO_SOUND_DEFAULTS, op
     ?? POMODORO_SOUND_DEFAULTS.workEndPreset;
 
   let preset;
-  if (presetId === CUSTOM_PRESET_ID) {
-    const url = opts.customSoundUrl || settings.customSoundUrl;
-    if (url) {
-      preset = { id: CUSTOM_PRESET_ID, kind: "file", src: url, label: "Custom" };
+  if (isCustomPresetId(presetId)) {
+    const lookup = opts.customSoundsByPresetId || settings.customSoundsByPresetId || {};
+    const resolved = resolveCustomSound(
+      presetId,
+      lookup,
+      opts.customSoundUrl || settings.customSoundUrl,
+    );
+    if (resolved?.url) {
+      preset = { id: presetId, kind: "file", src: resolved.url, label: resolved.name || "Custom" };
     } else {
       // Custom selected but no URL — fall back to the default built-in.
       preset = PRESET_BY_ID[POMODORO_SOUND_DEFAULTS.workEndPreset];

@@ -36,6 +36,10 @@ export function normalizeSettings(row) {
     isGuest: !!row.is_guest,
     pomodoroSoundUrl: row.pomodoro_sound_url || "",
     pomodoroSoundName: row.pomodoro_sound_name || "",
+    // Multi-sound list: [{ id, name, url, path }]. Empty array if the
+    // user only ever set the legacy single sound — AppContext migrates
+    // that on next save.
+    customSounds: Array.isArray(row.custom_sounds) ? row.custom_sounds : [],
     accentColor: row.accent_color || "teal",
   };
 }

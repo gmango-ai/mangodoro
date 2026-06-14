@@ -34,7 +34,15 @@ export default function AuthPage() {
     setLoading(true);
 
     if (mode === "signup") {
-      const { error } = await supabase.auth.signUp({ email, password });
+      // emailRedirectTo pins the confirmation link to the origin the user
+      // signed up from. Without it, Supabase falls back to the project's
+      // Site URL (mangodoro.com) even when localhost is in the redirect
+      // allowlist, breaking local dev signups.
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: window.location.origin },
+      });
       if (error) {
         setError(error.message);
       } else {

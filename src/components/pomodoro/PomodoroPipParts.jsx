@@ -35,7 +35,7 @@ function PipAvatar({ participant, dark, isLeader }) {
         isLeader
           ? "border-[var(--color-accent)]"
           : dark
-            ? "border-slate-700"
+            ? "border-[var(--color-border)]"
             : "border-slate-300"
       }`}
       style={{ width: 28, height: 28 }}
@@ -48,7 +48,7 @@ function PipAvatar({ participant, dark, isLeader }) {
             isLeader
               ? "bg-[var(--color-accent-light-hover)] text-[var(--color-accent)]"
               : dark
-                ? "bg-slate-800 text-slate-400"
+                ? "bg-[var(--color-surface-raised)] text-slate-400"
                 : "bg-slate-100 text-slate-500"
           }`}
         >
@@ -139,7 +139,7 @@ export function PipFace({
           ? "bg-[var(--color-accent)] text-white shadow"
           : "bg-[var(--color-accent)] text-white shadow"
         : dark
-          ? "text-slate-300 hover:bg-slate-800"
+          ? "text-slate-300 hover:bg-[var(--color-surface-raised)]"
           : "text-slate-600 hover:bg-slate-100"
     }`;
 
@@ -148,11 +148,11 @@ export function PipFace({
   return (
     <div
       className={`flex flex-col h-full w-full min-h-0 overflow-hidden ${
-        dark ? "bg-slate-900 text-slate-100" : "bg-white text-slate-800"
+        dark ? "bg-[var(--color-surface)] text-slate-100" : "bg-white text-slate-800"
       }`}
     >
       <div
-        className={`shrink-0 flex gap-0.5 p-0.5 m-1 rounded-md ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}
+        className={`shrink-0 flex gap-0.5 p-0.5 m-1 rounded-md ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}
       >
         <button type="button" onClick={() => onViewModeChange("timer")} className={segBtn(viewMode === "timer")}>
           Time
@@ -214,7 +214,7 @@ export function PipFace({
                 title="Reset"
                 className={`p-1 rounded-full ${
                   !canControl || controlsLocked ? "opacity-30 cursor-default" : ""
-                } ${dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"}`}
+                } ${dark ? "text-slate-400 hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:bg-slate-100"}`}
                 aria-label="Reset"
               >
                 ↺
@@ -236,9 +236,9 @@ export function PipFace({
               type="button"
               onClick={onSwitchAlternateBreak}
               disabled={!canControl || controlsLocked}
-              className={`text-[10px] font-semibold py-0.5 ${
+              className={`text-[10px] font-semibold py-0.5 text-[var(--color-break)] hover:text-[var(--color-break-hover)] ${
                 !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
-              } ${dark ? "text-purple-300 hover:text-purple-200" : "text-purple-600 hover:text-purple-700"}`}
+              }`}
             >
               {alternateBreakLabel}
             </button>
@@ -248,7 +248,7 @@ export function PipFace({
 
       {viewMode === "full" && syncSession && syncParticipants?.length > 0 && (
         <div
-          className={`flex-1 min-h-0 border-t px-2 py-2 overflow-y-auto ${dark ? "border-slate-700" : "border-slate-200"}`}
+          className={`flex-1 min-h-0 border-t px-2 py-2 overflow-y-auto ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}
         >
           <ul className="space-y-1">
             {syncParticipants.map((p) => {
@@ -264,7 +264,7 @@ export function PipFace({
               return (
                 <li
                   key={p.user_id}
-                  className={`flex items-center gap-2 px-2 h-12 rounded ${dark ? "bg-slate-800/40" : "bg-slate-50"}`}
+                  className={`flex items-center gap-2 px-2 h-12 rounded ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"}`}
                 >
                   <div className="relative">
                     <PipAvatar participant={p} dark={dark} isLeader={isLeader} />
