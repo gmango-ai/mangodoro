@@ -180,7 +180,7 @@ export default function OverviewPage() {
               Overview
             </h2>
             <div
-              className={`flex items-center gap-1 rounded-xl p-1 ${dark ? "bg-slate-800/50" : "bg-slate-100"}`}
+              className={`flex items-center gap-1 rounded-xl p-1 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}
             >
               <button
                 onClick={() =>
@@ -273,7 +273,7 @@ export default function OverviewPage() {
         <div
           className={`${statCardClasses} ${
             dark
-              ? "bg-slate-900/50 backdrop-blur-3xl border-emerald-500/20 hover:border-emerald-500/40"
+              ? "bg-[var(--color-surface)] backdrop-blur-3xl border-emerald-500/20 hover:border-emerald-500/40"
               : "bg-white/80 backdrop-blur-xl border-emerald-200/50 hover:border-emerald-300/60"
           }`}
         >
@@ -307,7 +307,7 @@ export default function OverviewPage() {
         <div
           className={`${statCardClasses} ${
             dark
-              ? "bg-slate-900/50 backdrop-blur-2xl border-purple-500/20 hover:border-purple-500/40"
+              ? "bg-[var(--color-surface)] backdrop-blur-2xl border-purple-500/20 hover:border-purple-500/40"
               : "bg-white/80 backdrop-blur-xl border-purple-200/50 hover:border-purple-300/60"
           }`}
         >
@@ -341,7 +341,7 @@ export default function OverviewPage() {
         <div
           className={`${statCardClasses} ${
             dark
-              ? "bg-slate-900/50 backdrop-blur-2xl border-[var(--color-accent)] hover:border-[var(--color-accent)]"
+              ? "bg-[var(--color-surface)] backdrop-blur-2xl border-[var(--color-accent)] hover:border-[var(--color-accent)]"
               : "bg-white/80 backdrop-blur-xl border-[var(--color-accent-border)] hover:border-[var(--color-accent)]"
           }`}
         >
@@ -370,7 +370,7 @@ export default function OverviewPage() {
         <div
           className={`${statCardClasses} ${
             dark
-              ? "bg-slate-900/50 backdrop-blur-2xl border-pink-500/20 hover:border-pink-500/40"
+              ? "bg-[var(--color-surface)] backdrop-blur-2xl border-pink-500/20 hover:border-pink-500/40"
               : "bg-white/80 backdrop-blur-xl border-pink-200/50 hover:border-pink-300/60"
           }`}
         >
@@ -404,7 +404,7 @@ export default function OverviewPage() {
         <div
           className={`rounded-2xl border overflow-hidden shadow-lg mb-8 ${
             dark
-              ? "bg-slate-900/50 backdrop-blur-3xl border-slate-800/50"
+              ? "bg-[var(--color-surface)] backdrop-blur-3xl border-slate-800/50"
               : "bg-white/80 backdrop-blur-xl border-slate-200/50 shadow-slate-200/20"
           }`}
         >
@@ -496,7 +496,7 @@ export default function OverviewPage() {
                 <Bar
                   dataKey="billable"
                   stackId="a"
-                  fill={dark ? "#06b6d4" : "#14b8a6"}
+                  fill="var(--color-accent)"
                   radius={[0, 0, 0, 0]}
                   maxBarSize={32}
                 />
@@ -519,7 +519,7 @@ export default function OverviewPage() {
       <div
         className={`rounded-2xl border overflow-hidden shadow-lg ${
           dark
-            ? "bg-slate-900/50 backdrop-blur-3xl border-slate-800/50"
+            ? "bg-[var(--color-surface)] backdrop-blur-3xl border-slate-800/50"
             : "bg-white/80 backdrop-blur-xl border-slate-200/50 shadow-slate-200/20"
         }`}
       >
@@ -581,7 +581,7 @@ export default function OverviewPage() {
                     hasData
                       ? "bg-[var(--color-accent-light)] border-[1.5px] border-[var(--color-accent-border)] hover:shadow-lg"
                       : dark
-                        ? "bg-slate-800/20 border-[1.5px] border-slate-700/30 hover:border-slate-600/50"
+                        ? "bg-slate-800/20 border-[1.5px] border-[var(--color-border-light)] hover:border-slate-600/50"
                         : "bg-slate-50/50 border-[1.5px] border-slate-200/50 hover:border-slate-300/80"
                   } ${isWeekend && !hasData ? "opacity-40" : ""} ${isToday && !hasData ? "!border-[var(--color-accent)]" : ""}`}
                 >
@@ -636,7 +636,7 @@ export default function OverviewPage() {
             </div>
             <div className="flex items-center gap-2">
               <div
-                className={`w-3 h-3 rounded-md border-[1.5px] ${dark ? "bg-slate-800/30 border-slate-700/50" : "bg-slate-50/50 border-slate-200/50"}`}
+                className={`w-3 h-3 rounded-md border-[1.5px] ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border-light)]" : "bg-slate-50/50 border-slate-200/50"}`}
               />
               <span
                 className={`text-xs font-semibold ${dark ? "text-slate-400" : "text-slate-500"}`}

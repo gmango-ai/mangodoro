@@ -80,10 +80,10 @@ export default function JoinRetroPage() {
   }
 
   const wrapCls = `min-h-screen w-full flex items-center justify-center px-4 ${
-    dark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-800"
+    dark ? "bg-[var(--color-bg)] text-slate-100" : "bg-slate-50 text-slate-800"
   }`;
   const cardCls = `w-full max-w-md rounded-2xl border p-6 ${
-    dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200 shadow-md"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200 shadow-md"
   }`;
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`;
 
@@ -146,7 +146,7 @@ export default function JoinRetroPage() {
             value={name}
             onChange={(e) => setName(e.target.value.slice(0, 60))}
             placeholder="Required"
-            className={`mt-1 ${dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : ""}`}
+            className={`mt-1 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : ""}`}
           />
         </div>
 

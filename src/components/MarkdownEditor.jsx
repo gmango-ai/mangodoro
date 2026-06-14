@@ -50,7 +50,7 @@ function makeTheme(dark) {
       },
       ".cm-content": {
         padding: "10px 12px",
-        caretColor: dark ? "#67e8f9" : "#0d9488",
+        caretColor: "var(--color-accent)",
       },
       "&.cm-focused": { outline: "none" },
       ".cm-line": { padding: "0" },
@@ -58,10 +58,10 @@ function makeTheme(dark) {
       "&.cm-focused .cm-activeLine": {
         background: dark ? "rgba(148, 163, 184, 0.08)" : "rgba(15, 23, 42, 0.03)",
       },
-      ".cm-cursor": { borderLeftColor: dark ? "#67e8f9" : "#0d9488" },
-      "::selection": { background: dark ? "rgba(8, 145, 178, 0.35)" : "rgba(13, 148, 136, 0.25)" },
+      ".cm-cursor": { borderLeftColor: "var(--color-accent)" },
+      "::selection": { background: "color-mix(in srgb, var(--color-accent) 30%, transparent)" },
       ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-        background: dark ? "rgba(8, 145, 178, 0.35)" : "rgba(13, 148, 136, 0.25)",
+        background: "color-mix(in srgb, var(--color-accent) 30%, transparent)",
       },
     },
     { dark }
@@ -147,7 +147,7 @@ export default function MarkdownEditor({
     <div
       ref={hostRef}
       className={`rounded-lg border overflow-hidden ${
-        dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+        dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
       } ${className}`}
       style={{ minHeight }}
     />

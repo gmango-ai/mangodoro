@@ -66,7 +66,7 @@ export default function PWAUpdater() {
         role="status"
         className={`fixed bottom-5 left-1/2 z-[300] -translate-x-1/2 max-w-[min(92vw,28rem)] rounded-lg border shadow-lg flex items-center gap-3 px-4 py-2.5 text-sm border-[var(--color-accent)] ${
           dark
-            ? "bg-slate-800 text-slate-100 shadow-black/40"
+            ? "bg-[var(--color-surface-raised)] text-slate-100 shadow-black/40"
             : "bg-white text-slate-900 shadow-slate-900/10"
         }`}
       >
@@ -96,7 +96,7 @@ export default function PWAUpdater() {
         role="status"
         className={`fixed bottom-5 left-1/2 z-[300] -translate-x-1/2 max-w-[min(92vw,28rem)] rounded-lg border shadow-lg flex items-center gap-3 px-4 py-2.5 text-sm ${
           dark
-            ? "border-emerald-500/40 bg-slate-800 text-slate-100 shadow-black/40"
+            ? "border-emerald-500/40 bg-[var(--color-surface-raised)] text-slate-100 shadow-black/40"
             : "border-emerald-300 bg-white text-slate-900 shadow-slate-900/10"
         }`}
       >

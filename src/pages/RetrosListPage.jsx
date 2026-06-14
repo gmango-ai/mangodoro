@@ -142,7 +142,7 @@ export default function RetrosListPage() {
 
 
   const cardCls = `rounded-2xl border p-4 ${
-    dark ? "bg-slate-900/60 border-slate-700/50" : "bg-white border-slate-200 shadow-sm"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border-light)]" : "bg-white border-slate-200 shadow-sm"
   }`;
 
   if (!activeTeam) {
@@ -191,7 +191,7 @@ export default function RetrosListPage() {
                 active
                   ? "bg-[var(--color-accent-light)] border-[var(--color-accent)] text-[var(--color-accent)]"
                   : dark
-                    ? "bg-slate-800/40 border-slate-700 text-slate-300 hover:border-slate-600"
+                    ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300 hover:border-slate-600"
                     : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
               }`}
             >
@@ -267,7 +267,7 @@ export default function RetrosListPage() {
                             ? dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700"
                             : existing.is_live
                               ? dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"
-                              : dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
+                              : dark ? "bg-[var(--color-surface-raised)] text-slate-400" : "bg-slate-100 text-slate-500"
                         }`}
                       >
                         {existing.archived_at ? "Archived" : existing.is_live ? "Live" : "Closed"}
@@ -330,7 +330,7 @@ export default function RetrosListPage() {
                         className={`flex items-center justify-between gap-2 px-2.5 py-1.5 pr-9 rounded-md text-sm ${
                           r.archived_at ? "opacity-60" : ""
                         } ${
-                          dark ? "bg-slate-800/40 hover:bg-slate-800 text-slate-200" : "bg-slate-50 hover:bg-slate-100 text-slate-700"
+                          dark ? "bg-[var(--color-surface-raised)] hover:bg-[var(--color-surface-raised)] text-slate-200" : "bg-slate-50 hover:bg-slate-100 text-slate-700"
                         }`}
                       >
                         <span className="truncate flex items-center gap-1.5">
@@ -446,7 +446,7 @@ function RetroKebab({
         disabled={busy}
         className={`h-6 w-6 rounded-md inline-flex items-center justify-center transition-colors ${
           dark
-            ? "bg-slate-800/60 text-slate-300 hover:bg-slate-700/60"
+            ? "bg-[var(--color-surface-raised)] text-slate-300 hover:bg-slate-700/60"
             : "bg-white/80 text-slate-600 hover:bg-slate-50 border border-slate-200"
         }`}
       >
@@ -457,7 +457,7 @@ function RetroKebab({
           role="menu"
           onClick={(e) => e.preventDefault()}
           className={`absolute right-0 top-full mt-1 min-w-[160px] rounded-lg border shadow-lg overflow-hidden py-1 ${
-            dark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+            dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-white border-slate-200"
           }`}
         >
           {!isArchived && (

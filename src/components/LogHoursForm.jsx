@@ -61,12 +61,12 @@ export default function LogHoursForm() {
   const previewMins = calcWorked(form.start, form.end, form.breaks);
 
   const subCardCls = `p-6 rounded-xl border transition-all ${
-    dark ? "bg-slate-800/30 border-slate-700/50" : "bg-slate-50/50 border-slate-200/50"
+    dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border-light)]" : "bg-slate-50/50 border-slate-200/50"
   }`;
   
   const inputClass = `w-full px-4 py-3 rounded-lg text-sm transition-all focus:outline-none focus:ring-2 ${
     dark
-      ? "bg-slate-900/50 border border-slate-700/50 text-white placeholder:text-slate-500 focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-light)]"
+      ? "bg-[var(--color-surface)] border border-[var(--color-border-light)] text-white placeholder:text-slate-500 focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-light)]"
       : "bg-white/80 border border-slate-200 text-slate-800 placeholder:text-slate-400 focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-light)]"
   }`;
 
@@ -75,7 +75,7 @@ export default function LogHoursForm() {
       ref={logHoursRef}
       className={`relative overflow-hidden rounded-2xl border transition-all mb-8 ${
         dark
-          ? "bg-slate-900/50 backdrop-blur-2xl border-[var(--color-accent)] shadow-xl"
+          ? "bg-[var(--color-surface)] backdrop-blur-2xl border-[var(--color-accent)] shadow-xl"
           : "bg-white/60 backdrop-blur-xl border-[var(--color-accent-border)] shadow-xl"
       }`}
     >
@@ -90,7 +90,7 @@ export default function LogHoursForm() {
             Log Hours
           </h2>
           
-          <div className={`flex p-1 rounded-lg ${dark ? "bg-slate-800/50" : "bg-slate-100/80"} border ${dark ? "border-slate-700/50" : "border-slate-200/50"}`}>
+          <div className={`flex p-1 rounded-lg ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100/80"} border ${dark ? "border-[var(--color-border-light)]" : "border-slate-200/50"}`}>
             {["manual", "auto"].map((m) => (
               <button
                 key={m}
@@ -193,7 +193,7 @@ export default function LogHoursForm() {
                       className={`flex-1 sm:flex-none px-5 py-2.5 h-auto rounded-xl text-sm font-semibold transition-all ${
                         clockIn?.activeBreak
                           ? dark ? "border-orange-500/50 text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 border" : "border-orange-400 text-orange-700 bg-orange-50 hover:bg-orange-100 border"
-                          : dark ? "border-slate-600 text-slate-300 bg-slate-800/40 hover:bg-slate-700/60 border" : "border-slate-300 text-slate-700 bg-slate-50 hover:bg-slate-100 border"
+                          : dark ? "border-slate-600 text-slate-300 bg-[var(--color-surface-raised)] hover:bg-slate-700/60 border" : "border-slate-300 text-slate-700 bg-slate-50 hover:bg-slate-100 border"
                       }`}
                     >
                       {clockIn?.activeBreak ? "End Break" : "Break"}
@@ -286,7 +286,7 @@ export default function LogHoursForm() {
                         onClick={() => { setTaskDraft(""); setTaskEditMode("switch"); }}
                         title="Switch task"
                         className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-colors ${
-                          dark ? "bg-slate-800 text-[var(--color-accent)] hover:bg-slate-700" : "bg-slate-100 text-[var(--color-accent)] hover:bg-slate-200"
+                          dark ? "bg-[var(--color-surface-raised)] text-[var(--color-accent)] hover:bg-slate-700" : "bg-slate-100 text-[var(--color-accent)] hover:bg-slate-200"
                         }`}
                       >
                         <ArrowRightLeft className="w-3.5 h-3.5" />
@@ -321,7 +321,7 @@ export default function LogHoursForm() {
                             disabled={rewritingDesc || !clockIn.description?.trim()}
                             className={`mt-1.5 flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                               dark
-                                ? "bg-slate-800/80 border-slate-700 text-[var(--color-accent)] hover:enabled:bg-slate-700 hover:enabled:border-[var(--color-accent)]"
+                                ? "bg-slate-800/80 border-[var(--color-border)] text-[var(--color-accent)] hover:enabled:bg-slate-700 hover:enabled:border-[var(--color-accent)]"
                                 : "bg-white/80 border-slate-200 text-[var(--color-accent)] hover:enabled:bg-slate-50 hover:enabled:border-[var(--color-accent)]"
                             }`}
                           >
@@ -336,7 +336,7 @@ export default function LogHoursForm() {
                       <label className="flex items-center gap-2 cursor-pointer mt-3">
                         <Checkbox id="clock-billable" checked={clockIn.billable !== false}
                           onCheckedChange={(v) => updateClockIn({ billable: !!v })}
-                          className="w-5 h-5 rounded border-2 cursor-pointer transition-all border-slate-300 dark:border-slate-700 data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
+                          className="w-5 h-5 rounded border-2 cursor-pointer transition-all border-slate-300 dark:border-[var(--color-border)] data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
                         />
                         <span className={`text-sm font-medium ${dark ? "text-slate-300" : "text-slate-600"}`}>Billable</span>
                       </label>
@@ -349,7 +349,7 @@ export default function LogHoursForm() {
                         {(clockIn.breaks || []).map((b) => {
                           const mins = (b.end.split(":").reduce((a, v, i) => a + (i === 0 ? +v * 60 : +v), 0)) - (b.start.split(":").reduce((a, v, i) => a + (i === 0 ? +v * 60 : +v), 0));
                           return (
-                            <div key={b.id} className={`flex items-center gap-2 p-2.5 rounded-lg text-sm font-medium ${dark ? "bg-slate-800/50 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
+                            <div key={b.id} className={`flex items-center gap-2 p-2.5 rounded-lg text-sm font-medium ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-100 text-slate-600"}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${dark ? "bg-slate-500" : "bg-slate-400"}`} />
                               {toDisplayTime(b.start)} – {toDisplayTime(b.end)}
                               <span className={`ml-auto text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>({mins}m)</span>
@@ -373,7 +373,7 @@ export default function LogHoursForm() {
             {!clockIn && pendingEntry && (
               <div className="flex flex-col gap-4">
                 {/* Session summary */}
-                <div className={`p-5 sm:p-6 rounded-xl border ${dark ? "bg-slate-800/40 border-slate-700/50" : "bg-slate-50/80 border-slate-200"}`}>
+                <div className={`p-5 sm:p-6 rounded-xl border ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border-light)]" : "bg-slate-50/80 border-slate-200"}`}>
                   <div className="flex items-center gap-2 mb-3">
                     <svg className="w-4 h-4 text-[var(--color-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -417,7 +417,7 @@ export default function LogHoursForm() {
                         <button
                           onClick={() => rewriteDescription(pendingEntry.description, (v) => updatePendingEntry({ description: v }))}
                           disabled={rewritingDesc || !pendingEntry.description?.trim()}
-                          className="mt-1.5 flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-white/80 border-slate-200 text-[var(--color-accent)] hover:enabled:bg-slate-50 hover:enabled:border-[var(--color-accent)] dark:bg-slate-800/80 dark:border-slate-700 dark:hover:enabled:bg-slate-700 dark:hover:enabled:border-[var(--color-accent)]"
+                          className="mt-1.5 flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-white/80 border-slate-200 text-[var(--color-accent)] hover:enabled:bg-slate-50 hover:enabled:border-[var(--color-accent)] dark:bg-slate-800/80 dark:border-[var(--color-border)] dark:hover:enabled:bg-slate-700 dark:hover:enabled:border-[var(--color-accent)]"
                         >
                           {rewritingDesc ? (<><span className="w-2 h-2 rounded-full border border-current border-t-transparent animate-spin" /> Rewriting</>) : "✦ Rewrite"}
                         </button>
@@ -430,7 +430,7 @@ export default function LogHoursForm() {
                     <label className="flex items-center gap-2 cursor-pointer">
                       <Checkbox id="pending-billable" checked={pendingEntry.billable !== false}
                         onCheckedChange={(v) => updatePendingEntry({ billable: !!v })}
-                        className="w-5 h-5 rounded border-2 cursor-pointer transition-all border-slate-300 dark:border-slate-700 data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
+                        className="w-5 h-5 rounded border-2 cursor-pointer transition-all border-slate-300 dark:border-[var(--color-border)] data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
                       />
                       <span className={`text-sm font-medium ${dark ? "text-slate-300" : "text-slate-600"}`}>Billable</span>
                     </label>
@@ -488,7 +488,7 @@ export default function LogHoursForm() {
                       onClick={() => applyTemplate(t)}
                       className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
                         dark
-                          ? "bg-slate-800/50 border-slate-700/50 text-slate-300 hover:bg-slate-700 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                          ? "bg-[var(--color-surface-raised)] border-[var(--color-border-light)] text-slate-300 hover:bg-slate-700 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
                           : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] shadow-sm"
                       }`}
                     >
@@ -560,7 +560,7 @@ export default function LogHoursForm() {
                         disabled={rewritingDesc || !form.description.trim()}
                         className={`mt-1.5 flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                           dark
-                            ? "bg-slate-800/80 border-slate-700 text-[var(--color-accent)] hover:enabled:bg-slate-700 hover:enabled:border-[var(--color-accent)]"
+                            ? "bg-slate-800/80 border-[var(--color-border)] text-[var(--color-accent)] hover:enabled:bg-slate-700 hover:enabled:border-[var(--color-accent)]"
                             : "bg-white/80 border-slate-200 text-[var(--color-accent)] hover:enabled:bg-slate-50 hover:enabled:border-[var(--color-accent)]"
                         }`}
                       >
@@ -588,7 +588,7 @@ export default function LogHoursForm() {
                     <div
                       key={b.id}
                       className={`p-3 rounded-lg border space-y-3 transition-all ${
-                        dark ? "bg-slate-800/20 border-slate-700/50" : "bg-slate-50/50 border-slate-200/50"
+                        dark ? "bg-slate-800/20 border-[var(--color-border-light)]" : "bg-slate-50/50 border-slate-200/50"
                       }`}
                     >
                       {/* Stack on mobile, side by side on sm+ */}
@@ -634,7 +634,7 @@ export default function LogHoursForm() {
             )}
 
             {/* Bottom Action Bar */}
-            <div className={`mt-4 pt-6 border-t flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${dark ? "border-slate-800/60" : "border-slate-200"}`}>
+            <div className={`mt-4 pt-6 border-t flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${dark ? "border-[var(--color-border-light)]" : "border-slate-200"}`}>
               <div className="flex items-center gap-4 flex-wrap">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <Checkbox
@@ -643,7 +643,7 @@ export default function LogHoursForm() {
                     onCheckedChange={(v) => setField("billable", !!v)}
                     className={`w-5 h-5 rounded border-2 transition-all ${
                       dark
-                        ? "border-slate-700 data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
+                        ? "border-[var(--color-border)] data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
                         : "border-slate-300 data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
                     }`}
                   />
@@ -653,7 +653,7 @@ export default function LogHoursForm() {
                 <button
                   onClick={addBreak}
                   className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    dark ? "text-slate-400 hover:text-slate-300 hover:bg-slate-800/50" : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
+                    dark ? "text-slate-400 hover:text-slate-300 hover:bg-[var(--color-surface-raised)]" : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
                   }`}
                 >
                   <Plus className="w-4 h-4" />

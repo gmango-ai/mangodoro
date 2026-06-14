@@ -40,7 +40,7 @@ export default function EntryRow({ entry, index }) {
 
   const inputClass = `w-full px-4 py-3 rounded-lg text-sm transition-all focus:outline-none focus:ring-2 ${
     dark
-      ? "bg-slate-900/50 border border-slate-700/50 text-white placeholder:text-slate-500 focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-light)]"
+      ? "bg-[var(--color-surface)] border border-[var(--color-border-light)] text-white placeholder:text-slate-500 focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-light)]"
       : "bg-white/80 border border-slate-200 text-slate-800 placeholder:text-slate-400 focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-light)]"
   }`;
 
@@ -48,7 +48,7 @@ export default function EntryRow({ entry, index }) {
     const inlinePreviewMins = calcWorked(inlineForm.start, inlineForm.end, inlineForm.breaks);
     return (
       <div className={`p-4 sm:p-5 rounded-xl border transition-all ${
-        dark ? "bg-slate-800/40 border-[var(--color-accent)] shadow-lg" : "bg-white/80 border-[var(--color-accent)] shadow-lg"
+        dark ? "bg-[var(--color-surface-raised)] border-[var(--color-accent)] shadow-lg" : "bg-white/80 border-[var(--color-accent)] shadow-lg"
       }`}>
         <div className="grid grid-cols-1 gap-4 mb-4">
           <div>
@@ -90,7 +90,7 @@ export default function EntryRow({ entry, index }) {
               disabled={rewritingDesc || !inlineForm.description?.trim()}
               className={`mt-1.5 flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                 dark
-                  ? "bg-slate-800/80 border-slate-700 text-[var(--color-accent)] hover:enabled:bg-slate-700 hover:enabled:border-[var(--color-accent)]"
+                  ? "bg-slate-800/80 border-[var(--color-border)] text-[var(--color-accent)] hover:enabled:bg-slate-700 hover:enabled:border-[var(--color-accent)]"
                   : "bg-white/80 border-slate-200 text-[var(--color-accent)] hover:enabled:bg-slate-50 hover:enabled:border-[var(--color-accent)]"
               }`}
             >
@@ -115,7 +115,7 @@ export default function EntryRow({ entry, index }) {
               onCheckedChange={(v) => setInlineField("billable", !!v)}
               className={`w-5 h-5 rounded border-2 transition-all ${
                 dark
-                  ? "border-slate-700 data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
+                  ? "border-[var(--color-border)] data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
                   : "border-slate-300 data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)]"
               }`}
             />
@@ -128,7 +128,7 @@ export default function EntryRow({ entry, index }) {
         <div className="mb-4">
           {inlineForm.breaks.map((b) => (
             <div key={b.id} className={`p-3 mb-2 rounded-lg border transition-all ${
-              dark ? "bg-slate-900/40 border-slate-700/50" : "bg-slate-50/50 border-slate-200/50"
+              dark ? "bg-[var(--color-bg)] border-[var(--color-border-light)]" : "bg-slate-50/50 border-slate-200/50"
             }`}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
                 <div>
@@ -164,17 +164,15 @@ export default function EntryRow({ entry, index }) {
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={addInlineBreak} className={`h-8 text-xs font-medium border-dashed ${
-            dark ? "border-slate-700 text-slate-300 hover:text-white" : "border-slate-300 text-slate-600 hover:text-slate-900"
+            dark ? "border-[var(--color-border)] text-slate-300 hover:text-white" : "border-slate-300 text-slate-600 hover:text-slate-900"
           }`}>+ Add break</Button>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200 dark:border-slate-700/50">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200 dark:border-[var(--color-border-light)]">
           <div className="font-mono flex items-baseline gap-2 w-full sm:w-auto text-center sm:text-left">
             {inlineForm.start && inlineForm.end && (
               <>
-                <span className={`text-xl font-semibold bg-gradient-to-r bg-clip-text text-transparent ${
-                  dark ? "from-cyan-400 to-teal-400" : "from-teal-600 to-emerald-600"
-                }`}>{formatDuration(inlinePreviewMins)}</span>
+                <span className="text-xl font-semibold text-[var(--color-accent)]">{formatDuration(inlinePreviewMins)}</span>
                 <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>{formatDecimal(inlinePreviewMins)}h</span>
               </>
             )}
@@ -183,18 +181,14 @@ export default function EntryRow({ entry, index }) {
             <Button
               variant="ghost"
               onClick={cancelInlineEdit}
-              className={`h-9 px-4 text-sm font-medium ${dark ? "text-slate-300 hover:text-white hover:bg-slate-800" : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"}`}
+              className={`h-9 px-4 text-sm font-medium ${dark ? "text-slate-300 hover:text-white hover:bg-[var(--color-surface-raised)]" : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"}`}
             >
               Cancel
             </Button>
             <Button
               onClick={saveInlineEdit}
               disabled={!inlineForm.date || !inlineForm.start || !inlineForm.end}
-              className={`h-9 px-6 text-sm font-semibold text-white shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                dark
-                  ? "bg-gradient-to-r from-cyan-500 to-teal-500 shadow-cyan-500/30 hover:shadow-cyan-500/50"
-                  : "bg-gradient-to-r from-teal-600 to-emerald-600 shadow-teal-500/30 hover:shadow-teal-500/50"
-              } border-none`}
+              className="h-9 px-6 text-sm font-semibold text-white shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed border-none bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] shadow-[var(--color-accent)]/30 hover:shadow-[var(--color-accent)]/50"
             >
               Save <Save className="ml-1 w-3.5 h-3.5" />
             </Button>
@@ -215,7 +209,7 @@ export default function EntryRow({ entry, index }) {
   return (
     <div className={`p-4 rounded-xl border transition-all relative overflow-hidden group ${
       dark
-        ? "bg-slate-800/30 border-slate-700/50 hover:border-slate-600/50 hover:bg-slate-800/50"
+        ? "bg-[var(--color-surface-raised)] border-[var(--color-border-light)] hover:border-slate-600/50 hover:bg-[var(--color-surface-raised)]"
         : "bg-white/50 border-slate-200/50 hover:border-slate-300/60 hover:bg-white/80 hover:shadow-sm"
     }`}>
       <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-3 gap-3 relative z-10">
@@ -262,16 +256,14 @@ export default function EntryRow({ entry, index }) {
           </div>
         </div>
 
-        <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start w-full sm:w-auto mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-transparent border-slate-200 dark:border-slate-700/50">
+        <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start w-full sm:w-auto mt-2 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-transparent border-slate-200 dark:border-[var(--color-border-light)]">
           <div className="flex items-center gap-4 sm:block text-right">
             {hourlyRate > 0 && (
               <div className={`text-xs font-mono mb-1 ${dark ? "text-emerald-400/80" : "text-emerald-600"}`}>
                 {formatMoney((entry.billable !== false ? entry.minutes : 0) / 60 * hourlyRate)}
               </div>
             )}
-            <div className={`text-xl font-mono font-bold tracking-tight bg-gradient-to-r bg-clip-text text-transparent ${
-              dark ? "from-cyan-400 to-teal-400" : "from-teal-600 to-emerald-600"
-            }`}>
+            <div className="text-xl font-mono font-bold tracking-tight text-[var(--color-accent)]">
               {formatDuration(entry.minutes)}
             </div>
           </div>
@@ -302,15 +294,20 @@ export default function EntryRow({ entry, index }) {
         </div>
       </div>
 
-      <div className={`absolute bottom-0 left-0 right-0 h-1 sm:h-1.5 ${dark ? "bg-slate-800/50" : "bg-slate-200/50"}`}>
+      <div className={`absolute bottom-0 left-0 right-0 h-1 sm:h-1.5 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-200/50"}`}>
         {(() => {
           const projectColor = entryProjects[0]?.color;
+          // No project assigned → use the user's accent at reduced opacity.
+          // Project-tagged entries keep their project color so the timeline
+          // stays color-coded.
           const barColor = projectColor
             ? projectColor + (entry.billable !== false ? "cc" : "66")
             : entry.billable !== false
-              ? dark ? "#06b6d4" : "#14b8a6"
-              : dark ? "#134e4a" : "#115e59";
-          const breakColor = projectColor ? projectColor + "44" : dark ? "#67e8f9" : "#99f6e4";
+              ? "color-mix(in srgb, var(--color-accent) 80%, transparent)"
+              : "color-mix(in srgb, var(--color-accent) 35%, transparent)";
+          const breakColor = projectColor
+            ? projectColor + "44"
+            : "color-mix(in srgb, var(--color-accent) 25%, transparent)";
           return (
             <>
               <div

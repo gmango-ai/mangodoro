@@ -250,7 +250,7 @@ export default function RetroPage() {
   }
 
   const cardCls = `rounded-2xl border p-4 ${
-    dark ? "bg-slate-900/60 border-slate-700/50" : "bg-white border-slate-200 shadow-sm"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border-light)]" : "bg-white border-slate-200 shadow-sm"
   }`;
   const headingCls = `text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`;
 
@@ -297,7 +297,7 @@ export default function RetroPage() {
             <span
               className={`ml-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${
                 readOnly
-                  ? dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
+                  ? dark ? "bg-[var(--color-surface-raised)] text-slate-400" : "bg-slate-100 text-slate-500"
                   : dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"
               }`}
             >
@@ -419,7 +419,7 @@ export default function RetroPage() {
           new cards will be authored. */}
       {!readOnly && (
         <div className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg border ${
-          dark ? "bg-slate-900/40 border-slate-700/40" : "bg-white border-slate-200"
+          dark ? "bg-[var(--color-bg)] border-[var(--color-border-light)]" : "bg-white border-slate-200"
         }`}>
           <span className={`text-[11px] font-semibold uppercase tracking-wider ${
             dark ? "text-slate-400" : "text-slate-500"
@@ -573,7 +573,7 @@ export default function RetroPage() {
               </ul>
 
               {!readOnly && (
-                <div className="border-t pt-2.5 mt-auto border-slate-700/30">
+                <div className="border-t pt-2.5 mt-auto border-[var(--color-border-light)]">
                   <textarea
                     value={newCardDrafts[lane.key]}
                     onChange={(e) =>
@@ -594,7 +594,7 @@ export default function RetroPage() {
                     }}
                     className={`w-full rounded-md border px-2 py-1.5 text-sm resize-none ${
                       dark
-                        ? "bg-slate-900/40 border-slate-700 text-slate-100 placeholder:text-slate-500"
+                        ? "bg-[var(--color-bg)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500"
                         : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
                     }`}
                   />

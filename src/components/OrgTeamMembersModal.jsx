@@ -59,7 +59,7 @@ export default function OrgTeamMembersModal({
   }
 
   const cardCls = `relative w-full max-w-md rounded-2xl border p-5 sm:p-6 max-h-[80vh] flex flex-col ${
-    dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
   }`;
 
   return (
@@ -72,7 +72,7 @@ export default function OrgTeamMembersModal({
           type="button"
           onClick={onClose}
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
           aria-label="Close"
         >
@@ -107,7 +107,7 @@ export default function OrgTeamMembersModal({
                 <li
                   key={m.user_id}
                   className={`flex items-center gap-3 px-2.5 py-2 rounded-lg ${
-                    dark ? "bg-slate-800/40" : "bg-slate-50"
+                    dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"
                   }`}
                 >
                   <UserAvatar url={m.avatar_url} name={m.name} size={28} className="shrink-0" />

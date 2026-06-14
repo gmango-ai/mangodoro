@@ -61,7 +61,7 @@ function CollapsibleProjectGroup({
   return (
     <div
       className={`rounded-2xl border overflow-hidden ${
-        dark ? "border-slate-700/55 bg-slate-950/30 shadow-sm" : "border-slate-200/90 bg-white/70 shadow-sm"
+        dark ? "border-slate-700/55 bg-[var(--color-bg)]/30 shadow-sm" : "border-slate-200/90 bg-white/70 shadow-sm"
       }`}
     >
       <button
@@ -89,7 +89,7 @@ function CollapsibleProjectGroup({
         <span className={`text-[11px] tabular-nums shrink-0 ${dark ? "text-slate-500" : "text-slate-500"}`}>{taskCount}</span>
       </button>
       {!collapsed && (
-        <div className={`border-t px-2 py-2 sm:px-3 sm:pb-3 ${dark ? "border-slate-700/50" : "border-slate-200/90"}`}>
+        <div className={`border-t px-2 py-2 sm:px-3 sm:pb-3 ${dark ? "border-[var(--color-border-light)]" : "border-slate-200/90"}`}>
           {children}
         </div>
       )}
@@ -221,7 +221,7 @@ function PlannerTaskRow({
   reorder,
 }) {
   const inputCls = dark
-    ? "bg-slate-900/40 border-slate-600/90 text-slate-100"
+    ? "bg-[var(--color-bg)] border-slate-600/90 text-slate-100"
     : "bg-white border-slate-200 text-slate-900";
 
   const committedPct = Math.min(99, t.progress);
@@ -252,7 +252,7 @@ function PlannerTaskRow({
             ? "bg-slate-600/40 text-slate-300 border-slate-500/40"
             : "bg-slate-100 text-slate-700 border-slate-200"
           : dark
-            ? "bg-slate-800/60 text-slate-500 border-slate-600/50"
+            ? "bg-[var(--color-surface-raised)] text-slate-500 border-slate-600/50"
             : "bg-slate-50 text-slate-500 border-slate-200/90";
 
   return (
@@ -263,7 +263,7 @@ function PlannerTaskRow({
             ? "border-[var(--color-accent)] bg-gradient-to-b from-[var(--color-accent-light)] to-slate-950/40"
             : "border-[var(--color-accent)] bg-gradient-to-b from-[var(--color-accent-light)] to-white"
           : dark
-            ? "border-slate-700/70 bg-slate-950/40"
+            ? "border-slate-700/70 bg-[var(--color-bg)]/40"
             : "border-slate-200/90 bg-white"
       }`}
     >
@@ -347,7 +347,7 @@ function PlannerTaskRow({
         </div>
 
         {!t.done && (
-          <div className={`space-y-3 pt-1 border-t ${dark ? "border-slate-700/60" : "border-slate-100"}`}>
+          <div className={`space-y-3 pt-1 border-t ${dark ? "border-[var(--color-border)]" : "border-slate-100"}`}>
             <div>
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <span className={`text-[11px] font-medium ${dark ? "text-slate-400" : "text-slate-600"}`}>
@@ -505,7 +505,7 @@ function PlannerTaskRow({
         {t.done && t.notes?.trim() && (
           <p
             className={`text-xs leading-snug whitespace-pre-wrap rounded-xl border px-3 py-2.5 ${
-              dark ? "border-slate-600/70 bg-slate-900/50 text-slate-300" : "border-slate-200 bg-slate-50/80 text-slate-700"
+              dark ? "border-slate-600/70 bg-[var(--color-surface)] text-slate-300" : "border-slate-200 bg-slate-50/80 text-slate-700"
             }`}
           >
             <span className={`font-medium ${dark ? "text-slate-500" : "text-slate-500"}`}>Notes · </span>
@@ -523,7 +523,7 @@ function PlannerTaskRow({
         {t.done && (
           <div
             className={`flex flex-wrap items-center justify-between gap-2 pt-2 border-t ${
-              dark ? "border-slate-700/60" : "border-slate-100"
+              dark ? "border-[var(--color-border)]" : "border-slate-100"
             }`}
           >
             <Select
@@ -1071,7 +1071,7 @@ export default function PlannerPage() {
   const doneFuture = futureTasks.filter((t) => t.done).length;
 
   const inputCls = dark
-    ? "bg-slate-900/50 border-slate-600 text-slate-100 placeholder:text-slate-500"
+    ? "bg-[var(--color-surface)] border-slate-600 text-slate-100 placeholder:text-slate-500"
     : "bg-white border-slate-200 text-slate-900";
 
   // First-load skeleton. Once items have ever populated, subsequent
@@ -1129,7 +1129,7 @@ export default function PlannerPage() {
             task to earn the rest — higher priority raises the point cap.{" "}
             <strong className="font-semibold">Break into steps</strong> uses a separate description field; pick which
             suggestions to add. A DeepSeek key in Settings enables AI (otherwise use several phrases separated by{" "}
-            <code className={`text-[13px] rounded px-1 py-0.5 ${dark ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-800"}`}>
+            <code className={`text-[13px] rounded px-1 py-0.5 ${dark ? "bg-[var(--color-surface-raised)] text-slate-200" : "bg-slate-100 text-slate-800"}`}>
               ;
             </code>
             .
@@ -1154,7 +1154,7 @@ export default function PlannerPage() {
         <Card
           className={
             dark
-              ? "border-[var(--color-accent)] bg-slate-900/40 shadow-lg rounded-2xl"
+              ? "border-[var(--color-accent)] bg-[var(--color-bg)] shadow-lg rounded-2xl"
               : "border-slate-200/80 bg-white/80 shadow-sm rounded-2xl"
           }
         >
@@ -1334,7 +1334,7 @@ export default function PlannerPage() {
 
             <div
               className={`rounded-xl border px-4 py-4 sm:px-5 sm:py-5 space-y-3 ${
-                dark ? "border-slate-600/70 bg-slate-950/30" : "border-slate-200 bg-slate-50/90"
+                dark ? "border-slate-600/70 bg-[var(--color-bg)]/30" : "border-slate-200 bg-slate-50/90"
               }`}
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1486,7 +1486,7 @@ export default function PlannerPage() {
         <Card
           className={
             dark
-              ? "border-violet-500/15 bg-slate-900/40 shadow-[0_0_30px_rgba(139,92,246,0.06)] rounded-2xl"
+              ? "border-violet-500/15 bg-[var(--color-bg)] shadow-[0_0_30px_rgba(139,92,246,0.06)] rounded-2xl"
               : "border-violet-200/80 bg-white/80 shadow-sm rounded-2xl"
           }
         >
@@ -1583,7 +1583,7 @@ export default function PlannerPage() {
         <Card
           className={
             dark
-              ? "border-[var(--color-accent)] bg-slate-900/40 shadow-lg rounded-2xl"
+              ? "border-[var(--color-accent)] bg-[var(--color-bg)] shadow-lg rounded-2xl"
               : "border-slate-200/80 bg-white/80 shadow-sm rounded-2xl"
           }
         >

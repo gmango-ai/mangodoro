@@ -24,14 +24,14 @@ export default function RetroDeleteModal({ open, onClose, retro, busy, onConfirm
       <div
         onClick={(e) => e.stopPropagation()}
         className={`relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
-          dark ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
+          dark ? "bg-[var(--color-surface)] border-[var(--color-border)] shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
         }`}
       >
         <button
           type="button"
           onClick={onClose}
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
           aria-label="Close"
         >
@@ -55,7 +55,7 @@ export default function RetroDeleteModal({ open, onClose, retro, busy, onConfirm
         </div>
 
         <div className={`rounded-lg border p-3 mb-4 ${
-          dark ? "bg-slate-800/40 border-slate-700" : "bg-slate-50 border-slate-200"
+          dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-slate-50 border-slate-200"
         }`}>
           <p className={`text-sm font-semibold ${dark ? "text-slate-100" : "text-slate-800"}`}>
             {retroName} — {label}

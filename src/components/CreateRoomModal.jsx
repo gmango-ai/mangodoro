@@ -93,9 +93,9 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
     : (orgTeams || []).filter((t) => myOrgTeamLeadIds?.has(t.id));
 
   const cardCls = `relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
-    dark ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border)] shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
   }`;
-  const inputCls = dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : "";
+  const inputCls = dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "";
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`;
 
   return (
@@ -105,7 +105,7 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
           type="button"
           onClick={onClose}
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
           aria-label="Close"
         >
@@ -145,11 +145,9 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
                     disabled ? "opacity-40 cursor-not-allowed" : ""
                   } ${
                     active
-                      ? dark
-                        ? "bg-cyan-500/15 border-cyan-500/50 text-cyan-200"
-                        : "bg-teal-50 border-teal-300 text-teal-700"
+                      ? "bg-[var(--color-accent-light)] border-[var(--color-accent)] text-[var(--color-accent)]"
                       : dark
-                        ? "bg-slate-800/40 border-slate-700 text-slate-300 hover:border-slate-600"
+                        ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300 hover:border-slate-600"
                         : "bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300"
                   }`}
                 >
@@ -224,7 +222,7 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
                     {...(!active && {
                       className: `inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full border transition-colors ${
                         dark
-                          ? "bg-slate-800/40 border-slate-700 text-slate-300 hover:border-slate-600"
+                          ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300 hover:border-slate-600"
                           : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
                       }`,
                     })}

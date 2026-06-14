@@ -110,10 +110,10 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
 
   const tone = isOccupied
     ? dark
-      ? "bg-slate-900 border-[var(--color-accent)] shadow-md"
+      ? "bg-[var(--color-surface)] border-[var(--color-accent)] shadow-md"
       : "bg-white border-[var(--color-accent)] shadow-md"
     : dark
-      ? "bg-slate-900/50 border-slate-700/60"
+      ? "bg-[var(--color-surface)] border-[var(--color-border)]"
       : "bg-white border-slate-200";
   const pulse = isPulsing
     ? "animate-[pulse_3s_ease-in-out_infinite] border-[var(--color-accent)]"
@@ -277,7 +277,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
                 className={`-ml-1 inline-flex items-center justify-center rounded-full text-[10px] font-semibold ${
                   isLg ? "w-8 h-8" : "w-7 h-7"
                 } ring-2 ring-transparent ${
-                  dark ? "bg-slate-800 text-slate-300" : "bg-slate-200 text-slate-700"
+                  dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-700"
                 }`}
                 title={`${overflow} more`}
               >

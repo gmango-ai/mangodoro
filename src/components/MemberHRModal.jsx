@@ -41,12 +41,12 @@ export default function MemberHRModal({ open, onClose, member, onSave }) {
   }
 
   const cardCls = `relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
-    dark ? "bg-slate-900 border-slate-700 shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border)] shadow-2xl shadow-black/40" : "bg-white border-slate-200 shadow-xl"
   }`;
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${
     dark ? "text-slate-400" : "text-slate-500"
   }`;
-  const inputCls = dark ? "bg-slate-800/60 border-slate-700 text-slate-100" : "";
+  const inputCls = dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "";
 
   return (
     <div
@@ -58,7 +58,7 @@ export default function MemberHRModal({ open, onClose, member, onSave }) {
           type="button"
           onClick={onClose}
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
-            dark ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-500"
+            dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
           aria-label="Close"
         >
@@ -80,7 +80,7 @@ export default function MemberHRModal({ open, onClose, member, onSave }) {
         {/* Classification toggle */}
         <div className="mb-4">
           <label className={labelCls}>Classification</label>
-          <div className={`inline-flex mt-2 rounded-lg p-0.5 ${dark ? "bg-slate-800/60" : "bg-slate-100"}`}>
+          <div className={`inline-flex mt-2 rounded-lg p-0.5 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
             {[
               ["salary", "Salary"],
               ["hourly", "Hourly"],

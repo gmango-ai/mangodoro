@@ -84,7 +84,7 @@ export default function TeamTimesheetsPage() {
   }
 
   const cardCls = `rounded-xl border p-5 ${
-    dark ? "bg-slate-900/60 border-slate-700/50 shadow-lg shadow-black/20" : "bg-white border-slate-200 shadow-sm"
+    dark ? "bg-[var(--color-surface)] border-[var(--color-border-light)] shadow-lg shadow-black/20" : "bg-white border-slate-200 shadow-sm"
   }`;
   const labelCls = `text-xs font-medium uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`;
 
@@ -120,7 +120,7 @@ export default function TeamTimesheetsPage() {
             value={filterMember}
             onChange={(e) => setFilterMember(e.target.value)}
             className={`text-xs rounded-lg border px-2 py-1.5 ${
-              dark ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-white border-slate-200 text-slate-600"
+              dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300" : "bg-white border-slate-200 text-slate-600"
             }`}
           >
             <option value="all">All Members</option>
@@ -141,7 +141,7 @@ export default function TeamTimesheetsPage() {
       <div className={`${cardCls} flex items-center justify-between`}>
         <div>
           <p className={labelCls}>Total Team Hours</p>
-          <p className={`text-2xl font-bold mt-1 ${dark ? "text-cyan-400" : "text-teal-600"}`}>
+          <p className="text-2xl font-bold mt-1 text-[var(--color-accent)]">
             {formatDuration(totalTeamMins)}
           </p>
         </div>
@@ -221,7 +221,7 @@ export default function TeamTimesheetsPage() {
                       <button
                         onClick={() => toggleWeek(wkKey)}
                         className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium cursor-pointer ${
-                          dark ? "bg-slate-800/60 text-slate-300" : "bg-slate-100 text-slate-600"
+                          dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-100 text-slate-600"
                         }`}
                       >
                         <span>{weekRangeLabel(wkStr)}</span>

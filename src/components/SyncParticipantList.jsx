@@ -75,7 +75,7 @@ function Avatar({ participant, size = 36, dark, isLeader }) {
       className={`relative rounded-full overflow-hidden border-2 shrink-0 ${
         isLeader
           ? "border-[var(--color-accent)]"
-          : dark ? "border-slate-700" : "border-slate-300"
+          : dark ? "border-[var(--color-border)]" : "border-slate-300"
       }`}
       style={{ width: px, height: px }}
     >
@@ -86,7 +86,7 @@ function Avatar({ participant, size = 36, dark, isLeader }) {
           className={`flex items-center justify-center w-full h-full font-bold ${
             isLeader
               ? "bg-[var(--color-accent-light-hover)] text-[var(--color-accent)]"
-              : dark ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500"
+              : dark ? "bg-[var(--color-surface-raised)] text-slate-400" : "bg-slate-100 text-slate-500"
           }`}
           style={{ fontSize }}
         >
@@ -227,7 +227,7 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
               className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
                 isSelected
                   ? "bg-[var(--color-accent-light)] ring-1 ring-[var(--color-accent)]"
-                  : dark ? "bg-slate-800/40 hover:bg-slate-800/70" : "bg-slate-50 hover:bg-slate-100"
+                  : dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50 hover:bg-slate-100"
               }`}
             >
               <div className="relative">
@@ -239,12 +239,12 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
                   title={isOnline ? presence.label : "Offline"}
                 />
                 {isLeader && (
-                  <span className={`absolute -top-1 -right-1 rounded-full p-0.5 ${dark ? "bg-slate-900" : "bg-white"}`}>
+                  <span className={`absolute -top-1 -right-1 rounded-full p-0.5 ${dark ? "bg-[var(--color-surface)]" : "bg-white"}`}>
                     <Crown className={`w-2.5 h-2.5 ${dark ? "text-amber-300" : "text-amber-500"}`} fill="currentColor" />
                   </span>
                 )}
                 {isController && !isLeader && (
-                  <span className={`absolute -top-1 -left-1 rounded-full p-0.5 ${dark ? "bg-slate-900" : "bg-white"}`}>
+                  <span className={`absolute -top-1 -left-1 rounded-full p-0.5 ${dark ? "bg-[var(--color-surface)]" : "bg-white"}`}>
                     <Clock className="w-2.5 h-2.5 text-[var(--color-accent)]" />
                   </span>
                 )}
@@ -298,12 +298,12 @@ function CompactView({ participants, leaderId, controllerId, presenceMap, curren
               } ${dotCls}`}
             />
             {isLeader && (
-              <span className={`absolute -top-1 -right-1 rounded-full p-0.5 ${dark ? "bg-slate-900" : "bg-white"}`}>
+              <span className={`absolute -top-1 -right-1 rounded-full p-0.5 ${dark ? "bg-[var(--color-surface)]" : "bg-white"}`}>
                 <Crown className={`w-2.5 h-2.5 ${dark ? "text-amber-300" : "text-amber-500"}`} fill="currentColor" />
               </span>
             )}
             {isController && !isLeader && (
-              <span className={`absolute -top-1 -left-1 rounded-full p-0.5 ${dark ? "bg-slate-900" : "bg-white"}`}>
+              <span className={`absolute -top-1 -left-1 rounded-full p-0.5 ${dark ? "bg-[var(--color-surface)]" : "bg-white"}`}>
                 <Clock className="w-2.5 h-2.5 text-[var(--color-accent)]" />
               </span>
             )}
@@ -327,7 +327,7 @@ function ParticipantDetail({
     <div
       className={`rounded-lg border p-3 ${
         dark
-          ? "bg-slate-900/90 border-[var(--color-accent)] shadow-lg"
+          ? "bg-[var(--color-surface)] border-[var(--color-accent)] shadow-lg"
           : "bg-white border-[var(--color-accent)] shadow-lg"
       }`}
     >
@@ -382,7 +382,7 @@ function ParticipantDetail({
       </div>
 
       {/* Full status text (wraps; not truncated) */}
-      <div className={`mt-3 rounded-md px-2 py-1.5 ${dark ? "bg-slate-800/60" : "bg-slate-50"}`}>
+      <div className={`mt-3 rounded-md px-2 py-1.5 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"}`}>
         {p.status?.trim() ? (
           <p className={`text-[12px] whitespace-pre-wrap break-words ${dark ? "text-slate-200" : "text-slate-700"}`}>
             {p.status}

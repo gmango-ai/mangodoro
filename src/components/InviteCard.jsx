@@ -26,7 +26,7 @@ export default function InviteCard({
         onClick={() => setExpanded(true)}
         className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors text-left ${
           dark
-            ? "bg-slate-900/40 border-slate-700/60 hover:bg-slate-800/60 hover:border-[var(--color-accent)]"
+            ? "bg-[var(--color-bg)] border-[var(--color-border)] hover:bg-[var(--color-surface-raised)] hover:border-[var(--color-accent)]"
             : "bg-white border-slate-200 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-light)]"
         }`}
         aria-expanded="false"
@@ -113,7 +113,7 @@ export default function InviteCard({
 
       {/* Email a teammate */}
       <div className={`rounded-lg border p-2.5 flex flex-wrap items-center gap-2 ${
-        dark ? "bg-slate-900/40 border-slate-700/60" : "bg-white border-slate-200"
+        dark ? "bg-[var(--color-bg)] border-[var(--color-border)]" : "bg-white border-slate-200"
       }`}>
         <input
           type="email"
