@@ -8,6 +8,7 @@ import { formatDuration } from "../lib/utils";
 import { Sun, Moon, LogOut, Loader2, Timer, Users, Building2, Settings as SettingsIcon, Menu, X, ChevronDown } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
+import OrgSwitcher from "./OrgSwitcher";
 
 const PRESENCE_DOT_COLOR = {
   active: "bg-emerald-500",
@@ -139,7 +140,8 @@ export default function Nav({ onOpenPomodoro }) {
           </NavLink>
 
           {/* Desktop: full nav + actions */}
-          <div className="hidden sm:flex items-center gap-4">
+          <div className="hidden sm:flex items-center gap-3">
+            <OrgSwitcher />
             <nav className="flex items-center gap-1">
               <NavLink to="/pomodoro" className={desktopNavLink}>
                 Pomodoro
@@ -216,6 +218,13 @@ export default function Nav({ onOpenPomodoro }) {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
+          {/* Mobile org switcher — visible in the sidebar so multi-org
+              users have a single tap to switch without crossing into
+              Team admin. Single-org users see nothing here. */}
+          <div className="px-2 pb-2">
+            <OrgSwitcher />
+          </div>
+
           <NavLink to="/pomodoro" className={sidebarNavLink}>
             <Timer className="w-5 h-5" /> Pomodoro
             {hasTeamSessions && (

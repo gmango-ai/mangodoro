@@ -17,8 +17,18 @@ const TeamContext = createContext(null);
 
 export function TeamProvider({ session, children }) {
   const [teams, setTeams] = useState([]);
+  // Default org is what the app opens to. If set, it always wins on
+  // initial load — overriding ql_active_team — so a user with a strong
+  // preference doesn't have to re-switch every session. switchTeam
+  // still updates ql_active_team for graceful in-session navigation;
+  // we just don't read it first when a default is configured.
+  const [defaultTeamId, setDefaultTeamIdState] = useState(() =>
+    localStorage.getItem("ql_default_team") || null
+  );
   const [activeTeamId, setActiveTeamId] = useState(() =>
-    localStorage.getItem("ql_active_team") || null
+    localStorage.getItem("ql_default_team") ||
+    localStorage.getItem("ql_active_team") ||
+    null
   );
   const [teamMembers, setTeamMembers] = useState([]);
   const [teamLoading, setTeamLoading] = useState(false);
@@ -96,6 +106,12 @@ export function TeamProvider({ session, children }) {
       return;
     }
     emptyRetriedRef.current = false;
+    // Clean up a stale default-org pointer (e.g. user left that team).
+    const storedDefault = localStorage.getItem("ql_default_team");
+    if (storedDefault && !loaded.find((t) => t.id === storedDefault)) {
+      localStorage.removeItem("ql_default_team");
+      setDefaultTeamIdState(null);
+    }
     // Auto-select if we have none, or if the stored one is no longer valid.
     if (!current || !loaded.find((t) => t.id === current)) {
       const next = loaded[0].id;
@@ -418,6 +434,16 @@ export function TeamProvider({ session, children }) {
     localStorage.setItem("ql_active_team", teamId || "");
   }
 
+  function setDefaultTeam(teamId) {
+    if (teamId) {
+      localStorage.setItem("ql_default_team", teamId);
+      setDefaultTeamIdState(teamId);
+    } else {
+      localStorage.removeItem("ql_default_team");
+      setDefaultTeamIdState(null);
+    }
+  }
+
   // ── Admin functions ────────────────────────────────────────
   async function removeMember(teamId, memberId) {
     await supabase
@@ -709,6 +735,7 @@ export function TeamProvider({ session, children }) {
     <TeamContext.Provider
       value={{
         teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin,
+        defaultTeamId, setDefaultTeam,
         loadTeams, loadMembers, switchTeam,
         createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
         removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
