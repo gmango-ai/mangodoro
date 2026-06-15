@@ -76,6 +76,19 @@ export async function endSyncSession(sessionId) {
   return { error };
 }
 
+// Server-authoritative cross-device rehydration. Returns the active
+// session row for the calling user, or null when they're not currently
+// participating in any session. Used on cold loads so a user who
+// joined on device A automatically shows up synced on device B without
+// having to manually re-enter the join code.
+export async function findMyActiveSyncSession() {
+  const { data, error } = await supabase.rpc("find_my_active_sync_session");
+  if (error) return { error };
+  // RPC returns SETOF — supabase-js gives back an array; we asked the
+  // function to LIMIT 1 so at most one row.
+  return { data: Array.isArray(data) ? (data[0] || null) : (data || null) };
+}
+
 export async function fetchSyncSession(sessionId) {
   const { data, error } = await supabase
     .from("sync_sessions")
