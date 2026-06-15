@@ -17,6 +17,13 @@ import {
   schedulePomodoroNotification,
 } from "../lib/nativeNotifications";
 import {
+  consumePendingTimerToggle,
+  hasPersistentTimerSurface,
+  pausePersistentTimer,
+  startPersistentTimer,
+  stopPersistentTimer,
+} from "../lib/persistentTimer";
+import {
   loadPomodoroSoundSettings, playCompletionSound,
   USER_SOUND_PREFIX, TEAM_SOUND_PREFIX,
 } from "../lib/pomodoroSound";
@@ -88,6 +95,11 @@ export function PomodoroProvider({ userId, children }) {
   const lastLocalWriteAtMsRef = useRef(null);
   const userHasMutatedRef = useRef(false);
   const completionHandledRef = useRef(null);
+  // Hold the latest callbacks so the lockscreen-action reconciliation
+  // effect can invoke them without retaking the effect on every state
+  // change.
+  const toggleRunRef = useRef(null);
+  const resetTimerRef = useRef(null);
   const autoTransitionRef = useRef(autoTransition);
   autoTransitionRef.current = autoTransition;
 
@@ -254,6 +266,26 @@ export function PomodoroProvider({ userId, children }) {
     if (!userId || syncSession) return;
     let cancelled = false;
     (async () => {
+      // Drain pending lockscreen actions FIRST. If the user stopped or
+      // toggled the timer from the widget while the app was backgrounded,
+      // we want to apply that locally before pulling the (now-stale)
+      // remote row — otherwise the older Supabase state reinstates the
+      // running timer for a beat, the activity reappears, then reconcile
+      // catches up and resets.
+      const lockscreenAction = await consumePendingTimerToggle();
+      if (cancelled) return;
+      if (lockscreenAction.pendingStop) {
+        resetTimerRef.current?.();
+        return; // Local reset wins; skip the hydrate.
+      }
+      if (
+        lockscreenAction.pending &&
+        lockscreenAction.nowRunning !== latestRef.current.isRunning
+      ) {
+        toggleRunRef.current?.();
+        // Don't return — keep hydrating to merge non-timer fields.
+      }
+
       const { data, error } = await supabase
         .from("user_pomodoro_state")
         .select("*")
@@ -397,6 +429,68 @@ export function PomodoroProvider({ userId, children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- secondsLeft is read at scheduling time only; ticking does not reschedule
   }, [isRunning, mode, sessions, pendingMode, isSynced, appCtx?.settings?.customSounds, teamCtx?.teamSounds]);
 
+  // Drive the live-countdown surfaces — iOS Live Activity (lockscreen +
+  // Dynamic Island), Android ongoing notification with chronometer, and
+  // the Electron tray. Each self-ticks from the OS once we hand it the
+  // end timestamp, so this effect only fires on phase boundaries.
+  //
+  // Pause does NOT stop the activity — we freeze it via
+  // pausePersistentTimer so the lockscreen keeps showing the snapshot.
+  // The only paths that end the activity are reset/switch-mode/custom-
+  // duration (handled directly in those callbacks below) and phase
+  // completion (handled in the completion effect).
+  useEffect(() => {
+    if (!hasPersistentTimerSurface) return;
+    const phaseMode = pendingMode || mode;
+    if (isRunning) {
+      const endsAt = endsAtMsRef.current || Date.now() + secondsLeft * 1000;
+      startPersistentTimer({ endsAtMs: endsAt, mode: phaseMode, isSynced });
+    } else {
+      pausePersistentTimer({
+        pausedSecondsLeft: secondsLeft,
+        mode: phaseMode,
+        isSynced,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- secondsLeft is read at scheduling time only; ticking does not reschedule
+  }, [isRunning, mode, sessions, pendingMode, isSynced]);
+
+  // Reconcile the JS-side timer state with whatever the widget showed
+  // after the user tapped pause/resume/stop from the lockscreen. The
+  // intents update the activity UI immediately and drop flags into the
+  // App Group; we poll for those flags here so foreground races (app
+  // open while widget changes state) converge in a couple of seconds
+  // rather than only on visibility change.
+  useEffect(() => {
+    if (!hasPersistentTimerSurface || !userId) return;
+    let cancelled = false;
+    async function reconcile() {
+      const { pending, nowRunning, pendingStop } = await consumePendingTimerToggle();
+      if (cancelled) return;
+      if (pendingStop) {
+        // Widget stop → reset the timer through the normal callback so
+        // Supabase, the alarm, and any other surfaces wind down too.
+        resetTimerRef.current?.();
+        return;
+      }
+      if (pending && nowRunning !== latestRef.current.isRunning) {
+        toggleRunRef.current?.();
+      }
+    }
+    reconcile();
+    const interval = setInterval(reconcile, 2000);
+    function onVisible() {
+      if (!document.hidden) reconcile();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- callbacks are read via ref so latest closure is always used
+  }, [userId]);
+
   // Completion + transition
   useEffect(() => {
     if (!isRunning || secondsLeft > 0) return;
@@ -483,6 +577,9 @@ export function PomodoroProvider({ userId, children }) {
       setPendingAction(null);
       const nextSessions = resetStreak ? 0 : sessions;
       if (resetStreak) setSessions(0);
+      // Explicit user action — end the live activity rather than freeze
+      // it, since the underlying phase/duration just changed.
+      if (hasPersistentTimerSurface) stopPersistentTimer();
       doFlush({
         mode: newMode,
         pending_mode: null,
@@ -504,8 +601,10 @@ export function PomodoroProvider({ userId, children }) {
     setIsRunning(false);
     endsAtMsRef.current = null;
     setPendingAction(null);
+    if (hasPersistentTimerSurface) stopPersistentTimer();
     doFlush({ remaining_seconds: dur, is_running: false, pending_mode: null });
   }, [canControl, durations, mode, doFlush, markUserMutated]);
+  resetTimerRef.current = resetTimer;
 
   const applyCustomDuration = useCallback(
     (minutesStr, persist) => {
@@ -527,6 +626,7 @@ export function PomodoroProvider({ userId, children }) {
       setIsRunning(false);
       endsAtMsRef.current = null;
       setPendingAction(null);
+      if (hasPersistentTimerSurface) stopPersistentTimer();
       doFlush({ remaining_seconds: secs, is_running: false, pending_mode: null });
     },
     [canControl, durations, mode, doFlush, markUserMutated]
@@ -598,12 +698,19 @@ export function PomodoroProvider({ userId, children }) {
       Notification.requestPermission();
     }
     const willRun = !isRunning;
+    if (!willRun) {
+      // Pausing — drop the recorded endsAt so the next resume's
+      // persistentTimer effect computes a fresh one from secondsLeft
+      // (instead of reusing the pre-pause endsAt that's now in the past).
+      endsAtMsRef.current = null;
+    }
     setIsRunning(willRun);
     await doFlush({
       is_running: willRun,
       remaining_seconds: currentRemainingSeconds(),
     });
   }, [canControl, isRunning, doFlush, markUserMutated]);
+  toggleRunRef.current = toggleRun;
 
   const skipTransition = useCallback(async () => {
     if (!canControl || !pendingMode) return;

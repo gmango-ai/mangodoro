@@ -89,11 +89,12 @@ export default function Nav({ onOpenPomodoro }) {
             ? "bg-[var(--color-bg)] backdrop-blur-2xl border-[var(--color-accent-border)]"
             : "bg-white/60 backdrop-blur-xl border-[var(--color-accent-border)] shadow-sm"
         }`}
-        style={
-          darkMode
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+          ...(darkMode
             ? { boxShadow: "0 4px 24px color-mix(in srgb, var(--color-accent) 12%, transparent)" }
-            : undefined
-        }
+            : {}),
+        }}
       >
         {dataSyncing && (
           <div

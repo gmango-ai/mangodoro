@@ -1,0 +1,11 @@
+{
+  "appId": "com.gmango.mangodoro",
+  "appName": "Mangodoro",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "always"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

@@ -4,7 +4,7 @@ import { supabase } from "./supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { isMobileApp, getAuthRedirectUrl, getEmailRedirectUrl } from "./lib/platform";
+import { isMobileApp, isElectron, getAuthRedirectUrl, getEmailRedirectUrl } from "./lib/platform";
 
 export default function AuthPage() {
   const [mode, setMode] = useState("signin"); // "signin" | "signup"
@@ -34,12 +34,45 @@ export default function AuthPage() {
       return;
     }
     if (isMobileApp && data?.url) {
-      await Browser.open({ url: data.url, presentationStyle: "popover" });
-      // Loading stays true until the deep-link listener fires
-      // exchangeCodeForSession and onAuthStateChange flips us to the
-      // authed app. If the user dismisses the browser without signing
-      // in, the spinner clears via Browser.addListener('browserFinished')
-      // below — wired in App.jsx so it lives across navigations.
+      if (isElectron && window.__electronOAuth) {
+        // Electron path: open the OAuth URL in a child BrowserWindow and
+        // wait for the redirect to the registered native scheme. The
+        // popup never actually navigates to mangodoro:// — main process
+        // intercepts will-navigate / will-redirect and yields the full
+        // callback URL back to us, with the auth code in query or hash.
+        try {
+          const callbackUrl = await window.__electronOAuth.start(
+            data.url,
+            "mangodoro://"
+          );
+          const u = new URL(callbackUrl);
+          const code = u.searchParams.get("code");
+          if (code) {
+            await supabase.auth.exchangeCodeForSession(code);
+          } else if (u.hash) {
+            const params = new URLSearchParams(
+              u.hash.startsWith("#") ? u.hash.slice(1) : u.hash
+            );
+            const access_token = params.get("access_token");
+            const refresh_token = params.get("refresh_token");
+            if (access_token && refresh_token) {
+              await supabase.auth.setSession({ access_token, refresh_token });
+            }
+          }
+        } catch (e) {
+          if (!String(e?.message).includes("closed before completion")) {
+            setError(e?.message || "Sign-in failed");
+          }
+          setLoading(false);
+        }
+      } else {
+        await Browser.open({ url: data.url, presentationStyle: "popover" });
+        // Loading stays true until the deep-link listener fires
+        // exchangeCodeForSession and onAuthStateChange flips us to the
+        // authed app. If the user dismisses the browser without signing
+        // in, the spinner clears via Browser.addListener('browserFinished')
+        // below — wired in App.jsx so it lives across navigations.
+      }
     }
   }
 

@@ -51,6 +51,7 @@
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
+    "@capacitor-community/electron": "^5.0.1",
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.4.0",
     "@tailwindcss/vite": "^4.1.12",

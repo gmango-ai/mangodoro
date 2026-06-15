@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
 import { App as CapApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { supabase } from "./supabase";
@@ -41,6 +41,7 @@ function AppLayout({ session }) {
   const { settings, dataSyncing, clockIn, projects } = useApp();
   const { joinSession } = useSyncSession();
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Apply the user's accent color to the document root whenever the
   // chosen palette or theme changes. Default is "teal" which matches
@@ -73,6 +74,28 @@ function AppLayout({ session }) {
       window.removeEventListener("drop", prevent);
     };
   }, []);
+
+  // Persistent-timer surfaces (Electron tray, Android ongoing notification)
+  // push the user back into the app via this event when the system
+  // affordance is tapped. The detail is a router path, defaulting to
+  // /pomodoro. iOS Live Activities open the app via the registered URL
+  // scheme and route through the existing CapApp deep-link handler.
+  useEffect(() => {
+    function onNav(e) {
+      const route = (e?.detail && typeof e.detail === "string") ? e.detail : "/pomodoro";
+      navigate(route);
+    }
+    window.addEventListener("mangodoro:nav", onNav);
+    window.addEventListener("mangodoro:route", onNav);
+    if (typeof window !== "undefined" && window.__pendingRoute) {
+      navigate(window.__pendingRoute);
+      window.__pendingRoute = null;
+    }
+    return () => {
+      window.removeEventListener("mangodoro:nav", onNav);
+      window.removeEventListener("mangodoro:route", onNav);
+    };
+  }, [navigate]);
 
   const onPomodoroPage = location.pathname.startsWith("/pomodoro");
 
