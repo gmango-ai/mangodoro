@@ -17,6 +17,7 @@ import {
   kickSyncParticipant,
   setSyncParticipantStatus,
   takeSyncControl,
+  findMyActiveSyncSession,
 } from "../lib/syncSession";
 import { notifySessionJoined, notifySessionCleared } from "../sync/joinSession";
 
@@ -64,62 +65,102 @@ export function SyncSessionProvider({ session, children }) {
   // out of an active session on refresh.
   const rehydrateRetriedRef = useRef(false);
 
+  // Tries, in order:
+  //   1) The session id stashed in localStorage (fast path for reloads).
+  //   2) The server-side find_my_active_sync_session RPC — picks up
+  //      sessions started on another device or in another tab so the
+  //      user lands already-synced on a fresh device.
+  //
+  // On a successful server-side discovery we backfill localStorage so
+  // subsequent reloads take the fast path.
   const rehydrateSyncSessionFromStorage = useCallback(async () => {
-    const stored = localStorage.getItem(SYNC_SESSION_KEY);
-    if (!stored) {
-      setSyncSession(null);
-      setSyncParticipants([]);
-      setPresenceMap({});
-      return;
-    }
-    let sessionId;
-    try {
-      ({ sessionId } = JSON.parse(stored));
-    } catch {
-      // Malformed JSON in localStorage: not a transient race; safe to clear.
+    const adoptSession = async (row) => {
+      rehydrateRetriedRef.current = false;
+      setSyncSession(row);
+      try {
+        localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify({ sessionId: row.id }));
+      } catch { /* storage disabled */ }
+      const { data: p } = await fetchSyncParticipants(row.id);
+      setSyncParticipants(p || []);
+    };
+
+    const tryServerDiscover = async () => {
+      const { data } = await findMyActiveSyncSession();
+      if (data?.id) {
+        await adoptSession(data);
+        return true;
+      }
+      return false;
+    };
+
+    const clearAndNotify = () => {
+      rehydrateRetriedRef.current = false;
+      try { localStorage.removeItem(SYNC_SESSION_KEY); } catch { /* */ }
       setSyncSession(null);
       setSyncParticipants([]);
       setPresenceMap({});
       notifySessionCleared();
-      return;
+    };
+
+    const stored = localStorage.getItem(SYNC_SESSION_KEY);
+    let sessionId = null;
+    if (stored) {
+      try {
+        ({ sessionId } = JSON.parse(stored));
+      } catch {
+        // Malformed JSON: fall through to server discovery rather than
+        // wiping outright — they may still have an active session.
+        sessionId = null;
+      }
     }
-    if (!sessionId) {
-      setSyncSession(null);
-      setSyncParticipants([]);
-      setPresenceMap({});
-      return;
+
+    if (sessionId) {
+      const { data, error } = await supabase
+        .from("sync_sessions")
+        .select("*")
+        .eq("id", sessionId)
+        .eq("status", "active")
+        .maybeSingle();
+      if (data) {
+        await adoptSession(data);
+        return;
+      }
+      // Stored hint missed. Could be: session ended, OR cold-load RLS
+      // race (token not warm yet). Retry once after a beat before
+      // committing to the "no session" path.
+      if (!error && !rehydrateRetriedRef.current) {
+        rehydrateRetriedRef.current = true;
+        setTimeout(() => rehydrateSyncSessionFromStorage(), 600);
+        return;
+      }
     }
-    const { data, error } = await supabase
-      .from("sync_sessions")
-      .select("*")
-      .eq("id", sessionId)
-      .eq("status", "active")
-      .maybeSingle();
-    if (data) {
-      rehydrateRetriedRef.current = false;
-      setSyncSession(data);
-      const { data: p } = await fetchSyncParticipants(data.id);
-      setSyncParticipants(p || []);
-      return;
-    }
-    // Empty result with a stored session id is suspicious — could be a
-    // genuinely-ended session, but on cold loads it's just as likely the
-    // access token wasn't warm yet and RLS returned nothing. Retry once
-    // before clearing local state and removing the localStorage hint.
-    if (!error && !rehydrateRetriedRef.current) {
-      rehydrateRetriedRef.current = true;
-      setTimeout(() => rehydrateSyncSessionFromStorage(), 600);
-      return;
-    }
-    rehydrateRetriedRef.current = false;
-    setSyncSession(null);
-    setSyncParticipants([]);
-    setPresenceMap({});
-    notifySessionCleared();
+
+    // No local hint, or the local hint was definitively stale. Ask the
+    // server whether this user is in any active session anywhere.
+    const found = await tryServerDiscover();
+    if (found) return;
+    clearAndNotify();
   }, []);
 
+  // Run on mount AND any time the signed-in user id changes (cold sign-in,
+  // account switch) so a freshly authenticated device immediately picks
+  // up any sync session the user is already a participant in.
   useEffect(() => {
     rehydrateSyncSessionFromStorage();
+  }, [rehydrateSyncSessionFromStorage, session?.user?.id]);
+
+  // Re-check the server when the tab returns to the foreground. Mobile
+  // PWAs and backgrounded laptops can miss realtime events; a focus
+  // refresh covers the "I joined on my phone, switched back to my
+  // laptop, expected to be already in" case.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible") {
+        rehydrateSyncSessionFromStorage();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [rehydrateSyncSessionFromStorage]);
 
   useEffect(() => {
