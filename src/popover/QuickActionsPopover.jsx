@@ -10,6 +10,7 @@ import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { useTheme } from "../context/ThemeContext";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { applyAccent } from "../lib/accent";
+import { supabase } from "../supabase";
 
 /**
  * Electron menu-bar popover. Three pages on a tab strip — Pomodoro,
@@ -252,6 +253,13 @@ function PomodoroPage({ dark }) {
           <span className={`font-mono font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>
             {syncSession.join_code}
           </span>
+          {syncSession.expires_at && (
+            <MeetingCountdownChip
+              expiresAt={syncSession.expires_at}
+              sessionId={syncSession.id}
+              dark={dark}
+            />
+          )}
         </div>
       )}
 
@@ -337,6 +345,13 @@ function OfficePage({ dark }) {
             {currentRoom.name}
           </span>
           <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>· you're here</span>
+          {syncSession?.expires_at && (
+            <MeetingCountdownChip
+              expiresAt={syncSession.expires_at}
+              sessionId={syncSession.id}
+              dark={dark}
+            />
+          )}
         </div>
       )}
 
@@ -796,6 +811,56 @@ function modeLabel(mode) {
 function formatMMSS(secs) {
   const s = Math.max(0, secs);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// Mirrors the chip in PomodoroTimer — ticks once a second off
+// syncSession.expires_at; at zero each connected client races to call
+// the server-side sweeper (idempotent) so the room cleans up the moment
+// time runs out.
+function MeetingCountdownChip({ expiresAt, sessionId, dark }) {
+  const [now, setNow] = useState(() => Date.now());
+  const sweptRef = useRef(false);
+
+  useEffect(() => { sweptRef.current = false; }, [sessionId, expiresAt]);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!expiresAt) return null;
+  const end = new Date(expiresAt).getTime();
+  if (!Number.isFinite(end)) return null;
+  const remaining = Math.max(0, Math.ceil((end - now) / 1000));
+
+  if (remaining === 0 && !sweptRef.current) {
+    sweptRef.current = true;
+    supabase.rpc("sweep_expired_sync_sessions").catch(() => {});
+  }
+
+  const hh = Math.floor(remaining / 3600);
+  const mm = Math.floor((remaining % 3600) / 60);
+  const ss = remaining % 60;
+  const label = hh > 0
+    ? `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
+    : `${mm}:${String(ss).padStart(2, "0")}`;
+
+  const urgent = remaining > 0 && remaining <= 60;
+  const ended = remaining === 0;
+  const cls = ended
+    ? (dark ? "bg-red-500/15 text-red-300" : "bg-red-50 text-red-600")
+    : urgent
+      ? (dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-700")
+      : (dark ? "bg-slate-800 text-slate-300" : "bg-slate-100 text-slate-600");
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded ${cls}`}
+      title={ended ? "Room closing…" : "Time left before the room closes"}
+    >
+      <Clock className="w-3 h-3 opacity-80" />
+      {ended ? "Closing…" : label}
+    </span>
+  );
 }
 
 // Keep silenced lint for unused icons we still reference in future iterations.
