@@ -45,13 +45,13 @@ export default function OrgTeamsCard({
       onError?.(error.message || "Could not create team.");
       return;
     }
-    // If the user opted in, seed a department room gated to the new
+    // If the user opted in, seed a general room gated to the new
     // team. Failures here don't roll back the team — surface as a
     // warning so they can retry the room from the Rooms section.
     if (draftCreateRoom && newTeam?.id) {
       const { error: roomErr } = await createRoomV2(orgId, {
         name: cleanName,
-        kind: "department",
+        kind: "general",
         color: draftColor,
         orgTeamIds: [newTeam.id],
         userId,

@@ -152,12 +152,40 @@ export default function OfficeLayoutEditor({
     const dx = Math.round(delta.x / (cellWidth + GAP));
     const dy = Math.round(delta.y / (cellHeight + GAP));
     if (dx === 0 && dy === 0) return;
-    const x = Math.max(0, Math.min(COLUMNS - o.layout_w, o.layout_x + dx));
-    const y = Math.max(0, o.layout_y + dy);
-    // Refuse the move if it would land on another room. The tile
-    // visually springs back to its origin via the transform reset.
-    if (hasCollision(room.id, { x, y, w: o.layout_w, h: o.layout_h })) return;
-    persistLayout(room.id, x, y, o.layout_w, o.layout_h);
+    const targetX = Math.max(0, Math.min(COLUMNS - o.layout_w, o.layout_x + dx));
+    const targetY = Math.max(0, o.layout_y + dy);
+    const rect = { w: o.layout_w, h: o.layout_h };
+    // If the drop lands on an empty spot, take it. Otherwise look for
+    // the nearest free w×h slot — searching in concentric Chebyshev
+    // rings — instead of refusing the move outright. That way you can
+    // slide a room "under" another even when the rest of the floor
+    // is densely packed.
+    if (!hasCollision(room.id, { x: targetX, y: targetY, ...rect })) {
+      persistLayout(room.id, targetX, targetY, rect.w, rect.h);
+      return;
+    }
+    const snapped = findNearestFreeCell(room.id, targetX, targetY, rect);
+    if (snapped) persistLayout(room.id, snapped.x, snapped.y, rect.w, rect.h);
+  }
+
+  // Concentric-ring search for the nearest free cell to (cx, cy).
+  // Caps at 12 rings (covers >144 candidate cells) before giving up;
+  // a totally-jammed grid just returns null and the move is dropped.
+  function findNearestFreeCell(roomId, cx, cy, rect) {
+    for (let r = 1; r <= 12; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = cx + dx;
+          const y = cy + dy;
+          if (x < 0 || y < 0 || x + rect.w > COLUMNS) continue;
+          if (!hasCollision(roomId, { x, y, w: rect.w, h: rect.h })) {
+            return { x, y };
+          }
+        }
+      }
+    }
+    return null;
   }
 
   return (

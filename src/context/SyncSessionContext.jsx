@@ -30,6 +30,8 @@ const METADATA_FIELDS = [
   "visibility",
   "join_code",
   "team_id",
+  "room_id",
+  "expires_at",
 ];
 
 function mergeSessionMetadata(prev, row) {
@@ -232,6 +234,20 @@ export function SyncSessionProvider({ session, children }) {
         }
         setSyncSession((prev) => mergeSessionMetadata(prev, row));
       }
+    );
+
+    // Session row was hard-deleted (last-leaver cleanup, leader end, or
+    // meeting-room auto-expiry). Drop local state so the UI bails out
+    // cleanly instead of waiting on the 15s refetch poll.
+    channel.on(
+      "postgres_changes",
+      {
+        event: "DELETE",
+        schema: "public",
+        table: "sync_sessions",
+        filter: `id=eq.${sessionId}`,
+      },
+      () => clearLocalSession()
     );
 
     channel.subscribe(async (status) => {
