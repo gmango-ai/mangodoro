@@ -68,7 +68,12 @@ export function PomodoroProvider({ userId, children }) {
   const [pendingMode, setPendingMode] = useState(null);
   const [autoTransition, setAutoTransitionState] = useState(() => loadAutoTransition());
   const [pendingAction, setPendingAction] = useState(null);
-  const [pendingRemoteRow, setPendingRemoteRow] = useState(null);
+  // Realtime channel state for the "Reconnecting…" pill. SUBSCRIBED
+  // means we're getting live updates; anything else means the channel
+  // is in error / closed / mid-reconnect. We surface this on the value
+  // so the timer and popout can render a subtle indicator without
+  // peeking at the supabase-js internals themselves.
+  const [realtimeStatus, setRealtimeStatus] = useState("SUBSCRIBED");
 
   const durationsRef = useRef(durations);
   durationsRef.current = durations;
@@ -149,21 +154,10 @@ export function PomodoroProvider({ userId, children }) {
       const result = evaluateRemoteRow({
         row,
         force,
-        local: latestRef.current,
-        durations: durationsRef.current,
-        localEndsAtMs: endsAtMsRef.current,
         lastLocalWriteAtMs: lastLocalWriteAtMsRef.current,
         suppressUntilMs: suppressRemoteUntilRef.current,
-        canControl: canControlRef.current,
       });
-
       if (result.action === "skip") return;
-      if (result.action === "conflict") {
-        setPendingRemoteRow(result.row);
-        setPendingAction(null);
-        return;
-      }
-      setPendingRemoteRow(null);
       applyPatch(result.patch);
     },
     [applyPatch]
@@ -284,13 +278,13 @@ export function PomodoroProvider({ userId, children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per session id
   }, [syncSession?.id]);
 
-  useEffect(() => {
-    setPendingRemoteRow(null);
-  }, [syncSession?.controller_id]);
-
-  // Solo Realtime
+  // Solo Realtime. The `subscribe` callback flips realtimeStatus so the
+  // popout / main timer can render a "Reconnecting…" pill. SUBSCRIBED
+  // after a transient drop = silently re-pull authoritative state, no
+  // user confirmation.
   useEffect(() => {
     if (!userId || syncSession) return;
+    let wasSubscribed = false;
     const channel = supabase
       .channel(`pomodoro:${userId}`)
       .on(
@@ -306,15 +300,24 @@ export function PomodoroProvider({ userId, children }) {
           if (row && typeof row === "object") applyRemoteRow(row);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        setRealtimeStatus(status);
+        if (status === "SUBSCRIBED") {
+          // First SUBSCRIBED on mount is handled by the hydrate effect.
+          // Anything after a drop is a reconnect — pull fresh state.
+          if (wasSubscribed) syncFromDB();
+          wasSubscribed = true;
+        }
+      });
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userId, applyRemoteRow, syncSession]);
+  }, [userId, applyRemoteRow, syncSession, syncFromDB]);
 
   // Sync Realtime — timer fields only (single subscription)
   useEffect(() => {
     if (!syncSession?.id) return;
+    let wasSubscribed = false;
     const channel = supabase
       .channel(`sync-session-timer:${syncSession.id}`)
       .on(
@@ -336,12 +339,19 @@ export function PomodoroProvider({ userId, children }) {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        setRealtimeStatus(status);
+        if (status === "SUBSCRIBED") {
+          if (wasSubscribed) syncFromDB();
+          wasSubscribed = true;
+        }
+      });
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [syncSession?.id, applyRemoteRow, leaveSession]);
+  }, [syncSession?.id, applyRemoteRow, leaveSession, syncFromDB]);
 
+  // Tab regaining focus → silently re-pull authoritative state.
   useEffect(() => {
     if (!userId) return;
     function onVisible() {
@@ -351,11 +361,23 @@ export function PomodoroProvider({ userId, children }) {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [userId, syncFromDB]);
 
+  // Two interval-based safety nets:
+  //   • While running: 30s — catches subtle drift between local tick
+  //     and server `ends_at` even when Realtime is healthy.
+  //   • Always: 60s — last-resort reconcile in case both Realtime AND
+  //     visibilitychange somehow miss a state update (e.g., a
+  //     long-lived background tab whose connection silently rotted).
   useEffect(() => {
     if (!isRunning || !userId) return;
     const id = setInterval(() => syncFromDB({ skipIfSynced: true }), 30_000);
     return () => clearInterval(id);
   }, [isRunning, userId, syncSession?.id, syncFromDB]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const id = setInterval(() => syncFromDB(), 60_000);
+    return () => clearInterval(id);
+  }, [userId, syncFromDB]);
 
   useTimerTick({ isRunning, userId, endsAtMsRef, setSecondsLeft });
 
@@ -535,37 +557,37 @@ export function PomodoroProvider({ userId, children }) {
   const requestSwitchMode = useCallback(
     (newMode) => {
       if (!canControl || newMode === mode) return;
-      if (pendingAction || pendingRemoteRow) return;
+      if (pendingAction) return;
       if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
         setPendingAction({ type: "switchMode", newMode });
       } else {
         switchMode(newMode);
       }
     },
-    [canControl, mode, pendingAction, pendingRemoteRow, durations, secondsLeft, isRunning, switchMode]
+    [canControl, mode, pendingAction, durations, secondsLeft, isRunning, switchMode]
   );
 
   const requestReset = useCallback(() => {
     if (!canControl) return;
-    if (pendingAction || pendingRemoteRow) return;
+    if (pendingAction) return;
     if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
       setPendingAction({ type: "reset" });
     } else {
       resetTimer();
     }
-  }, [canControl, pendingAction, pendingRemoteRow, mode, durations, secondsLeft, isRunning, resetTimer]);
+  }, [canControl, pendingAction, mode, durations, secondsLeft, isRunning, resetTimer]);
 
   const requestApplyCustomDuration = useCallback(
     (minutesStr, persist) => {
       if (!canControl) return;
-      if (pendingAction || pendingRemoteRow) return;
+      if (pendingAction) return;
       if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
         setPendingAction({ type: "applyCustomDuration", minutesStr, persist });
       } else {
         applyCustomDuration(minutesStr, persist);
       }
     },
-    [canControl, pendingAction, pendingRemoteRow, mode, durations, secondsLeft, isRunning, applyCustomDuration]
+    [canControl, pendingAction, mode, durations, secondsLeft, isRunning, applyCustomDuration]
   );
 
   const switchAlternateBreak = useCallback(() => {
@@ -616,11 +638,6 @@ export function PomodoroProvider({ userId, children }) {
     saveAutoTransition(enabled);
   }, []);
 
-  const confirmRemote = useCallback(() => {
-    if (pendingRemoteRow) applyRemoteRow(pendingRemoteRow, { force: true });
-  }, [pendingRemoteRow, applyRemoteRow]);
-
-  const cancelRemote = useCallback(() => setPendingRemoteRow(null), []);
   const cancelPendingAction = useCallback(() => setPendingAction(null), []);
 
   const value = useMemo(
@@ -638,7 +655,7 @@ export function PomodoroProvider({ userId, children }) {
       isController,
       canControl,
       pendingAction,
-      pendingRemoteRow,
+      realtimeStatus,
       toggleRun,
       resetTimer: requestReset,
       switchMode: requestSwitchMode,
@@ -648,8 +665,6 @@ export function PomodoroProvider({ userId, children }) {
       setAutoTransition,
       confirmPendingAction,
       cancelPendingAction,
-      confirmRemote,
-      cancelRemote,
       applyCustomDurationDirect: applyCustomDuration,
       resetTimerDirect: resetTimer,
       switchModeDirect: switchMode,
@@ -668,7 +683,7 @@ export function PomodoroProvider({ userId, children }) {
       isController,
       canControl,
       pendingAction,
-      pendingRemoteRow,
+      realtimeStatus,
       toggleRun,
       requestReset,
       requestSwitchMode,
@@ -678,8 +693,6 @@ export function PomodoroProvider({ userId, children }) {
       setAutoTransition,
       confirmPendingAction,
       cancelPendingAction,
-      confirmRemote,
-      cancelRemote,
       applyCustomDuration,
       resetTimer,
       switchMode,

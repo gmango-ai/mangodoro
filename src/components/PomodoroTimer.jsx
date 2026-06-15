@@ -27,6 +27,7 @@ import {
   cloneDocStyles,
   PipFace,
   PomodoroConfirmPrompts,
+  ReconnectingPill,
   PIP_VIEW_SIZES,
   PIP_CONFIRM_EXTRA_H,
 } from "./pomodoro/PomodoroPipParts";
@@ -81,7 +82,7 @@ export default function PomodoroTimer({
     isController,
     canControl,
     pendingAction,
-    pendingRemoteRow,
+    realtimeStatus,
     toggleRun,
     resetTimer: requestReset,
     switchMode: requestSwitchMode,
@@ -91,8 +92,6 @@ export default function PomodoroTimer({
     setAutoTransition,
     confirmPendingAction,
     cancelPendingAction,
-    confirmRemote,
-    cancelRemote,
   } = usePomodoro();
 
   const isParticipant =
@@ -133,13 +132,13 @@ export default function PomodoroTimer({
     const pipWin = pipWinRef.current;
     if (!pipWin) return;
     const { w, h } = PIP_VIEW_SIZES[pipViewMode] || PIP_VIEW_SIZES.controls;
-    const confirmExtra = pendingAction || pendingRemoteRow ? PIP_CONFIRM_EXTRA_H : 0;
+    const confirmExtra = pendingAction ? PIP_CONFIRM_EXTRA_H : 0;
     try {
       pipWin.resizeTo(w, h + confirmExtra);
     } catch {
       /* ignore */
     }
-  }, [pipViewMode, pipMountEl, pendingAction, pendingRemoteRow]);
+  }, [pipViewMode, pipMountEl, pendingAction]);
 
   useEffect(() => {
     setPendingTakeControl(false);
@@ -251,7 +250,7 @@ export default function PomodoroTimer({
       : "";
 
   const syncSuffix = isSynced ? " for everyone in this session." : ".";
-  const controlsLocked = !!pendingAction || !!pendingRemoteRow || pendingTakeControl;
+  const controlsLocked = !!pendingAction || pendingTakeControl;
 
   async function confirmTakeControl() {
     if (!syncSession?.id) return;
@@ -284,15 +283,11 @@ export default function PomodoroTimer({
   const showConfirmInMain = controlsLocked && (embedded || open || !pipMountEl);
   const confirmProps = controlsLocked ? {
     dark,
-    isSynced,
     pendingAction,
-    pendingRemoteRow,
     outboundPrompt,
     outboundConfirmLabel,
     onConfirmOutbound: confirmPendingAction,
     onCancelOutbound: cancelPendingAction,
-    onConfirmRemote: confirmRemote,
-    onCancelRemote: cancelRemote,
   } : null;
 
   const pipSupported = typeof window !== "undefined" && "documentPictureInPicture" in window;
@@ -710,6 +705,10 @@ export default function PomodoroTimer({
           )}
 
           <div className="flex justify-center">
+            <ReconnectingPill status={realtimeStatus} dark={dark} />
+          </div>
+
+          <div className="flex justify-center">
             <div className="relative w-40 h-40">
               <svg viewBox="0 0 128 128" className="w-full h-full -rotate-90">
                 <circle
@@ -993,6 +992,7 @@ export default function PomodoroTimer({
             alternateBreakLabel={alternateBreakLabel}
             onSwitchAlternateBreak={switchAlternateBreak}
             confirmProps={confirmProps}
+            realtimeStatus={realtimeStatus}
             viewMode={pipViewMode}
             onViewModeChange={setPipViewMode}
             syncSession={syncSession}

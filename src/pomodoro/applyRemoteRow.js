@@ -1,21 +1,24 @@
 import { UPDATED_AT_SKEW_MS } from "./constants.js";
-import { remoteRemainingSeconds, remoteUpdatedAtMs, rowsConflict } from "./derive.js";
+import { remoteRemainingSeconds, remoteUpdatedAtMs } from "./derive.js";
 
 export { remoteRemainingSeconds };
 
 /**
- * Pure evaluation of whether a remote row should be applied, conflicted, or skipped.
- * Returns { action: "skip" | "conflict" | "apply", patch? }
+ * Pure evaluation of whether a remote row should be applied or skipped.
+ * Returns { action: "skip" | "apply", patch? }.
+ *
+ * Phase 1 of the server-authoritative migration: there is no longer a
+ * "conflict" branch — any remote row that arrives newer than our last
+ * local write is silently accepted. The previous manual "Use updated
+ * timer" confirmation prompt was net-negative for trust: most users
+ * want to stay in sync without being interrogated. Race protection
+ * moves to the server in phase 2 (RPC operations + op_version).
  */
 export function evaluateRemoteRow({
   row,
   force = false,
-  local,
-  durations,
-  localEndsAtMs,
   lastLocalWriteAtMs,
   suppressUntilMs,
-  canControl,
 }) {
   if (!row || Date.now() < suppressUntilMs) {
     return { action: "skip" };
@@ -24,6 +27,9 @@ export function evaluateRemoteRow({
   const remoteUpdatedMs = remoteUpdatedAtMs(row);
   const lastWriteMs = lastLocalWriteAtMs;
 
+  // Still skip a stale Realtime payload that arrived after our newer
+  // local write — that just keeps the optimistic UI from briefly
+  // snapping backward to an out-of-order broadcast.
   if (
     !force &&
     remoteUpdatedMs != null &&
@@ -31,23 +37,6 @@ export function evaluateRemoteRow({
     remoteUpdatedMs < lastWriteMs - UPDATED_AT_SKEW_MS
   ) {
     return { action: "skip" };
-  }
-
-  const isSelfEcho =
-    remoteUpdatedMs != null &&
-    lastWriteMs != null &&
-    Math.abs(remoteUpdatedMs - lastWriteMs) <= UPDATED_AT_SKEW_MS;
-
-  if (
-    !force &&
-    !isSelfEcho &&
-    canControl &&
-    remoteUpdatedMs != null &&
-    lastWriteMs != null &&
-    remoteUpdatedMs > lastWriteMs + UPDATED_AT_SKEW_MS &&
-    rowsConflict(local, row, durations, localEndsAtMs)
-  ) {
-    return { action: "conflict", row };
   }
 
   const nextMode = row.mode;
