@@ -3,7 +3,7 @@ import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Briefcase, MessageSquare, Lock, Users2, Check } from "lucide-react";
+import { X, Home, MessageSquare, Lock, Users2, Check, Clock } from "lucide-react";
 import { createRoomV2 } from "../lib/rooms";
 
 const ROOM_COLORS = [
@@ -13,26 +13,36 @@ const ROOM_COLORS = [
 
 const KIND_OPTIONS = [
   {
-    key: "department",
-    label: "Department",
-    Icon: Briefcase,
-    hint: "Long-lived room for a team or department. Admins only.",
+    key: "general",
+    label: "General",
+    Icon: Home,
+    hint: "Long-lived shared room — anyone in the org can drop in. Admins only.",
     adminsOnly: true,
   },
   {
     key: "meeting",
     label: "Meeting",
     Icon: MessageSquare,
-    hint: "Ad-hoc room for a specific meeting. Anyone can join.",
+    hint: "Time-boxed room for a specific meeting. Auto-closes after the max duration.",
     adminsOnly: false,
   },
   {
     key: "private",
     label: "Private",
     Icon: Lock,
-    hint: "Visible on the team list, but joining needs an invite code.",
+    hint: "Open until someone joins, then locked behind a code that's auto-generated on first join.",
     adminsOnly: false,
   },
+];
+
+const MEETING_DURATIONS = [
+  { value: 15, label: "15 min" },
+  { value: 30, label: "30 min" },
+  { value: 45, label: "45 min" },
+  { value: 60, label: "1 hour" },
+  { value: 90, label: "1.5 hours" },
+  { value: 120, label: "2 hours" },
+  { value: null, label: "No limit" },
 ];
 
 export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin, onCreated }) {
@@ -43,6 +53,7 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
   const [kind, setKind] = useState("meeting");
   const [color, setColor] = useState(ROOM_COLORS[0]);
   const [selectedTeamIds, setSelectedTeamIds] = useState([]);
+  const [maxDurationMinutes, setMaxDurationMinutes] = useState(60);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -50,9 +61,10 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
   useEffect(() => {
     if (open) {
       setName("");
-      setKind(isAdmin ? "department" : "meeting");
+      setKind(isAdmin ? "general" : "meeting");
       setColor(ROOM_COLORS[0]);
       setSelectedTeamIds([]);
+      setMaxDurationMinutes(60);
       setBusy(false);
       setError("");
     }
@@ -75,6 +87,9 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
       kind,
       color,
       orgTeamIds: selectedTeamIds,
+      // Only meeting rooms accept a max duration; the server enforces
+      // the same rule but we keep the wire clean.
+      maxDurationMinutes: kind === "meeting" ? maxDurationMinutes : null,
       userId,
     });
     setBusy(false);
@@ -140,7 +155,7 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
                   type="button"
                   onClick={() => !disabled && setKind(opt.key)}
                   disabled={disabled}
-                  title={disabled ? "Only team admins can create department rooms" : opt.hint}
+                  title={disabled ? "Only org admins can create general rooms" : opt.hint}
                   className={`flex flex-col items-center gap-1.5 px-2 py-3 rounded-lg border text-xs font-semibold transition-colors ${
                     disabled ? "opacity-40 cursor-not-allowed" : ""
                   } ${
@@ -161,6 +176,39 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
             {KIND_OPTIONS.find((o) => o.key === kind)?.hint}
           </p>
         </div>
+
+        {/* Meeting rooms get an auto-close timer. Picked on create
+            because changing it mid-session would surprise people who
+            joined under the original limit. */}
+        {kind === "meeting" && (
+          <div className="mb-4">
+            <label className={labelCls}>
+              <Clock className="inline w-3 h-3 mr-1 -mt-0.5" />
+              Auto-close after
+            </label>
+            <div className="grid grid-cols-4 gap-1.5 mt-1.5">
+              {MEETING_DURATIONS.map((d) => {
+                const active = maxDurationMinutes === d.value;
+                return (
+                  <button
+                    key={d.label}
+                    type="button"
+                    onClick={() => setMaxDurationMinutes(d.value)}
+                    className={`text-[11px] font-semibold px-2 py-1.5 rounded-md border transition-colors ${
+                      active
+                        ? "bg-[var(--color-accent-light)] border-[var(--color-accent)] text-[var(--color-accent)]"
+                        : dark
+                          ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300 hover:border-slate-600"
+                          : "bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300"
+                    }`}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Color picker — quick visual identification on the floor plan. */}
         <div className="mb-4">

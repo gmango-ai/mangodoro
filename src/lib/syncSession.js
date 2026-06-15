@@ -64,11 +64,15 @@ export async function leaveSyncSession(sessionId) {
   return { data };
 }
 
+// Leader-only hard delete via RPC. Hard-deleting the row lets the
+// BEFORE DELETE trigger unlock the linked private room (if any) and
+// the cascade on sync_session_participants clears participants in one
+// atomic step. The previous version did a soft `status = 'ended'`
+// update which left orphan rows + permanently-locked private rooms.
 export async function endSyncSession(sessionId) {
-  const { error } = await supabase
-    .from("sync_sessions")
-    .update({ status: "ended", ended_at: new Date().toISOString(), is_running: false })
-    .eq("id", sessionId);
+  const { error } = await supabase.rpc("end_sync_session", {
+    p_session_id: sessionId,
+  });
   return { error };
 }
 

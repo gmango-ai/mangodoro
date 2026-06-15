@@ -1,14 +1,5 @@
 import { supabase } from "../supabase";
 
-// Generate a 6-char alphanumeric invite code for private rooms.
-// Mirrors the sync_session join_code convention so the UI can use the
-// same input shape — uppercase, no confusable 0/O/1/I.
-const INVITE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-function generateInviteCode() {
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
-  return Array.from(bytes, (b) => INVITE_CHARS[b % INVITE_CHARS.length]).join("");
-}
-
 export async function listRooms(teamId) {
   if (!teamId) return { data: [], error: null };
   // Pull room_teams in the same query so the client can decide
@@ -17,7 +8,7 @@ export async function listRooms(teamId) {
     .from("rooms")
     .select(`
       id, team_id, name, kind, color, invite_code, created_by, created_at, archived_at,
-      layout_x, layout_y, layout_w, layout_h,
+      layout_x, layout_y, layout_w, layout_h, max_duration_minutes,
       room_teams ( org_team_id )
     `)
     .eq("team_id", teamId)
@@ -26,39 +17,55 @@ export async function listRooms(teamId) {
   return { data: data || [], error };
 }
 
-// v2: goes through the create_room_v2 RPC so the permission model
-// (admin / lead / member) is enforced server-side and team-gating
-// rows are inserted atomically alongside the room.
+// v2 (updated 2026-06-15): kinds are now `general` (was `department`),
+// `meeting`, and `private`. Private rooms NO LONGER receive a code at
+// creation — the server mints one only on first join via the
+// sync_session trigger, so a brand-new private room is "unlocked"
+// for whoever opens it first. Meeting rooms accept a maxDurationMinutes
+// that auto-closes the sync_session via the server-side sweeper.
+// Layout coords are optional; when omitted the server scans for the
+// first open w×h slot in the team's grid and uses that.
 export async function createRoomV2(teamId, {
-  name, kind, color = "#14b8a6", orgTeamIds = [], layout, userId,
+  name, kind, color = "#14b8a6", orgTeamIds = [], layout, maxDurationMinutes, userId,
 }) {
   const trimmed = (name || "").trim();
   if (!trimmed) return { error: { message: "Room name is required" } };
-  if (!["department", "meeting", "private"].includes(kind)) {
+  if (!["general", "meeting", "private"].includes(kind)) {
     return { error: { message: "Invalid room kind" } };
   }
-  const invite_code = kind === "private" ? generateInviteCode() : null;
+  if (maxDurationMinutes != null && kind !== "meeting") {
+    return { error: { message: "Only meeting rooms can have a max duration" } };
+  }
   const { data, error } = await supabase.rpc("create_room_v2", {
     p_team_id: teamId,
     p_name: trimmed,
     p_kind: kind,
     p_org_team_ids: orgTeamIds,
-    p_invite_code: invite_code,
-    p_layout_x: layout?.x ?? 0,
-    p_layout_y: layout?.y ?? 0,
+    // null layout coords → server auto-places in the first open cell.
+    p_layout_x: layout?.x ?? null,
+    p_layout_y: layout?.y ?? null,
     p_layout_w: layout?.w ?? 4,
     p_layout_h: layout?.h ?? 2,
     p_color: color,
+    p_max_duration_minutes: maxDurationMinutes ?? null,
   });
-  // The RPC returns just the new room id; callers that need the row
-  // can refetch via listRooms.
-  return { data: data ? { id: data, name: trimmed, kind, color, invite_code, created_by: userId } : null, error };
+  return { data: data ? { id: data, name: trimmed, kind, color, invite_code: null, created_by: userId } : null, error };
 }
 
 export async function setRoomColor(roomId, color) {
   const { error } = await supabase.rpc("set_room_color", {
     p_room_id: roomId,
     p_color: color,
+  });
+  return { error };
+}
+
+// Meeting-only. Pass `null` for "no limit". Server enforces both the
+// meeting-only invariant and the "admin or creator" permission check.
+export async function setRoomMaxDuration(roomId, minutes) {
+  const { error } = await supabase.rpc("set_room_max_duration", {
+    p_room_id: roomId,
+    p_minutes: minutes == null ? null : Number(minutes),
   });
   return { error };
 }

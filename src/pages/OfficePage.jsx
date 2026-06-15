@@ -93,7 +93,10 @@ export default function OfficePage() {
   async function handleRoomClick(room) {
     const active = sessionByRoomId.get(room.id);
     if (active) return joinSessionRow(active);
-    if (room.kind === "private") {
+    // Private rooms now start UNLOCKED — the server mints + locks the
+    // invite_code on first join. Only ask for a code if the room has
+    // already been locked (i.e. someone else got there first).
+    if (room.kind === "private" && room.invite_code) {
       setCodePromptRoom(room);
       return;
     }

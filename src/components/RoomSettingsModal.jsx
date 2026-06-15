@@ -2,10 +2,21 @@ import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Check } from "lucide-react";
+import { X, Check, Trash2, Clock } from "lucide-react";
 import {
-  renameRoomV2, setRoomColor, updateRoomGating,
+  renameRoomV2, setRoomColor, updateRoomGating, archiveRoomV2,
+  setRoomMaxDuration,
 } from "../lib/rooms";
+
+const DURATION_PRESETS = [
+  { value: 15, label: "15m" },
+  { value: 30, label: "30m" },
+  { value: 45, label: "45m" },
+  { value: 60, label: "1h" },
+  { value: 90, label: "1.5h" },
+  { value: 120, label: "2h" },
+  { value: null, label: "No limit" },
+];
 
 const ROOM_COLORS = [
   "#14b8a6", "#0ea5e9", "#6366f1", "#8b5cf6", "#ec4899",
@@ -17,7 +28,7 @@ const ROOM_COLORS = [
 // screen. Each section saves independently so a partial failure doesn't
 // nuke the rest of the form.
 export default function RoomSettingsModal({
-  open, onClose, room, orgTeams, isAdmin, myOrgTeamLeadIds, onSaved, onError,
+  open, onClose, room, orgTeams, isAdmin, myOrgTeamLeadIds, onSaved, onError, onDeleted,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -25,17 +36,45 @@ export default function RoomSettingsModal({
   const [name, setName] = useState("");
   const [color, setColor] = useState("#14b8a6");
   const [selectedTeamIds, setSelectedTeamIds] = useState([]);
+  const [maxDuration, setMaxDuration] = useState(null);   // minutes, or null
+  const [customDuration, setCustomDuration] = useState(""); // text in custom input
+  const [showCustomDuration, setShowCustomDuration] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [dirty, setDirty] = useState({ name: false, color: false, gating: false });
+  const [dirty, setDirty] = useState({ name: false, color: false, gating: false, duration: false });
+  // Two-step delete: clicking the trash icon flips this to true and the
+  // footer swaps in a Confirm / Cancel pair. Avoids needing a separate
+  // modal layer for a single destructive action.
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!open || !room) return;
     setName(room.name || "");
     setColor(room.color || "#14b8a6");
     setSelectedTeamIds((room.room_teams || []).map((rt) => rt.org_team_id));
-    setDirty({ name: false, color: false, gating: false });
+    const current = room.max_duration_minutes ?? null;
+    setMaxDuration(current);
+    // Show the custom input if the existing value isn't a preset.
+    const presetValues = DURATION_PRESETS.map((p) => p.value);
+    setShowCustomDuration(current != null && !presetValues.includes(current));
+    setCustomDuration(current != null && !presetValues.includes(current) ? String(current) : "");
+    setDirty({ name: false, color: false, gating: false, duration: false });
+    setConfirmDelete(false);
     setBusy(false);
   }, [open, room]);
+
+  async function handleDelete() {
+    if (!room?.id) return;
+    setBusy(true);
+    const { error } = await archiveRoomV2(room.id);
+    setBusy(false);
+    if (error) {
+      onError?.(error.message || "Could not delete room");
+      setConfirmDelete(false);
+      return;
+    }
+    onDeleted?.(room.name || "Room");
+    onClose?.();
+  }
 
   if (!open || !room) return null;
 
@@ -64,6 +103,12 @@ export default function RoomSettingsModal({
     if (dirty.gating) {
       tasks.push(updateRoomGating(room.id, selectedTeamIds).then((r) => r.error && errs.push(r.error)));
     }
+    if (dirty.duration && room.kind === "meeting") {
+      const next = showCustomDuration
+        ? (customDuration.trim() === "" ? null : Math.max(1, parseInt(customDuration, 10) || 0))
+        : maxDuration;
+      tasks.push(setRoomMaxDuration(room.id, next).then((r) => r.error && errs.push(r.error)));
+    }
     await Promise.all(tasks);
     setBusy(false);
     if (errs.length > 0) {
@@ -71,6 +116,24 @@ export default function RoomSettingsModal({
       return;
     }
     onSaved?.("Room updated");
+  }
+
+  function pickDurationPreset(value) {
+    setMaxDuration(value);
+    setShowCustomDuration(false);
+    setCustomDuration("");
+    setDirty((d) => ({ ...d, duration: true }));
+  }
+  function pickCustomDuration() {
+    setShowCustomDuration(true);
+    setMaxDuration(null);
+    setDirty((d) => ({ ...d, duration: true }));
+  }
+  function onCustomDurationChange(v) {
+    // Strip non-digits; clamp to int. Empty string = "no limit" (null on save).
+    const clean = v.replace(/\D/g, "").slice(0, 4);
+    setCustomDuration(clean);
+    setDirty((d) => ({ ...d, duration: true }));
   }
 
   const cardCls = `relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
@@ -144,6 +207,76 @@ export default function RoomSettingsModal({
           </div>
         </div>
 
+        {/* Meeting duration (meeting rooms only) */}
+        {room?.kind === "meeting" && (
+          <div className="mb-4">
+            <label className={labelCls}>
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" />
+                Auto-close after
+              </span>
+            </label>
+            <p className={`text-[11px] mt-0.5 mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+              {showCustomDuration
+                ? (customDuration
+                    ? `Session will end after ${customDuration} minute${customDuration === "1" ? "" : "s"}`
+                    : "Custom duration in minutes")
+                : (maxDuration == null
+                    ? "Session stays open until everyone leaves"
+                    : `Session will end after ${maxDuration} minute${maxDuration === 1 ? "" : "s"}`)}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {DURATION_PRESETS.map((p) => {
+                const active = !showCustomDuration && maxDuration === p.value;
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => pickDurationPreset(p.value)}
+                    className={`px-2.5 py-1 rounded-md text-xs border transition-colors ${
+                      active
+                        ? (dark
+                            ? "bg-[var(--accent-bg)] text-[var(--accent-text)] border-[var(--accent-border)]"
+                            : "bg-[var(--accent-bg)] text-[var(--accent-text)] border-[var(--accent-border)]")
+                        : (dark
+                            ? "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={pickCustomDuration}
+                className={`px-2.5 py-1 rounded-md text-xs border transition-colors ${
+                  showCustomDuration
+                    ? "bg-[var(--accent-bg)] text-[var(--accent-text)] border-[var(--accent-border)]"
+                    : (dark
+                        ? "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")
+                }`}
+              >
+                Custom
+              </button>
+            </div>
+            {showCustomDuration && (
+              <div className="mt-2 flex items-center gap-2">
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="e.g. 25"
+                  value={customDuration}
+                  onChange={(e) => onCustomDurationChange(e.target.value)}
+                  className={`w-24 ${inputCls}`}
+                />
+                <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>minutes</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Gating */}
         {eligibleGatingTeams.length > 0 && (
           <div className="mb-4">
@@ -184,15 +317,61 @@ export default function RoomSettingsModal({
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={busy || !(dirty.name || dirty.color || dirty.gating) || !name.trim()}
-          >
-            {busy ? "Saving…" : "Save"}
-          </Button>
+        <div className="flex items-center gap-2">
+          {confirmDelete ? (
+            <div className="flex items-center gap-2 flex-1">
+              <span className={`text-xs ${dark ? "text-slate-300" : "text-slate-600"}`}>
+                Delete "{room.name}"?
+              </span>
+              <div className="ml-auto flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={busy}
+                >
+                  Keep
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={busy}
+                  className={dark
+                    ? "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40"
+                    : "bg-red-50 text-red-600 hover:bg-red-100 border border-red-200"}
+                >
+                  {busy ? "Deleting…" : "Delete room"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                disabled={busy}
+                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1.5 rounded-md transition-colors ${
+                  dark
+                    ? "text-red-400 hover:bg-red-500/15"
+                    : "text-red-600 hover:bg-red-50"
+                }`}
+                title="Delete this room"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete
+              </button>
+              <div className="ml-auto flex gap-2">
+                <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+                <Button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={busy || !(dirty.name || dirty.color || dirty.gating || dirty.duration) || !name.trim()}
+                >
+                  {busy ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
