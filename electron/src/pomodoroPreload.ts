@@ -15,6 +15,13 @@ contextBridge.exposeInMainWorld("__electronTimer", {
   stop: () => ipcRenderer.invoke("mangodoro:timer:stop"),
 });
 
+// OAuth round-trip helper. AuthPage calls start(oauthUrl, redirectPrefix)
+// and gets back the full callback URL once the popup hits the redirect.
+contextBridge.exposeInMainWorld("__electronOAuth", {
+  start: (oauthUrl: string, redirectPrefix: string): Promise<string> =>
+    ipcRenderer.invoke("mangodoro:oauth:start", oauthUrl, redirectPrefix),
+});
+
 // One-way: main → renderer navigation request (fired when the user
 // clicks the tray icon). The renderer subscribes via the React-Router
 // navigate handler set up in App.jsx.

@@ -72,7 +72,33 @@ is older, bump it to `16.1` in `ios/App/App.xcodeproj` (Build Settings →
 Deployment → iOS Deployment Target). The widget extension target should
 likewise be `16.1+`.
 
-## 6. Verify
+## 6. App Groups (required for lockscreen pause/resume button)
+
+The pause/resume button on the Live Activity is a `LiveActivityIntent`
+that runs in the widget process — it can't reach Supabase or the main
+app's pomodoro state directly. The bridge between processes is an App
+Group with a shared `UserDefaults`.
+
+For BOTH the **App** target AND the **PomodoroWidget** target:
+1. Select the target → **Signing & Capabilities** tab.
+2. Click **+ Capability** (top-left of the tab) → choose **App Groups**.
+3. In the new "App Groups" section, click **+** at the bottom and add
+   identifier: `group.com.gmango.mangodoro`
+4. Tick the box next to it.
+
+Both targets must be ticked into the same group, otherwise the widget
+writes and the app reads from separate sandboxes and the toggle is
+silently lost.
+
+## 7. Custom app icon in the activity (optional)
+
+Drag a square PNG (~256×256, transparent or filled) into
+`PomodoroWidget/Assets.xcassets` as a new Image Set named
+**`WidgetAppIcon`**. The Live Activity tints a circular badge with the
+user's accent color and renders the icon inside it. Skip this step and
+the widget falls back to an SF Symbol — the build still works.
+
+## 8. Verify
 
 1. `bun run cap:build`
 2. Run on a real device (Live Activities don't render in the simulator
@@ -80,3 +106,7 @@ likewise be `16.1+`.
 3. Start a pomodoro. Lock the device — the lockscreen should show the
    ticking countdown. Devices with the Dynamic Island will show it
    there too.
+4. Tap the pause button on the lockscreen activity — the countdown
+   should freeze, "Paused" appears, the play icon swaps in, the app
+   does NOT come to foreground. Unlock and the app's own pause state
+   should match.
