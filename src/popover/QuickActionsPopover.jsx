@@ -827,15 +827,20 @@ function MeetingCountdownChip({ expiresAt, sessionId, dark }) {
     return () => clearInterval(id);
   }, []);
 
-  if (!expiresAt) return null;
-  const end = new Date(expiresAt).getTime();
-  if (!Number.isFinite(end)) return null;
-  const remaining = Math.max(0, Math.ceil((end - now) / 1000));
+  const end = expiresAt ? new Date(expiresAt).getTime() : NaN;
+  const remaining = Number.isFinite(end) ? Math.max(0, Math.ceil((end - now) / 1000)) : null;
 
-  if (remaining === 0 && !sweptRef.current) {
+  // Sweep in an effect; PostgrestBuilder is thenable, not a Promise,
+  // so `.catch` chained on `supabase.rpc(...)` blows up.
+  useEffect(() => {
+    if (remaining !== 0 || sweptRef.current) return;
     sweptRef.current = true;
-    supabase.rpc("sweep_expired_sync_sessions").catch(() => {});
-  }
+    (async () => {
+      try { await supabase.rpc("sweep_expired_sync_sessions"); } catch { /* */ }
+    })();
+  }, [remaining]);
+
+  if (remaining == null) return null;
 
   const hh = Math.floor(remaining / 3600);
   const mm = Math.floor((remaining % 3600) / 60);
