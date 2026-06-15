@@ -19,6 +19,21 @@ export function ThemeProvider({ children }) {
     localStorage.setItem("ql_theme", theme);
   }, [theme]);
 
+  // Cross-window theme sync (Electron). BrowserWindows in the same
+  // session share localStorage; the `storage` event fires HERE when
+  // ANOTHER window writes `ql_theme`, so toggling dark/light in the
+  // main app flips the popover live (and vice versa).
+  useEffect(() => {
+    function onStorage(e) {
+      if (e.key !== "ql_theme" || !e.newValue) return;
+      if (e.newValue === "dark" || e.newValue === "light") {
+        setTheme(e.newValue);
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
   }

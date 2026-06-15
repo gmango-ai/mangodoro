@@ -1,5 +1,6 @@
 {
-  "appId": "com.yourdoamnin.yourapp",
+  "appId": "com.gmango.mangodoro",
+  "productName": "Mangodoro",
   "directories": {
     "buildResources": "resources"
   },
@@ -7,11 +8,10 @@
     "assets/**/*",
     "build/**/*",
     "capacitor.config.*",
-    "app/**/*"
+    "app/**/*",
+    "resources/**/*"
   ],
-  "publish": {
-    "provider": "github"
-  },
+  "publish": null,
   "nsis": {
     "allowElevation": true,
     "oneClick": false,
@@ -22,7 +22,8 @@
     "icon": "assets/appIcon.ico"
   },
   "mac": {
-    "category": "your.app.category.type",
-    "target": "dmg"
+    "category": "public.app-category.productivity",
+    "target": "dmg",
+    "icon": "assets/appIcon.png"
   }
 }

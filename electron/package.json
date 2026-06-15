@@ -1,6 +1,6 @@
 {
   "name": "Mangodoro",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "An Amazing Capacitor App",
   "author": {
     "name": "",
@@ -17,7 +17,8 @@
     "electron:start-live": "node ./live-runner.js",
     "electron:start": "npm run build && electron --inspect=5858 ./",
     "electron:pack": "npm run build && electron-builder build --dir -c ./electron-builder.config.json",
-    "electron:make": "npm run build && electron-builder build -c ./electron-builder.config.json -p always"
+    "electron:make": "npm run build && electron-builder build -c ./electron-builder.config.json --publish never",
+    "electron:publish": "npm run build && electron-builder build -c ./electron-builder.config.json --publish always"
   },
   "dependencies": {
     "@capacitor-community/electron": "^5.0.0",

@@ -256,3 +256,47 @@
     line-height: 1.5;
   }
 }
+
+/* Electron chrome: hiddenInset on macOS / titleBarOverlay on Win+Linux.
+ * The first ~32px of the window is the system title-bar area where
+ * Cocoa renders traffic lights or Electron renders the overlay min/max/
+ * close controls. The body needs equivalent top padding so renderer
+ * content sits below them, and an invisible drag strip overlays that
+ * inset so the user can still drag the window by it. Interactive
+ * elements inside the drag region (e.g. the Nav buttons that might
+ * extend up into the title-bar zone in compact layouts) should opt out
+ * with `.no-drag`.
+ */
+html.electron body {
+  padding-top: 32px;
+}
+html.electron body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  z-index: 50;
+  -webkit-app-region: drag;
+  pointer-events: auto;
+}
+html.electron .no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Popover BrowserWindow. The accent-tinted body bg from the main
+ * window reads as a tacky teal frame around the cards here, and the
+ * 32px title-bar inset shouldn't apply since the popover is frameless
+ * already. Clean both up.
+ */
+html.electron-popover body {
+  padding-top: 0;
+  background: #ffffff;
+}
+html.electron-popover.dark body {
+  background: #0f172a;
+}
+html.electron-popover body::before {
+  display: none;
+}

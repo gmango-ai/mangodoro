@@ -39,6 +39,10 @@ export default function PomodoroTimer({
   embedded = false,
   chromeless = false,
   viewMode = "full",
+  // In the Electron menubar popover we hide both the Sync entry and
+  // the Pop out button: the popover itself IS the pop-out, and the
+  // sync-session modal can't nest inside a 380px frameless surface.
+  inPopover = false,
 }) {
   const appCtx = useApp();
   const teamCtx = useTeam();
@@ -343,7 +347,7 @@ export default function PomodoroTimer({
             )}
           </div>
           <div className="flex items-center gap-1">
-            {!isSynced && (
+            {!isSynced && !inPopover && (
               <button
                 type="button"
                 onClick={onOpenSync}
@@ -358,7 +362,7 @@ export default function PomodoroTimer({
                 Sync
               </button>
             )}
-            {pipSupported && (
+            {pipSupported && !inPopover && (
               <button
                 type="button"
                 onClick={openPictureInPicture}
