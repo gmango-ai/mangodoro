@@ -1,4 +1,44 @@
+import { useEffect, useState } from "react";
 import ConfirmRow from "../ConfirmRow";
+
+/**
+ * Renders a subtle "Reconnecting…" indicator when the Supabase Realtime
+ * channel has been in a non-SUBSCRIBED state for >2 seconds. The grace
+ * period swallows momentary blips (e.g., the brief CHANNEL_ERROR ↔
+ * SUBSCRIBED flutter on tab focus) so the pill only surfaces when
+ * something is actually wrong worth telling the user about. Hides
+ * itself the moment we're back to SUBSCRIBED.
+ */
+export function ReconnectingPill({ status, dark, className = "" }) {
+  const [showing, setShowing] = useState(false);
+  useEffect(() => {
+    if (status === "SUBSCRIBED") {
+      setShowing(false);
+      return;
+    }
+    const id = setTimeout(() => setShowing(true), 2000);
+    return () => clearTimeout(id);
+  }, [status]);
+  if (!showing) return null;
+  return (
+    <div
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+        dark
+          ? "bg-amber-500/15 text-amber-300"
+          : "bg-amber-500/10 text-amber-700"
+      } ${className}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span
+        className={`inline-block h-1.5 w-1.5 rounded-full animate-pulse ${
+          dark ? "bg-amber-300" : "bg-amber-600"
+        }`}
+      />
+      Reconnecting…
+    </div>
+  );
+}
 
 export const PIP_VIEW_SIZES = {
   timer: { w: 260, h: 180 },
@@ -59,46 +99,29 @@ function PipAvatar({ participant, dark, isLeader }) {
   );
 }
 
+// Outbound-action confirmation only. The previous "Use updated timer"
+// remote-conflict prompt was removed in the server-authoritative
+// migration (phase 1) — incoming remote rows are now applied silently.
 export function PomodoroConfirmPrompts({
   dark,
-  isSynced,
   pendingAction,
-  pendingRemoteRow,
   outboundPrompt,
   outboundConfirmLabel,
   onConfirmOutbound,
   onCancelOutbound,
-  onConfirmRemote,
-  onCancelRemote,
   className = "",
 }) {
-  if (!pendingAction && !pendingRemoteRow) return null;
+  if (!pendingAction) return null;
   return (
     <div className={`space-y-1.5 ${className}`}>
-      {pendingAction && (
-        <ConfirmRow
-          dark={dark}
-          prompt={outboundPrompt}
-          confirmLabel={outboundConfirmLabel}
-          confirmTone={pendingAction.type === "reset" ? "danger" : "primary"}
-          onConfirm={onConfirmOutbound}
-          onCancel={onCancelOutbound}
-        />
-      )}
-      {pendingRemoteRow && (
-        <ConfirmRow
-          dark={dark}
-          prompt={
-            isSynced
-              ? "Someone else updated the timer. Replace your current session?"
-              : "Timer state differs on another tab or device. Use that version?"
-          }
-          confirmLabel="Use updated timer"
-          confirmTone="primary"
-          onConfirm={onConfirmRemote}
-          onCancel={onCancelRemote}
-        />
-      )}
+      <ConfirmRow
+        dark={dark}
+        prompt={outboundPrompt}
+        confirmLabel={outboundConfirmLabel}
+        confirmTone={pendingAction.type === "reset" ? "danger" : "primary"}
+        onConfirm={onConfirmOutbound}
+        onCancel={onCancelOutbound}
+      />
     </div>
   );
 }
@@ -123,6 +146,7 @@ export function PipFace({
   alternateBreakLabel,
   onSwitchAlternateBreak,
   confirmProps,
+  realtimeStatus,
   viewMode,
   onViewModeChange,
   syncSession,
@@ -186,6 +210,7 @@ export function PipFace({
           {mins}:{secs}
         </span>
         <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{modeLabel}</span>
+        <ReconnectingPill status={realtimeStatus} dark={dark} className="mt-0.5" />
       </div>
 
       {controlsLocked && confirmProps && (
