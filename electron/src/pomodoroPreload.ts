@@ -22,6 +22,14 @@ contextBridge.exposeInMainWorld("__electronOAuth", {
     ipcRenderer.invoke("mangodoro:oauth:start", oauthUrl, redirectPrefix),
 });
 
+// Menu bar popover bridge — only meaningful inside the popover
+// BrowserWindow. The renderer uses a ResizeObserver on its rendered
+// card and ships the height here so the BrowserWindow can collapse
+// to fit the actual content.
+contextBridge.exposeInMainWorld("__electronPopover", {
+  resize: (height: number) => ipcRenderer.invoke("mangodoro:popover:resize", height),
+});
+
 // One-way: main → renderer navigation request (fired when the user
 // clicks the tray icon). The renderer subscribes via the React-Router
 // navigate handler set up in App.jsx.

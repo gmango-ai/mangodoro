@@ -114,6 +114,27 @@ export class ElectronCapacitorApp {
       y: this.mainWindowState.y,
       width: this.mainWindowState.width,
       height: this.mainWindowState.height,
+      // Modern, frameless-feeling title bar.
+      //   • macOS: 'hiddenInset' keeps the traffic-light controls but
+      //     drops the title text and bar background, so the renderer
+      //     fills the chrome and the window feels native-modern.
+      //   • Windows / Linux: 'hidden' + a titleBarOverlay so the system
+      //     window controls (min/max/close) still render but with
+      //     colors that match our dark UI.
+      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+      ...(process.platform !== 'darwin'
+        ? {
+            titleBarOverlay: {
+              color: '#0f172a',
+              symbolColor: '#e2e8f0',
+              height: 32,
+            },
+          }
+        : {}),
+      // Lets the renderer's accent / dark mode bleed all the way to the
+      // window edges instead of getting a default light gray gutter
+      // during paint.
+      backgroundColor: '#0f172a',
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: true,
@@ -207,7 +228,12 @@ export class ElectronCapacitorApp {
         this.MainWindow.show();
       }
       setTimeout(() => {
-        if (electronIsDev) {
+        // Only auto-open DevTools when explicitly requested via env var.
+        // The scaffold used to open them unconditionally in dev which got
+        // intrusive once we were past initial bring-up. Set
+        // `MANGODORO_DEVTOOLS=1` before `npm run electron:start` to bring
+        // them back, or use ⌥⌘I in the focused window.
+        if (electronIsDev && process.env.MANGODORO_DEVTOOLS === '1') {
           this.MainWindow.webContents.openDevTools();
         }
         CapElectronEventEmitter.emit('CAPELECTRON_DeeplinkListenerInitialized', '');

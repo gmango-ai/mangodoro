@@ -37,12 +37,20 @@ export default function PomodoroPage({ session, onOpenSync }) {
   })();
 
   function modeLabel(m) {
-    return m === "shortBreak" ? "Short break" : m === "longBreak" ? "Long break" : "Focus";
+    return m === "shortBreak"
+      ? "Short break"
+      : m === "longBreak"
+      ? "Long break"
+      : "Focus";
   }
   function timeLeft(s) {
     if (!s) return "";
-    if (!s.is_running || !s.ends_at) return `${Math.ceil((s.remaining_seconds || 0) / 60)}m`;
-    return `${Math.max(0, Math.ceil((new Date(s.ends_at).getTime() - Date.now()) / 60000))}m left`;
+    if (!s.is_running || !s.ends_at)
+      return `${Math.ceil((s.remaining_seconds || 0) / 60)}m`;
+    return `${Math.max(
+      0,
+      Math.ceil((new Date(s.ends_at).getTime() - Date.now()) / 60000)
+    )}m left`;
   }
 
   // Current week's retro goals for the user's tagged departments —
@@ -52,7 +60,10 @@ export default function PomodoroPage({ session, onOpenSync }) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!activeTeamId) { setWeekGoals([]); return; }
+      if (!activeTeamId) {
+        setWeekGoals([]);
+        return;
+      }
       const { data } = await listCurrentWeekRetros(activeTeamId);
       if (cancelled) return;
       const filtered = data.filter((r) => {
@@ -62,7 +73,9 @@ export default function PomodoroPage({ session, onOpenSync }) {
       setWeekGoals(filtered.filter((r) => (r.goal || "").trim().length > 0));
     }
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [activeTeamId, myOrgTeamIds, session?.user?.id]);
 
   // Other sessions to surface in the sidebar. When solo, show all
@@ -92,7 +105,9 @@ export default function PomodoroPage({ session, onOpenSync }) {
   if (!dataLoaded) {
     return (
       <div
-        className={`max-w-4xl mx-auto px-4 py-6 ${dark ? "text-slate-100" : "text-slate-800"}`}
+        className={`max-w-4xl mx-auto px-4 py-6 ${
+          dark ? "text-slate-100" : "text-slate-800"
+        }`}
         aria-busy="true"
         aria-label="Loading pomodoro"
       >
@@ -114,7 +129,11 @@ export default function PomodoroPage({ session, onOpenSync }) {
   }
 
   return (
-    <div className={`max-w-4xl mx-auto px-4 py-6 ${dark ? "text-slate-100" : "text-slate-800"}`}>
+    <div
+      className={`max-w-4xl mx-auto px-4 py-6 ${
+        dark ? "text-slate-100" : "text-slate-800"
+      }`}
+    >
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="text-2xl font-bold">Pomodoro</h1>
         {!inSession && (
@@ -125,7 +144,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
             className="h-8 text-xs"
           >
             <UsersIcon className="w-3.5 h-3.5 mr-1.5" />
-            {activeTeamId ? "Sync at office" : "Start sync session"}
+            {activeTeamId ? "Sync with office" : "Start sync session"}
             <ArrowRight className="w-3 h-3 ml-1.5 opacity-60" />
           </Button>
         )}
@@ -145,38 +164,65 @@ export default function PomodoroPage({ session, onOpenSync }) {
 
         <aside className="space-y-4">
           <div
-            className={`rounded-2xl border p-4 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
+            className={`rounded-2xl border p-4 ${
+              dark
+                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+                : "bg-white border-slate-200"
+            }`}
           >
             <h3
-              className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
+              className={`text-xs font-semibold uppercase tracking-wider mb-2 ${
+                dark ? "text-slate-400" : "text-slate-500"
+              }`}
             >
               Online now
             </h3>
             <div className="flex items-baseline gap-2">
-              <span className={`text-2xl font-bold font-mono ${
-                onlineCount > 0
-                  ? "text-[var(--color-accent)]"
-                  : dark ? "text-slate-500" : "text-slate-400"
-              }`}>
+              <span
+                className={`text-2xl font-bold font-mono ${
+                  onlineCount > 0
+                    ? "text-[var(--color-accent)]"
+                    : dark
+                    ? "text-slate-500"
+                    : "text-slate-400"
+                }`}
+              >
                 {onlineCount}
               </span>
-              <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                {onlineCount === 1 ? "person in a session" : "people in sessions"}
+              <span
+                className={`text-xs ${
+                  dark ? "text-slate-400" : "text-slate-500"
+                }`}
+              >
+                {onlineCount === 1
+                  ? "person in a session"
+                  : "people in sessions"}
               </span>
             </div>
             {(activeTeamSessions?.length || 0) > 0 && (
-              <p className={`text-[11px] mt-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                across {activeTeamSessions.length} active {activeTeamSessions.length === 1 ? "room" : "rooms"}
+              <p
+                className={`text-[11px] mt-1 ${
+                  dark ? "text-slate-500" : "text-slate-400"
+                }`}
+              >
+                across {activeTeamSessions.length} active{" "}
+                {activeTeamSessions.length === 1 ? "room" : "rooms"}
               </p>
             )}
           </div>
 
           {otherSessions.length > 0 && (
             <div
-              className={`rounded-2xl border p-4 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
+              className={`rounded-2xl border p-4 ${
+                dark
+                  ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+                  : "bg-white border-slate-200"
+              }`}
             >
               <h3
-                className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
+                className={`text-xs font-semibold uppercase tracking-wider mb-2 ${
+                  dark ? "text-slate-400" : "text-slate-500"
+                }`}
               >
                 {inSession ? "Other team sessions" : "Active sessions"}
               </h3>
@@ -184,18 +230,26 @@ export default function PomodoroPage({ session, onOpenSync }) {
                 {otherSessions.map((s) => (
                   <li
                     key={s.id}
-                    className={`flex items-center gap-2 text-xs ${dark ? "text-slate-300" : "text-slate-700"}`}
+                    className={`flex items-center gap-2 text-xs ${
+                      dark ? "text-slate-300" : "text-slate-700"
+                    }`}
                   >
                     <Timer className="w-3 h-3 shrink-0" />
                     <span className="flex-1 truncate">
                       {s.leader_name}
                       {s.room_id && (
-                        <span className={`ml-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                        <span
+                          className={`ml-1 ${
+                            dark ? "text-slate-500" : "text-slate-400"
+                          }`}
+                        >
                           · {modeLabel(s.mode)} · {timeLeft(s)}
                         </span>
                       )}
                     </span>
-                    <span className={dark ? "text-slate-500" : "text-slate-400"}>
+                    <span
+                      className={dark ? "text-slate-500" : "text-slate-400"}
+                    >
                       {s.participant_count}
                     </span>
                   </li>
@@ -204,7 +258,9 @@ export default function PomodoroPage({ session, onOpenSync }) {
               {!inSession && activeTeamId && (
                 <Link
                   to="/office"
-                  className={`inline-flex items-center gap-1 text-[11px] mt-3 hover:underline ${dark ? "text-slate-400" : "text-slate-500"}`}
+                  className={`inline-flex items-center gap-1 text-[11px] mt-3 hover:underline ${
+                    dark ? "text-slate-400" : "text-slate-500"
+                  }`}
                 >
                   Open office <ArrowRight className="w-3 h-3" />
                 </Link>
@@ -214,10 +270,16 @@ export default function PomodoroPage({ session, onOpenSync }) {
 
           {weekGoals.length > 0 && (
             <div
-              className={`rounded-2xl border p-4 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
+              className={`rounded-2xl border p-4 ${
+                dark
+                  ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+                  : "bg-white border-slate-200"
+              }`}
             >
               <h3
-                className={`text-xs font-semibold uppercase tracking-wider mb-2 ${dark ? "text-slate-400" : "text-slate-500"}`}
+                className={`text-xs font-semibold uppercase tracking-wider mb-2 ${
+                  dark ? "text-slate-400" : "text-slate-500"
+                }`}
               >
                 Goals for next week
               </h3>
@@ -225,17 +287,23 @@ export default function PomodoroPage({ session, onOpenSync }) {
                 {weekGoals.map((g) => (
                   <li
                     key={g.id}
-                    className={`text-xs ${dark ? "text-slate-200" : "text-slate-700"}`}
+                    className={`text-xs ${
+                      dark ? "text-slate-200" : "text-slate-700"
+                    }`}
                   >
                     <Link
                       to={`/retros/${g.id}`}
-                      className={`block group ${dark ? "hover:text-slate-50" : "hover:text-slate-900"}`}
+                      className={`block group ${
+                        dark ? "hover:text-slate-50" : "hover:text-slate-900"
+                      }`}
                     >
                       <span className="inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[9px] mb-1 text-[var(--color-accent)]">
                         <Target className="w-3 h-3" />
                         {g.org_team_name || g.department || "Team"}
                       </span>
-                      <MarkdownText dark={dark} compact>{g.goal}</MarkdownText>
+                      <MarkdownText dark={dark} compact>
+                        {g.goal}
+                      </MarkdownText>
                     </Link>
                   </li>
                 ))}

@@ -7,7 +7,8 @@ import unhandled from 'electron-unhandled';
 import { autoUpdater } from 'electron-updater';
 
 import { ElectronCapacitorApp, setupContentSecurityPolicy, setupReloadWatcher } from './setup';
-import { installPomodoroTray } from './pomodoroTray';
+import { getInstalledTray, installPomodoroTray } from './pomodoroTray';
+import { installPomodoroPopover } from './pomodoroPopover';
 import { installOAuthHandler } from './oauthFlow';
 
 // Graceful handling of unhandled errors.
@@ -49,10 +50,42 @@ if (electronIsDev) {
   await myCapacitorApp.init();
   // Wire the menu-bar tray timer. Lazy resolution of the main window
   // so it picks up the new window if the app re-inits later.
-  installPomodoroTray(() => myCapacitorApp.getMainWindow());
+  const popover = installPomodoroPopover({
+    getTray: () => getInstalledTray(),
+    customScheme: myCapacitorApp.getCustomURLScheme(),
+  });
+  installPomodoroTray({
+    getMainWindow: () => myCapacitorApp.getMainWindow(),
+    // Mirrors the `app.on('activate')` flow below — used by the
+    // right-click "Open Mangodoro timer" menu item to bring the full
+    // main window back if it was closed.
+    reopenMainWindow: async () => {
+      const current = myCapacitorApp.getMainWindow();
+      if (!current || current.isDestroyed()) {
+        await myCapacitorApp.init();
+      }
+    },
+    // Left-click on the menu bar icon toggles the popover (Spark-style)
+    // rather than focusing the main window. Right-click still goes
+    // through reopenMainWindow / focusOnTimer.
+    onTrayClick: () => popover.toggle(),
+  });
   installOAuthHandler();
-  // Check for updates if we are in a packaged app.
-  autoUpdater.checkForUpdatesAndNotify();
+  // Auto-update only runs when (a) we're in a packaged build and
+  // (b) a publish channel was actually configured (which generates
+  // Contents/Resources/app-update.yml). Without the yml, checkForUpdates
+  // throws a synchronous ENOENT — caught here so the app keeps running.
+  // To enable: set `publish: { provider: ... }` in electron-builder.config
+  // and ship via `npm run electron:publish`.
+  if (app.isPackaged) {
+    try {
+      autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+        console.warn('autoUpdater check failed:', e?.message ?? e);
+      });
+    } catch (e) {
+      console.warn('autoUpdater unavailable:', (e as Error)?.message ?? e);
+    }
+  }
 })();
 
 // Handle when all of our windows are close (platforms have their own expectations).
