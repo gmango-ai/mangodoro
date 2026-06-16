@@ -1,13 +1,35 @@
+import { useEffect, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import {
   Hash, Briefcase, MessageSquare, Lock, Video,
-  LogIn, Play, Users, ClipboardList,
+  LogIn, Play, PanelLeftOpen, PanelLeftClose, Rows2, Columns2,
+  ChevronDown,
 } from "lucide-react";
 import RoomChatPanel from "../RoomChatPanel";
-import UserAvatar from "../UserAvatar";
+import RoomVideoStage from "../video/RoomVideoStage";
+import ResizableSplit from "./ResizableSplit";
+
+// View modes:
+//   chat    — just chat, full pane
+//   stack   — video on top, chat on bottom  (vertical split / Rows2)
+//   side    — video left, chat right        (horizontal split / Columns2)
+//   video   — just video, full pane
+const VIEW_MODE_KEY = "ql_room_view_mode";
+const VALID_VIEW_MODES = ["chat", "stack", "side", "video"];
+
+function loadViewMode() {
+  try {
+    const stored = localStorage.getItem(VIEW_MODE_KEY);
+    if (stored && VALID_VIEW_MODES.includes(stored)) return stored;
+  } catch { /* */ }
+  return "stack";
+}
+function saveViewMode(mode) {
+  try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch { /* */ }
+}
 
 const KIND_ICON = {
   general: Hash,
@@ -22,50 +44,51 @@ const KIND_LABEL = {
   private: "Private",
 };
 
-// "Video coming soon" pane. Sized like a real video grid so the
-// layout doesn't shift when Jitsi lands — sits in the same slot, same
-// aspect ratio, so users get a feel for the future shape.
-function VideoStage({ activeSession, dark }) {
-  const occupants = activeSession?.occupants || [];
+function ViewModeControl({ value, onChange, accent, dark }) {
+  // 4-button segmented control. Two "both" options with icons that
+  // hint at the split direction — Rows2 = stacked / Columns2 = side-
+  // by-side — so the choice reads without the label.
+  const options = [
+    { key: "chat",  Icon: MessageSquare, label: "Chat" },
+    { key: "stack", Icon: Rows2,         label: "Stacked" },
+    { key: "side",  Icon: Columns2,      label: "Side" },
+    { key: "video", Icon: Video,         label: "Video" },
+  ];
   return (
-    <div className={`relative w-full h-full rounded-xl border overflow-hidden ${
-      dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-slate-900"
-    }`}>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
-        <div className="p-3 rounded-full bg-white/10 backdrop-blur-sm">
-          <Video className="w-6 h-6 text-white/80" />
-        </div>
-        <p className="mt-3 text-sm font-semibold text-white">
-          Video drops in next
-        </p>
-        <p className="mt-1 text-xs text-white/60 max-w-[320px]">
-          Drop into a live call with everyone in this room, with screen share and an AI summary on close.
-        </p>
-        {occupants.length > 0 && (
-          <div className="mt-4 flex items-center justify-center gap-1.5">
-            {occupants.slice(0, 6).map((o) => (
-              <span key={o.user_id} className="ring-2 ring-white/30 rounded-full">
-                <UserAvatar url={o.avatar_url} name={o.name} size={28} />
-              </span>
-            ))}
-          </div>
-        )}
-        <span className="mt-3 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/10 text-white/70">
-          Coming soon
-        </span>
-      </div>
+    <div
+      className={`inline-flex p-0.5 rounded-full ${
+        dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
+      }`}
+      role="tablist"
+      aria-label="Room view mode"
+    >
+      {options.map((opt) => {
+        const active = value === opt.key;
+        return (
+          <button
+            key={opt.key}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(opt.key)}
+            title={opt.label}
+            className={`inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
+              active
+                ? "text-white shadow-sm"
+                : dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
+            }`}
+            style={active ? { background: accent } : {}}
+          >
+            <opt.Icon className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">{opt.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-// Right-rail pomodoro panel. If the signed-in user is currently in
-// this room's session, render the inline timer; otherwise show the
-// "join / start" CTA with a compact occupant preview.
-// Header action button: Start / Join / In-session. Pomodoro UI was
-// pulled out of the room rail because the global timer pill in the
-// Nav already surfaces the running timer everywhere; the room view
-// just needs the affordance to *enter* a session.
-function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, currentSyncSession, dark }) {
+function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, currentSyncSession }) {
   const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
   if (inThisRoomSession) {
     return (
@@ -92,87 +115,90 @@ function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, current
   );
 }
 
-// Reserved slot for the ClickUp / tasks integration. Inert chrome so
-// the rail layout doesn't shift once the integration lands.
-function TaskRail({ dark }) {
-  return (
-    <div className={`rounded-xl border ${
-      dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-    }`}>
-      <div className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider border-b ${
-        dark ? "text-slate-500 border-[var(--color-border)]" : "text-slate-400 border-slate-200"
-      }`}>
-        Tasks
-      </div>
-      <div className="p-4 text-center">
-        <div className={`mx-auto p-2 rounded-full w-fit mb-2 ${
-          dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
-        }`}>
-          <ClipboardList className={`w-4 h-4 ${dark ? "text-slate-400" : "text-slate-500"}`} />
-        </div>
-        <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-500"}`}>
-          ClickUp tasks land here next — pin what you're focusing on.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export default function RoomView({
   room, activeSession, orgTeams, busy, onJoin, onStart,
+  sidebarOpen, onToggleSidebar, onOpenRoomSwitcher,
 }) {
   const { theme } = useTheme();
   const { session } = useApp();
+  const { syncSession: currentSyncSession } = useSyncSession();
   const dark = theme === "dark";
 
-  if (!room) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-10">
-        <p className={`text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>
-          Select a room from the sidebar to get started.
-        </p>
-      </div>
-    );
-  }
+  const [viewMode, setViewModeRaw] = useState(loadViewMode);
+  const setViewMode = (m) => { setViewModeRaw(m); saveViewMode(m); };
+  useEffect(() => { saveViewMode(viewMode); }, [viewMode]);
+
+  if (!room) return null;
 
   const Icon = KIND_ICON[room.kind] || Hash;
   const accent = room.color || "#14b8a6";
   const gatingTeams = (room.room_teams || [])
     .map((rt) => (orgTeams || []).find((t) => t.id === rt.org_team_id))
     .filter(Boolean);
-  const currentSyncSession = useSyncSession().syncSession;
+
+  const SidebarIcon = sidebarOpen ? PanelLeftClose : PanelLeftOpen;
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
       <header
-        className={`px-6 py-3 border-b shrink-0 ${
+        className={`px-4 sm:px-6 py-3 border-b shrink-0 ${
           dark ? "border-[var(--color-border)]" : "border-slate-200"
         }`}
         style={{ background: `linear-gradient(180deg, ${accent}12, transparent)` }}
       >
         <div className="flex items-center gap-3">
-          <div
-            className="p-2 rounded-xl shrink-0"
-            style={{ background: `${accent}22`, color: accent }}
+          {onToggleSidebar && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onToggleSidebar}
+              title={sidebarOpen ? "Hide widgets" : "Show widgets"}
+              aria-label={sidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
+              aria-pressed={sidebarOpen}
+              className={`hidden md:inline-flex h-8 w-8 shrink-0 ${
+                dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <SidebarIcon className="w-4 h-4" />
+            </Button>
+          )}
+
+          {/* Room identity — clickable. Opens the office overlay so
+              the user can switch rooms or leave to the hallway. */}
+          <button
+            type="button"
+            onClick={onOpenRoomSwitcher}
+            className={`flex items-center gap-3 min-w-0 flex-1 text-left rounded-lg -m-1 p-1 transition-colors ${
+              dark ? "hover:bg-[var(--color-surface-raised)]/60" : "hover:bg-slate-100/60"
+            }`}
+            title="Switch room"
           >
-            <Icon className="w-4 h-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className={`text-lg font-bold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
-              {room.name}
-            </h1>
-            <p className={`text-[10px] uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              {KIND_LABEL[room.kind] || room.kind}
-              {room.kind === "private" && room.invite_code && (
-                <span className={`ml-2 ${dark ? "text-amber-300" : "text-amber-600"}`}>
-                  · Locked
-                </span>
-              )}
-            </p>
-          </div>
+            <div
+              className="p-2 rounded-xl shrink-0"
+              style={{ background: `${accent}22`, color: accent }}
+            >
+              <Icon className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className={`text-lg font-bold truncate inline-flex items-center gap-1.5 ${
+                dark ? "text-slate-100" : "text-slate-800"
+              }`}>
+                {room.name}
+                <ChevronDown className={`w-3.5 h-3.5 shrink-0 opacity-60 ${dark ? "text-slate-400" : "text-slate-500"}`} />
+              </h1>
+              <p className={`text-[10px] uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                {KIND_LABEL[room.kind] || room.kind}
+                {room.kind === "private" && room.invite_code && (
+                  <span className={`ml-2 ${dark ? "text-amber-300" : "text-amber-600"}`}>
+                    · Locked
+                  </span>
+                )}
+              </p>
+            </div>
+          </button>
+
           {gatingTeams.length > 0 && (
-            <div className="hidden sm:flex flex-wrap items-center gap-1.5">
+            <div className="hidden xl:flex flex-wrap items-center gap-1.5">
               {gatingTeams.map((t) => (
                 <span
                   key={t.id}
@@ -185,10 +211,7 @@ export default function RoomView({
               ))}
             </div>
           )}
-          {/* Session entry action — Join / Start / "you're focusing
-              here" indicator. The actual pomodoro UI lives in the Nav
-              pill (always visible) so this is purely the affordance
-              to enter / leave the room's session. */}
+
           <RoomSessionAction
             room={room}
             activeSession={activeSession}
@@ -196,36 +219,56 @@ export default function RoomView({
             onJoin={onJoin}
             onStart={onStart}
             currentSyncSession={currentSyncSession}
+          />
+
+          <ViewModeControl
+            value={viewMode}
+            onChange={setViewMode}
+            accent={accent}
             dark={dark}
           />
         </div>
       </header>
 
-      {/* Main grid: video + chat stacked on the left, pomodoro + tasks
-          rail on the right. Mobile collapses to a single column with
-          video → pomodoro → tasks → chat. */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 p-4 overflow-hidden">
-        {/* Left column: video on top, chat fills the rest. */}
-        <div className="flex flex-col gap-4 min-h-0 order-1">
-          <div className="h-[40vh] lg:h-[45%] shrink-0 min-h-[240px]">
-            <VideoStage activeSession={activeSession} dark={dark} />
-          </div>
-          <div className="flex-1 min-h-0">
+      {/* Body. Layout follows viewMode. stack + side render the
+          ResizableSplit between video and chat — drag the handle to
+          adjust, drag past either pane's min by ~60px to snap-close
+          that pane and bounce into a single-pane view mode. */}
+      <div className="flex-1 min-h-0 p-4 overflow-hidden">
+        {viewMode === "chat" && (
+          <RoomChatPanel
+            roomId={room.id}
+            userId={session?.user?.id}
+            fillHeight
+          />
+        )}
+        {viewMode === "video" && (
+          <RoomVideoStage
+            roomId={room.id}
+            displayName={session?.user?.user_metadata?.name || session?.user?.email || "Guest"}
+          />
+        )}
+        {(viewMode === "stack" || viewMode === "side") && (
+          <ResizableSplit
+            direction={viewMode === "stack" ? "vertical" : "horizontal"}
+            storageKey={viewMode === "stack" ? "ql_room_split_stack" : "ql_room_split_side"}
+            defaultSplit={0.55}
+            minFirstPx={240}
+            minSecondPx={200}
+            onCollapseFirst={() => setViewMode("chat")}
+            onCollapseSecond={() => setViewMode("video")}
+          >
+            <RoomVideoStage
+              roomId={room.id}
+              displayName={session?.user?.user_metadata?.name || session?.user?.email || "Guest"}
+            />
             <RoomChatPanel
               roomId={room.id}
               userId={session?.user?.id}
               fillHeight
             />
-          </div>
-        </div>
-
-        {/* Right rail: tasks (placeholder for ClickUp). The pomodoro
-            panel that used to live here was retired in favor of the
-            global Nav pill — the timer is visible app-wide, no need
-            to duplicate it per-room. */}
-        <div className="flex flex-col gap-4 order-2 lg:order-2 min-h-0 overflow-y-auto lg:overflow-visible">
-          <TaskRail dark={dark} />
-        </div>
+          </ResizableSplit>
+        )}
       </div>
     </div>
   );
