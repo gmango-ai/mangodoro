@@ -14,7 +14,7 @@ import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
 import ClockBanner from "./components/ClockBanner";
-import PomodoroTimer from "./components/PomodoroTimer";
+import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
 import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
 import PWAUpdater from "./components/PWAUpdater";
@@ -217,10 +217,10 @@ function AppLayout({ session }) {
           <InvoiceModal />
           <ClockBanner />
           {!onPomodoroPage && (
-            <PomodoroTimer
+            <PomodoroSurface
+              variant="floating"
               open={showPomodoro}
               onClose={() => setShowPomodoro(false)}
-              userId={session.user.id}
               onOpenSync={() => setShowSyncModal(true)}
               currentTaskHint={currentTaskHint}
             />

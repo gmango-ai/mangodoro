@@ -6,7 +6,7 @@ import {
   Hash, Briefcase, MessageSquare, Lock, Video,
   LogIn, Play, Users, ClipboardList,
 } from "lucide-react";
-import PomodoroTimer from "../PomodoroTimer";
+import PomodoroSurface from "../pomodoro/PomodoroSurface";
 import RoomChatPanel from "../RoomChatPanel";
 import UserAvatar from "../UserAvatar";
 
@@ -77,19 +77,10 @@ function PomodoroRail({ room, activeSession, busy, onJoin, onStart, session, dar
         Pomodoro
       </div>
       {inThisRoomSession ? (
-        // chromeless = inline w-full with no extra border (the rail
-        // panel itself supplies the chrome). embedded would work too
-        // but stacks a second rounded border. `open` is irrelevant in
-        // this render path but we pass it so the floating-overlay
-        // fallback doesn't kick in if someone wires an embedded prop
-        // off later.
-        <PomodoroTimer
-          open
-          chromeless
-          userId={session?.user?.id}
-          inPopover
-          onClose={() => {}}
-        />
+        // Rail variant: compact mode + clock + controls + sync panel
+        // (status only, no full participant list). The rail's outer
+        // border supplies the chrome.
+        <PomodoroSurface variant="rail" />
       ) : activeSession ? (
         <div className="p-4">
           <div className="flex items-center gap-2 mb-2">

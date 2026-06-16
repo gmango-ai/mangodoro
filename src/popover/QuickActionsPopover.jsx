@@ -11,6 +11,7 @@ import { useTheme } from "../context/ThemeContext";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { applyAccent } from "../lib/accent";
 import { supabase } from "../supabase";
+import PomodoroSurface from "../components/pomodoro/PomodoroSurface";
 
 /**
  * Electron menu-bar popover. Three pages on a tab strip — Pomodoro,
@@ -195,77 +196,15 @@ function TabStrip({ dark, active, onChange }) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Pomodoro page
+// Pomodoro page — composes the popover variant of PomodoroSurface,
+// which renders ModePicker + clock + controls + SyncPanel (with the
+// participant list at popover density) + StatusSetter + SoundPicker
+// in a single column. The popover-specific status block and ad-hoc
+// timer chrome from the v1 layout were replaced by the shared
+// composables.
 // ────────────────────────────────────────────────────────────────────
-function PomodoroPage({ dark }) {
-  const { mode, secondsLeft, isRunning, toggleRun, resetTimer, canControl } = usePomodoro();
-  const { syncSession } = useSyncSession();
-  const accent = "var(--color-accent)";
-  const isSynced = !!syncSession;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <div className={`text-[11px] font-medium ${dark ? "text-slate-400" : "text-slate-500"}`}>
-            {modeLabel(mode)}{isSynced ? " · synced" : ""}
-          </div>
-          <div
-            className="text-4xl font-semibold tabular-nums tracking-tight leading-none mt-0.5"
-            style={{ color: isRunning ? accent : dark ? "#f1f5f9" : "#0f172a" }}
-          >
-            {formatMMSS(secondsLeft)}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleRun}
-            disabled={!canControl}
-            className="inline-flex items-center justify-center rounded-full w-12 h-12 text-white shadow-sm transition-opacity disabled:opacity-40"
-            style={{ backgroundColor: accent }}
-            title={isRunning ? "Pause" : "Start"}
-          >
-            {isRunning ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
-          </button>
-          <button
-            type="button"
-            onClick={resetTimer}
-            disabled={!canControl}
-            className={`inline-flex items-center justify-center rounded-full w-9 h-9 transition-colors disabled:opacity-40 ${
-              dark ? "text-slate-400 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-100"
-            }`}
-            title="Reset"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {isSynced && (
-        <div
-          className={`flex items-center gap-2 text-[11px] rounded-md px-2 py-1.5 ${
-            dark ? "bg-slate-800/60 text-slate-400" : "bg-slate-50 text-slate-500"
-          }`}
-        >
-          <Users className="w-3 h-3" />
-          <span>Code</span>
-          <span className={`font-mono font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>
-            {syncSession.join_code}
-          </span>
-          {syncSession.expires_at && (
-            <MeetingCountdownChip
-              expiresAt={syncSession.expires_at}
-              sessionId={syncSession.id}
-              dark={dark}
-            />
-          )}
-        </div>
-      )}
-
-      <StatusBlock dark={dark} />
-    </div>
-  );
+function PomodoroPage() {
+  return <PomodoroSurface variant="popover" />;
 }
 
 // ────────────────────────────────────────────────────────────────────

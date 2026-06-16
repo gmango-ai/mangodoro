@@ -66,6 +66,7 @@ export function PomodoroProvider({ userId, children }) {
     return map;
   }, [appCtx?.settings?.customSounds, teamCtx?.teamSounds]);
   const { syncSession, leaveSession } = useSyncSession();
+  const activeTeamId = teamCtx?.activeTeamId;
 
   const [mode, setMode] = useState("work");
   const [durations, setDurations] = useState(() => loadStoredDurations());
@@ -107,6 +108,36 @@ export function PomodoroProvider({ userId, children }) {
   const resetTimerRef = useRef(null);
   const autoTransitionRef = useRef(autoTransition);
   autoTransitionRef.current = autoTransition;
+
+  // Reset timer state when the user switches orgs. Without this, the
+  // /pomodoro page and any embedded surface kept ticking down on the
+  // previous org's durations + sessions count even though the user
+  // had switched contexts. We also pull the user out of any sync
+  // session they were in (different org's room, different team).
+  const prevTeamIdRef = useRef(activeTeamId);
+  useEffect(() => {
+    if (prevTeamIdRef.current === activeTeamId) return;
+    prevTeamIdRef.current = activeTeamId;
+    // Skip the very first run (mount) — useEffect runs once before
+    // there's any "previous" team. This only triggers on actual
+    // org changes mid-session.
+    if (activeTeamId === undefined) return;
+    setIsRunning(false);
+    setPendingMode(null);
+    setPendingAction(null);
+    setSessions(0);
+    setMode("work");
+    setSecondsLeft(durationsRef.current.work);
+    endsAtMsRef.current = null;
+    completionHandledRef.current = null;
+    userHasMutatedRef.current = false;
+    // If we were in a sync session, leave it — the session belongs to
+    // the previous org's team. The leave() RPC handles RLS / errors
+    // gracefully even if the row is already gone.
+    if (syncSession?.id && leaveSession) {
+      leaveSession().catch(() => { /* best-effort */ });
+    }
+  }, [activeTeamId, syncSession?.id, leaveSession]);
 
   const isSynced = !!syncSession;
   const isLeader = isSynced && syncSession?.leader_id === userId;
