@@ -98,6 +98,11 @@ function AppLayout({ session }) {
 
   const onPomodoroPage = location.pathname.startsWith("/pomodoro");
 
+  // When loaded inside another surface (today: the retro iframe embedded
+  // in a room) we hide the global Nav and floating chrome so the
+  // embedded view gets the full viewport. Trigger: ?embed=1 query param.
+  const isEmbed = new URLSearchParams(location.search).get("embed") === "1";
+
   const currentTaskHint = (() => {
     if (!clockIn) return "";
     const projId = clockIn.projectIds?.[0];
@@ -212,10 +217,10 @@ function AppLayout({ session }) {
         )}
 
         <div className="relative z-10 min-h-screen">
-          <Nav onOpenPomodoro={() => setShowPomodoro(true)} />
-          <InvoiceModal />
-          <ClockBanner />
-          {!onPomodoroPage && (
+          {!isEmbed && <Nav onOpenPomodoro={() => setShowPomodoro(true)} />}
+          {!isEmbed && <InvoiceModal />}
+          {!isEmbed && <ClockBanner />}
+          {!isEmbed && !onPomodoroPage && (
             <PomodoroSurface
               variant="floating"
               open={showPomodoro}
@@ -224,19 +229,23 @@ function AppLayout({ session }) {
               currentTaskHint={currentTaskHint}
             />
           )}
-          <SyncSessionModal
-            open={showSyncModal}
-            onClose={() => setShowSyncModal(false)}
-            userId={session.user.id}
-            displayName={settings?.name || ""}
-            onSessionJoined={handleSessionJoined}
-          />
-          <OnboardingModal
-            open={showOnboarding}
-            onClose={() => setOnboardingDismissed(true)}
-            userId={session.user.id}
-          />
-          <PWAUpdater />
+          {!isEmbed && (
+            <SyncSessionModal
+              open={showSyncModal}
+              onClose={() => setShowSyncModal(false)}
+              userId={session.user.id}
+              displayName={settings?.name || ""}
+              onSessionJoined={handleSessionJoined}
+            />
+          )}
+          {!isEmbed && (
+            <OnboardingModal
+              open={showOnboarding}
+              onClose={() => setOnboardingDismissed(true)}
+              userId={session.user.id}
+            />
+          )}
+          {!isEmbed && <PWAUpdater />}
           <Routes>
             <Route path="/" element={<LandingRedirector />} />
             {/* Legacy time-tracker URLs redirect into the unified page */}
