@@ -19,3 +19,17 @@ android/build/
 android/app/build/
 android/app/src/main/assets/public/
 android/local.properties
+
+# JaaS API private keys. The .pk file is what JaaS hands you when you
+# create an API key — losing it means rotating the key, leaking it
+# means anyone can impersonate your tenant.
+private-keys/
+*.pk
+
+# Local env files. Vite reads `.env` AND `.env.local` (and *.local was
+# already ignored above); we exclude `.env` itself because devs drop
+# secrets into it (JaaS dev JWT, etc.). Commit defaults via .env.example
+# if needed in the future.
+.env
+.env.development
+.env.production
