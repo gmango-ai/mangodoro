@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, PictureInPicture2, Users, Link as LinkIcon } from "lucide-react";
+import { X, PictureInPicture2, Users } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
-import { getShareableBaseUrl } from "../../lib/platform";
 import TimerClock from "./TimerClock";
 import TimerControls from "./TimerControls";
 import ModePicker from "./ModePicker";
-import SyncPanel from "./SyncPanel";
+import LeaderActionBar from "./LeaderActionBar";
+import SyncCodeRow from "./SyncCodeRow";
+import StatusSetter from "./StatusSetter";
+import SyncParticipantList from "../SyncParticipantList";
 import SoundPicker from "./SoundPicker";
 import SessionDots from "./SessionDots";
 import PendingActionBanner from "./PendingActionBanner";
@@ -23,85 +25,19 @@ import {
   PIP_CONFIRM_EXTRA_H,
 } from "./PomodoroPipParts";
 
-// One pomodoro surface, four variants. Each variant decides which
-// composables to render and what chrome wraps them. Adding a new
-// surface is a matter of adding a row to this object instead of
-// threading another prop through a 1000-line monolith.
+// One pomodoro surface, four variants. The variant config decides the
+// container chrome (floating overlay vs embedded card) and the clock
+// size; the body composition is otherwise shared.
 //
-//   page     — /pomodoro: everything visible, large clock, full sync
-//              panel with the participant list, sound picker, dots.
-//   floating — the bottom-right overlay: same content as page but in
-//              a fixed-position card with a Close button.
-//   rail     — embedded in the office room view: compact, full mode
-//              + clock + controls + status. Compact sync panel
-//              (status only, no participant list).
-//   popover  — Electron menubar popover: smallest density. Mode +
-//              clock + controls + status. No sound, no PiP.
-//
-// The variant only configures composition. The pieces themselves are
-// the same across surfaces, so a bug fixed in TimerControls fixes it
-// everywhere.
+//   page     — /pomodoro: large clock, full chrome
+//   floating — bottom-right overlay: medium clock + Close button
+//   rail     — office room view: medium clock, no PiP/Sound
+//   popover  — Electron menubar: small clock, no PiP, no Sound
 const VARIANT_CONFIG = {
-  page: {
-    clockSize: "lg",
-    showHeader: true,
-    showCloseBtn: false,
-    showSyncBtn: true,
-    showPopoutBtn: true,
-    showSyncPanel: true,
-    syncParticipants: true,
-    showModePicker: true,
-    showControls: true,
-    allowDurationEdit: true,
-    showSoundPicker: true,
-    showSessionDots: true,
-    container: "embedded",
-  },
-  floating: {
-    clockSize: "md",
-    showHeader: true,
-    showCloseBtn: true,
-    showSyncBtn: true,
-    showPopoutBtn: true,
-    showSyncPanel: true,
-    syncParticipants: true,
-    showModePicker: true,
-    showControls: true,
-    allowDurationEdit: true,
-    showSoundPicker: true,
-    showSessionDots: true,
-    container: "floating",
-  },
-  rail: {
-    clockSize: "md",
-    showHeader: true,
-    showCloseBtn: false,
-    showSyncBtn: false,
-    showPopoutBtn: false,
-    showSyncPanel: true,
-    syncParticipants: false,
-    showModePicker: true,
-    showControls: true,
-    allowDurationEdit: false,
-    showSoundPicker: false,
-    showSessionDots: false,
-    container: "chromeless",
-  },
-  popover: {
-    clockSize: "sm",
-    showHeader: true,
-    showCloseBtn: false,
-    showSyncBtn: false,
-    showPopoutBtn: false,
-    showSyncPanel: true,
-    syncParticipants: true,
-    showModePicker: true,
-    showControls: true,
-    allowDurationEdit: false,
-    showSoundPicker: true,
-    showSessionDots: false,
-    container: "chromeless",
-  },
+  page:     { clockSize: "lg", showCloseBtn: false, showSyncBtn: true,  showPopoutBtn: true,  showSound: true,  showDots: true,  showParticipants: true,  container: "embedded"  },
+  floating: { clockSize: "md", showCloseBtn: true,  showSyncBtn: true,  showPopoutBtn: true,  showSound: true,  showDots: true,  showParticipants: true,  container: "floating"  },
+  rail:     { clockSize: "md", showCloseBtn: false, showSyncBtn: false, showPopoutBtn: false, showSound: false, showDots: true,  showParticipants: false, container: "chromeless" },
+  popover:  { clockSize: "sm", showCloseBtn: false, showSyncBtn: false, showPopoutBtn: false, showSound: false, showDots: true,  showParticipants: true,  container: "chromeless" },
 };
 
 export default function PomodoroSurface({
@@ -109,26 +45,28 @@ export default function PomodoroSurface({
   open = true,
   onClose,
   onOpenSync,
-  currentTaskHint,
 }) {
   const cfg = VARIANT_CONFIG[variant] || VARIANT_CONFIG.floating;
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { session } = useApp();
-  const { syncSession } = useSyncSession();
-  const { isSynced, pendingAction, realtimeStatus } = usePomodoro();
+  const { syncSession, takeControl } = useSyncSession();
+  const {
+    isSynced, pendingAction, realtimeStatus,
+    mode, isRunning, secondsLeft, pendingMode, durations,
+    toggleRun, resetTimer, skipTransition, switchAlternateBreak,
+    canControl, transferLeader, kickParticipant,
+  } = usePomodoro();
+  const { syncParticipants, presenceMap } = useSyncSession();
 
   useTimerTitleAndBadge();
 
-  // PiP wiring (full surfaces only).
+  // PiP wiring. PiP renders the existing PipFace component as a
+  // portal into the document picture-in-picture window.
   const [pipMountEl, setPipMountEl] = useState(null);
   const pipWinRef = useRef(null);
   const [pipViewMode, setPipViewMode] = useState(() => {
-    try {
-      return localStorage.getItem("ql_pip_view") || "controls";
-    } catch {
-      return "controls";
-    }
+    try { return localStorage.getItem("ql_pip_view") || "controls"; } catch { return "controls"; }
   });
   useEffect(() => {
     try { localStorage.setItem("ql_pip_view", pipViewMode); } catch { /* */ }
@@ -152,9 +90,7 @@ export default function PomodoroSurface({
     try {
       const initial = PIP_VIEW_SIZES[pipViewMode] || PIP_VIEW_SIZES.controls;
       const pipWin = await dpi.requestWindow({
-        width: initial.w,
-        height: initial.h,
-        disallowReturnToOpener: false,
+        width: initial.w, height: initial.h, disallowReturnToOpener: false,
       });
       pipWinRef.current = pipWin;
       cloneDocStyles(pipWin.document);
@@ -184,7 +120,7 @@ export default function PomodoroSurface({
       }`;
     }
     if (cfg.container === "floating") {
-      return `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-[22rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border shadow-2xl transition-all ${
+      return `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-[24rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border shadow-2xl transition-all ${
         !open && !(controlsLocked && !pipMountEl) ? "hidden" : ""
       } ${
         dark
@@ -195,53 +131,37 @@ export default function PomodoroSurface({
     return "w-full";
   })();
 
-  // Pipface uses the existing PipParts; we keep that shape for now.
-  const isInTransition = !!pendingAction;
-  const { mode, isRunning, secondsLeft, durations, toggleRun, resetTimer, canControl,
-          pendingMode, skipTransition, switchAlternateBreak, transferLeader, kickParticipant } = usePomodoro();
-  const { syncParticipants, presenceMap } = useSyncSession();
-  const transition = !!pendingMode;
-  const displayMode = transition ? pendingMode : mode;
-  const isBreakDisplay = displayMode !== "work";
-  const total = transition ? 5 : durations[mode];
-  const mins = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
-  const secs = String(secondsLeft % 60).padStart(2, "0");
-  const startLabelText = isRunning ? "Pause" : secondsLeft < total ? "Resume" : "Start";
+  // Take-control handler for the inline "Take Leader" affordance.
+  const takeLeaderHandler = isSynced && syncSession
+    ? async () => { await takeControl(syncSession.id); }
+    : null;
+
+  // PiP-only props for the existing PipFace face.
+  const safeSeconds = Number.isFinite(secondsLeft) ? Math.max(0, secondsLeft) : 0;
+  const mins = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
+  const secs = String(safeSeconds % 60).padStart(2, "0");
+  const isBreakDisplay = (pendingMode || mode) !== "work";
+  const startLabelText = isRunning ? "Pause" : safeSeconds < (durations[mode] || 0) ? "Resume" : "Start";
   const startBtnCls = isBreakDisplay
-    ? "bg-[var(--color-break)] hover:bg-[var(--color-break-hover)] shadow-[var(--color-break)]/30"
-    : "bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] shadow-[var(--color-accent)]/30";
+    ? "bg-[var(--color-break)] hover:bg-[var(--color-break-hover)]"
+    : "bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)]";
   const timeColor = isBreakDisplay ? "text-[var(--color-break)]" : "text-[var(--color-accent)]";
-  const displayLabel = transition ? `${displayMode}…` : "";
-  const showAlternateBreak = !transition && (mode === "shortBreak" || mode === "longBreak");
-  const alternateBreakLabel = mode === "shortBreak"
-    ? "Take long break instead"
-    : "Take short break instead";
+  const showAlternateBreak = !pendingMode && (mode === "shortBreak" || mode === "longBreak");
+  const alternateBreakLabel = mode === "shortBreak" ? "Take long break instead" : "Take short break instead";
 
   return (
     <>
       <div className={containerCls}>
-        {cfg.showHeader && (
-          <div className={`flex items-center justify-between px-4 py-2.5 border-b ${
+        {/* Top utility bar — Sync / Pop out / Close. Doesn't render
+            anything for the rail/popover variants; on those the wider
+            UI handles those affordances elsewhere. */}
+        {(cfg.showSyncBtn || cfg.showPopoutBtn || cfg.showCloseBtn) && (
+          <div className={`flex items-center justify-between px-4 py-2 border-b ${
             dark ? "border-[var(--color-border-light)]" : "border-slate-100"
           }`}>
             <div className="flex items-center gap-2 min-w-0">
-              <span className={`text-xs font-semibold uppercase tracking-widest ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                {isSynced ? "Sync" : "Pomodoro"}
-              </span>
-              {isSynced && syncSession && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const url = `${getShareableBaseUrl()}/pomodoro/join/${syncSession.join_code}`;
-                    navigator.clipboard?.writeText(url);
-                  }}
-                  title="Copy invite link"
-                  className="inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded transition-colors bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
-                >
-                  {syncSession.join_code}
-                  <LinkIcon className="w-3 h-3 opacity-70" />
-                </button>
-              )}
+              {/* Meeting countdown is urgent context — kept in the
+                  top bar so it earns a glance even when scrolled. */}
               {isSynced && syncSession?.expires_at && (
                 <MeetingCountdown
                   expiresAt={syncSession.expires_at}
@@ -257,9 +177,7 @@ export default function PomodoroSurface({
                   onClick={onOpenSync}
                   title="Sync with coworker"
                   className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors ${
-                    dark
-                      ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-raised)]"
-                      : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-100"
+                    dark ? "text-slate-400 hover:text-[var(--color-accent)]" : "text-slate-500 hover:text-[var(--color-accent)]"
                   }`}
                 >
                   <Users className="w-3.5 h-3.5" />
@@ -272,9 +190,7 @@ export default function PomodoroSurface({
                   onClick={openPictureInPicture}
                   title="Pop out — keep the timer on top of other windows"
                   className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors ${
-                    dark
-                      ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-raised)]"
-                      : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-100"
+                    dark ? "text-slate-400 hover:text-[var(--color-accent)]" : "text-slate-500 hover:text-[var(--color-accent)]"
                   }`}
                 >
                   <PictureInPicture2 className="w-3.5 h-3.5" />
@@ -287,9 +203,7 @@ export default function PomodoroSurface({
                   onClick={onClose}
                   title="Close"
                   className={`p-1 rounded-md transition-colors ${
-                    dark
-                      ? "text-slate-500 hover:text-slate-300 hover:bg-[var(--color-surface-raised)]"
-                      : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                    dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"
                   }`}
                 >
                   <X className="w-3.5 h-3.5" />
@@ -299,32 +213,63 @@ export default function PomodoroSurface({
           </div>
         )}
 
-        <div className="px-4 pt-3 pb-4 space-y-4">
-          {cfg.showSyncPanel && (
-            <SyncPanel
-              showParticipants={cfg.syncParticipants}
-              currentTaskHint={currentTaskHint}
-            />
-          )}
+        <div className="px-4 pt-3 pb-4 space-y-3">
+          {/* Leader action bar — Leave / End Session at top of card */}
+          <LeaderActionBar />
 
-          {cfg.showModePicker && <ModePicker size={cfg.clockSize === "sm" ? "sm" : "md"} />}
+          {/* Mode picker — text + underline tabs */}
+          <ModePicker />
 
+          {/* Pending action confirm (mode switch, reset, etc.) */}
           {controlsLocked && <PendingActionBanner />}
 
-          <div className="flex justify-center">
-            <ReconnectingPill status={realtimeStatus} dark={dark} />
+          {/* Reconnecting pill — only renders when the realtime
+              channel is unhealthy. SUBSCRIBED is the silent default. */}
+          {realtimeStatus && realtimeStatus !== "SUBSCRIBED" && (
+            <div className="flex justify-center">
+              <ReconnectingPill status={realtimeStatus} dark={dark} />
+            </div>
+          )}
+
+          {/* Hero row: big clock left, play button + reset + take-leader right */}
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <TimerClock size={cfg.clockSize} />
+              {cfg.showDots && (
+                <div className="mt-2">
+                  <SessionDots />
+                </div>
+              )}
+            </div>
+            <TimerControls
+              size={cfg.clockSize === "lg" ? "lg" : cfg.clockSize === "sm" ? "sm" : "md"}
+              onTakeLeader={takeLeaderHandler}
+            />
           </div>
 
-          <TimerClock size={cfg.clockSize} />
+          {/* Sync code + Share link row (synced only) */}
+          <SyncCodeRow />
 
-          {cfg.showControls && (
-            <TimerControls
-              allowDurationEdit={cfg.allowDurationEdit}
+          {/* Status row + participants. Both rendered when synced;
+              StatusSetter renders standalone outside sync too. */}
+          {(isSynced || !isSynced) && <StatusSetter />}
+
+          {isSynced && cfg.showParticipants && (syncParticipants?.length || 0) > 0 && (
+            <SyncParticipantList
+              participants={syncParticipants}
+              leaderId={syncSession?.leader_id}
+              controllerId={syncSession?.controller_id}
+              presenceMap={presenceMap}
+              currentUserId={userId}
+              onTransferLeader={transferLeader}
+              onKickParticipant={kickParticipant}
+              onEditMyStatus={() => { /* StatusSetter is always-visible now */ }}
+              defaultExpanded
             />
           )}
 
-          {cfg.showSoundPicker && <SoundPicker />}
-          {cfg.showSessionDots && <SessionDots />}
+          {/* Sound section — collapsed by default, full surfaces only */}
+          {cfg.showSound && <SoundPicker />}
         </div>
       </div>
 
@@ -332,7 +277,7 @@ export default function PomodoroSurface({
         <PipFace
           mins={mins}
           secs={secs}
-          modeLabel={displayLabel || mode}
+          modeLabel={mode}
           dark={dark}
           timeColor={timeColor}
           startBtnCls={startBtnCls}
