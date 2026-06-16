@@ -258,6 +258,7 @@ function AppLayout({ session }) {
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
             />
             <Route path="/office" element={<OfficePage />} />
+            <Route path="/office/r/:roomId" element={<OfficePage />} />
             <Route path="/settings" element={<SettingsPage />} />
             {/* /account merged into /settings → Profile section. */}
             <Route path="/account" element={<Navigate to="/settings" replace />} />

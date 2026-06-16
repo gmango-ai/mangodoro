@@ -1,19 +1,19 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { useTheme } from "../context/ThemeContext";
-import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
-import RoomActionPopover from "../components/RoomActionPopover";
+import OfficeShell from "../components/office/OfficeShell";
 import { Button } from "@/components/ui/button";
-import { Pencil, Users, Timer } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { resolveRoomByInviteCode } from "../lib/rooms";
 
-// The "office" — a god's-eye view of every visible room with live
-// occupants. Read-only by design; the editor lives on /team#office.
-// Click any room to open the action popover (same flow as /pomodoro).
+// /office — sidebar (minimap + room list) on the left, the selected
+// room's view on the right. Joining or starting a session keeps the
+// user in the room view so chat / video / timer all live in one place.
+// The previous popover-modal flow was replaced wholesale by OfficeShell.
 export default function OfficePage() {
   const { session } = useApp();
   const {
@@ -25,12 +25,11 @@ export default function OfficePage() {
   const dark = theme === "dark";
   const navigate = useNavigate();
 
-  const [popoverRoom, setPopoverRoom] = useState(null);
   const [codePromptRoom, setCodePromptRoom] = useState(null);
   const [roomBusy, setRoomBusy] = useState(false);
   const [joinError, setJoinError] = useState("");
 
-  // Map active sessions by room_id for fast lookup in the floor plan.
+  // Map active sessions by room_id for fast lookup.
   const sessionByRoomId = new Map();
   for (const s of activeTeamSessions || []) {
     if (s.room_id) sessionByRoomId.set(s.room_id, s);
@@ -45,63 +44,59 @@ export default function OfficePage() {
     return ids.size;
   })();
 
-  // Member's name lookup for the participant strip.
   function memberFor(userId) {
     return (teamMembers || []).find((m) => m.user_id === userId) || null;
   }
 
+  function displayName() {
+    return (
+      (memberFor(session.user.id)?.name)
+      || session.user.user_metadata?.name
+      || session.user.email
+      || "Guest"
+    );
+  }
+
   async function joinSessionRow(s) {
     setRoomBusy(true); setJoinError("");
-    const displayName =
-      (memberFor(session.user.id)?.name) ||
-      session.user.user_metadata?.name ||
-      session.user.email ||
-      "Guest";
-    const { data, error } = await joinSyncSession(s.join_code, displayName);
+    const { data, error } = await joinSyncSession(s.join_code, displayName());
     setRoomBusy(false);
-    if (error) { setJoinError(error.message || "Could not join."); return; }
-    // join_sync_session returns { session, participant } — unwrap the
-    // session row before handing it to the context. Passing the wrapper
-    // stored sessionId:undefined in localStorage and left the timer
-    // unable to sync, which is why a second "Sync → Join" click on
-    // /pomodoro was needed to recover.
+    if (error) { setJoinError(error.message || "Could not join."); return false; }
     if (data?.session) joinSyncCtx(data.session);
-    navigate("/pomodoro");
+    return true;
   }
 
   async function startSessionInRoom(room) {
     setRoomBusy(true); setJoinError("");
-    const displayName =
-      (memberFor(session.user.id)?.name) ||
-      session.user.user_metadata?.name ||
-      session.user.email ||
-      "Guest";
-    const { data, error } = await createSyncSession(session.user.id, displayName, {
+    const { data, error } = await createSyncSession(session.user.id, displayName(), {
       teamId: activeTeamId,
       roomId: room.id,
       visibility: "team",
     });
     setRoomBusy(false);
-    if (error) { setJoinError(error.message || "Could not start session."); return; }
-    // createSyncSession returns the session row directly (not wrapped),
-    // so we hand it straight to the context. joinSyncCtx handles the
-    // localStorage write + event dispatch internally.
+    if (error) { setJoinError(error.message || "Could not start session."); return false; }
     if (data) joinSyncCtx(data);
-    navigate("/pomodoro");
+    return true;
   }
 
-  async function handleRoomClick(room) {
+  // The two CTAs the RoomView surfaces. "Join" → existing session in
+  // this room; "Start" → spin one up (with private-code gating if the
+  // room has been locked by a prior visit).
+  async function handleJoin(room) {
     const active = sessionByRoomId.get(room.id);
-    if (active) return joinSessionRow(active);
-    // Private rooms now start UNLOCKED — the server mints + locks the
-    // invite_code on first join. Only ask for a code if the room has
-    // already been locked (i.e. someone else got there first).
+    if (active) await joinSessionRow(active);
+  }
+
+  async function handleStart(room) {
     if (room.kind === "private" && room.invite_code) {
       setCodePromptRoom(room);
       return;
     }
-    return startSessionInRoom(room);
+    await startSessionInRoom(room);
   }
+
+  const canEdit = isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0);
+  const hasRooms = (visibleRooms || []).length > 0;
 
   if (!activeTeam) {
     return (
@@ -113,52 +108,12 @@ export default function OfficePage() {
     );
   }
 
-  const canEdit = isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0);
-
-  return (
-    <main className="px-4 pt-6 pb-24 max-w-[1400px] mx-auto space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
-            {activeTeam.name}
-          </p>
-          <h1 className={`text-2xl font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
-            Office
-          </h1>
-          <p className={`text-xs mt-0.5 inline-flex items-center gap-3 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-            <span className="inline-flex items-center gap-1">
-              <Users className="w-3 h-3" />
-              <span className={`font-semibold ${onlineCount > 0 ? "text-[var(--color-accent)]" : ""}`}>
-                {onlineCount}
-              </span>
-              {onlineCount === 1 ? "person online" : "people online"}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Timer className="w-3 h-3" />
-              <span className="font-semibold">
-                {activeTeamSessions?.length || 0}
-              </span>
-              active {activeTeamSessions?.length === 1 ? "session" : "sessions"}
-            </span>
-          </p>
-        </div>
-        {canEdit && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("/team#office")}
-            className="h-8 text-xs"
-          >
-            <Pencil className="w-3.5 h-3.5 mr-1" /> Edit office
-          </Button>
-        )}
-      </div>
-
-      {joinError && (
-        <p className={`text-xs ${dark ? "text-red-400" : "text-red-600"}`}>{joinError}</p>
-      )}
-
-      {(visibleRooms || []).length === 0 ? (
+  if (!hasRooms) {
+    return (
+      <main className="px-4 pt-8 pb-24 max-w-[920px] mx-auto">
+        <h1 className={`text-2xl font-bold mb-3 ${dark ? "text-slate-100" : "text-slate-800"}`}>
+          Office
+        </h1>
         <div className={`text-center py-10 rounded-2xl border border-dashed ${
           dark ? "border-[var(--color-border)] text-slate-400" : "border-slate-300 text-slate-500"
         }`}>
@@ -169,68 +124,26 @@ export default function OfficePage() {
             </Button>
           )}
         </div>
-      ) : (
-        <>
-          {/* Desktop / tablet: the floor plan. Mobile gets a stacked
-              list for legibility — DnD isn't a concern (read-only) but
-              the grid cells get too small to be useful on phones. */}
-          <div className="hidden sm:block">
-            <OfficeLayoutEditor
-              rooms={visibleRooms}
-              readOnly={true}
-              vibe={activeTeam?.office_vibe || "quiet"}
-              busy={roomBusy}
-              onJoinRoom={handleRoomClick}
-              onOpenRoom={setPopoverRoom}
-              sessionByRoomId={sessionByRoomId}
-            />
-          </div>
-          <div className="sm:hidden grid gap-3">
-            {visibleRooms.map((room) => {
-              const activeSession = sessionByRoomId.get(room.id) || null;
-              const occupants = activeSession?.occupants || [];
-              return (
-                <button
-                  key={room.id}
-                  type="button"
-                  onClick={() => setPopoverRoom(room)}
-                  className={`text-left rounded-2xl border p-3 transition-colors hover:border-[var(--color-accent)] ${
-                    dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-                  }`}
-                  style={{ borderTopColor: room.color, borderTopWidth: 4 }}
-                >
-                  <p className={`text-sm font-semibold ${dark ? "text-slate-100" : "text-slate-800"}`}>
-                    {room.name}
-                  </p>
-                  <p className={`text-[11px] mt-0.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                    {occupants.length === 0
-                      ? "Nobody here"
-                      : `${occupants.length} ${occupants.length === 1 ? "person" : "people"}`}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
+      </main>
+    );
+  }
 
-      <RoomActionPopover
-        open={!!popoverRoom}
-        room={popoverRoom}
-        activeSession={popoverRoom ? sessionByRoomId.get(popoverRoom.id) || null : null}
+  return (
+    <>
+      {joinError && (
+        <p className={`px-4 py-2 text-xs ${dark ? "text-red-400" : "text-red-600"}`}>{joinError}</p>
+      )}
+      <OfficeShell
+        activeTeam={activeTeam}
+        rooms={visibleRooms}
+        sessionByRoomId={sessionByRoomId}
         orgTeams={orgTeams || []}
+        onlineCount={onlineCount}
+        canEdit={canEdit}
         busy={roomBusy}
-        onClose={() => setPopoverRoom(null)}
-        onJoin={async () => {
-          const r = popoverRoom;
-          setPopoverRoom(null);
-          if (r) await handleRoomClick(r);
-        }}
-        onStart={async () => {
-          const r = popoverRoom;
-          setPopoverRoom(null);
-          if (r) await handleRoomClick(r);
-        }}
+        onJoin={handleJoin}
+        onStart={handleStart}
+        onEditOffice={() => navigate("/team#office")}
       />
 
       {/* Private room → "Enter code" sheet */}
@@ -247,15 +160,16 @@ export default function OfficePage() {
               setJoinError("That code belongs to a different room.");
               return;
             }
+            const target = codePromptRoom;
             setCodePromptRoom(null);
-            const active = sessionByRoomId.get(resolvedRoomId);
+            const active = sessionByRoomId.get(target.id);
             if (active) await joinSessionRow(active);
-            else await startSessionInRoom(codePromptRoom);
+            else await startSessionInRoom(target);
           }}
           dark={dark}
         />
       )}
-    </main>
+    </>
   );
 }
 
