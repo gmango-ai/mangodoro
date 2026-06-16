@@ -231,20 +231,31 @@ export default function PomodoroSurface({
             </div>
           )}
 
-          {/* Hero row: big clock left, play button + reset + take-leader right */}
-          <div className="flex items-end justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <TimerClock size={cfg.clockSize} />
-              {cfg.showDots && (
-                <div className="mt-2">
-                  <SessionDots />
-                </div>
-              )}
-            </div>
+          {/* Hero row laid out as a 2-column grid so the play button is
+              vertically anchored to the clock numerals (row 1), the
+              small FOCUS / SHORT / LONG label sits beneath the numbers
+              (row 2 left), and "Take Leader" / alt-break labels sit
+              beneath the buttons (row 2 right). Without the grid the
+              previous flex+items-end let the smaller right column
+              float in the dead space between the numbers and the dots. */}
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 items-center">
+            <TimerClock size={cfg.clockSize} slot="numbers" />
             <TimerControls
               size={cfg.clockSize === "lg" ? "lg" : cfg.clockSize === "sm" ? "sm" : "md"}
+              slot="buttons"
               onTakeLeader={takeLeaderHandler}
             />
+            <TimerClock size={cfg.clockSize} slot="label" />
+            <TimerControls
+              size={cfg.clockSize === "lg" ? "lg" : cfg.clockSize === "sm" ? "sm" : "md"}
+              slot="extras"
+              onTakeLeader={takeLeaderHandler}
+            />
+            {cfg.showDots && (
+              <div className="col-span-2 mt-1">
+                <SessionDots />
+              </div>
+            )}
           </div>
 
           {/* Sync code + Share link row (synced only) */}
