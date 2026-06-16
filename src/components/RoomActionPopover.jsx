@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
+import { useApp } from "../context/AppContext";
 import { Button } from "@/components/ui/button";
-import { X, Play, LogIn, Eye, Users, Briefcase, MessageSquare, Lock, Hash } from "lucide-react";
+import { X, Play, LogIn, Eye, Users, Briefcase, MessageSquare, Lock, Hash, MessagesSquare } from "lucide-react";
 import UserAvatar from "./UserAvatar";
+import RoomChatPanel from "./RoomChatPanel";
 
 const KIND_ICON = {
   department: Briefcase,
@@ -26,7 +29,9 @@ export default function RoomActionPopover({
 }) {
   const { theme } = useTheme();
   const { teamsByUserId } = useTeam();
+  const { session } = useApp();
   const dark = theme === "dark";
+  const [tab, setTab] = useState("room");
 
   if (!open || !room) return null;
   const Icon = KIND_ICON[room.kind] || Hash;
@@ -78,6 +83,40 @@ export default function RoomActionPopover({
           </div>
         </div>
 
+        {/* Tab toggle */}
+        <div className={`inline-flex p-0.5 rounded-lg mb-3 ${
+          dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
+        }`}>
+          <button
+            type="button"
+            onClick={() => setTab("room")}
+            className={`px-3 py-1 text-xs font-semibold rounded-md transition ${
+              tab === "room"
+                ? (dark ? "bg-[var(--color-surface)] text-slate-100 shadow" : "bg-white text-slate-800 shadow")
+                : (dark ? "text-slate-400" : "text-slate-500")
+            }`}
+          >
+            <Hash className="w-3 h-3 inline mr-1 -mt-0.5" />
+            Room
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("chat")}
+            className={`px-3 py-1 text-xs font-semibold rounded-md transition ${
+              tab === "chat"
+                ? (dark ? "bg-[var(--color-surface)] text-slate-100 shadow" : "bg-white text-slate-800 shadow")
+                : (dark ? "text-slate-400" : "text-slate-500")
+            }`}
+          >
+            <MessagesSquare className="w-3 h-3 inline mr-1 -mt-0.5" />
+            Chat
+          </button>
+        </div>
+
+        {tab === "chat" ? (
+          <RoomChatPanel roomId={room.id} userId={session?.user?.id} />
+        ) : (
+          <>
         {/* Gating chips */}
         {gatingTeams.length > 0 && (
           <div className="mb-3 flex flex-wrap items-center gap-1.5">
@@ -177,6 +216,8 @@ export default function RoomActionPopover({
             </span>
           </Button>
         </div>
+          </>
+        )}
       </div>
     </div>
   );
