@@ -64,6 +64,11 @@ export function SyncSessionProvider({ session, children }) {
   // race that would otherwise notifySessionCleared() and yank the user
   // out of an active session on refresh.
   const rehydrateRetriedRef = useRef(false);
+  // De-dupes concurrent rehydrate calls. Without this, mount + visibility
+  // + broadcast events fired in quick succession would each kick off a
+  // find_my_active_sync_session RPC, and a cross-tab broadcast loop with
+  // the Electron menubar popover could escalate into hundreds of POSTs.
+  const rehydrateInFlightRef = useRef(false);
 
   // Tries, in order:
   //   1) The session id stashed in localStorage (fast path for reloads).
@@ -74,72 +79,89 @@ export function SyncSessionProvider({ session, children }) {
   // On a successful server-side discovery we backfill localStorage so
   // subsequent reloads take the fast path.
   const rehydrateSyncSessionFromStorage = useCallback(async () => {
-    const adoptSession = async (row) => {
-      rehydrateRetriedRef.current = false;
-      setSyncSession(row);
-      try {
-        localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify({ sessionId: row.id }));
-      } catch { /* storage disabled */ }
-      const { data: p } = await fetchSyncParticipants(row.id);
-      setSyncParticipants(p || []);
-    };
+    if (rehydrateInFlightRef.current) return;
+    rehydrateInFlightRef.current = true;
+    try {
+      const adoptSession = async (row) => {
+        rehydrateRetriedRef.current = false;
+        setSyncSession(row);
+        try {
+          localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify({ sessionId: row.id }));
+        } catch { /* storage disabled */ }
+        const { data: p } = await fetchSyncParticipants(row.id);
+        setSyncParticipants(p || []);
+      };
 
-    const tryServerDiscover = async () => {
-      const { data } = await findMyActiveSyncSession();
-      if (data?.id) {
-        await adoptSession(data);
-        return true;
+      const tryServerDiscover = async () => {
+        const { data } = await findMyActiveSyncSession();
+        if (data?.id) {
+          await adoptSession(data);
+          return true;
+        }
+        return false;
+      };
+
+      // Local-only clear. We intentionally do NOT call
+      // notifySessionCleared() here: this path runs when rehydrate
+      // *discovered* there's no active session, not when the user
+      // *ended* one. Broadcasting "sync-changed" caused a cross-tab
+      // loop with the Electron menubar popover where every tab's
+      // "I didn't find anything" finding caused every other tab to
+      // re-rediscover, escalating into hundreds of find_my_active
+      // RPCs per minute. Real session-end paths still broadcast via
+      // clearLocalSession.
+      const clearLocallyOnly = () => {
+        rehydrateRetriedRef.current = false;
+        try { localStorage.removeItem(SYNC_SESSION_KEY); } catch { /* */ }
+        setSyncSession(null);
+        setSyncParticipants([]);
+        setPresenceMap({});
+      };
+
+      const stored = localStorage.getItem(SYNC_SESSION_KEY);
+      let sessionId = null;
+      if (stored) {
+        try {
+          ({ sessionId } = JSON.parse(stored));
+        } catch {
+          // Malformed JSON: fall through to server discovery rather than
+          // wiping outright — they may still have an active session.
+          sessionId = null;
+        }
       }
-      return false;
-    };
 
-    const clearAndNotify = () => {
-      rehydrateRetriedRef.current = false;
-      try { localStorage.removeItem(SYNC_SESSION_KEY); } catch { /* */ }
-      setSyncSession(null);
-      setSyncParticipants([]);
-      setPresenceMap({});
-      notifySessionCleared();
-    };
-
-    const stored = localStorage.getItem(SYNC_SESSION_KEY);
-    let sessionId = null;
-    if (stored) {
-      try {
-        ({ sessionId } = JSON.parse(stored));
-      } catch {
-        // Malformed JSON: fall through to server discovery rather than
-        // wiping outright — they may still have an active session.
-        sessionId = null;
+      if (sessionId) {
+        const { data, error } = await supabase
+          .from("sync_sessions")
+          .select("*")
+          .eq("id", sessionId)
+          .eq("status", "active")
+          .maybeSingle();
+        if (data) {
+          await adoptSession(data);
+          return;
+        }
+        // Stored hint missed. Could be: session ended, OR cold-load RLS
+        // race (token not warm yet). Retry once after a beat before
+        // committing to the "no session" path.
+        if (!error && !rehydrateRetriedRef.current) {
+          rehydrateRetriedRef.current = true;
+          setTimeout(() => {
+            rehydrateInFlightRef.current = false;
+            rehydrateSyncSessionFromStorage();
+          }, 600);
+          return;
+        }
       }
+
+      // No local hint, or the local hint was definitively stale. Ask the
+      // server whether this user is in any active session anywhere.
+      const found = await tryServerDiscover();
+      if (found) return;
+      clearLocallyOnly();
+    } finally {
+      rehydrateInFlightRef.current = false;
     }
-
-    if (sessionId) {
-      const { data, error } = await supabase
-        .from("sync_sessions")
-        .select("*")
-        .eq("id", sessionId)
-        .eq("status", "active")
-        .maybeSingle();
-      if (data) {
-        await adoptSession(data);
-        return;
-      }
-      // Stored hint missed. Could be: session ended, OR cold-load RLS
-      // race (token not warm yet). Retry once after a beat before
-      // committing to the "no session" path.
-      if (!error && !rehydrateRetriedRef.current) {
-        rehydrateRetriedRef.current = true;
-        setTimeout(() => rehydrateSyncSessionFromStorage(), 600);
-        return;
-      }
-    }
-
-    // No local hint, or the local hint was definitively stale. Ask the
-    // server whether this user is in any active session anywhere.
-    const found = await tryServerDiscover();
-    if (found) return;
-    clearAndNotify();
   }, []);
 
   // Run on mount AND any time the signed-in user id changes (cold sign-in,

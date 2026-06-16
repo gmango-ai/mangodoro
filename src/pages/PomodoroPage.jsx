@@ -7,7 +7,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import { Users as UsersIcon, Timer, Target, ArrowRight } from "lucide-react";
 import MarkdownText from "../components/MarkdownText";
-import PomodoroTimer from "../components/PomodoroTimer";
+import PomodoroSurface from "../components/pomodoro/PomodoroSurface";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
 import { listCurrentWeekRetros } from "../lib/retro";
 
@@ -152,11 +152,8 @@ export default function PomodoroPage({ session, onOpenSync }) {
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="md:col-span-2 space-y-3">
-          <PomodoroTimer
-            open
-            embedded
-            onClose={() => {}}
-            userId={session.user.id}
+          <PomodoroSurface
+            variant="page"
             onOpenSync={onOpenSync}
             currentTaskHint={currentTaskHint}
           />

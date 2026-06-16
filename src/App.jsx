@@ -14,11 +14,10 @@ import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
 import ClockBanner from "./components/ClockBanner";
-import PomodoroTimer from "./components/PomodoroTimer";
+import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
 import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
 import PWAUpdater from "./components/PWAUpdater";
-import RunningTimerFab from "./components/RunningTimerFab";
 import LogPage from "./pages/LogPage";
 import OverviewPage from "./pages/OverviewPage";
 import PlannerPage from "./pages/PlannerPage";
@@ -217,10 +216,10 @@ function AppLayout({ session }) {
           <InvoiceModal />
           <ClockBanner />
           {!onPomodoroPage && (
-            <PomodoroTimer
+            <PomodoroSurface
+              variant="floating"
               open={showPomodoro}
               onClose={() => setShowPomodoro(false)}
-              userId={session.user.id}
               onOpenSync={() => setShowSyncModal(true)}
               currentTaskHint={currentTaskHint}
             />
@@ -238,7 +237,6 @@ function AppLayout({ session }) {
             userId={session.user.id}
           />
           <PWAUpdater />
-          <RunningTimerFab onOpen={() => setShowPomodoro(true)} />
           <Routes>
             <Route path="/" element={<LandingRedirector />} />
             {/* Legacy time-tracker URLs redirect into the unified page */}
@@ -258,6 +256,7 @@ function AppLayout({ session }) {
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
             />
             <Route path="/office" element={<OfficePage />} />
+            <Route path="/office/r/:roomId" element={<OfficePage />} />
             <Route path="/settings" element={<SettingsPage />} />
             {/* /account merged into /settings → Profile section. */}
             <Route path="/account" element={<Navigate to="/settings" replace />} />
