@@ -1,0 +1,92 @@
+name: Release Electron
+
+on:
+  push:
+    tags:
+      - 'electron-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (without leading v). Used only on manual runs.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF#refs/tags/electron-v}"
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="${{ inputs.version }}"
+            if [ -z "$VERSION" ]; then
+              echo "::error::version input is required for manual runs"; exit 1
+            fi
+            TAG="electron-v${VERSION}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Building electron release ${TAG}"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Node (for electron-builder + npm in electron/)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install root dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install electron dependencies
+        working-directory: electron
+        run: npm install --no-audit --no-fund
+
+      - name: Stamp electron version
+        working-directory: electron
+        run: |
+          node -e "const fs=require('fs');const p=require('./package.json');p.version='${{ steps.version.outputs.version }}';fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n');"
+          echo "electron/package.json now at $(node -p "require('./package.json').version")"
+
+      - name: Build web app + sync Capacitor electron platform
+        env:
+          CAPACITOR_BUILD: '1'
+        run: bun run cap:build
+
+      - name: Build + publish Electron DMG
+        working-directory: electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Skip notarization unless Apple creds are present. electron-builder
+          # falls back to an unsigned DMG, which is fine for internal testers.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run electron:make
+
+      - name: Create / update Draft Release with artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Electron ${{ steps.version.outputs.tag }}
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            electron/dist/*.dmg
+            electron/dist/*.dmg.blockmap
+            electron/dist/latest-mac.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
