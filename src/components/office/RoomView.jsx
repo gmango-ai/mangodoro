@@ -77,7 +77,19 @@ function PomodoroRail({ room, activeSession, busy, onJoin, onStart, session, dar
         Pomodoro
       </div>
       {inThisRoomSession ? (
-        <PomodoroTimer session={session} inPopover={true} />
+        // chromeless = inline w-full with no extra border (the rail
+        // panel itself supplies the chrome). embedded would work too
+        // but stacks a second rounded border. `open` is irrelevant in
+        // this render path but we pass it so the floating-overlay
+        // fallback doesn't kick in if someone wires an embedded prop
+        // off later.
+        <PomodoroTimer
+          open
+          chromeless
+          userId={session?.user?.id}
+          inPopover
+          onClose={() => {}}
+        />
       ) : activeSession ? (
         <div className="p-4">
           <div className="flex items-center gap-2 mb-2">
