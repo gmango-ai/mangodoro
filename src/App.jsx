@@ -18,7 +18,6 @@ import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
 import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
 import PWAUpdater from "./components/PWAUpdater";
-import RunningTimerFab from "./components/RunningTimerFab";
 import LogPage from "./pages/LogPage";
 import OverviewPage from "./pages/OverviewPage";
 import PlannerPage from "./pages/PlannerPage";
@@ -238,7 +237,6 @@ function AppLayout({ session }) {
             userId={session.user.id}
           />
           <PWAUpdater />
-          <RunningTimerFab onOpen={() => setShowPomodoro(true)} />
           <Routes>
             <Route path="/" element={<LandingRedirector />} />
             {/* Legacy time-tracker URLs redirect into the unified page */}

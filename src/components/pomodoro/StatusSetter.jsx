@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
@@ -12,26 +12,30 @@ const PRESENCE = [
   { key: "away", label: "Away", dotLight: "bg-amber-500", dotDark: "bg-amber-400" },
 ];
 
-// Status + presence editor. Works whether or not the user is in a sync
-// session — when in one, writes flow through setSyncParticipantStatus
-// (so teammates see the update live); when not, falls back to the
-// global set_user_status RPC so the user's office tile still reflects
-// their state.
+// Click-to-expand status editor.
 //
-// The previous version only rendered inside the sync panel and called
-// the participant RPC directly; in the menubar popover this meant
-// "set status" silently no-op'd whenever the user wasn't synced.
+// Closed state (one row):
+//   [ ● Active · Making Pomodoro Great Again!        ]
+//
+// Open state (form):
+//   [ Active ] [ Available ] [ Heads-down ] [ Meeting ] [ Away ]
+//   [ What are you working on?                                  ]
+//   Use current task                            Close    Save
+//
+// Auto-falls-back from the participant RPC (when synced) to the
+// global set_user_status RPC (when not in a sync session), so the
+// row also writes the user's office-tile status from anywhere.
+//
+// currentTaskHint, when present, lets the user pull whatever they're
+// clocked into ("ProjectName — what they're doing") into the status
+// with a single click.
 export default function StatusSetter({ currentTaskHint = "" }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const { settings } = useApp();
+  const { settings, session: appSession } = useApp();
   const { syncSession, syncParticipants, setStatus: setSyncStatus } = useSyncSession();
-  const { session: appSession } = useApp();
   const userId = appSession?.user?.id;
 
-  // Pull "my" state from the sync participant row if synced, else
-  // from the user's own user_settings (which mirrors what the office
-  // tiles + retros render).
   const me = (syncParticipants || []).find((p) => p.user_id === userId);
   const myStatus = (me?.status ?? settings?.status) || "";
   const myPresence = (me?.presence_state ?? settings?.presenceState) || "active";
@@ -39,117 +43,122 @@ export default function StatusSetter({ currentTaskHint = "" }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(myStatus);
 
+  // Refresh the draft from remote whenever upstream changes (another
+  // device wrote it), except while the user is actively editing.
+  useEffect(() => {
+    if (!editing) setDraft(myStatus);
+  }, [myStatus, editing]);
+
+  const apply = async (patch) => {
+    if (syncSession && setSyncStatus) {
+      await setSyncStatus(patch);
+    } else {
+      await setUserStatus(patch);
+    }
+  };
+  const applyPresence = (state) => apply({ presenceState: state });
+  const save = () => { apply({ status: draft }); setEditing(false); };
+  const cancel = () => { setDraft(myStatus); setEditing(false); };
+
   const presence = PRESENCE.find((p) => p.key === myPresence) || PRESENCE[0];
   const dotCls = dark ? presence.dotDark : presence.dotLight;
 
-  const applyPresence = async (state) => {
-    if (syncSession && setSyncStatus) {
-      await setSyncStatus({ presenceState: state });
-    } else {
-      await setUserStatus({ presenceState: state });
-    }
-  };
-  const applyStatus = async (value) => {
-    if (syncSession && setSyncStatus) {
-      await setSyncStatus({ status: value });
-    } else {
-      await setUserStatus({ status: value });
-    }
-  };
-
-  if (editing) {
+  if (!editing) {
     return (
-      <div className={`rounded-md border p-2 space-y-2 ${
-        dark ? "border-[var(--color-border)] bg-[var(--color-bg)]" : "bg-white border-slate-200"
-      }`}>
-        <div className="flex flex-wrap gap-1">
-          {PRESENCE.map((opt) => (
+      <button
+        type="button"
+        onClick={() => { setDraft(myStatus); setEditing(true); }}
+        className={`w-full flex items-center gap-2 text-left text-[11px] px-3 py-2 rounded-lg border transition-colors ${
+          dark
+            ? "border-[var(--color-border)] bg-[var(--color-surface)] text-slate-300 hover:border-[var(--color-accent)]"
+            : "bg-white border-slate-200 text-slate-700 hover:border-[var(--color-accent)]"
+        }`}
+      >
+        <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
+        <span className={`shrink-0 font-semibold ${dark ? "text-slate-200" : "text-slate-800"}`}>
+          {presence.label}
+        </span>
+        <span className="truncate">
+          {myStatus
+            ? <>· {myStatus}</>
+            : <span className={dark ? "text-slate-500 italic" : "text-slate-400 italic"}>+ add status</span>}
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <div className={`rounded-lg border p-2.5 space-y-2 ${
+      dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "bg-white border-slate-200"
+    }`}>
+      <div className="flex flex-wrap gap-1">
+        {PRESENCE.map((opt) => {
+          const active = myPresence === opt.key;
+          return (
             <button
               key={opt.key}
               type="button"
               onClick={() => applyPresence(opt.key)}
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors ${
-                myPresence === opt.key
+              className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors ${
+                active
                   ? dark ? "bg-slate-700 text-slate-100" : "bg-slate-100 text-slate-800 shadow-sm"
-                  : dark ? "text-slate-500 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"
+                  : dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
               }`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${dark ? opt.dotDark : opt.dotLight}`} />
               {opt.label}
             </button>
-          ))}
-        </div>
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="What are you working on?"
-          maxLength={80}
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { applyStatus(draft); setEditing(false); }
-            if (e.key === "Escape") setEditing(false);
-          }}
-          className={`w-full h-8 px-2 rounded-md border text-[11px] ${
-            dark
-              ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500"
-              : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
-          }`}
-        />
-        <div className="flex items-center gap-1">
-          {currentTaskHint && (
-            <button
-              type="button"
-              onClick={() => setDraft(currentTaskHint)}
-              title="Use what you're clocked into"
-              className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
-                dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              Use current task
-            </button>
-          )}
-          <div className="flex-1" />
+          );
+        })}
+      </div>
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="What are you working on?"
+        maxLength={80}
+        autoFocus
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") cancel();
+        }}
+        className={`w-full h-9 px-3 rounded-md border text-xs ${
+          dark
+            ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500"
+            : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
+        }`}
+      />
+      <div className="flex items-center gap-1.5">
+        {currentTaskHint && (
           <button
             type="button"
-            onClick={() => setEditing(false)}
+            onClick={() => setDraft(currentTaskHint)}
+            title="Use what you're clocked into"
             className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
-              dark ? "text-slate-400 hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:bg-slate-100"
+              dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
             }`}
           >
-            Close
+            Use current task
           </button>
-          <button
-            type="button"
-            onClick={() => { applyStatus(draft); setEditing(false); }}
-            className="text-[10px] font-semibold px-2 py-1 rounded-md text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)]"
-          >
-            Save
-          </button>
-        </div>
+        )}
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={cancel}
+          className={`text-[11px] font-semibold px-3 py-1.5 rounded-md ${
+            dark ? "text-slate-400 hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:bg-slate-100"
+          }`}
+        >
+          Close
+        </button>
+        <button
+          type="button"
+          onClick={save}
+          className="text-[11px] font-semibold px-3 py-1.5 rounded-md text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)]"
+        >
+          Save
+        </button>
       </div>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => { setDraft(myStatus); setEditing(true); }}
-      className={`w-full flex items-center gap-2 text-left text-[11px] px-2 py-1.5 rounded-md border transition-colors ${
-        dark
-          ? "border-[var(--color-border)] bg-[var(--color-bg)] text-slate-300 hover:border-[var(--color-accent)]"
-          : "bg-white border-slate-200 text-slate-700 hover:border-[var(--color-accent)]"
-      }`}
-    >
-      <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
-      <span className={`shrink-0 font-semibold ${dark ? "text-slate-200" : "text-slate-800"}`}>
-        {presence.label}
-      </span>
-      <span className="truncate">
-        {myStatus
-          ? <>· {myStatus}</>
-          : <span className={dark ? "text-slate-500 italic" : "text-slate-400 italic"}>+ add status</span>}
-      </span>
-    </button>
+    </div>
   );
 }

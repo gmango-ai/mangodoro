@@ -1,86 +1,86 @@
 import { useTheme } from "../../context/ThemeContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
-import { MODE_LABELS, TRANSITION_SECONDS } from "../../pomodoro/constants";
+import { MODE_LABELS } from "../../pomodoro/constants";
 
-// Big-clock display: numbers + progress ring. Pure presentation —
-// reads from usePomodoro(). Size is configurable so the same
-// component works on the /pomodoro page (large), the office rail
-// (medium), and the menubar popover (small).
-//
-// Sizes map to a target diameter in px. The SVG uses a fixed
-// viewBox so the ring stays crisp at any container size.
-const SIZES = {
-  sm: { box: "w-28 h-28", time: "text-2xl", label: "text-[10px]" },
-  md: { box: "w-36 h-36", time: "text-3xl", label: "text-[11px]" },
-  lg: { box: "w-48 h-48", time: "text-5xl", label: "text-xs" },
+// Present-tense state labels for under-the-clock. MODE_LABELS reads
+// like a noun ("Focus", "Short break") which is right for the picker
+// tabs but reads as wrong as a live state. These read better.
+const STATE_LABELS = {
+  work: "FOCUSING",
+  shortBreak: "ON BREAK",
+  longBreak: "ON BREAK",
 };
 
-export default function TimerClock({ size = "md" }) {
+// Big numeric clock. Left-aligned mm:ss with the mode label below.
+// No SVG ring — the visual weight comes from the typography itself.
+//
+//   sm  → popover (380px)
+//   md  → office rail, floating overlay
+//   lg  → /pomodoro page
+//
+// `slot` lets the surface place the numbers and the mode label in
+// separate grid cells when it needs precise alignment with the play
+// button cluster on the right. By default both render stacked.
+//
+//   slot="all"     → numbers + label (default)
+//   slot="numbers" → numerals only
+//   slot="label"   → mode label only
+//
+// Defensive against secondsLeft being undefined/NaN — the popover hit
+// that on cold load when the sync session row hadn't arrived yet,
+// surfacing as "NaN:NaN" briefly. Clamped to 0 so the clock reads
+// "00:00" until real data lands.
+const SIZES = {
+  sm: { time: "text-5xl", label: "text-[11px] mt-1" },
+  md: { time: "text-6xl", label: "text-xs mt-1" },
+  lg: { time: "text-7xl sm:text-8xl", label: "text-sm mt-1.5" },
+};
+
+export default function TimerClock({ size = "md", slot = "all" }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const {
-    mode, secondsLeft, isRunning, durations, pendingMode,
-  } = usePomodoro();
+  const { mode, secondsLeft, pendingMode } = usePomodoro();
 
-  const { box, time: timeCls, label: labelCls } = SIZES[size] || SIZES.md;
+  const { time: timeCls, label: labelCls } = SIZES[size] || SIZES.md;
 
   const isInTransition = !!pendingMode;
-  const displayMode = isInTransition ? pendingMode : mode;
-  const total = isInTransition ? TRANSITION_SECONDS : durations[mode];
-  const progress = isInTransition
-    ? (TRANSITION_SECONDS - secondsLeft) / TRANSITION_SECONDS
-    : secondsLeft === total ? 0 : (total - secondsLeft) / total;
+  const safeSeconds = Number.isFinite(secondsLeft) ? Math.max(0, secondsLeft) : 0;
+  const mins = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
+  const secs = String(safeSeconds % 60).padStart(2, "0");
 
-  const radius = 52;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - progress);
-
-  const isBreak = displayMode !== "work";
-  // Break mode reads from --color-break (the split-complementary
-  // derived from the user's accent — see src/lib/accent.js).
-  const ringStroke = isBreak ? "var(--color-break)" : "var(--color-accent)";
-  const timeColor = isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]";
-
-  const mins = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
-  const secs = String(secondsLeft % 60).padStart(2, "0");
+  const isBreak = (isInTransition ? pendingMode : mode) !== "work";
+  // Numerals are tinted with the mode's accent so a glance reads
+  // "you're in break mode" vs focus, matching the mockup. Label is
+  // muted to keep the numerals as the visual hero.
+  const numberColor = isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]";
+  const accentLabel = dark ? "text-slate-500" : "text-slate-400";
   const displayLabel = isInTransition
     ? `${MODE_LABELS[pendingMode]} in…`
-    : MODE_LABELS[mode];
+    : STATE_LABELS[mode] || MODE_LABELS[mode];
+
+  if (slot === "numbers") {
+    return (
+      <span className={`${timeCls} font-mono font-bold tabular-nums leading-none ${numberColor}`}>
+        {mins}:{secs}
+      </span>
+    );
+  }
+  if (slot === "label") {
+    return (
+      <span className={`${labelCls} font-semibold uppercase tracking-wider ${accentLabel} leading-none`}>
+        {displayLabel}
+      </span>
+    );
+  }
 
   return (
-    <div className={`relative ${box} mx-auto`}>
-      <svg viewBox="0 0 128 128" className="w-full h-full -rotate-90">
-        <circle
-          cx="64"
-          cy="64"
-          r={radius}
-          fill="none"
-          strokeWidth="6"
-          className={dark ? "stroke-slate-800" : "stroke-slate-100"}
-        />
-        <circle
-          cx="64"
-          cy="64"
-          r={radius}
-          fill="none"
-          strokeWidth="6"
-          strokeDasharray={circumference}
-          strokeDashoffset={dashOffset}
-          strokeLinecap="round"
-          style={{
-            stroke: ringStroke,
-            transition: isRunning ? "stroke-dashoffset 1s linear" : "none",
-          }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center px-1">
-        <span className={`${timeCls} font-mono font-bold tabular-nums leading-none ${timeColor}`}>
-          {mins}:{secs}
-        </span>
-        <span className={`${labelCls} mt-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-          {displayLabel}
-        </span>
-      </div>
+    <div className="flex flex-col items-start">
+      <span className={`${timeCls} font-mono font-bold tabular-nums leading-none ${numberColor}`}>
+        {mins}:{secs}
+      </span>
+      <span className={`${labelCls} font-semibold uppercase tracking-wider ${accentLabel}`}>
+        {displayLabel}
+      </span>
     </div>
   );
 }

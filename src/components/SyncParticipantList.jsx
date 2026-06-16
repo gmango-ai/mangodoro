@@ -106,13 +106,22 @@ export default function SyncParticipantList({
   onTransferLeader,
   onKickParticipant,
   onEditMyStatus,
+  defaultExpanded = false,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  // Collapsed by default — the avatar strip alone usually tells you
-  // who's around. Expand to see names, statuses, and admin actions.
+  // Surfaces that lead with participants (the redesigned pomodoro
+  // surface) pass defaultExpanded; otherwise the saved localStorage
+  // preference wins, falling back to collapsed first-time so the
+  // avatar strip alone is the initial impression.
   const [collapsed, setCollapsed] = useState(() => {
-    try { return localStorage.getItem(COLLAPSED_KEY) !== "false"; } catch { return true; }
+    try {
+      const stored = localStorage.getItem(COLLAPSED_KEY);
+      if (stored !== null) return stored !== "false";
+      return !defaultExpanded;
+    } catch {
+      return !defaultExpanded;
+    }
   });
   const [selectedId, setSelectedId] = useState(null);
   const [confirming, setConfirming] = useState(null); // "transfer" | "kick" | null

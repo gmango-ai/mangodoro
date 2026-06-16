@@ -9,6 +9,7 @@ import { Sun, Moon, LogOut, Loader2, Timer, Users, Building2, Settings as Settin
 import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
+import RunningTimerPill from "./RunningTimerPill";
 
 const PRESENCE_DOT_COLOR = {
   active: "bg-emerald-500",
@@ -142,7 +143,6 @@ export default function Nav({ onOpenPomodoro }) {
 
           {/* Desktop: full nav + actions */}
           <div className="hidden sm:flex items-center gap-3">
-            <OrgSwitcher />
             <nav className="flex items-center gap-1">
               <NavLink to="/pomodoro" className={desktopNavLink}>
                 Pomodoro
@@ -155,6 +155,12 @@ export default function Nav({ onOpenPomodoro }) {
               <NavLink to="/retros" className={desktopNavLink}>Retros</NavLink>
               <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
             </nav>
+
+            {/* Always-visible timer pill — surfaces the live pomodoro
+                state right in the Nav. Replaces the floating bottom-
+                right FAB so the indicator is a Nav citizen and doesn't
+                cover content. */}
+            <RunningTimerPill onOpen={onOpenPomodoro} />
 
             {/* Single user-menu dropdown on the right — replaces the
                 previous strip of Timer / chip / theme / Settings / Sign
@@ -323,6 +329,7 @@ export default function Nav({ onOpenPomodoro }) {
 function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onToggleTheme, session }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const { teams, activeTeam, activeTeamId, switchTeam } = useTeam();
 
   useEffect(() => {
     if (!open) return;
@@ -338,6 +345,8 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
 
   const email = session?.user?.email || "";
   const name = settings.name || email.split("@")[0] || "You";
+  const otherTeams = (teams || []).filter((t) => t.id !== activeTeamId);
+  const showOrgSection = (teams || []).length >= 2;
 
   const itemBase = `w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors`;
   const item = dark
@@ -397,6 +406,43 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
             </p>
           </div>
 
+          {/* Org switcher — current org + clickable list of the
+              user's other orgs. Hidden when the user is only in one
+              org (no switching to do). */}
+          {showOrgSection && (
+            <>
+              <div className={`px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider ${
+                dark ? "text-slate-500" : "text-slate-400"
+              }`}>
+                Org
+              </div>
+              <div className={`flex items-center gap-2 px-3 py-2 text-sm ${
+                dark ? "text-slate-200" : "text-slate-700"
+              }`}>
+                <UserMenuTeamIcon team={activeTeam} size={20} />
+                <span className="truncate font-semibold">{activeTeam?.name}</span>
+                <span className={`ml-auto text-[10px] font-bold uppercase tracking-wider ${
+                  dark ? "text-emerald-300" : "text-emerald-600"
+                }`}>
+                  Active
+                </span>
+              </div>
+              {otherTeams.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { switchTeam(t.id); setOpen(false); }}
+                  className={item}
+                >
+                  <UserMenuTeamIcon team={t} size={20} />
+                  <span className="truncate">{t.name}</span>
+                </button>
+              ))}
+              <div className={`my-1 h-px ${dark ? "bg-slate-700/60" : "bg-slate-200"}`} />
+            </>
+          )}
+
           {/* Theme toggle */}
           <button
             type="button"
@@ -434,5 +480,38 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
         </div>
       )}
     </div>
+  );
+}
+
+// Small team-icon helper used inside the UserMenu org switcher list.
+// Mirrors the OrgSwitcher's TeamIcon — not extracted to a shared
+// component because the OrgSwitcher one is internal to that file and
+// the duplication is a few lines. Worth converging if a third caller
+// appears.
+function UserMenuTeamIcon({ team, size = 20 }) {
+  const px = `${size}px`;
+  const initial = (team?.name || "?")[0].toUpperCase();
+  if (team?.icon_url) {
+    return (
+      <img
+        src={team.icon_url}
+        alt=""
+        style={{ width: px, height: px }}
+        className="rounded-md object-cover shrink-0"
+      />
+    );
+  }
+  return (
+    <span
+      style={{
+        width: px,
+        height: px,
+        background: team?.color || "#14b8a6",
+        fontSize: Math.max(10, Math.round(size / 2.4)),
+      }}
+      className="rounded-md flex items-center justify-center font-bold text-white shrink-0"
+    >
+      {initial}
+    </span>
   );
 }
