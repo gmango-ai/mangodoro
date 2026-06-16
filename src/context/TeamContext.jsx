@@ -540,10 +540,11 @@ export function TeamProvider({ session, children }) {
       .in("user_id", memberIds);
     const settingsMap = new Map((settingsData || []).map((s) => [s.user_id, s]));
 
-    // fetch projects
+    // fetch projects — include `color` so the admin timesheet view
+    // can tint each entry row by its primary project.
     const { data: projectsData } = await supabase
       .from("projects")
-      .select("id, name, user_id")
+      .select("id, name, color, user_id")
       .in("user_id", memberIds);
     const projectMap = new Map((projectsData || []).map((p) => [p.id, p]));
 
