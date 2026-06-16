@@ -118,21 +118,16 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             let activity: Activity<PomodoroActivityAttributes>
             if #available(iOS 16.2, *) {
-                // pushType is nil for now. Flip to `.token` once the
-                // Push Notifications capability is enabled on the App
-                // target — see ios/LIVE_ACTIVITY_PUSH_SETUP.md. Without
-                // the entitlement, requesting a push token makes this
-                // call throw and the activity never starts.
                 activity = try Activity<PomodoroActivityAttributes>.request(
                     attributes: attributes,
                     content: ActivityContent(state: state, staleDate: nil),
-                    pushType: nil
+                    pushType: .token
                 )
             } else {
                 activity = try Activity<PomodoroActivityAttributes>.request(
                     attributes: attributes,
                     contentState: state,
-                    pushType: nil
+                    pushType: .token
                 )
             }
             observePushToken(for: activity)
