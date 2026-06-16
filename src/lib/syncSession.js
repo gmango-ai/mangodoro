@@ -89,6 +89,24 @@ export async function findMyActiveSyncSession() {
   return { data: Array.isArray(data) ? (data[0] || null) : (data || null) };
 }
 
+// Attach / detach a retro to the active session. Leader-only on the
+// server; surfaces RLS messages back as { error } for the UI to
+// render. Detach uses unlink RPC rather than passing null so the
+// API stays explicit.
+export async function linkRetroToSession(sessionId, retroId) {
+  const { error } = await supabase.rpc("link_retro_to_session", {
+    p_session_id: sessionId,
+    p_retro_id: retroId,
+  });
+  return { error };
+}
+export async function unlinkRetroFromSession(sessionId) {
+  const { error } = await supabase.rpc("unlink_retro_from_session", {
+    p_session_id: sessionId,
+  });
+  return { error };
+}
+
 export async function fetchSyncSession(sessionId) {
   const { data, error } = await supabase
     .from("sync_sessions")

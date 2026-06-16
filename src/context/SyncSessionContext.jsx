@@ -32,6 +32,7 @@ const METADATA_FIELDS = [
   "join_code",
   "team_id",
   "room_id",
+  "retro_id",
   "expires_at",
 ];
 

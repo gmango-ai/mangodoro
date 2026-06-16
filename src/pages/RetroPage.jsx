@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useLocation } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
@@ -54,10 +54,16 @@ const STICKY_COLORS = [
 
 export default function RetroPage() {
   const { retroId } = useParams();
+  const location = useLocation();
   const { session, stickyColor: myStickyColor, setStickyColor } = useApp();
   const { activeTeam, isAdmin, teams, switchTeam } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
+
+  // Embed mode (?embed=1) is used when this page is iframed inside the
+  // room view. Hide global app chrome (Nav lives in App.jsx) and the
+  // in-page header so the retro board itself takes the full viewport.
+  const isEmbed = new URLSearchParams(location.search).get("embed") === "1";
 
   const [retro, setRetro] = useState(null);
   const [cards, setCards] = useState([]);
@@ -281,64 +287,72 @@ export default function RetroPage() {
   }
 
   return (
-    <main className="px-4 pt-6 pb-24 max-w-[1080px] mx-auto space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <Link
-            to="/retros"
-            className={`inline-flex items-center gap-1 text-xs mb-1 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
-          >
-            <ArrowLeft className="w-3 h-3" /> All retros
-          </Link>
-          <h1 className={headingCls}>
-            {retro.department ? `${retro.department} retro` : "Team retro"}
-            {" · "}
-            {formatRetroWeek(retro.week_start)}
-            <span
-              className={`ml-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${
-                readOnly
-                  ? dark ? "bg-[var(--color-surface-raised)] text-slate-400" : "bg-slate-100 text-slate-500"
-                  : dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"
-              }`}
+    <main
+      className={
+        isEmbed
+          ? "px-3 pt-3 pb-6 max-w-[1080px] mx-auto space-y-4"
+          : "px-4 pt-6 pb-24 max-w-[1080px] mx-auto space-y-5"
+      }
+    >
+      {/* Header — hidden in embed mode (the room provides its own chrome). */}
+      {!isEmbed && (
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <Link
+              to="/retros"
+              className={`inline-flex items-center gap-1 text-xs mb-1 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
             >
-              {readOnly
-                ? <><Lock className="w-3 h-3" /> Closed</>
-                : <><span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" /> Live</>}
-            </span>
-          </h1>
-        </div>
+              <ArrowLeft className="w-3 h-3" /> All retros
+            </Link>
+            <h1 className={headingCls}>
+              {retro.department ? `${retro.department} retro` : "Team retro"}
+              {" · "}
+              {formatRetroWeek(retro.week_start)}
+              <span
+                className={`ml-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${
+                  readOnly
+                    ? dark ? "bg-[var(--color-surface-raised)] text-slate-400" : "bg-slate-100 text-slate-500"
+                    : dark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"
+                }`}
+              >
+                {readOnly
+                  ? <><Lock className="w-3 h-3" /> Closed</>
+                  : <><span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" /> Live</>}
+              </span>
+            </h1>
+          </div>
 
-        {/* Header actions — Invite + admin Close/Reopen */}
-        <div className="flex items-center gap-2">
-          {!readOnly && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={copyInviteLink}
-              title="Copy guest invite link"
-              className="h-8 text-xs"
-            >
-              <LinkIcon className="w-3.5 h-3.5 mr-1" />
-              {inviteCopied ? "Copied!" : "Invite"}
-            </Button>
-          )}
-          {/* Admin: live/closed toggle */}
-          {isAdmin && (
-            <Button
-              size="sm"
-              variant={readOnly ? "default" : "outline"}
-              onClick={handleToggleLive}
-              disabled={liveToggling}
-              title={readOnly ? "Reopen this retro for edits" : "Close this retro (read-only)"}
-              className="h-8 text-xs"
-            >
-              {readOnly ? <Unlock className="w-3.5 h-3.5 mr-1" /> : <Lock className="w-3.5 h-3.5 mr-1" />}
-              {liveToggling ? "…" : readOnly ? "Reopen" : "Close"}
-            </Button>
-          )}
+          {/* Header actions — Invite + admin Close/Reopen */}
+          <div className="flex items-center gap-2">
+            {!readOnly && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={copyInviteLink}
+                title="Copy guest invite link"
+                className="h-8 text-xs"
+              >
+                <LinkIcon className="w-3.5 h-3.5 mr-1" />
+                {inviteCopied ? "Copied!" : "Invite"}
+              </Button>
+            )}
+            {/* Admin: live/closed toggle */}
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant={readOnly ? "default" : "outline"}
+                onClick={handleToggleLive}
+                disabled={liveToggling}
+                title={readOnly ? "Reopen this retro for edits" : "Close this retro (read-only)"}
+                className="h-8 text-xs"
+              >
+                {readOnly ? <Unlock className="w-3.5 h-3.5 mr-1" /> : <Lock className="w-3.5 h-3.5 mr-1" />}
+                {liveToggling ? "…" : readOnly ? "Reopen" : "Close"}
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {error && (
         <div className={`text-sm font-medium px-4 py-2 rounded-lg ${
