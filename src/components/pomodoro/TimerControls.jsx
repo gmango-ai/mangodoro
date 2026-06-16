@@ -1,30 +1,30 @@
-import { Play, Pause, RotateCcw } from "lucide-react";
+import { Play, Pause, RotateCcw, Lock } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 
 // Hero playback controls.
 //
-//   slot="all"     → buttons + Take Leader/alt-break label stacked (default)
-//   slot="buttons" → Play/Pause + Reset only (used when the surface
-//                    grid-aligns the buttons with the clock numerals)
-//   slot="extras"  → Take Leader + alt-break label only (placed in
-//                    the cell beneath the buttons)
+// Layout: [ ↺ small circle ] [ ▶ big accent circle ]
 //
-//   sm  → 40px play button, 16px icons
-//   md  → 56px play, 18px icons  (rail, floating, popover)
-//   lg  → 72px play, 22px icons  (/pomodoro page)
+//   Synced + not controller → the big circle becomes a non-interactive
+//   LOCK icon. Reset is also locked. The mockup makes "you cannot
+//   control this" unmistakable instead of just dimming the buttons.
+//
+//   sm  → 40/48px circles
+//   md  → 48/64px circles (rail, floating, popover)
+//   lg  → 56/80px circles (/pomodoro page)
 const SIZES = {
-  sm: { play: "w-10 h-10", playIcon: "w-4 h-4", resetIcon: "w-4 h-4", labelText: "text-[10px]" },
-  md: { play: "w-14 h-14", playIcon: "w-5 h-5", resetIcon: "w-4 h-4", labelText: "text-[11px]" },
-  lg: { play: "w-[72px] h-[72px]", playIcon: "w-7 h-7", resetIcon: "w-5 h-5", labelText: "text-xs" },
+  sm: { reset: "w-10 h-10", play: "w-12 h-12", resetIcon: "w-4 h-4", playIcon: "w-5 h-5" },
+  md: { reset: "w-12 h-12", play: "w-16 h-16", resetIcon: "w-4 h-4", playIcon: "w-6 h-6" },
+  lg: { reset: "w-14 h-14", play: "w-20 h-20", resetIcon: "w-5 h-5", playIcon: "w-7 h-7" },
 };
 
-export default function TimerControls({ size = "md", slot = "all", onTakeLeader }) {
+export default function TimerControls({ size = "md" }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { isSynced, isController, pendingAction, canControl,
           isRunning, pendingMode, mode, secondsLeft, durations,
-          toggleRun, resetTimer, skipTransition, switchAlternateBreak } = usePomodoro();
+          toggleRun, resetTimer, skipTransition } = usePomodoro();
 
   const isInTransition = !!pendingMode;
   const locked = !!pendingAction;
@@ -39,105 +39,78 @@ export default function TimerControls({ size = "md", slot = "all", onTakeLeader 
     ? "bg-[var(--color-break)] hover:bg-[var(--color-break-hover)]"
     : "bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)]";
 
-  const showAlternateBreak = !isInTransition && (mode === "shortBreak" || mode === "longBreak");
-  const alternateBreakLabel = mode === "shortBreak"
-    ? "Take long break instead"
-    : "Take short break instead";
-  const showTakeLeader = isSynced && !isController && onTakeLeader;
+  const resetBg = dark
+    ? "bg-[var(--color-surface-raised)] text-slate-400 hover:text-slate-200"
+    : "bg-slate-100 text-slate-500 hover:text-slate-700";
 
-  const playButton = isInTransition ? (
-    <button
-      type="button"
-      onClick={skipTransition}
-      disabled={disabled}
-      className={`${sz.play} rounded-full text-white shadow-lg inline-flex items-center justify-center transition-all ${
-        disabled ? "opacity-40 cursor-default" : ""
-      } ${playBg}`}
-      title="Start now"
-    >
-      <Play className={`${sz.playIcon} ml-0.5`} fill="currentColor" />
-    </button>
-  ) : (
-    <button
-      type="button"
-      onClick={toggleRun}
-      disabled={disabled}
-      className={`${sz.play} rounded-full text-white shadow-lg inline-flex items-center justify-center transition-all ${
-        disabled ? "opacity-40 cursor-default" : ""
-      } ${playBg}`}
-      title={isRunning ? "Pause" : showResume ? "Resume" : "Start"}
-    >
-      {isRunning
-        ? <Pause className={sz.playIcon} fill="currentColor" />
-        : <Play className={`${sz.playIcon} ml-0.5`} fill="currentColor" />}
-    </button>
-  );
+  // Lock state: synced but not controller. Renders both as visually-
+  // present "controls" so the layout doesn't shift between leader and
+  // follower views — just indicates control isn't yours.
+  const showLock = isSynced && !isController;
 
-  const resetButton = (
-    <button
-      type="button"
-      onClick={resetTimer}
-      disabled={disabled}
-      title="Reset"
-      className={`p-1.5 rounded-full transition-colors ${
-        disabled ? "opacity-30 cursor-default" : ""
-      } ${
-        dark
-          ? "text-slate-400 hover:text-slate-200 hover:bg-[var(--color-surface-raised)]"
-          : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-      }`}
-    >
-      <RotateCcw className={sz.resetIcon} />
-    </button>
-  );
-
-  const extras = (showTakeLeader || showAlternateBreak) ? (
-    <div className="flex flex-col items-end gap-1 leading-none">
-      {showTakeLeader && (
-        <button
-          type="button"
-          onClick={onTakeLeader}
-          className={`${sz.labelText} font-semibold transition-colors ${
-            dark ? "text-slate-400 hover:text-[var(--color-accent)]" : "text-slate-500 hover:text-[var(--color-accent)]"
-          }`}
-        >
-          Take Leader
-        </button>
-      )}
-      {showAlternateBreak && (
-        <button
-          type="button"
-          onClick={switchAlternateBreak}
-          disabled={disabled || isInTransition}
-          className={`${sz.labelText} font-semibold text-[var(--color-break)] hover:text-[var(--color-break-hover)] ${
-            disabled || isInTransition ? "opacity-40 cursor-default" : ""
-          }`}
-        >
-          {alternateBreakLabel}
-        </button>
-      )}
-    </div>
-  ) : null;
-
-  if (slot === "buttons") {
+  if (showLock) {
     return (
       <div className="flex items-center gap-3">
-        {playButton}
-        {resetButton}
+        <button
+          type="button"
+          disabled
+          title="Only the leader can reset"
+          className={`${sz.reset} rounded-full inline-flex items-center justify-center opacity-50 cursor-default ${resetBg}`}
+        >
+          <RotateCcw className={sz.resetIcon} />
+        </button>
+        <div
+          title="The session leader controls the timer"
+          className={`${sz.play} rounded-full inline-flex items-center justify-center ${
+            dark ? "bg-[var(--color-surface-raised)] text-slate-400" : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          <Lock className={sz.playIcon} />
+        </div>
       </div>
     );
   }
-  if (slot === "extras") {
-    return extras;
-  }
 
   return (
-    <div className="flex flex-col items-end gap-2">
-      <div className="flex items-center gap-3">
-        {playButton}
-        {resetButton}
-      </div>
-      {extras}
+    <div className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={resetTimer}
+        disabled={disabled}
+        title="Reset"
+        className={`${sz.reset} rounded-full inline-flex items-center justify-center transition-colors ${
+          disabled ? "opacity-30 cursor-default" : ""
+        } ${resetBg}`}
+      >
+        <RotateCcw className={sz.resetIcon} />
+      </button>
+      {isInTransition ? (
+        <button
+          type="button"
+          onClick={skipTransition}
+          disabled={disabled}
+          className={`${sz.play} rounded-full text-white shadow-lg inline-flex items-center justify-center transition-all ${
+            disabled ? "opacity-40 cursor-default" : ""
+          } ${playBg}`}
+          title="Start now"
+        >
+          <Play className={`${sz.playIcon} ml-0.5`} fill="currentColor" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={toggleRun}
+          disabled={disabled}
+          className={`${sz.play} rounded-full text-white shadow-lg inline-flex items-center justify-center transition-all ${
+            disabled ? "opacity-40 cursor-default" : ""
+          } ${playBg}`}
+          title={isRunning ? "Pause" : showResume ? "Resume" : "Start"}
+        >
+          {isRunning
+            ? <Pause className={sz.playIcon} fill="currentColor" />
+            : <Play className={`${sz.playIcon} ml-0.5`} fill="currentColor" />}
+        </button>
+      )}
     </div>
   );
 }

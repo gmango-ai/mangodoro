@@ -2,15 +2,15 @@ import { useTheme } from "../../context/ThemeContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 
 const MODES = [
-  ["work", "FOCUS"],
-  ["shortBreak", "SHORT"],
-  ["longBreak", "LONG"],
+  ["work", "Focus"],
+  ["shortBreak", "Short"],
+  ["longBreak", "Long"],
 ];
 
-// Text-only tabs with an accent underline on the active mode. Replaces
-// the previous rounded-pill background that competed with the clock
-// for visual weight — at this density the labels alone read clearly
-// and the active state pops from the underline + color shift.
+// Pill-tab mode picker. Active mode renders as a solid accent pill;
+// inactive modes are flat text in a muted color. The whole strip
+// sits inside a faint container so the pill reads as a "selected"
+// state rather than a free-floating button.
 export default function ModePicker() {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -23,7 +23,9 @@ export default function ModePicker() {
   const disabled = !canControl || locked || isInTransition;
 
   return (
-    <div className="flex items-center gap-5">
+    <div className={`inline-flex p-1 rounded-full w-full ${
+      dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
+    }`}>
       {MODES.map(([m, label]) => {
         const active = mode === m;
         return (
@@ -32,21 +34,15 @@ export default function ModePicker() {
             type="button"
             onClick={() => switchMode(m)}
             disabled={disabled}
-            className={`relative text-xs font-bold tracking-wider transition-colors pb-1 ${
+            className={`flex-1 px-4 py-2 rounded-full text-sm font-semibold transition-all ${
               disabled ? "cursor-default opacity-60" : ""
             } ${
               active
-                ? "text-[var(--color-accent)]"
-                : dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"
+                ? "bg-[var(--color-accent)] text-white shadow-sm"
+                : dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
             }`}
           >
             {label}
-            {active && (
-              <span
-                aria-hidden
-                className="absolute left-0 right-0 -bottom-0.5 h-0.5 rounded-full bg-[var(--color-accent)]"
-              />
-            )}
           </button>
         );
       })}

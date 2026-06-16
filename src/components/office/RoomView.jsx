@@ -6,7 +6,6 @@ import {
   Hash, Briefcase, MessageSquare, Lock, Video,
   LogIn, Play, Users, ClipboardList,
 } from "lucide-react";
-import PomodoroSurface from "../pomodoro/PomodoroSurface";
 import RoomChatPanel from "../RoomChatPanel";
 import UserAvatar from "../UserAvatar";
 
@@ -62,66 +61,34 @@ function VideoStage({ activeSession, dark }) {
 // Right-rail pomodoro panel. If the signed-in user is currently in
 // this room's session, render the inline timer; otherwise show the
 // "join / start" CTA with a compact occupant preview.
-function PomodoroRail({ room, activeSession, busy, onJoin, onStart, session, dark }) {
-  const { syncSession } = useSyncSession();
-  const inThisRoomSession = !!syncSession && syncSession.room_id === room.id;
-  const occupants = activeSession?.occupants || [];
-
+// Header action button: Start / Join / In-session. Pomodoro UI was
+// pulled out of the room rail because the global timer pill in the
+// Nav already surfaces the running timer everywhere; the room view
+// just needs the affordance to *enter* a session.
+function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, currentSyncSession, dark }) {
+  const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
+  if (inThisRoomSession) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[var(--color-accent-light)] text-[var(--color-accent)]">
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
+        You're focusing here
+      </span>
+    );
+  }
+  if (activeSession) {
+    const n = activeSession.occupants?.length || 0;
+    return (
+      <Button onClick={onJoin} disabled={busy} size="sm" className="rounded-full">
+        <LogIn className="w-3.5 h-3.5 mr-1.5" />
+        Join {n > 0 ? `(${n})` : ""}
+      </Button>
+    );
+  }
   return (
-    <div className={`rounded-xl border overflow-hidden flex flex-col ${
-      dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-    }`}>
-      <div className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider border-b ${
-        dark ? "text-slate-500 border-[var(--color-border)]" : "text-slate-400 border-slate-200"
-      }`}>
-        Pomodoro
-      </div>
-      {inThisRoomSession ? (
-        // Rail variant: compact mode + clock + controls + sync panel
-        // (status only, no full participant list). The rail's outer
-        // border supplies the chrome.
-        <PomodoroSurface variant="rail" />
-      ) : activeSession ? (
-        <div className="p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <p className={`text-xs font-semibold ${dark ? "text-emerald-300" : "text-emerald-700"}`}>
-              Session in progress
-            </p>
-          </div>
-          <p className={`text-[11px] mb-3 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-            {occupants.length} {occupants.length === 1 ? "person" : "people"} focusing here
-          </p>
-          {occupants.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {occupants.slice(0, 6).map((o) => (
-                <UserAvatar key={o.user_id} url={o.avatar_url} name={o.name} size={24} />
-              ))}
-            </div>
-          )}
-          <Button onClick={onJoin} disabled={busy} className="w-full" size="sm">
-            <LogIn className="w-3.5 h-3.5 mr-1.5" />
-            {busy ? "Joining…" : "Join session"}
-          </Button>
-        </div>
-      ) : (
-        <div className="p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Users className={`w-3.5 h-3.5 ${dark ? "text-slate-500" : "text-slate-400"}`} />
-            <p className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
-              Nobody is here yet.
-            </p>
-          </div>
-          <p className={`text-[11px] mb-3 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-            Start a focus block and your team can join you.
-          </p>
-          <Button onClick={onStart} disabled={busy} className="w-full" size="sm">
-            <Play className="w-3.5 h-3.5 mr-1.5" />
-            {busy ? "Starting…" : "Start a session"}
-          </Button>
-        </div>
-      )}
-    </div>
+    <Button onClick={onStart} disabled={busy} size="sm" variant="outline" className="rounded-full">
+      <Play className="w-3.5 h-3.5 mr-1.5" />
+      Start a session
+    </Button>
   );
 }
 
@@ -173,6 +140,7 @@ export default function RoomView({
   const gatingTeams = (room.room_teams || [])
     .map((rt) => (orgTeams || []).find((t) => t.id === rt.org_team_id))
     .filter(Boolean);
+  const currentSyncSession = useSyncSession().syncSession;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -217,6 +185,19 @@ export default function RoomView({
               ))}
             </div>
           )}
+          {/* Session entry action — Join / Start / "you're focusing
+              here" indicator. The actual pomodoro UI lives in the Nav
+              pill (always visible) so this is purely the affordance
+              to enter / leave the room's session. */}
+          <RoomSessionAction
+            room={room}
+            activeSession={activeSession}
+            busy={busy}
+            onJoin={onJoin}
+            onStart={onStart}
+            currentSyncSession={currentSyncSession}
+            dark={dark}
+          />
         </div>
       </header>
 
@@ -238,18 +219,11 @@ export default function RoomView({
           </div>
         </div>
 
-        {/* Right rail: pomodoro + tasks. Stacked on mobile between
-            video and chat. */}
+        {/* Right rail: tasks (placeholder for ClickUp). The pomodoro
+            panel that used to live here was retired in favor of the
+            global Nav pill — the timer is visible app-wide, no need
+            to duplicate it per-room. */}
         <div className="flex flex-col gap-4 order-2 lg:order-2 min-h-0 overflow-y-auto lg:overflow-visible">
-          <PomodoroRail
-            room={room}
-            activeSession={activeSession}
-            busy={busy}
-            onJoin={onJoin}
-            onStart={onStart}
-            session={session}
-            dark={dark}
-          />
           <TaskRail dark={dark} />
         </div>
       </div>

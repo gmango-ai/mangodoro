@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, PictureInPicture2, Users } from "lucide-react";
+import { X, ExternalLink, Users } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
@@ -8,11 +8,13 @@ import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import TimerClock from "./TimerClock";
 import TimerControls from "./TimerControls";
 import ModePicker from "./ModePicker";
-import LeaderActionBar from "./LeaderActionBar";
+import TeamIdentityHeader from "./TeamIdentityHeader";
+import LeaderBadge from "./LeaderBadge";
 import SyncCodeRow from "./SyncCodeRow";
+import SoundDropdown from "./SoundDropdown";
 import StatusSetter from "./StatusSetter";
-import SyncParticipantList from "../SyncParticipantList";
-import SoundPicker from "./SoundPicker";
+import ParticipantCards from "./ParticipantCards";
+import ActionButtonsBar from "./ActionButtonsBar";
 import SessionDots from "./SessionDots";
 import PendingActionBanner from "./PendingActionBanner";
 import MeetingCountdown from "./MeetingCountdown";
@@ -25,32 +27,62 @@ import {
   PIP_CONFIRM_EXTRA_H,
 } from "./PomodoroPipParts";
 
-// One pomodoro surface, four variants. The variant config decides the
-// container chrome (floating overlay vs embedded card) and the clock
-// size; the body composition is otherwise shared.
+// One pomodoro surface, four variants. Each variant config decides
+// what optional sections render and the clock + button size class.
+// The body composition itself is shared so a fix to (say) the play
+// button shows up everywhere.
 //
-//   page     — /pomodoro: large clock, full chrome
-//   floating — bottom-right overlay: medium clock + Close button
-//   rail     — office room view: medium clock, no PiP/Sound
-//   popover  — Electron menubar: small clock, no PiP, no Sound
+// Body order (top → bottom):
+//   1. Header bar (TeamIdentityHeader + utility icons / close)
+//   2. ModePicker (pill tabs)
+//   3. Hero row (clock left, reset + play right, LeaderBadge below)
+//   4. SyncCodeRow (when synced)
+//   5. SoundDropdown (rendered conditionally per variant)
+//   6. StatusSetter (presence dropdown + free-form text)
+//   7. ParticipantCards (when synced, capped at variant.participantsMax)
+//   8. ActionButtonsBar (when synced — Take Leader / Leave / End)
 const VARIANT_CONFIG = {
-  page:     { clockSize: "lg", showCloseBtn: false, showSyncBtn: true,  showPopoutBtn: true,  showSound: true,  showDots: true,  showParticipants: true,  container: "embedded"  },
-  floating: { clockSize: "md", showCloseBtn: true,  showSyncBtn: true,  showPopoutBtn: true,  showSound: true,  showDots: true,  showParticipants: true,  container: "floating"  },
-  rail:     { clockSize: "md", showCloseBtn: false, showSyncBtn: false, showPopoutBtn: false, showSound: false, showDots: true,  showParticipants: false, container: "chromeless" },
-  popover:  { clockSize: "sm", showCloseBtn: false, showSyncBtn: false, showPopoutBtn: false, showSound: false, showDots: true,  showParticipants: true,  container: "chromeless" },
+  page: {
+    clockSize: "lg", controlsSize: "lg",
+    container: "embedded",
+    showTeamHeader: true, headerInteractive: false,
+    showPopout: true, showClose: false,
+    showSound: true, participantsMax: 6,
+  },
+  floating: {
+    clockSize: "md", controlsSize: "md",
+    container: "floating",
+    showTeamHeader: true, headerInteractive: false,
+    showPopout: true, showClose: true,
+    showSound: true, participantsMax: 4,
+  },
+  rail: {
+    clockSize: "md", controlsSize: "md",
+    container: "chromeless",
+    showTeamHeader: false, headerInteractive: false,
+    showPopout: false, showClose: false,
+    showSound: false, participantsMax: 3,
+  },
+  popover: {
+    clockSize: "sm", controlsSize: "sm",
+    container: "chromeless",
+    showTeamHeader: true, headerInteractive: true,
+    showPopout: true, showClose: false,
+    showSound: true, participantsMax: 3,
+  },
 };
 
 export default function PomodoroSurface({
   variant = "floating",
   open = true,
   onClose,
-  onOpenSync,
+  currentTaskHint = "",
 }) {
   const cfg = VARIANT_CONFIG[variant] || VARIANT_CONFIG.floating;
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { session } = useApp();
-  const { syncSession, takeControl } = useSyncSession();
+  const { syncSession } = useSyncSession();
   const {
     isSynced, pendingAction, realtimeStatus,
     mode, isRunning, secondsLeft, pendingMode, durations,
@@ -61,8 +93,7 @@ export default function PomodoroSurface({
 
   useTimerTitleAndBadge();
 
-  // PiP wiring. PiP renders the existing PipFace component as a
-  // portal into the document picture-in-picture window.
+  // PiP wiring.
   const [pipMountEl, setPipMountEl] = useState(null);
   const pipWinRef = useRef(null);
   const [pipViewMode, setPipViewMode] = useState(() => {
@@ -113,30 +144,25 @@ export default function PomodoroSurface({
 
   const containerCls = (() => {
     if (cfg.container === "embedded") {
-      return `w-full rounded-2xl border ${
+      return `w-full rounded-3xl border p-5 ${
         dark
-          ? "backdrop-blur-xl border-[var(--color-border)] bg-[var(--color-surface)]"
-          : "bg-white/95 backdrop-blur-xl border-slate-200 shadow-slate-900/10"
+          ? "border-[var(--color-border)] bg-[var(--color-surface)]"
+          : "border-slate-200 bg-white shadow-sm"
       }`;
     }
     if (cfg.container === "floating") {
-      return `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-[24rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border shadow-2xl transition-all ${
+      return `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-[26rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
         !open && !(controlsLocked && !pipMountEl) ? "hidden" : ""
       } ${
         dark
-          ? "backdrop-blur-xl border-[var(--color-border)] bg-[var(--color-surface)]"
-          : "bg-white/95 backdrop-blur-xl border-slate-200 shadow-slate-900/10"
+          ? "border-[var(--color-border)] bg-[var(--color-surface)]"
+          : "border-slate-200 bg-white"
       }`;
     }
-    return "w-full";
+    return "w-full p-3";
   })();
 
-  // Take-control handler for the inline "Take Leader" affordance.
-  const takeLeaderHandler = isSynced && syncSession
-    ? async () => { await takeControl(syncSession.id); }
-    : null;
-
-  // PiP-only props for the existing PipFace face.
+  // PiP-only props for the existing PipFace.
   const safeSeconds = Number.isFinite(secondsLeft) ? Math.max(0, secondsLeft) : 0;
   const mins = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
   const secs = String(safeSeconds % 60).padStart(2, "0");
@@ -152,58 +178,48 @@ export default function PomodoroSurface({
   return (
     <>
       <div className={containerCls}>
-        {/* Top utility bar — Sync / Pop out / Close. Doesn't render
-            anything for the rail/popover variants; on those the wider
-            UI handles those affordances elsewhere. */}
-        {(cfg.showSyncBtn || cfg.showPopoutBtn || cfg.showCloseBtn) && (
-          <div className={`flex items-center justify-between px-4 py-2 border-b ${
-            dark ? "border-[var(--color-border-light)]" : "border-slate-100"
-          }`}>
-            <div className="flex items-center gap-2 min-w-0">
-              {/* Meeting countdown is urgent context — kept in the
-                  top bar so it earns a glance even when scrolled. */}
-              {isSynced && syncSession?.expires_at && (
-                <MeetingCountdown
-                  expiresAt={syncSession.expires_at}
-                  sessionId={syncSession.id}
-                  dark={dark}
-                />
-              )}
-            </div>
-            <div className="flex items-center gap-1">
-              {!isSynced && cfg.showSyncBtn && onOpenSync && (
-                <button
-                  type="button"
-                  onClick={onOpenSync}
-                  title="Sync with coworker"
-                  className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors ${
-                    dark ? "text-slate-400 hover:text-[var(--color-accent)]" : "text-slate-500 hover:text-[var(--color-accent)]"
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  Sync
-                </button>
-              )}
-              {pipSupported && cfg.showPopoutBtn && (
+        {/* Header — team identity on the left, utility icons on the right */}
+        {(cfg.showTeamHeader || cfg.showPopout || cfg.showClose) && (
+          <div className="flex items-start justify-between gap-3 mb-4">
+            {cfg.showTeamHeader ? (
+              <div className="min-w-0 flex-1">
+                <TeamIdentityHeader interactive={cfg.headerInteractive} />
+              </div>
+            ) : (
+              <div className="min-w-0 flex-1">
+                {isSynced && syncSession?.expires_at && (
+                  <MeetingCountdown
+                    expiresAt={syncSession.expires_at}
+                    sessionId={syncSession.id}
+                    dark={dark}
+                  />
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {pipSupported && cfg.showPopout && (
                 <button
                   type="button"
                   onClick={openPictureInPicture}
-                  title="Pop out — keep the timer on top of other windows"
-                  className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors ${
-                    dark ? "text-slate-400 hover:text-[var(--color-accent)]" : "text-slate-500 hover:text-[var(--color-accent)]"
+                  title="Pop out"
+                  className={`w-8 h-8 rounded-full inline-flex items-center justify-center transition-colors ${
+                    dark
+                      ? "border border-[var(--color-border)] bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100"
+                      : "border border-slate-200 bg-white text-slate-500 hover:text-slate-800"
                   }`}
                 >
-                  <PictureInPicture2 className="w-3.5 h-3.5" />
-                  Pop out
+                  <ExternalLink className="w-3.5 h-3.5" />
                 </button>
               )}
-              {cfg.showCloseBtn && (
+              {cfg.showClose && (
                 <button
                   type="button"
                   onClick={onClose}
                   title="Close"
-                  className={`p-1 rounded-md transition-colors ${
-                    dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"
+                  className={`w-8 h-8 rounded-full inline-flex items-center justify-center transition-colors ${
+                    dark
+                      ? "border border-[var(--color-border)] bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100"
+                      : "border border-slate-200 bg-white text-slate-500 hover:text-slate-800"
                   }`}
                 >
                   <X className="w-3.5 h-3.5" />
@@ -213,74 +229,53 @@ export default function PomodoroSurface({
           </div>
         )}
 
-        <div className="px-4 pt-3 pb-4 space-y-3">
-          {/* Leader action bar — Leave / End Session at top of card */}
-          <LeaderActionBar />
-
-          {/* Mode picker — text + underline tabs */}
+        <div className="space-y-4">
+          {/* Mode picker — pill tabs */}
           <ModePicker />
 
-          {/* Pending action confirm (mode switch, reset, etc.) */}
+          {/* Pending action confirm */}
           {controlsLocked && <PendingActionBanner />}
 
-          {/* Reconnecting pill — only renders when the realtime
-              channel is unhealthy. SUBSCRIBED is the silent default. */}
+          {/* Reconnecting pill — only when realtime isn't healthy */}
           {realtimeStatus && realtimeStatus !== "SUBSCRIBED" && (
             <div className="flex justify-center">
               <ReconnectingPill status={realtimeStatus} dark={dark} />
             </div>
           )}
 
-          {/* Hero row laid out as a 2-column grid so the play button is
-              vertically anchored to the clock numerals (row 1), the
-              small FOCUS / SHORT / LONG label sits beneath the numbers
-              (row 2 left), and "Take Leader" / alt-break labels sit
-              beneath the buttons (row 2 right). Without the grid the
-              previous flex+items-end let the smaller right column
-              float in the dead space between the numbers and the dots. */}
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 items-center">
+          {/* Hero row: clock left, reset + play right; leader-badge sits
+              below the buttons on the right. Grid keeps the buttons
+              vertically aligned with the time numerals. */}
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 items-center">
             <TimerClock size={cfg.clockSize} slot="numbers" />
-            <TimerControls
-              size={cfg.clockSize === "lg" ? "lg" : cfg.clockSize === "sm" ? "sm" : "md"}
-              slot="buttons"
-              onTakeLeader={takeLeaderHandler}
-            />
-            <TimerClock size={cfg.clockSize} slot="label" />
-            <TimerControls
-              size={cfg.clockSize === "lg" ? "lg" : cfg.clockSize === "sm" ? "sm" : "md"}
-              slot="extras"
-              onTakeLeader={takeLeaderHandler}
-            />
-            {cfg.showDots && (
-              <div className="col-span-2 mt-1">
-                <SessionDots />
-              </div>
-            )}
+            <TimerControls size={cfg.controlsSize} />
+            <div className="flex flex-col gap-1.5 min-w-0">
+              <TimerClock size={cfg.clockSize} slot="label" />
+              <SessionDots />
+            </div>
+            <div className="flex justify-end">
+              <LeaderBadge />
+            </div>
           </div>
 
-          {/* Sync code + Share link row (synced only) */}
+          {/* Sync code (synced only) */}
           <SyncCodeRow />
 
-          {/* Status row + participants. Both rendered when synced;
-              StatusSetter renders standalone outside sync too. */}
-          {(isSynced || !isSynced) && <StatusSetter />}
+          {/* Sound dropdown (variant-gated) */}
+          {cfg.showSound && <SoundDropdown />}
 
-          {isSynced && cfg.showParticipants && (syncParticipants?.length || 0) > 0 && (
-            <SyncParticipantList
-              participants={syncParticipants}
-              leaderId={syncSession?.leader_id}
-              controllerId={syncSession?.controller_id}
-              presenceMap={presenceMap}
-              currentUserId={userId}
-              onTransferLeader={transferLeader}
-              onKickParticipant={kickParticipant}
-              onEditMyStatus={() => { /* StatusSetter is always-visible now */ }}
-              defaultExpanded
-            />
-          )}
+          {/* My status (always renders — works in and out of sync).
+              currentTaskHint surfaces the "Use current task" button
+              inside the editor when the user is clocked into
+              something — propagates from /pomodoro and the floating
+              overlay through to here. */}
+          <StatusSetter currentTaskHint={currentTaskHint} />
 
-          {/* Sound section — collapsed by default, full surfaces only */}
-          {cfg.showSound && <SoundPicker />}
+          {/* Participants */}
+          <ParticipantCards max={cfg.participantsMax} />
+
+          {/* Bottom action bar (synced only) */}
+          <ActionButtonsBar />
         </div>
       </div>
 

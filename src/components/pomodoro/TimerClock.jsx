@@ -2,6 +2,15 @@ import { useTheme } from "../../context/ThemeContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { MODE_LABELS } from "../../pomodoro/constants";
 
+// Present-tense state labels for under-the-clock. MODE_LABELS reads
+// like a noun ("Focus", "Short break") which is right for the picker
+// tabs but reads as wrong as a live state. These read better.
+const STATE_LABELS = {
+  work: "FOCUSING",
+  shortBreak: "ON BREAK",
+  longBreak: "ON BREAK",
+};
+
 // Big numeric clock. Left-aligned mm:ss with the mode label below.
 // No SVG ring — the visual weight comes from the typography itself.
 //
@@ -40,11 +49,14 @@ export default function TimerClock({ size = "md", slot = "all" }) {
   const secs = String(safeSeconds % 60).padStart(2, "0");
 
   const isBreak = (isInTransition ? pendingMode : mode) !== "work";
-  const numberColor = dark ? "text-slate-100" : "text-slate-900";
-  const accentLabel = isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]";
+  // Numerals are tinted with the mode's accent so a glance reads
+  // "you're in break mode" vs focus, matching the mockup. Label is
+  // muted to keep the numerals as the visual hero.
+  const numberColor = isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]";
+  const accentLabel = dark ? "text-slate-500" : "text-slate-400";
   const displayLabel = isInTransition
     ? `${MODE_LABELS[pendingMode]} in…`
-    : MODE_LABELS[mode];
+    : STATE_LABELS[mode] || MODE_LABELS[mode];
 
   if (slot === "numbers") {
     return (

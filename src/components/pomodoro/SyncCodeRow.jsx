@@ -1,50 +1,58 @@
-import { Link as LinkIcon } from "lucide-react";
+import { Copy, Link as LinkIcon } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { getShareableBaseUrl } from "../../lib/platform";
 
-// "Sync Code: AZ56V3" with a Share Link button on the right. Renders
-// in its own row to match the redesign mockup — the code itself is
-// the click target for "copy code", the Share Link button copies the
-// full invite URL.
+// Bordered pill container holding the SYNC CODE (with copy icon) on
+// the left and a Share button on the right. The Share button is a
+// solid accent pill when the user is the controller (you're driving
+// the session so sharing is your primary action), and an outlined
+// pill otherwise (sharing still works but reads as secondary).
 export default function SyncCodeRow() {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { syncSession } = useSyncSession();
-  const { isSynced } = usePomodoro();
+  const { isSynced, isController } = usePomodoro();
 
   if (!isSynced || !syncSession) return null;
 
   const shareUrl = `${getShareableBaseUrl()}/pomodoro/join/${syncSession.join_code}`;
 
   return (
-    <div className={`flex items-center justify-between gap-3 py-2 border-y ${
-      dark ? "border-[var(--color-border)]" : "border-slate-200"
+    <div className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border ${
+      dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "border-slate-200 bg-slate-50"
     }`}>
-      <button
-        type="button"
-        onClick={() => navigator.clipboard?.writeText(syncSession.join_code)}
-        title="Copy code"
-        className="inline-flex items-center gap-2 text-left"
-      >
-        <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          Sync Code:
-        </span>
-        <span className="text-sm font-mono font-bold tracking-wider text-[var(--color-accent)]">
-          {syncSession.join_code}
-        </span>
-      </button>
+      <div className="min-w-0 flex-1">
+        <p className={`text-[10px] font-bold uppercase tracking-widest ${dark ? "text-slate-500" : "text-slate-400"}`}>
+          Sync Code
+        </p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <button
+            type="button"
+            onClick={() => navigator.clipboard?.writeText(syncSession.join_code)}
+            title="Copy code"
+            className="inline-flex items-center gap-2 text-lg font-mono font-bold tracking-wider text-[var(--color-accent)]"
+          >
+            {syncSession.join_code}
+            <Copy className={`w-3.5 h-3.5 opacity-60 ${dark ? "text-slate-400" : "text-slate-500"}`} />
+          </button>
+        </div>
+      </div>
       <button
         type="button"
         onClick={() => navigator.clipboard?.writeText(shareUrl)}
         title="Copy invite link"
-        className={`inline-flex items-center gap-1.5 text-xs font-semibold transition-colors ${
-          dark ? "text-slate-400 hover:text-[var(--color-accent)]" : "text-slate-500 hover:text-[var(--color-accent)]"
+        className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-colors shrink-0 ${
+          isController
+            ? "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] shadow-sm"
+            : dark
+              ? "border border-[var(--color-border)] bg-[var(--color-surface)] text-slate-200 hover:border-[var(--color-accent)]"
+              : "border border-slate-200 bg-white text-slate-700 hover:border-[var(--color-accent)]"
         }`}
       >
         <LinkIcon className="w-3.5 h-3.5" />
-        Share Link
+        Share
       </button>
     </div>
   );
