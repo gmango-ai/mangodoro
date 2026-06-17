@@ -5,12 +5,14 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import {
   Hash, Briefcase, MessageSquare, Lock, Video,
-  LogIn, Play, PanelLeftOpen, PanelLeftClose, Rows2, Columns2,
+  LogIn, Play, Pause, PanelLeftOpen, PanelLeftClose, Rows2, Columns2,
   ChevronDown, Target,
 } from "lucide-react";
 import RoomChatPanel from "../RoomChatPanel";
 import RoomVideoStage from "../video/RoomVideoStage";
 import ResizableSplit from "./ResizableSplit";
+import { usePomodoro } from "../../pomodoro/PomodoroContext";
+import { openPomodoroSurface } from "../../lib/pomodoroSurface";
 
 // View modes:
 //   chat    — just chat, full pane
@@ -91,15 +93,47 @@ function ViewModeControl({ value, onChange, accent, dark, hasRetro }) {
   );
 }
 
+// Glanceable pomodoro chip shown in the room header when the user
+// is in this room's session. Click → opens the floating
+// PomodoroSurface modal for full controls. Live mode + remaining
+// seconds re-render from the pomodoro context, which is already
+// session-synced so every participant sees the same value.
+function PomodoroChip() {
+  const { mode, secondsLeft, isRunning } = usePomodoro();
+  const mins = String(Math.floor(Math.max(0, secondsLeft) / 60)).padStart(2, "0");
+  const secs = String(Math.max(0, secondsLeft) % 60).padStart(2, "0");
+  const onBreak = mode !== "work";
+  return (
+    <button
+      type="button"
+      onClick={openPomodoroSurface}
+      title="Open pomodoro controls"
+      aria-label="Open pomodoro controls"
+      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors hover:bg-[var(--color-accent-light-hover)]"
+      style={{
+        background: onBreak
+          ? "color-mix(in srgb, var(--color-break) 14%, transparent)"
+          : "var(--color-accent-light)",
+        color: onBreak ? "var(--color-break)" : "var(--color-accent)",
+      }}
+    >
+      {isRunning ? (
+        <Pause className="w-3 h-3" fill="currentColor" />
+      ) : (
+        <Play className="w-3 h-3" fill="currentColor" />
+      )}
+      <span className="font-display tabular-nums">{mins}:{secs}</span>
+      <span className="text-[10px] uppercase tracking-wider opacity-80">
+        {onBreak ? "break" : "work"}
+      </span>
+    </button>
+  );
+}
+
 function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, currentSyncSession }) {
   const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
   if (inThisRoomSession) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[var(--color-accent-light)] text-[var(--color-accent)]">
-        <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
-        You're focusing here
-      </span>
-    );
+    return <PomodoroChip />;
   }
   if (activeSession) {
     const n = activeSession.occupants?.length || 0;

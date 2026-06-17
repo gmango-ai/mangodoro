@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTheme } from "../../context/ThemeContext";
+import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import WidgetsSidebar from "./WidgetsSidebar";
 import RoomView from "./RoomView";
 import HallwayView from "./HallwayView";
 import OfficeOverlay from "./OfficeOverlay";
+import { leaveSyncSession } from "../../lib/syncSession";
 
 const LAST_ROOM_KEY = "ql_office_last_room";
 const SIDEBAR_OPEN_KEY = "ql_office_widgets_open";
@@ -87,6 +89,72 @@ export default function OfficeShell({
   useEffect(() => {
     if (resolvedRoomId && activeTeam?.id) rememberRoomFor(activeTeam.id, resolvedRoomId);
   }, [resolvedRoomId, activeTeam?.id]);
+
+  // Auto-bind the user's sync session to the room they're viewing.
+  //
+  //   Enter a room  → if an active session exists for it, join. If not,
+  //                   start one (private rooms still go through the
+  //                   code prompt via onStart).
+  //   Leave a room  → if our current session is tied to the room we
+  //                   just left, leave it. leave_sync_session hard-
+  //                   deletes the row when we're the last participant,
+  //                   so empty rooms auto-end with no extra plumbing.
+  //
+  // boundRoomRef de-dupes the effect across re-renders triggered by
+  // sessionByRoomId / syncSession updates — we only want to act on
+  // actual URL transitions, not whenever the realtime list refreshes.
+  // Private rooms with an active invite_code are skipped on auto-start:
+  // onStart would pop the code prompt, and we don't want that prompt
+  // appearing just because the user typed a URL.
+  const { syncSession } = useSyncSession();
+  const boundRoomRef = useRef(null);
+  const inFlightRef = useRef(false);
+  useEffect(() => {
+    const target = resolvedRoomId || null;
+    const bound = boundRoomRef.current;
+    if (target === bound) return;
+    if (inFlightRef.current) return;
+
+    const currentSessionRoom = syncSession?.room_id || null;
+    const sessionToLeave =
+      bound && syncSession?.id && currentSessionRoom === bound
+        ? syncSession.id
+        : null;
+
+    inFlightRef.current = true;
+    (async () => {
+      try {
+        if (sessionToLeave) {
+          await leaveSyncSession(sessionToLeave);
+        }
+        if (target) {
+          // If we're already in this room's session (cross-device
+          // rehydrate landed us here), do nothing — we're aligned.
+          if (currentSessionRoom !== target) {
+            const active = sessionByRoomId?.get(target) || null;
+            const room = (rooms || []).find((r) => r.id === target);
+            if (room?.kind === "private" && room.invite_code && !active) {
+              // Locked private rooms still need explicit code entry.
+              // The user can hit "Start a session" to surface the
+              // prompt manually.
+            } else if (active) {
+              await onJoin?.(room);
+            } else if (room) {
+              await onStart?.(room);
+            }
+          }
+        }
+        boundRoomRef.current = target;
+      } finally {
+        inFlightRef.current = false;
+      }
+    })();
+    // We intentionally depend ONLY on the URL room id. sessionByRoomId
+    // and syncSession changes are captured at fire-time via closure;
+    // re-running on every realtime tick would re-trigger leave/join
+    // cycles when nothing actually changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedRoomId]);
 
   const sidebar = <WidgetsSidebar />;
 
