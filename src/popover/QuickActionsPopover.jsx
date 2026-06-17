@@ -547,7 +547,7 @@ function TimePage({ dark }) {
             dark ? "text-slate-500" : "text-slate-400"
           }`}>Today</div>
           <div
-            className="text-2xl font-semibold tabular-nums leading-tight"
+            className="text-2xl font-display font-semibold tabular-nums leading-tight"
             style={{ color: dark ? "#f1f5f9" : "#0f172a" }}
           >
             {formatTodayTotal(todayMinutes)}
@@ -561,7 +561,7 @@ function TimePage({ dark }) {
             {clockIn ? "Tracking" : "Idle"}
           </div>
           <div
-            className="text-2xl font-semibold tabular-nums leading-tight"
+            className="text-2xl font-display font-semibold tabular-nums leading-tight"
             style={{ color: clockIn ? "var(--color-accent)" : dark ? "#475569" : "#94a3b8" }}
           >
             {clockIn ? clockedElapsed() : "—"}

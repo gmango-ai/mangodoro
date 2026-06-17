@@ -201,7 +201,7 @@ export function PipFace({
         <span
           className={`${timeSizeClass} font-bold ${timeColor}`}
           style={{
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+            fontFamily: 'var(--font-display), "Parkinsans", ui-sans-serif, system-ui, sans-serif',
             fontVariantNumeric: "tabular-nums",
             fontFeatureSettings: '"tnum"',
             letterSpacing: "0.02em",

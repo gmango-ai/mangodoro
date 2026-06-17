@@ -39,7 +39,7 @@ export default function ClockBanner() {
           }`} />
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-base font-bold tabular-nums flex-shrink-0 ${dark ? "text-white" : "text-slate-800"}`}>
+              <span className={`text-base font-display font-bold tabular-nums flex-shrink-0 ${dark ? "text-white" : "text-slate-800"}`}>
                 {clockedElapsed()}
               </span>
               {onBreak && (
