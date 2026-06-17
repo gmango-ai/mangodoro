@@ -7,8 +7,8 @@ import GoalsList from "../GoalsList";
 // when there are no goals to show (no team, no retros for this week,
 // or no goals filled in).
 export default function GoalsWidget({ dark }) {
-  const { goals } = useWeekGoals();
-  if (!goals.length) return null;
+  const { retros } = useWeekGoals();
+  if (!retros.length) return null;
   return (
     <section className={`rounded-xl border overflow-hidden ${
       dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]/40" : "border-slate-200 bg-slate-50"
@@ -22,7 +22,7 @@ export default function GoalsWidget({ dark }) {
         </span>
       </header>
       <div className="px-3 pb-3">
-        <GoalsList goals={goals} dark={dark} compact />
+        <GoalsList retros={retros} dark={dark} compact />
       </div>
     </section>
   );
