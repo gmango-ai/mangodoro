@@ -69,7 +69,7 @@ export default function RunningTimerPill({ onOpen }) {
           <span className="uppercase tracking-wider text-[10px] opacity-90">
             {modeLabel(mode)}
           </span>
-          <span className="text-sm font-mono font-bold tabular-nums">
+          <span className="text-sm font-display font-bold tabular-nums">
             {formatTime(safeSeconds)}
           </span>
         </>
