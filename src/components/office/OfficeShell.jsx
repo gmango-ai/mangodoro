@@ -162,10 +162,14 @@ export default function OfficeShell({
     <div className={`flex h-[calc(100vh-64px)] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
-      {/* Desktop widgets sidebar */}
+      {/* Desktop widgets sidebar.
+          Width: 18rem (288px) open, 0 closed. min-width pins the open
+          state so flex doesn't squeeze it when the room contents
+          push for more space — keeps the right edge flush with the
+          room view's left edge across viewports. */}
       <div
         className={`hidden md:flex shrink-0 h-full overflow-hidden transition-[width] duration-200 ${
-          sidebarOpen ? "w-72" : "w-0"
+          sidebarOpen ? "w-72 min-w-[18rem]" : "w-0 min-w-0"
         }`}
       >
         {sidebarOpen && sidebar}

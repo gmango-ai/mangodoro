@@ -1,33 +1,66 @@
 import { useState } from "react";
 import { ClipboardList, Search, Target, X as XIcon } from "lucide-react";
+import {
+  DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors,
+  useDraggable, useDroppable,
+} from "@dnd-kit/core";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import { unlinkRetroFromSession } from "../../lib/syncSession";
+import { useWidgetOrder } from "../../hooks/useWidgetOrder";
 import RetroPicker from "./RetroPicker";
 import TimerWidget from "./TimerWidget";
 import PomodoroWidget from "./PomodoroWidget";
 import GoalsWidget from "./GoalsWidget";
 import RoomMembersWidget from "./RoomMembersWidget";
-import WidgetSection from "./WidgetSection";
+import WidgetSection, { DragHandleProvider } from "./WidgetSection";
 
-// App-wide widgets sidebar. Each widget is a WidgetSection so the
-// user can collapse the ones they don't need — collapse state is
-// persisted per-widget via localStorage. Widgets render in priority
-// order (most-glanceable first): timer, pomodoro, goals, members,
-// retro, tasks.
+// App-wide widgets sidebar. Each widget is a WidgetSection so it can
+// collapse independently (state persisted per-widget). Widgets can
+// also be reordered by dragging the grip handle in the header —
+// useWidgetOrder persists the user's chosen order across reloads,
+// reconciling against the default list when widgets get added or
+// removed by future PRs.
 export default function WidgetsSidebar() {
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const { order, reorder } = useWidgetOrder();
+
+  // 5px activation distance lets the header's collapse-on-click work
+  // without the drag intercepting a click. Tap-and-drag still fires
+  // for any pointer movement past that threshold.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    reorder(active.id, over.id);
+  }
+
+  // Lookup table keyed by widget id. Each entry is a render function
+  // so an id with no entry (stale localStorage from a removed widget)
+  // is harmlessly skipped.
+  const widgetById = {
+    timer:        () => <TimerWidget dark={dark} />,
+    pomodoro:     () => <PomodoroWidget dark={dark} />,
+    "room-members": () => <RoomMembersWidget dark={dark} />,
+    goals:        () => <GoalsWidget dark={dark} />,
+    retro:        () => <RetroWidget dark={dark} />,
+    tasks:        () => <TasksWidget dark={dark} />,
+  };
 
   return (
     <aside
-      className={`flex flex-col h-full border-r min-w-0 ${
+      className={`flex flex-col h-full border-r min-w-[18rem] ${
         dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
       }`}
     >
-      <div className={`px-4 py-3 border-b ${
+      <div className={`px-3 py-3 border-b ${
         dark ? "border-[var(--color-border)]" : "border-slate-200"
       }`}>
         <p className={`text-[10px] font-semibold uppercase tracking-wider ${
@@ -37,22 +70,62 @@ export default function WidgetsSidebar() {
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        <TimerWidget dark={dark} />
-        <PomodoroWidget dark={dark} />
-        <GoalsWidget dark={dark} />
-        <RoomMembersWidget dark={dark} />
-        <RetroWidget dark={dark} />
-        <TasksWidget dark={dark} />
-      </div>
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {order.map((id) => {
+            const render = widgetById[id];
+            if (!render) return null;
+            return (
+              <SortableSlot key={id} id={id}>
+                {render()}
+              </SortableSlot>
+            );
+          })}
+        </div>
+      </DndContext>
     </aside>
   );
 }
 
-// Retro link picker. Most of the conditional logic was here already;
-// the only structural change is using <WidgetSection> for collapsible
-// chrome + the trailing X (link-removed) action moving to the body
-// since the header is now a click target for collapse.
+// Per-widget drop target + drag source. The drop ref and drag ref
+// share the same DOM node so a widget can be both grabbed and a
+// landing target. The grip-handle listeners are piped to WidgetSection
+// via DragHandleProvider so widgets don't need to know about DnD.
+function SortableSlot({ id, children }) {
+  const draggable = useDraggable({ id });
+  const droppable = useDroppable({ id });
+
+  function setRef(el) {
+    draggable.setNodeRef(el);
+    droppable.setNodeRef(el);
+  }
+
+  const style = draggable.transform
+    ? {
+        transform: `translate3d(${draggable.transform.x}px, ${draggable.transform.y}px, 0)`,
+        zIndex: draggable.isDragging ? 20 : "auto",
+        opacity: draggable.isDragging ? 0.95 : 1,
+      }
+    : undefined;
+
+  return (
+    <div
+      ref={setRef}
+      style={style}
+      className={`transition-colors ${
+        droppable.isOver && !draggable.isDragging
+          ? "outline outline-2 outline-[var(--color-accent)] rounded-xl"
+          : ""
+      }`}
+    >
+      <DragHandleProvider value={{ listeners: draggable.listeners, attributes: draggable.attributes }}>
+        {children}
+      </DragHandleProvider>
+    </div>
+  );
+}
+
+// Retro link picker. WidgetSection owns the chrome + drag handle.
 function RetroWidget({ dark }) {
   const { session } = useApp();
   const { syncSession } = useSyncSession();
