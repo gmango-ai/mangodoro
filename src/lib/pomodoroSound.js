@@ -210,6 +210,7 @@ export function stopCompletionSound() {
  */
 export async function playCompletionSound(settings = POMODORO_SOUND_DEFAULTS, opts = {}) {
   stopCompletionSound();
+  await warmupAudioContext();
 
   const event = opts.event || "work";
   const presetId =
@@ -275,7 +276,8 @@ export async function playCompletionSound(settings = POMODORO_SOUND_DEFAULTS, op
 
 // ── File playback ──────────────────────────────────────────────
 const FILE_AUDIO_CACHE = new Map();
-function playFile(src, vol, pitch, playback) {
+async function playFile(src, vol, pitch, playback) {
+  await warmupAudioContext();
   return new Promise((resolve) => {
     let audio = FILE_AUDIO_CACHE.get(src);
     if (!audio) {

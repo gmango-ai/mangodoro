@@ -38,6 +38,11 @@ import {
 } from "../storage.js";
 import { createElectronTimerBridge } from "./electronTimerBridge.js";
 import { createTabLeader } from "./tabLeader.js";
+import {
+  derivePhaseEndEvent,
+  phaseAlarmKey,
+  tryClaimPhaseAlarm,
+} from "../phaseAlarm.js";
 
 export class PomodoroEngine {
   constructor(userId) {
@@ -95,6 +100,7 @@ export class PomodoroEngine {
       lastLocalWriteAtMsRef: { current: null },
       userHasMutatedRef: { current: false },
       completionHandledRef: { current: null },
+      lastAlarmKeyPlayedRef: { current: null },
       autoTransitionRef: { current: loadAutoTransition() },
       prevTeamId: undefined,
       canControlRef: { current: true },
@@ -106,6 +112,7 @@ export class PomodoroEngine {
     this._soloHydrateCancelled = false;
     this._lockscreenCancelled = false;
     this._syncTickCleanup = null;
+    this._completionTimeoutId = null;
   }
 
   configure(deps) {
@@ -335,6 +342,8 @@ export class PomodoroEngine {
 
   _applyFollowerSnapshot(snapshot) {
     if (!snapshot || typeof snapshot !== "object") return;
+    const prevMode = this._state.mode;
+    const prevPhase = this._phaseFingerprint();
     this._refs.completionHandledRef.current = null;
     if (snapshot.endsAtMs !== undefined) {
       this._refs.endsAtMsRef.current = snapshot.endsAtMs;
@@ -356,6 +365,22 @@ export class PomodoroEngine {
         ? { realtimeStatus: snapshot.realtimeStatus }
         : {}),
     });
+
+    if (
+      !this._isLeaderRole()
+      && prevPhase !== this._phaseFingerprint()
+    ) {
+      const event = derivePhaseEndEvent(
+        prevMode,
+        this._state.mode,
+        this._state.pendingMode,
+      );
+      if (event) {
+        void this._tryPlayPhaseAlarm(event, phaseAlarmKey(prevPhase, event), {
+          synced: !!this._deps.syncSession,
+        });
+      }
+    }
   }
 
   _markUserMutated() {
@@ -424,12 +449,75 @@ export class PomodoroEngine {
     this._mergeRowPreferences(row);
 
     if (this._deps.syncSession?.id && prevPhase !== this._phaseFingerprint()) {
-      this._maybePlaySyncPhaseSound(prevMode);
+      this._maybePlaySyncPhaseSound(prevMode, prevPhase);
     }
   }
 
   _phaseFingerprint() {
     return `${this._state.mode}-${this._state.sessions}-${this._state.pendingMode ?? "none"}-${this._refs.endsAtMsRef.current ?? "paused"}`;
+  }
+
+  _completionKey() {
+    return `${this._refs.modeRef.current}-${this._refs.sessionsRef.current}-${this._refs.pendingModeRef.current ?? "none"}-${this._refs.endsAtMsRef.current ?? "paused"}`;
+  }
+
+  async _tryPlayPhaseAlarm(event, alarmKey, { synced = false } = {}) {
+    if (this._refs.lastAlarmKeyPlayedRef.current === alarmKey) return false;
+    if (!tryClaimPhaseAlarm(alarmKey)) return false;
+
+    const { customSoundUrl, customSoundsByPresetId } = this._deps;
+    await playCompletionSound(loadPomodoroSoundSettings(), {
+      event,
+      customSoundUrl,
+      customSoundsByPresetId,
+    });
+    this._refs.lastAlarmKeyPlayedRef.current = alarmKey;
+
+    if (
+      !isMobileApp
+      && typeof window !== "undefined"
+      && "Notification" in window
+      && Notification.permission === "granted"
+    ) {
+      const soloWork = "Pomodoro done! Time for a break.";
+      const soloBreak = "Break over — back to focus!";
+      const syncWork = "Sync session: Time for a break!";
+      const syncBreak = "Sync session: Break over — back to focus!";
+      const body = synced
+        ? (event === "work" ? syncWork : syncBreak)
+        : (event === "work" ? soloWork : soloBreak);
+      new Notification(body, { icon: "/icon-192.png", tag: "pomodoro" });
+    }
+    return true;
+  }
+
+  _clearCompletionTimeout() {
+    if (this._completionTimeoutId) {
+      clearTimeout(this._completionTimeoutId);
+      this._completionTimeoutId = null;
+    }
+  }
+
+  _scheduleCompletionTimeout() {
+    this._clearCompletionTimeout();
+    const endsAt = this._refs.endsAtMsRef.current;
+    if (!this._state.isRunning || !endsAt) return;
+    const delay = Math.max(0, endsAt - Date.now());
+    this._completionTimeoutId = setTimeout(() => this._onWallClockDue(), delay);
+  }
+
+  _onWallClockDue() {
+    if (!this._leaderLifecycleActive || !this._isLeaderRole()) return;
+    if (!this._state.isRunning || !this._refs.endsAtMsRef.current) return;
+    if (Date.now() < this._refs.endsAtMsRef.current) {
+      this._scheduleCompletionTimeout();
+      return;
+    }
+    if (this._state.secondsLeft > 0) {
+      this._setField("secondsLeft", 0);
+    } else {
+      this._runCompletionCheck();
+    }
   }
 
   _mergeRowPreferences(row) {
@@ -447,39 +535,17 @@ export class PomodoroEngine {
     if (Object.keys(patch).length) this._patchState(patch);
   }
 
-  _maybePlaySyncPhaseSound(prevMode) {
-    const { syncSession, customSoundUrl, customSoundsByPresetId } = this._deps;
-    if (!syncSession) return;
-    const mode = this._state.mode;
-    const pending = this._state.pendingMode;
-    let event = null;
-    if (prevMode === "work" && (mode !== "work" || pending)) {
-      event = "work";
-    } else if (
-      (prevMode === "shortBreak" || prevMode === "longBreak")
-      && mode === "work"
-      && !pending
-    ) {
-      event = "break";
-    }
+  _maybePlaySyncPhaseSound(prevMode, prevPhase) {
+    if (!this._deps.syncSession) return;
+    const event = derivePhaseEndEvent(
+      prevMode,
+      this._state.mode,
+      this._state.pendingMode,
+    );
     if (!event) return;
-    playCompletionSound(loadPomodoroSoundSettings(), {
-      event,
-      customSoundUrl,
-      customSoundsByPresetId,
+    void this._tryPlayPhaseAlarm(event, phaseAlarmKey(prevPhase, event), {
+      synced: true,
     });
-    if (
-      !isMobileApp
-      && "Notification" in window
-      && Notification.permission === "granted"
-    ) {
-      new Notification(
-        event === "work"
-          ? "Sync session: Time for a break!"
-          : "Sync session: Break over — back to focus!",
-        { icon: "/icon-192.png", tag: "pomodoro" }
-      );
-    }
   }
 
   async _syncTickIfDue() {
@@ -743,7 +809,10 @@ export class PomodoroEngine {
       Notification.requestPermission();
     }
     const willRun = !isRunning;
-    if (!willRun) {
+    if (willRun) {
+      this._refs.endsAtMsRef.current =
+        Date.now() + this._currentRemainingSeconds() * 1000;
+    } else {
       this._refs.endsAtMsRef.current = null;
     }
     this._setField("isRunning", willRun);
@@ -874,6 +943,7 @@ export class PomodoroEngine {
     this._leaderLifecycleActive = false;
     this._soloHydrateCancelled = true;
     this._lockscreenCancelled = true;
+    this._clearCompletionTimeout();
     this._syncTickCleanup?.();
     this._syncTickCleanup = null;
     for (const cleanup of this._cleanups) cleanup();
@@ -1021,7 +1091,10 @@ export class PomodoroEngine {
   _setupVisibilitySync() {
     if (!this.userId) return;
     const onVisible = () => {
-      if (!document.hidden) this.syncFromDB();
+      if (!document.hidden) {
+        this.syncFromDB();
+        if (this._leaderLifecycleActive) this._onWallClockDue();
+      }
     };
     document.addEventListener("visibilitychange", onVisible);
     this._addCleanup(() => {
@@ -1157,13 +1230,21 @@ export class PomodoroEngine {
         });
       }
     }
+
+    if (this._isLeaderRole()) {
+      if (isRunning && this._refs.endsAtMsRef.current) {
+        this._scheduleCompletionTimeout();
+      } else {
+        this._clearCompletionTimeout();
+      }
+    }
   }
 
   _runCompletionCheck() {
     const { isRunning, secondsLeft } = this._state;
     if (!isRunning || secondsLeft > 0) return;
 
-    const completionKey = `${this._refs.modeRef.current}-${this._refs.sessionsRef.current}-${this._refs.pendingModeRef.current ?? "none"}-${this._refs.endsAtMsRef.current ?? "paused"}`;
+    const completionKey = this._completionKey();
     if (this._refs.completionHandledRef.current === completionKey) return;
     this._refs.completionHandledRef.current = completionKey;
 
@@ -1171,6 +1252,11 @@ export class PomodoroEngine {
     const isSynced = !!syncSession;
 
     if (isSynced) {
+      const currentMode = this._refs.modeRef.current;
+      const event = currentMode === "work" ? "work" : "break";
+      void this._tryPlayPhaseAlarm(event, phaseAlarmKey(completionKey, event), {
+        synced: true,
+      });
       this._syncTickIfDue();
       return;
     }
@@ -1186,26 +1272,12 @@ export class PomodoroEngine {
 
     const currentMode = this._refs.modeRef.current;
     const currentSessions = this._refs.sessionsRef.current;
-    const { customSoundUrl, customSoundsByPresetId } = this._deps;
 
-    playCompletionSound(loadPomodoroSoundSettings(), {
-      event: currentMode === "work" ? "work" : "break",
-      customSoundUrl,
-      customSoundsByPresetId,
-    });
-
-    if (
-      !isMobileApp &&
-      "Notification" in window &&
-      Notification.permission === "granted"
-    ) {
-      new Notification(
-        currentMode === "work"
-          ? "Pomodoro done! Time for a break."
-          : "Break over — back to focus!",
-        { icon: "/icon-192.png", tag: "pomodoro" }
-      );
-    }
+    void this._tryPlayPhaseAlarm(
+      currentMode === "work" ? "work" : "break",
+      phaseAlarmKey(completionKey, currentMode === "work" ? "work" : "break"),
+      { synced: false },
+    );
 
     if (currentMode === "work") {
       const nextStreak = currentSessions + 1;

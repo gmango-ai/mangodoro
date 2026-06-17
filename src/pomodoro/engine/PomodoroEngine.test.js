@@ -1,5 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const playCompletionSoundMock = vi.fn().mockResolvedValue(undefined);
+const warmupAudioContextMock = vi.fn().mockResolvedValue(undefined);
+
+vi.mock("../../lib/pomodoroSound.js", () => ({
+  loadPomodoroSoundSettings: vi.fn(() => ({
+    volume: 0.75,
+    workEndPreset: "chime",
+    breakEndPreset: "beep",
+    pitch: 1,
+    repeat: 1,
+    repeatGapMs: 600,
+  })),
+  playCompletionSound: (...args) => playCompletionSoundMock(...args),
+  stopCompletionSound: vi.fn(),
+  warmupAudioContext: (...args) => warmupAudioContextMock(...args),
+}));
+
 const tabLeaderMock = {
   start: vi.fn(),
   stop: vi.fn(),
@@ -26,14 +43,31 @@ vi.mock("./electronTimerBridge.js", () => ({
   isElectronPopover: vi.fn(() => false),
 }));
 
-vi.mock("../../supabase.js", () => ({
-  supabase: {
-    from: vi.fn(),
-    channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn() })),
-    rpc: vi.fn(),
-    removeChannel: vi.fn(),
-  },
-}));
+vi.mock("../../supabase.js", () => {
+  function chain() {
+    const c = {
+      select: vi.fn(),
+      eq: vi.fn(),
+      upsert: vi.fn(),
+      update: vi.fn(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      single: vi.fn().mockResolvedValue({ data: {}, error: null }),
+    };
+    c.select.mockReturnValue(c);
+    c.eq.mockReturnValue(c);
+    c.upsert.mockReturnValue(c);
+    c.update.mockReturnValue(c);
+    return c;
+  }
+  return {
+    supabase: {
+      from: vi.fn(() => chain()),
+      channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn() })),
+      rpc: vi.fn(),
+      removeChannel: vi.fn(),
+    },
+  };
+});
 
 import { supabase } from "../../supabase.js";
 import { destroyEngine, getEngine } from "./createEngine.js";
@@ -199,5 +233,143 @@ describe("PomodoroEngine attach/detach", () => {
     const next = getEngine("user-a");
     expect(next).not.toBe(engine);
     expect(next._refCount).toBe(0);
+  });
+});
+
+describe("PomodoroEngine phase alarms", () => {
+  let lsStore;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lsStore = new Map();
+    vi.stubGlobal("localStorage", {
+      getItem: (k) => lsStore.get(k) ?? null,
+      setItem: (k, v) => lsStore.set(k, v),
+      removeItem: (k) => lsStore.delete(k),
+    });
+    tabLeaderMock.getIsLeader.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    lsStore.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("plays work-end alarm when follower snapshot transitions work to break", async () => {
+    const engine = new PomodoroEngine("test-user-id");
+    engine.attach({ forceSlave: true });
+    engine._state.mode = "work";
+    engine._state.sessions = 1;
+    engine._state.pendingMode = null;
+    engine._refs.endsAtMsRef.current = 1000;
+
+    engine._applyFollowerSnapshot({
+      mode: "shortBreak",
+      sessions: 1,
+      pendingMode: null,
+      isRunning: true,
+      secondsLeft: 300,
+      endsAtMs: 2000,
+    });
+
+    await vi.waitFor(() => {
+      expect(playCompletionSoundMock).toHaveBeenCalledTimes(1);
+    });
+    expect(playCompletionSoundMock.mock.calls[0][1]).toMatchObject({ event: "work" });
+    engine.detach();
+  });
+
+  it("dedupes alarm when the same key is claimed twice", async () => {
+    const engine = new PomodoroEngine("test-user-id");
+    const key = "work-1-none-1000-work";
+    await engine._tryPlayPhaseAlarm("work", key);
+    await engine._tryPlayPhaseAlarm("work", key);
+    expect(playCompletionSoundMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("plays sync alarm optimistically before sync_tick_if_due", async () => {
+    tabLeaderMock.getIsLeader.mockReturnValue(true);
+    supabase.rpc.mockResolvedValue({ data: { session: null }, error: null });
+
+    const engine = new PomodoroEngine("test-user-id");
+    engine.configure({
+      syncSession: { id: "session-1", controller_id: "test-user-id" },
+    });
+    engine._leaderLifecycleActive = true;
+    engine._state.isRunning = true;
+    engine._state.secondsLeft = 0;
+    engine._state.mode = "work";
+    engine._refs.modeRef.current = "work";
+    engine._refs.endsAtMsRef.current = Date.now();
+
+    engine._runCompletionCheck();
+
+    expect(playCompletionSoundMock).toHaveBeenCalledTimes(1);
+    expect(supabase.rpc).toHaveBeenCalledWith("sync_tick_if_due", {
+      p_session_id: "session-1",
+    });
+  });
+
+  it("does not double-play sync alarm after Realtime phase apply", async () => {
+    const engine = new PomodoroEngine("test-user-id");
+    engine.configure({ syncSession: { id: "session-1" } });
+    const prevPhase = "work-0-none-paused";
+    engine._refs.lastAlarmKeyPlayedRef.current = `${prevPhase}-work`;
+    engine._state.mode = "shortBreak";
+
+    await engine._maybePlaySyncPhaseSound("work", prevPhase);
+
+    expect(playCompletionSoundMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("PomodoroEngine wall-clock completion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    tabLeaderMock.getIsLeader.mockReturnValue(true);
+    vi.stubGlobal("document", {
+      hidden: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.spyOn(PomodoroEngine.prototype, "_runCompletionCheck").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("schedules and fires wall-clock completion at endsAtMs", () => {
+    const engine = new PomodoroEngine("test-user-id");
+    engine._leaderLifecycleActive = true;
+    engine._state.isRunning = true;
+    engine._state.secondsLeft = 5;
+    const onDue = vi.spyOn(engine, "_onWallClockDue");
+    const t0 = 1_000_000;
+    vi.setSystemTime(t0);
+    engine._refs.endsAtMsRef.current = t0 + 3000;
+
+    engine._scheduleCompletionTimeout();
+    vi.advanceTimersByTime(3000);
+
+    expect(onDue).toHaveBeenCalled();
+  });
+
+  it("sets secondsLeft to zero when past deadline", () => {
+    const engine = new PomodoroEngine("test-user-id");
+    engine._leaderLifecycleActive = true;
+    engine._state.isRunning = true;
+    engine._state.secondsLeft = 5;
+    const setFieldSpy = vi.spyOn(engine, "_setField");
+    const t0 = 2_000_000;
+    vi.setSystemTime(t0 + 5000);
+    engine._refs.endsAtMsRef.current = t0 + 3000;
+
+    engine._onWallClockDue();
+
+    expect(setFieldSpy).toHaveBeenCalledWith("secondsLeft", 0);
   });
 });
