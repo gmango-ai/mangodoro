@@ -146,8 +146,49 @@ function getAudioContext() {
   return audioCtxRef;
 }
 
+/**
+ * Unlock the Web Audio API during a user gesture (Start, preview, etc.)
+ * so phase-end alarms are not blocked by autoplay policy.
+ */
+export async function warmupAudioContext() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    if (ctx.state === "suspended") await ctx.resume();
+    if (ctx.state === "running") return;
+    const buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(0);
+    source.stop(ctx.currentTime + 0.001);
+    if (ctx.state === "suspended") await ctx.resume();
+  } catch { /* ignore */ }
+}
+
 // ── Active playback handle (so we can stop repeating sounds) ───
 let activePlayback = null;
+const alarmStateListeners = new Set();
+
+function notifyAlarmState(playing) {
+  for (const fn of alarmStateListeners) {
+    try { fn(playing); } catch { /* ignore */ }
+  }
+}
+
+export function isCompletionSoundPlaying() {
+  return activePlayback != null;
+}
+
+/** Subscribe to alarm on/off; returns unsubscribe. */
+export function onAlarmStateChange(listener) {
+  alarmStateListeners.add(listener);
+  listener(isCompletionSoundPlaying());
+  return () => alarmStateListeners.delete(listener);
+}
 
 export function stopCompletionSound() {
   if (!activePlayback) return;
@@ -157,6 +198,7 @@ export function stopCompletionSound() {
     try { activePlayback.audioEl.pause(); } catch { /* ignore */ }
   }
   activePlayback = null;
+  notifyAlarmState(false);
 }
 
 /**
@@ -186,11 +228,16 @@ export async function playCompletionSound(settings = POMODORO_SOUND_DEFAULTS, op
     if (resolved?.url) {
       preset = { id: presetId, kind: "file", src: resolved.url, label: resolved.name || "Custom" };
     } else {
-      // Custom selected but no URL — fall back to the default built-in.
-      preset = PRESET_BY_ID[POMODORO_SOUND_DEFAULTS.workEndPreset];
+      const fallbackId = event === "break"
+        ? POMODORO_SOUND_DEFAULTS.breakEndPreset
+        : POMODORO_SOUND_DEFAULTS.workEndPreset;
+      preset = PRESET_BY_ID[fallbackId];
     }
   } else {
-    preset = PRESET_BY_ID[presetId] || PRESET_BY_ID[POMODORO_SOUND_DEFAULTS.workEndPreset];
+    const fallbackId = event === "break"
+      ? POMODORO_SOUND_DEFAULTS.breakEndPreset
+      : POMODORO_SOUND_DEFAULTS.workEndPreset;
+    preset = PRESET_BY_ID[presetId] || PRESET_BY_ID[fallbackId];
   }
   if (!preset) return;
 
@@ -201,6 +248,7 @@ export async function playCompletionSound(settings = POMODORO_SOUND_DEFAULTS, op
 
   const playback = { cancelled: false, timeoutId: null, audioEl: null };
   activePlayback = playback;
+  notifyAlarmState(true);
 
   let i = 0;
   const ring = async () => {
@@ -219,6 +267,7 @@ export async function playCompletionSound(settings = POMODORO_SOUND_DEFAULTS, op
       playback.timeoutId = setTimeout(ring, dur + gap);
     } else {
       activePlayback = null;
+      notifyAlarmState(false);
     }
   };
   ring();
@@ -238,9 +287,15 @@ function playFile(src, vol, pitch, playback) {
     audio.volume = vol;
     audio.playbackRate = pitch;
     playback.audioEl = audio;
-    const finish = () => { audio.removeEventListener("ended", finish); resolve((audio.duration || 1) * 1000); };
+    const finish = () => {
+      audio.removeEventListener("ended", finish);
+      resolve((audio.duration || 1) * 1000);
+    };
     audio.addEventListener("ended", finish);
-    audio.play().catch(() => resolve(500));
+    audio.play().catch(() => {
+      audio.removeEventListener("ended", finish);
+      resolve(500);
+    });
   });
 }
 
