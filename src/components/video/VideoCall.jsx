@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { JITSI_DOMAIN, fetchVideoCallToken, loadJitsiExternalApi, roomNameForRoom } from "../../lib/jitsi";
+import { registerJitsiApi, unregisterJitsiApi } from "../../lib/jitsiBridge";
 
 // Embeds a JitsiMeetExternalAPI iframe into the surrounding div.
 // Mounts the iframe on the first render, calls `onJoined` /
@@ -75,6 +76,11 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
 
         const api = new Ctor(JITSI_DOMAIN, opts);
         apiRef.current = api;
+        // Publish the api to module-level subscribers (e.g. the
+        // TimerWidget's "Share music" button). Unregister happens in
+        // the cleanup below so a brief gap during HMR reload doesn't
+        // leave a stale reference live.
+        registerJitsiApi(api);
 
         // Log every Jitsi lifecycle event we care about so we can
         // see in the console why the embed isn't reaching "joined"
@@ -140,6 +146,7 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
 
     return () => {
       cancelled = true;
+      unregisterJitsiApi();
       try { apiRef.current?.dispose(); } catch { /* */ }
       apiRef.current = null;
     };
