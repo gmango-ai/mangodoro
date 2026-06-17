@@ -6,9 +6,13 @@ import GoalsList from "../GoalsList";
 // stated focus stays visible while in a room. Hides itself entirely
 // when there are no goals to show (no team, no retros for this week,
 // or no goals filled in).
+// Renders the goals from LAST week's retros (which define THIS week's
+// focus). Hides if nobody set a goal — there's no useful action to
+// take from the sidebar; users set next week's goal directly in
+// today's retro, which this widget doesn't speak to.
 export default function GoalsWidget({ dark }) {
-  const { retros } = useWeekGoals();
-  if (!retros.length) return null;
+  const { goals } = useWeekGoals();
+  if (!goals.length) return null;
   return (
     <section className={`rounded-xl border overflow-hidden ${
       dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]/40" : "border-slate-200 bg-slate-50"
@@ -22,7 +26,7 @@ export default function GoalsWidget({ dark }) {
         </span>
       </header>
       <div className="px-3 pb-3">
-        <GoalsList retros={retros} dark={dark} compact />
+        <GoalsList goals={goals} dark={dark} compact />
       </div>
     </section>
   );

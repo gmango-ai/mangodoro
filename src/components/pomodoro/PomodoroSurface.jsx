@@ -96,7 +96,7 @@ export default function PomodoroSurface({
     canControl, transferLeader, kickParticipant,
   } = usePomodoro();
   const { syncParticipants, presenceMap } = useSyncSession();
-  const { retros: weekRetros } = useWeekGoals();
+  const { goals: weekGoals } = useWeekGoals();
 
   useTimerTitleAndBadge();
 
@@ -281,11 +281,11 @@ export default function PomodoroSurface({
           {/* Participants */}
           <ParticipantCards max={cfg.participantsMax} />
 
-          {/* Week goals — small banner so the team's stated focus stays
-              visible when the timer is open from outside /pomodoro.
-              Renders even when goals aren't filled in yet so the team
-              gets nudged to set one. */}
-          {cfg.showGoals && weekRetros.length > 0 && (
+          {/* Week goals — small banner showing the goals set in last
+              week's retro that define this week's focus. Hidden when
+              no goal was set (there's no useful action to surface
+              here; setting next week's goal happens in the retro). */}
+          {cfg.showGoals && weekGoals.length > 0 && (
             <div
               className={`rounded-xl border p-3 ${
                 dark
@@ -298,7 +298,7 @@ export default function PomodoroSurface({
               }`}>
                 Goals this week
               </p>
-              <GoalsList retros={weekRetros} dark={dark} compact />
+              <GoalsList goals={weekGoals} dark={dark} compact />
             </div>
           )}
 

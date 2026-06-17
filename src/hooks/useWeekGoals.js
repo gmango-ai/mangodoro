@@ -1,21 +1,22 @@
 import { useEffect, useState } from "react";
 import { useTeam } from "../context/TeamContext";
-import { listCurrentWeekRetros } from "../lib/retro";
+import { listGoalsForCurrentWeek } from "../lib/retro";
 
-// Loads this week's retros scoped to the user's department/org
-// affiliation. Org-wide retros (org_team_id null) show for everyone;
-// scoped retros only show if the user is a member of that org_team.
+// Loads the goals that apply to THIS week, scoped to the user's
+// department/org affiliation. Org-wide retros (org_team_id null)
+// show for everyone; scoped retros only show if the user is a
+// member of that org_team.
 //
-// Used in three places today:
-//   - /pomodoro (full page sidebar)
-//   - PomodoroSurface floating modal (keeps goals visible when the
-//     user opens the timer from anywhere)
-//   - GoalsWidget in the office WidgetsSidebar (room view)
+// Source: each team's retro for the *previous* ISO week. Retros are
+// run at the end of a week to set the next week's goal, so the
+// previous week's retros hold today's focus. (Setting NEXT week's
+// goal happens in THIS week's retro — a different concern, handled
+// by the retro page UI itself.)
 //
-// Returns ALL matching retros — including ones with an empty `goal`
-// — so consumers can render a "Set this week's goal" CTA instead of
-// silently hiding when nobody's filled one in yet. Consumers that
-// only care about set goals can filter on `goals` (vs `retros`).
+// Returns ALL matching retros (including empty goals) as `retros`
+// so consumers can decide whether to hide or surface a placeholder.
+// `goals` is the subset with non-empty goal text — convenience for
+// /pomodoro which already wants only the filled set.
 export function useWeekGoals() {
   const { activeTeamId, myOrgTeamIds } = useTeam();
   const [retros, setRetros] = useState([]);
@@ -29,7 +30,7 @@ export function useWeekGoals() {
         return;
       }
       setLoading(true);
-      const { data } = await listCurrentWeekRetros(activeTeamId);
+      const { data } = await listGoalsForCurrentWeek(activeTeamId);
       if (cancelled) return;
       const filtered = (data || []).filter((r) => {
         if (r.org_team_id == null) return true;
@@ -42,8 +43,6 @@ export function useWeekGoals() {
     return () => { cancelled = true; };
   }, [activeTeamId, myOrgTeamIds]);
 
-  // Back-compat: `goals` is the subset with a non-empty goal. Callers
-  // that want to show the "no goal set" CTA should iterate `retros`.
   const goals = retros.filter((r) => (r.goal || "").trim().length > 0);
   return { retros, goals, loading };
 }
