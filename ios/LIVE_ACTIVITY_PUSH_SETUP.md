@@ -30,6 +30,11 @@ Open `ios/App/App.xcworkspace`, select the **App** target:
 
 Rebuild the provisioning profile if Xcode prompts.
 
+**Entitlements:** Debug builds use `App.entitlements` (`aps-environment:
+development`). Release / Archive builds use `AppRelease.entitlements`
+(`aps-environment: production`). Verify the archived `.ipa` before
+TestFlight.
+
 ## 3. Supabase — secrets
 
 ```bash
@@ -40,8 +45,8 @@ supabase secrets set \
   APNS_BUNDLE_ID=com.gmango.mangodoro \
   APNS_ENV=production
 
-# multi-line .p8 — use the file path
-supabase secrets set --env-file <(printf 'APNS_KEY_P8=%s\n' "$(cat ~/Downloads/AuthKey_ABCD123456.p8)")
+# multi-line .p8 — pass the file contents directly
+supabase secrets set APNS_KEY_P8="$(cat ~/Downloads/AuthKey_ABCD123456.p8)"
 ```
 
 `APNS_ENV` is `production` for App Store / TestFlight builds and the
@@ -71,10 +76,11 @@ push token, owning user, and per-activity HMAC secret hash.
 ```bash
 supabase functions deploy activity-register
 supabase functions deploy activity-action
+supabase functions deploy activity-unregister
 ```
 
-Confirm both show up under Functions in the Supabase dashboard with the
-shared `_shared/apns.ts` bundled.
+Confirm all three show up under Functions in the Supabase dashboard with
+the shared `_shared/apns.ts` bundled where applicable.
 
 ## 6. Build the app
 
@@ -84,6 +90,9 @@ bun run cap:build
 
 Then in Xcode: ⇧⌘K → Run on a real device (Live Activities don't fire
 in the simulator).
+
+**iOS 17+** is required for lock-screen pause/play/stop buttons
+(`LiveActivityIntent`). Live Activity rendering itself works on iOS 16.1+.
 
 ## 7. Smoke test
 
@@ -97,7 +106,7 @@ in the simulator).
 If it doesn't update visually, in Console.app filter on subsystem
 `com.gmango.mangodoro.widget` and look for:
 - `ToggleTimerIntent fired`
-- `activity-action: toggle → 200` (success) or an error line
+- `activity-action: toggle → 200 ok=true` (success) or an error line
 - Then check Supabase function logs:
   `supabase functions logs activity-action --tail`
 
@@ -109,6 +118,10 @@ Common failures:
 - **404 activity not found**: the host app never registered, check the
   `pushTokenReceived` listener wired up correctly and that
   `activity-register` was called
+- **409 incomplete state**: server row has no `state` snapshot — restart
+  the timer or pause once in-app to sync state
+- **502 from activity-action**: APNs push failed (check `apns_status` in
+  function logs); App Group reconcile still works on foreground
 - **APNs `BadDeviceToken`**: `APNS_ENV` mismatch (Debug build pushing
   to production gateway or vice-versa)
 - **APNs `TopicDisallowed`**: Push Notifications capability missing on

@@ -103,11 +103,19 @@ export function AppProvider({ session, children }) {
     if (!session) return;
     setDataSyncing(true);
     try {
+      // entries + projects are scoped to the signed-in user. We used to
+      // rely on RLS alone, but the "Team admins can read member entries"
+      // policy (added in 20260519140000) intentionally lets admins read
+      // any teammate's rows from the *admin* timesheet view — without
+      // an explicit user_id filter here, that policy also let admins
+      // see teammates' rows on their own /time-tracker page. The admin
+      // view at /team/timesheets uses fetchMemberEntries, which is
+      // unaffected.
       const [entriesRes, templatesRes, settingsRes, projectsRes] = await Promise.all([
-        supabase.from("entries").select("*").order("date", { ascending: false }),
+        supabase.from("entries").select("*").eq("user_id", session.user.id).order("date", { ascending: false }),
         supabase.from("templates").select("*").order("created_at"),
         supabase.from("user_settings").select("*").eq("user_id", session.user.id).maybeSingle(),
-        supabase.from("projects").select("*").order("created_at"),
+        supabase.from("projects").select("*").eq("user_id", session.user.id).order("created_at"),
       ]);
 
       // Auth race-guard. On a fresh page load (or laptop-lid wake) the

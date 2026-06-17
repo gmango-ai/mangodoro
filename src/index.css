@@ -156,6 +156,11 @@
 }
 
 @theme inline {
+  /* Typography. --font-sans is the default body face; --font-display
+     is the bold-display face used for headings + timer readouts. The
+     Google Fonts links live in index.html. */
+  --font-sans: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Parkinsans", "Figtree", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -212,6 +217,14 @@
 
   html {
     font-size: var(--font-size);
+    font-family: var(--font-sans);
+  }
+
+  /* Headings get Parkinsans (the display face) by default. Component
+     code can opt back into the body face with `font-sans` when it
+     wants a heading that reads like UI chrome (e.g. inline labels). */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
   }
 
   h1 {

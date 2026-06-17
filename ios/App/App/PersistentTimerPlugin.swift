@@ -38,6 +38,11 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// duplicate emissions if the activity is replaced.
     private var pushTokenTask: Task<Void, Never>?
 
+    @available(iOS 16.1, *)
+    private func resolveWithActivityId(_ call: CAPPluginCall, activity: Activity<PomodoroActivityAttributes>) {
+        call.resolve(["activityId": activity.id])
+    }
+
     public override func load() {
         super.load()
     }
@@ -108,7 +113,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 await MainActor.run {
                     self.observePushToken(for: existing)
-                    call.resolve()
+                    self.resolveWithActivityId(call, activity: existing)
                 }
             }
             return
@@ -118,25 +123,20 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             let activity: Activity<PomodoroActivityAttributes>
             if #available(iOS 16.2, *) {
-                // pushType is nil for now. Flip to `.token` once the
-                // Push Notifications capability is enabled on the App
-                // target — see ios/LIVE_ACTIVITY_PUSH_SETUP.md. Without
-                // the entitlement, requesting a push token makes this
-                // call throw and the activity never starts.
                 activity = try Activity<PomodoroActivityAttributes>.request(
                     attributes: attributes,
                     content: ActivityContent(state: state, staleDate: nil),
-                    pushType: nil
+                    pushType: .token
                 )
             } else {
                 activity = try Activity<PomodoroActivityAttributes>.request(
                     attributes: attributes,
                     contentState: state,
-                    pushType: nil
+                    pushType: .token
                 )
             }
             observePushToken(for: activity)
-            call.resolve()
+            resolveWithActivityId(call, activity: activity)
         } catch {
             call.reject("Failed to start Live Activity: \(error.localizedDescription)")
         }
@@ -177,7 +177,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             } else {
                 await existing.update(using: state)
             }
-            await MainActor.run { call.resolve() }
+            await MainActor.run { self.resolveWithActivityId(call, activity: existing) }
         }
         #else
         call.resolve()
@@ -235,11 +235,18 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         pushTokenTask = Task { [weak self] in
             for await tokenData in activity.pushTokenUpdates {
                 let tokenHex = tokenData.map { String(format: "%02x", $0) }.joined()
-                let payload: [String: Any] = [
+                let contentState: PomodoroActivityAttributes.State
+                if #available(iOS 16.2, *) {
+                    contentState = activity.content.state
+                } else {
+                    contentState = activity.contentState
+                }
+                var payload: [String: Any] = [
                     "activityId": activityId,
                     "pushToken": tokenHex,
                     "secretHash": secretHash,
-                    "apnsEnv": apnsEnv
+                    "apnsEnv": apnsEnv,
+                    "state": Self.stateDictionary(from: contentState)
                 ]
                 // Hop to the main thread via DispatchQueue rather than
                 // MainActor.run — CAPPlugin isn't @MainActor-isolated and
@@ -286,14 +293,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         reloadHomeWidget()
     }
 
-    /// Mirrors the activity content state to the App Group so the widget
-    /// extension can forward it to the activity-action edge function. The
-    /// server uses this as the source of truth when computing the next
-    /// state — avoids a "first tap does nothing" bug when the user
-    /// pauses/resumes from inside the app (which the server otherwise
-    /// wouldn't know about until next phase boundary).
     @available(iOS 16.1, *)
-    private static func mirrorContentState(_ state: PomodoroActivityAttributes.State) {
+    private static func stateDictionary(from state: PomodoroActivityAttributes.State) -> [String: Any] {
         var payload: [String: Any] = [
             "endsAtEpochMs": state.endsAtEpochMs,
             "mode": state.mode,
@@ -307,7 +308,18 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         if let accentColorHex = state.accentColorHex {
             payload["accentColorHex"] = accentColorHex
         }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+        return payload
+    }
+
+    /// Mirrors the activity content state to the App Group so the widget
+    /// extension can forward it to the activity-action edge function. The
+    /// server uses this as the source of truth when computing the next
+    /// state — avoids a "first tap does nothing" bug when the user
+    /// pauses/resumes from inside the app (which the server otherwise
+    /// wouldn't know about until next phase boundary).
+    @available(iOS 16.1, *)
+    private static func mirrorContentState(_ state: PomodoroActivityAttributes.State) {
+        guard let data = try? JSONSerialization.data(withJSONObject: stateDictionary(from: state)),
               let json = String(data: data, encoding: .utf8) else { return }
         UserDefaults(suiteName: AppGroup.identifier)?
             .set(json, forKey: AppGroup.activityStateKey)

@@ -118,6 +118,16 @@ function AppLayout({ session }) {
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
+  // Cross-tree opener for the floating PomodoroSurface. Room widgets
+  // (header chip, sidebar widget) dispatch `mangodoro:open-pomodoro`
+  // via lib/pomodoroSurface.js to bring the full controls up without
+  // prop-drilling setShowPomodoro through the office shell.
+  useEffect(() => {
+    function onOpen() { setShowPomodoro(true); }
+    window.addEventListener("mangodoro:open-pomodoro", onOpen);
+    return () => window.removeEventListener("mangodoro:open-pomodoro", onOpen);
+  }, []);
+
   const showOnboarding = !onboardingDismissed && !dataSyncing && !settings.name;
 
   function handleSessionJoined(sess) {

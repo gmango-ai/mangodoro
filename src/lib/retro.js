@@ -22,18 +22,40 @@ export async function getOrCreateCurrentRetro(orgId, orgTeamId = null) {
   return { data };
 }
 
-// Fetch every retro for the current ISO week for the given team. Used
-// by /pomodoro to stack multiple department goals in the banner, and
-// could power a "compare goals" view later.
+// Helper: ISO Monday of the week containing `date`, as YYYY-MM-DD.
+function isoMonday(date) {
+  const day = date.getDay() || 7;
+  const monday = new Date(date);
+  monday.setDate(date.getDate() - (day - 1));
+  return monday.toISOString().slice(0, 10);
+}
+
+// Fetch every retro for the current ISO week for the given team. The
+// retro for week X contains the goal that will apply to week X+1, so
+// "this week's retros" are where you SET next week's goal — not
+// where you find the goal that drives today's work.
 export async function listCurrentWeekRetros(teamId) {
   if (!teamId) return { data: [], error: null };
-  const today = new Date();
-  // ISO Monday-start in the client's local timezone — matches what the
-  // RPC computes server-side closely enough for the banner.
-  const day = today.getDay() || 7;
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - (day - 1));
-  const weekStart = monday.toISOString().slice(0, 10);
+  const weekStart = isoMonday(new Date());
+  const { data, error } = await supabase
+    .from("retros")
+    .select("*")
+    .eq("team_id", teamId)
+    .eq("week_start", weekStart);
+  return { data: data || [], error };
+}
+
+// Fetch the retros whose `goal` field defines THIS WEEK's focus.
+// Because retros are set at the end of a week for the next week,
+// this means the retros from the previous ISO week. Used by the
+// office sidebar widget + the floating pomodoro modal so the user
+// sees "what we said we'd do this week" rather than "what we'll
+// decide for next week."
+export async function listGoalsForCurrentWeek(teamId) {
+  if (!teamId) return { data: [], error: null };
+  const lastWeek = new Date();
+  lastWeek.setDate(lastWeek.getDate() - 7);
+  const weekStart = isoMonday(lastWeek);
   const { data, error } = await supabase
     .from("retros")
     .select("*")
