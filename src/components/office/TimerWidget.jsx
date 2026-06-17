@@ -13,6 +13,7 @@ import {
 import {
   startMeetingTimer, pauseMeetingTimer, resumeMeetingTimer, stopMeetingTimer,
 } from "../../lib/syncSession";
+import WidgetSection from "./WidgetSection";
 
 // Sidebar widget for the session-scoped meeting timer.
 //   Not in session  → muted hint
@@ -81,17 +82,8 @@ export default function TimerWidget({ dark }) {
   const done = t.status === "done";
 
   return (
-    <section className={`rounded-xl border overflow-hidden ${
-      dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]/40" : "border-slate-200 bg-slate-50"
-    }`}>
-      <header className={`flex items-center gap-1.5 px-3 py-2 ${
-        dark ? "text-slate-400" : "text-slate-500"
-      }`}>
-        <Timer className="w-3 h-3" />
-        <span className="text-[10px] font-bold uppercase tracking-wider">Timer</span>
-      </header>
-
-      <div className="px-3 pb-3 space-y-2">
+    <WidgetSection id="timer" icon={Timer} title="Timer" dark={dark}>
+      <div className="space-y-2">
         {!inSession && (
           <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
             Join a session to run a synced meeting timer.
@@ -286,6 +278,6 @@ export default function TimerWidget({ dark }) {
           </p>
         )}
       </div>
-    </section>
+    </WidgetSection>
   );
 }

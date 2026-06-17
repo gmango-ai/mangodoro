@@ -9,13 +9,14 @@ import RetroPicker from "./RetroPicker";
 import TimerWidget from "./TimerWidget";
 import PomodoroWidget from "./PomodoroWidget";
 import GoalsWidget from "./GoalsWidget";
+import RoomMembersWidget from "./RoomMembersWidget";
+import WidgetSection from "./WidgetSection";
 
-
-// App-wide widgets sidebar. The retro widget is the primary action
-// today (entry point for attaching a retro to the active session).
-// Tasks slot stays as a placeholder for ClickUp lookup. Both render
-// regardless of whether the user is in a room or in the hallway —
-// each widget self-gates on the session/team context it needs.
+// App-wide widgets sidebar. Each widget is a WidgetSection so the
+// user can collapse the ones they don't need — collapse state is
+// persisted per-widget via localStorage. Widgets render in priority
+// order (most-glanceable first): timer, pomodoro, goals, members,
+// retro, tasks.
 export default function WidgetsSidebar() {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -37,10 +38,10 @@ export default function WidgetsSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-
         <TimerWidget dark={dark} />
         <PomodoroWidget dark={dark} />
         <GoalsWidget dark={dark} />
+        <RoomMembersWidget dark={dark} />
         <RetroWidget dark={dark} />
         <TasksWidget dark={dark} />
       </div>
@@ -48,11 +49,10 @@ export default function WidgetsSidebar() {
   );
 }
 
-// Entry point for the retro-in-room flow.
-//   Not in a session  → muted "Join a session to attach a retro" hint
-//   In a session, no retro linked, leader → "Start a retro" CTA
-//   In a session, no retro linked, not leader → "Waiting for leader" hint
-//   Retro linked → chip + Unlink (leader only)
+// Retro link picker. Most of the conditional logic was here already;
+// the only structural change is using <WidgetSection> for collapsible
+// chrome + the trailing X (link-removed) action moving to the body
+// since the header is now a click target for collapse.
 function RetroWidget({ dark }) {
   const { session } = useApp();
   const { syncSession } = useSyncSession();
@@ -69,84 +69,63 @@ function RetroWidget({ dark }) {
   }
 
   return (
-    <section className={`rounded-xl border overflow-hidden ${
-      dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]/40" : "border-slate-200 bg-slate-50"
-    }`}>
-      <header className={`flex items-center gap-1.5 px-3 py-2 ${
-        dark ? "text-slate-400" : "text-slate-500"
-      }`}>
-        <Target className="w-3 h-3" />
-        <span className="text-[10px] font-bold uppercase tracking-wider">Retro</span>
-      </header>
+    <WidgetSection id="retro" icon={Target} title="Retro" dark={dark}>
+      {!inSession && (
+        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
+          Join a session to attach a retro everyone can see.
+        </p>
+      )}
 
-      <div className="px-3 pb-3">
-        {!inSession && (
-          <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-            Join a session to attach a retro everyone can see.
-          </p>
-        )}
+      {inSession && !linkedRetroId && isLeader && (
+        <Button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          className="w-full justify-start"
+          size="sm"
+        >
+          <Target className="w-3.5 h-3.5 mr-2" />
+          Start a retro
+        </Button>
+      )}
 
-        {inSession && !linkedRetroId && isLeader && (
-          <Button
-            type="button"
-            onClick={() => setPickerOpen(true)}
-            className="w-full justify-start"
-            size="sm"
-          >
-            <Target className="w-3.5 h-3.5 mr-2" />
-            Start a retro
-          </Button>
-        )}
+      {inSession && !linkedRetroId && !isLeader && (
+        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
+          The session leader can attach a retro for the group.
+        </p>
+      )}
 
-        {inSession && !linkedRetroId && !isLeader && (
-          <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-            The session leader can attach a retro for the group.
-          </p>
-        )}
-
-        {linkedRetroId && (
-          <div className="space-y-2">
-            <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold w-full bg-[var(--color-accent-light)] text-[var(--color-accent)]`}>
-              <Target className="w-3 h-3" fill="currentColor" />
-              <span className="truncate flex-1">Retro attached</span>
-              {isLeader && (
-                <button
-                  type="button"
-                  onClick={unlink}
-                  aria-label="Unlink retro"
-                  title="Unlink retro"
-                  className="p-0.5 rounded-full hover:bg-[var(--color-accent)]/15"
-                >
-                  <XIcon className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-            <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-              Pick "Retro" in the room view-mode pill to take over the screen.
-            </p>
+      {linkedRetroId && (
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold w-full bg-[var(--color-accent-light)] text-[var(--color-accent)]">
+            <Target className="w-3 h-3" fill="currentColor" />
+            <span className="truncate flex-1">Retro attached</span>
+            {isLeader && (
+              <button
+                type="button"
+                onClick={unlink}
+                aria-label="Unlink retro"
+                title="Unlink retro"
+                className="p-0.5 rounded-full hover:bg-[var(--color-accent)]/15"
+              >
+                <XIcon className="w-3 h-3" />
+              </button>
+            )}
           </div>
-        )}
-      </div>
+          <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
+            Pick "Retro" in the room view-mode pill to take over the screen.
+          </p>
+        </div>
+      )}
 
       <RetroPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
-    </section>
+    </WidgetSection>
   );
 }
 
 function TasksWidget({ dark }) {
   return (
-    <section className={`rounded-xl border overflow-hidden ${
-      dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]/40" : "border-slate-200 bg-slate-50"
-    }`}>
-      <header className={`flex items-center justify-between px-3 py-2 ${
-        dark ? "text-slate-400" : "text-slate-500"
-      }`}>
-        <span className="text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5">
-          <ClipboardList className="w-3 h-3" />
-          Tasks
-        </span>
-      </header>
-      <div className="px-3 pb-3 space-y-2">
+    <WidgetSection id="tasks" icon={ClipboardList} title="Tasks" dark={dark} defaultCollapsed>
+      <div className="space-y-2">
         <div className={`relative ${
           dark ? "text-slate-500" : "text-slate-400"
         }`}>
@@ -171,6 +150,6 @@ function TasksWidget({ dark }) {
           Coming soon
         </span>
       </div>
-    </section>
+    </WidgetSection>
   );
 }
