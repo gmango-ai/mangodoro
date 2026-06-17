@@ -87,7 +87,14 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
         api.addListener("errorOccurred", (data) => {
           log("errorOccurred")(data);
           if (!cancelled && data) {
-            setError(data.message || data.error || data.type || "Jitsi error");
+            const err = data.error;
+            setError(
+              data.message ||
+              (typeof err === "string" ? err : err?.message) ||
+              err?.name ||
+              data.type ||
+              "Jitsi error"
+            );
           }
         });
         api.addListener("participantJoined", log("participantJoined"));
