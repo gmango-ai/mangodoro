@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, Copy, Users, Plus, LogIn, Link as LinkIcon, Timer } from "lucide-react";
 import { supabase } from "../supabase";
+import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { loadStoredDurations } from "../pomodoro/storage";
 import { getShareableBaseUrl } from "../lib/platform";
 import UserAvatar from "./UserAvatar";

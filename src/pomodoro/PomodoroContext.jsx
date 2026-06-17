@@ -56,8 +56,9 @@ export function PomodoroProvider({ userId, children, forceSlave = false }) {
   ]);
 
   useEffect(() => {
-    if (!engine) return undefined;
-    return engine.attach({ forceSlave: forceSlave || isElectronPopover() });
+    if (!engine) return;
+    engine.attach({ forceSlave: forceSlave || isElectronPopover() });
+    return () => engine.detach();
   }, [engine, forceSlave]);
 
   const snapshot = useSyncExternalStore(

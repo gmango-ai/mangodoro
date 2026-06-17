@@ -282,8 +282,9 @@ export class PomodoroEngine {
     this._snapshot = { ...this._buildSnapshot(), ...this.getPublicApi() };
 
     if (this._isLeaderRole()) {
-      this._tabLeader?.broadcastState(this._snapshot);
-      this._electronBridge?.broadcastState(this._snapshot);
+      const wire = this._getWireSnapshot();
+      this._tabLeader?.broadcastState(wire);
+      this._electronBridge?.broadcastState(wire);
     }
 
     for (const listener of this._listeners) {
@@ -294,6 +295,10 @@ export class PomodoroEngine {
       this._runDerivedSideEffects();
       this._runCompletionCheck();
     }
+  }
+
+  _getWireSnapshot() {
+    return this._buildSnapshot();
   }
 
   _buildSnapshot() {
