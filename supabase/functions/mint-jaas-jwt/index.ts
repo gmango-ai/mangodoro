@@ -59,15 +59,19 @@ Deno.serve(async (req) => {
   }
 
   // Auth — the user JWT comes in via the Authorization header.
+  // Match the case-insensitive pattern + persistSession:false config
+  // that activity-register uses; both matter inside the edge runtime.
   const authHeader = req.headers.get("Authorization") ?? "";
-  if (!authHeader.startsWith("Bearer ")) {
+  if (!authHeader.toLowerCase().startsWith("bearer ")) {
     return json(401, { error: "Missing bearer token" });
   }
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false },
   });
   const { data: userResult, error: userErr } = await supabase.auth.getUser();
   if (userErr || !userResult?.user) {
+    console.error("[mint-jaas-jwt] auth failed", userErr);
     return json(401, { error: "Invalid session" });
   }
   const user = userResult.user;
