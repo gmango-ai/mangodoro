@@ -124,7 +124,12 @@ export class PomodoroEngine {
       }
     }
 
-    if (!this._leaderLifecycleActive) return;
+    if (!this._leaderLifecycleActive) {
+      if (prevSyncId !== deps.syncSession?.id && deps.syncSession?.id && !this._isLeaderRole()) {
+        this._hydrateSync();
+      }
+      return;
+    }
 
     if (prevSyncId !== deps.syncSession?.id) {
       this._teardownRealtime();
@@ -823,10 +828,8 @@ export class PomodoroEngine {
 
     if (this._tabLeader.getIsLeader()) {
       this._startLeaderLifecycle();
-    }
-
-    if (!this._forceSlave && !this._electronBridge?.isSlave) {
-      this._setupSyncTickPoll();
+    } else if (this._deps.syncSession?.id) {
+      this._hydrateSync();
     }
   }
 
@@ -861,6 +864,7 @@ export class PomodoroEngine {
     this._setupIntervals();
     this._setupTimerTick();
     this._setupLockscreenReconcile();
+    this._setupSyncTickPoll();
     this._runDerivedSideEffects();
     this._notify({ leaderSideEffects: false });
   }
@@ -870,6 +874,8 @@ export class PomodoroEngine {
     this._leaderLifecycleActive = false;
     this._soloHydrateCancelled = true;
     this._lockscreenCancelled = true;
+    this._syncTickCleanup?.();
+    this._syncTickCleanup = null;
     for (const cleanup of this._cleanups) cleanup();
     this._cleanups = [];
     this._realtimeWasSubscribed = { solo: false, sync: false };
@@ -927,11 +933,10 @@ export class PomodoroEngine {
     this._refs.suppressRemoteUntilRef.current = Date.now() + 400;
   }
 
-  _hydrateSync() {
-    const { syncSession } = this._deps;
-    if (!syncSession?.id) return;
+  async _hydrateSync() {
+    if (!this._deps.syncSession?.id) return;
     this._refs.suppressRemoteUntilRef.current = 0;
-    this._applyRemoteRow(syncSession, { force: true });
+    await this.syncFromDB({ force: true });
     this._refs.suppressRemoteUntilRef.current = Date.now() + 400;
   }
 

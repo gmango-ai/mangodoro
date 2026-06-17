@@ -9,7 +9,7 @@ import { useApp } from "../context/AppContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { useTeam } from "../context/TeamContext";
 import { USER_SOUND_PREFIX, TEAM_SOUND_PREFIX } from "../lib/pomodoroSound";
-import { getEngine } from "./engine/createEngine.js";
+import { getEngine, destroyEngine } from "./engine/createEngine.js";
 import { isElectronPopover } from "./engine/electronTimerBridge.js";
 
 const PomodoroContext = createContext(null);
@@ -58,7 +58,10 @@ export function PomodoroProvider({ userId, children, forceSlave = false }) {
   useEffect(() => {
     if (!engine) return;
     engine.attach({ forceSlave: forceSlave || isElectronPopover() });
-    return () => engine.detach();
+    return () => {
+      engine.detach();
+      destroyEngine();
+    };
   }, [engine, forceSlave]);
 
   const snapshot = useSyncExternalStore(
@@ -67,9 +70,7 @@ export function PomodoroProvider({ userId, children, forceSlave = false }) {
     () => (engine ? engine.getSnapshot() : null),
   );
 
-  if (!engine || !snapshot) {
-    return children;
-  }
+  if (!engine) return null;
 
   return (
     <PomodoroContext.Provider value={snapshot}>{children}</PomodoroContext.Provider>

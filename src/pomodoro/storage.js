@@ -63,6 +63,13 @@ export function saveStoredDurations(d) {
   }
 }
 
+export function getSessionCreatePrefs() {
+  return {
+    durations: loadStoredDurations(),
+    autoTransition: loadAutoTransition(),
+  };
+}
+
 /** Parse durations jsonb from a server row; null when missing/invalid. */
 export function parseDurationsFromRow(row) {
   const d = row?.durations;
