@@ -23,7 +23,7 @@ import { notifySessionJoined, notifySessionCleared } from "../sync/joinSession";
 
 const SYNC_SESSION_KEY = "ql_sync_session";
 
-/** Fields owned by SyncSessionCoordinator — timer fields come from PomodoroEngine. */
+/** Fields owned by SyncSessionCoordinator — pomodoro timer fields come from PomodoroEngine. */
 const METADATA_FIELDS = [
   "leader_id",
   "controller_id",
@@ -34,6 +34,12 @@ const METADATA_FIELDS = [
   "room_id",
   "retro_id",
   "expires_at",
+  // Meeting timer — server time + duration; clients compute remaining locally.
+  "meeting_timer_started_at",
+  "meeting_timer_duration_seconds",
+  "meeting_timer_elapsed_at_pause_seconds",
+  "meeting_timer_paused",
+  "meeting_timer_track",
 ];
 
 function mergeSessionMetadata(prev, row) {

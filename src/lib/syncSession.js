@@ -107,6 +107,30 @@ export async function unlinkRetroFromSession(sessionId) {
   return { error };
 }
 
+// Meeting timer — leader-only controls. The timer state lives on
+// sync_sessions and is broadcast to everyone via realtime; per-client
+// math turns started_at + duration into a live countdown.
+export async function startMeetingTimer(sessionId, durationSeconds, track) {
+  const { error } = await supabase.rpc("start_meeting_timer", {
+    p_session_id: sessionId,
+    p_duration_seconds: durationSeconds,
+    p_track: track ?? null,
+  });
+  return { error };
+}
+export async function pauseMeetingTimer(sessionId) {
+  const { error } = await supabase.rpc("pause_meeting_timer", { p_session_id: sessionId });
+  return { error };
+}
+export async function resumeMeetingTimer(sessionId) {
+  const { error } = await supabase.rpc("resume_meeting_timer", { p_session_id: sessionId });
+  return { error };
+}
+export async function stopMeetingTimer(sessionId) {
+  const { error } = await supabase.rpc("stop_meeting_timer", { p_session_id: sessionId });
+  return { error };
+}
+
 export async function fetchSyncSession(sessionId) {
   const { data, error } = await supabase
     .from("sync_sessions")
