@@ -6,16 +6,20 @@
 // Auth: user JWT (Authorization: Bearer <jwt>) — anon key is fine as
 // the apikey header, RLS enforces ownership.
 //
-// Body:
+// Body (full register):
 //   {
-//     activity_id: string,        // iOS Activity.id (UUID)
-//     push_token: string,         // hex string from Activity.pushTokenUpdates
-//     secret_hash: string,        // SHA256(rawSecret) as lowercase hex
+//     activity_id: string,
+//     push_token: string,
+//     secret_hash: string,
 //     apns_env?: "production"|"sandbox",
-//     state?: object              // PomodoroActivityAttributes.State
+//     state?: object
 //   }
 //
-// Upserts on activity_id (so push-token rotations replace cleanly).
+// Body (state sync only):
+//   { activity_id: string, state: object }
+//
+// Upserts on activity_id for full register; state-only updates an owned
+// active row.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -34,6 +38,14 @@ function json(status: number, body: unknown): Response {
     status,
     headers: { ...corsHeaders, "content-type": "application/json" },
   });
+}
+
+function validateState(state: Record<string, unknown> | null): string | null {
+  if (state === null) return null;
+  if (typeof state.isRunning !== "boolean") {
+    return "state.isRunning must be a boolean";
+  }
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -63,24 +75,53 @@ Deno.serve(async (req) => {
   }
 
   const activityId = String(body.activity_id ?? "").trim();
+  if (!activityId) return json(400, { error: "missing activity_id" });
+
   const pushToken = String(body.push_token ?? "").trim();
   const secretHash = String(body.secret_hash ?? "").trim().toLowerCase();
-  const apnsEnv = body.apns_env === "sandbox" ? "sandbox" : "production";
   const state = (body.state ?? null) as Record<string, unknown> | null;
+  const stateError = validateState(state);
+  if (stateError) return json(400, { error: stateError });
 
-  if (!activityId || !pushToken || !secretHash) {
-    return json(400, { error: "missing activity_id / push_token / secret_hash" });
+  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+
+  // State-only sync: update owned active row without touching token fields.
+  if (!pushToken && !secretHash) {
+    if (!state) return json(400, { error: "missing state for state-only sync" });
+    const { data: row, error: lookupError } = await admin
+      .from("pomodoro_activity_tokens")
+      .select("activity_id")
+      .eq("activity_id", activityId)
+      .eq("user_id", userId)
+      .is("ended_at", null)
+      .maybeSingle();
+    if (lookupError) {
+      console.error("state sync lookup failed", lookupError);
+      return json(500, { error: "db lookup failed" });
+    }
+    if (!row) return json(404, { error: "activity not found" });
+    const { error: updateError } = await admin
+      .from("pomodoro_activity_tokens")
+      .update({ state })
+      .eq("activity_id", activityId)
+      .eq("user_id", userId);
+    if (updateError) {
+      console.error("state sync update failed", updateError);
+      return json(500, { error: "db update failed" });
+    }
+    return json(200, { ok: true });
+  }
+
+  if (!pushToken || !secretHash) {
+    return json(400, { error: "missing push_token / secret_hash for full register" });
   }
   if (!/^[0-9a-f]{64}$/.test(secretHash)) {
     return json(400, { error: "secret_hash must be 64-char lowercase hex" });
   }
 
-  // Use service role for the upsert so we can also clear stale rows owned
-  // by a different user_id for the same activity_id (e.g. account switch
-  // on a single device).
-  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
+  const apnsEnv = body.apns_env === "sandbox" ? "sandbox" : "production";
 
   const { error: upsertError } = await admin
     .from("pomodoro_activity_tokens")

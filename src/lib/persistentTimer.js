@@ -22,28 +22,106 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 // Live Activity pushes when the user taps the lockscreen buttons.
 let pushTokenListenerHandle = null;
 let lastUploadedKey = null;
+let lastActivityId = null;
+let pendingStateSync = null;
 
-async function uploadPushToken({ activityId, pushToken, secretHash, apnsEnv }) {
-  if (!activityId || !pushToken || !secretHash) return;
-  // De-dupe redundant rotations (same id+token).
-  const key = `${activityId}:${pushToken}`;
-  if (key === lastUploadedKey) return;
+function captureActivityId(result) {
+  if (result?.activityId) lastActivityId = result.activityId;
+}
+
+function buildActivityState({
+  endsAtMs,
+  mode,
+  label,
+  isSynced,
+  isRunning,
+  pausedSecondsLeft,
+  accentColorHex,
+}) {
+  const state = {
+    endsAtEpochMs: endsAtMs,
+    mode: mode || "work",
+    label: label || "Pomodoro",
+    isSynced: !!isSynced,
+    isRunning: !!isRunning,
+  };
+  if (pausedSecondsLeft != null) {
+    state.pausedSecondsLeft = Math.max(0, Math.round(pausedSecondsLeft));
+  }
+  if (accentColorHex) {
+    state.accentColorHex = accentColorHex;
+  }
+  return state;
+}
+
+async function syncActivityState(state) {
+  if (!state || typeof state.isRunning !== "boolean") return;
+  if (!lastActivityId) {
+    pendingStateSync = state;
+    return;
+  }
   try {
     const { error } = await supabase.functions.invoke("activity-register", {
       body: {
-        activity_id: activityId,
-        push_token: pushToken,
-        secret_hash: secretHash,
-        apns_env: apnsEnv || "production",
+        activity_id: lastActivityId,
+        state,
       },
     });
+    if (error) {
+      pendingStateSync = state;
+      console.warn("[persistentTimer] activity-register state sync failed", error);
+      return;
+    }
+    pendingStateSync = null;
+  } catch (e) {
+    pendingStateSync = state;
+    console.warn("[persistentTimer] activity-register state sync threw", e);
+  }
+}
+
+async function uploadPushToken({ activityId, pushToken, secretHash, apnsEnv, state }) {
+  if (!activityId || !pushToken || !secretHash) return;
+  lastActivityId = activityId;
+  // De-dupe redundant rotations (same id+token).
+  const key = `${activityId}:${pushToken}`;
+  if (key === lastUploadedKey) {
+    if (pendingStateSync) await syncActivityState(pendingStateSync);
+    else if (state) await syncActivityState(state);
+    return;
+  }
+  try {
+    const body = {
+      activity_id: activityId,
+      push_token: pushToken,
+      secret_hash: secretHash,
+      apns_env: apnsEnv || "production",
+    };
+    if (state) body.state = state;
+    const { error } = await supabase.functions.invoke("activity-register", { body });
     if (error) {
       console.warn("[persistentTimer] activity-register failed", error);
       return;
     }
     lastUploadedKey = key;
+    if (pendingStateSync) {
+      await syncActivityState(pendingStateSync);
+    }
   } catch (e) {
     console.warn("[persistentTimer] activity-register threw", e);
+  }
+}
+
+async function unregisterActivity(activityId) {
+  if (!activityId) return;
+  try {
+    const { error } = await supabase.functions.invoke("activity-unregister", {
+      body: { activity_id: activityId },
+    });
+    if (error) {
+      console.warn("[persistentTimer] activity-unregister failed", error);
+    }
+  } catch (e) {
+    console.warn("[persistentTimer] activity-unregister threw", e);
   }
 }
 
@@ -94,7 +172,7 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
   try {
     if (platform === "ios") {
       await ensurePushTokenListener();
-      await IOSLiveActivity.start({
+      const result = await IOSLiveActivity.start({
         endsAtMs,
         mode,
         label,
@@ -104,6 +182,17 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
       });
+      captureActivityId(result);
+      await syncActivityState(
+        buildActivityState({
+          endsAtMs,
+          mode,
+          label,
+          isSynced,
+          isRunning: true,
+          accentColorHex,
+        })
+      );
     } else if (platform === "android") {
       await AndroidPersistentTimer.start({
         endsAtMs,
@@ -129,7 +218,7 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
   try {
     if (platform === "ios") {
       await ensurePushTokenListener();
-      await IOSLiveActivity.update({
+      const result = await IOSLiveActivity.update({
         endsAtMs,
         mode,
         label,
@@ -139,6 +228,17 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
       });
+      captureActivityId(result);
+      await syncActivityState(
+        buildActivityState({
+          endsAtMs,
+          mode,
+          label,
+          isSynced,
+          isRunning: true,
+          accentColorHex,
+        })
+      );
     } else if (platform === "android") {
       await AndroidPersistentTimer.update({
         endsAtMs,
@@ -162,15 +262,28 @@ export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }
   const label = modeLabel(mode);
   const accentColorHex = currentAccentHex();
   const platform = getPlatform();
+  const pausedSec = Math.max(0, Math.round(pausedSecondsLeft || 0));
   try {
     if (platform === "ios") {
-      await IOSLiveActivity.pause({
-        pausedSecondsLeft: Math.max(0, Math.round(pausedSecondsLeft || 0)),
+      const result = await IOSLiveActivity.pause({
+        pausedSecondsLeft: pausedSec,
         mode,
         label,
         isSynced: !!isSynced,
         accentColorHex,
       });
+      captureActivityId(result);
+      await syncActivityState(
+        buildActivityState({
+          endsAtMs: Date.now(),
+          mode,
+          label,
+          isSynced,
+          isRunning: false,
+          pausedSecondsLeft: pausedSec,
+          accentColorHex,
+        })
+      );
     } else if (platform === "android") {
       await AndroidPersistentTimer.stop();
     } else if (isElectron) {
@@ -191,12 +304,16 @@ export async function resumePersistentTimer({ pausedSecondsLeft, mode, isSynced 
 
 export async function stopPersistentTimer() {
   const platform = getPlatform();
+  const activityId = lastActivityId;
   try {
     if (platform === "ios") {
       await IOSLiveActivity.stop();
-      // Drop the cached upload key so the next start gets re-registered
-      // with the server even if iOS happens to recycle the push token.
+      if (activityId) {
+        await unregisterActivity(activityId);
+      }
+      lastActivityId = null;
       lastUploadedKey = null;
+      pendingStateSync = null;
     } else if (platform === "android") {
       await AndroidPersistentTimer.stop();
     } else if (isElectron) {

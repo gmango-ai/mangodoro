@@ -129,6 +129,9 @@ Deno.serve(async (req) => {
   // state if the widget didn't include one.
   const passedState = body.current_state as ContentState | undefined;
   const current = (passedState ?? (row.state ?? {})) as ContentState;
+  if (action === "toggle" && typeof current.isRunning !== "boolean") {
+    return json(409, { error: "incomplete state" });
+  }
   const next = computeNext(action, current);
   const event: "update" | "end" = action === "stop" ? "end" : "update";
 
@@ -159,13 +162,22 @@ Deno.serve(async (req) => {
     .from("pomodoro_activity_tokens")
     .update(updates)
     .eq("activity_id", activityId);
-  if (updateError) console.error("persist failed", updateError);
+  if (updateError) {
+    console.error("persist failed", updateError);
+    return json(500, { error: "db persist failed" });
+  }
 
-  return json(200, {
+  const responseBody = {
     ok: apnsResult.ok,
     apns_status: apnsResult.status,
     apns_id: apnsResult.apnsId,
     new_state: next,
     ended: event === "end",
-  });
+  };
+
+  if (!apnsResult.ok) {
+    return json(502, responseBody);
+  }
+
+  return json(200, responseBody);
 });

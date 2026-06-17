@@ -17,9 +17,11 @@ import os
 //   "sessions-extension" render process), so `await activity.update()`
 //   here is a no-op. An APNs push reaches the renderer regardless.
 //
-// Offline / failure fallback: we still write the App Group flag so the
-// host app reconciles its JS-side state and re-syncs the activity the
-// next time it foregrounds, matching the pre-APNs behavior.
+// Offline / failure fallback: on dispatch failure we leave App Group
+// flags unchanged so the host app does not reconcile a tap that never
+// reached the server. On success (including 502 when the DB persisted
+// but APNs failed) we mirror the server's new_state back into the App
+// Group so the next lockscreen tap sends fresh current_state.
 
 private let appGroupID = "group.com.gmango.mangodoro"
 private let pendingToggleKey = "mangodoro.pendingTimerToggle"
@@ -52,21 +54,78 @@ private enum ActivityAction: String {
     case stop
 }
 
-/// POSTs to `<supabaseUrl>/functions/v1/activity-action`. Returns true
-/// on a 2xx so the caller can decide whether to fall back to the App
-/// Group flag path. Network/auth failures are logged and swallowed.
 @available(iOS 17.0, *)
-private func dispatchActivityAction(_ action: ActivityAction) async -> Bool {
-    let defaults = UserDefaults(suiteName: appGroupID)
+private enum DispatchResult {
+    case succeeded(newState: [String: Any])
+    case apnsFailed(newState: [String: Any])
+    case failed
+}
+
+@available(iOS 17.0, *)
+private func mirrorServerState(_ newState: [String: Any], defaults: UserDefaults) {
+    if let data = try? JSONSerialization.data(withJSONObject: newState),
+       let json = String(data: data, encoding: .utf8) {
+        defaults.set(json, forKey: activityStateKey)
+    }
+    if let isRunning = newState["isRunning"] as? Bool {
+        defaults.set(isRunning, forKey: lastToggleResultRunningKey)
+    }
+}
+
+@available(iOS 17.0, *)
+private func parseDispatchResponse(
+    _ action: ActivityAction,
+    data: Data,
+    statusCode: Int,
+    defaults: UserDefaults
+) -> DispatchResult {
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let newState = json["new_state"] as? [String: Any] else {
+        let snippet = String(data: data.prefix(200), encoding: .utf8) ?? "<binary>"
+        log.error("activity-action: HTTP \(statusCode) — \(snippet, privacy: .public)")
+        return .failed
+    }
+
+    if statusCode == 502 {
+        let apnsStatus = json["apns_status"] as? Int ?? -1
+        log.error("activity-action: APNs failed apns_status=\(apnsStatus, privacy: .public)")
+        mirrorServerState(newState, defaults: defaults)
+        return .apnsFailed(newState: newState)
+    }
+
+    if (200..<300).contains(statusCode) {
+        if let ok = json["ok"] as? Bool, ok {
+            log.notice("activity-action: \(action.rawValue, privacy: .public) → \(statusCode) ok=true")
+            mirrorServerState(newState, defaults: defaults)
+            return .succeeded(newState: newState)
+        }
+        let apnsStatus = json["apns_status"] as? Int ?? -1
+        log.error("activity-action: APNs failed apns_status=\(apnsStatus, privacy: .public)")
+        return .failed
+    }
+
+    let snippet = String(data: data.prefix(200), encoding: .utf8) ?? "<binary>"
+    log.error("activity-action: HTTP \(statusCode) — \(snippet, privacy: .public)")
+    return .failed
+}
+
+/// POSTs to `<supabaseUrl>/functions/v1/activity-action`. On success
+/// mirrors the server's new_state into the App Group for the next tap.
+@available(iOS 17.0, *)
+private func dispatchActivityAction(_ action: ActivityAction) async -> DispatchResult {
+    guard let defaults = UserDefaults(suiteName: appGroupID) else {
+        log.notice("activity-action: App Group unavailable")
+        return .failed
+    }
     guard
-        let activityId = defaults?.string(forKey: activityIdKey), !activityId.isEmpty,
-        let secret = defaults?.string(forKey: activitySecretKey), !secret.isEmpty,
-        let urlBase = defaults?.string(forKey: supabaseUrlKey), !urlBase.isEmpty,
-        let anonKey = defaults?.string(forKey: supabaseAnonKeyKey), !anonKey.isEmpty,
+        let activityId = defaults.string(forKey: activityIdKey), !activityId.isEmpty,
+        let secret = defaults.string(forKey: activitySecretKey), !secret.isEmpty,
+        let urlBase = defaults.string(forKey: supabaseUrlKey), !urlBase.isEmpty,
+        let anonKey = defaults.string(forKey: supabaseAnonKeyKey), !anonKey.isEmpty,
         let url = URL(string: "\(urlBase.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/functions/v1/activity-action")
     else {
-        log.notice("activity-action: missing App Group config, falling back to local flag")
-        return false
+        log.notice("activity-action: missing App Group config")
+        return .failed
     }
 
     var request = URLRequest(url: url, timeoutInterval: 4)
@@ -84,7 +143,7 @@ private func dispatchActivityAction(_ action: ActivityAction) async -> Bool {
     // server uses fresh state instead of whatever it had stored at last
     // register/action. Covers in-app pause/resume that never round-tripped
     // through the server.
-    if let stateJSON = defaults?.string(forKey: activityStateKey),
+    if let stateJSON = defaults.string(forKey: activityStateKey),
        let stateData = stateJSON.data(using: .utf8),
        let stateObj = try? JSONSerialization.jsonObject(with: stateData) {
         body["current_state"] = stateObj
@@ -93,22 +152,16 @@ private func dispatchActivityAction(_ action: ActivityAction) async -> Bool {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
     } catch {
         log.error("activity-action: json encode failed: \(String(describing: error))")
-        return false
+        return .failed
     }
 
     do {
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else { return false }
-        if (200..<300).contains(http.statusCode) {
-            log.notice("activity-action: \(action.rawValue, privacy: .public) → \(http.statusCode)")
-            return true
-        }
-        let snippet = String(data: data.prefix(200), encoding: .utf8) ?? "<binary>"
-        log.error("activity-action: HTTP \(http.statusCode) — \(snippet, privacy: .public)")
-        return false
+        guard let http = response as? HTTPURLResponse else { return .failed }
+        return parseDispatchResponse(action, data: data, statusCode: http.statusCode, defaults: defaults)
     } catch {
         log.error("activity-action: network failure: \(String(describing: error))")
-        return false
+        return .failed
     }
 }
 
@@ -122,27 +175,20 @@ struct ToggleTimerIntent: LiveActivityIntent {
     func perform() async throws -> some IntentResult {
         log.notice("ToggleTimerIntent fired")
 
-        let defaults = UserDefaults(suiteName: appGroupID)
-        let wasRunning = defaults?.bool(forKey: lastToggleResultRunningKey) ?? false
-        let nowRunning = !wasRunning
+        let result = await dispatchActivityAction(.toggle)
 
-        // Send to the edge function. On success the APNs push will
-        // update the lockscreen UI within ~1s. On failure we still
-        // mark the pending-toggle so the host app reconciles when it
-        // foregrounds.
-        let dispatched = await dispatchActivityAction(.toggle)
-
-        // If we just paused (regardless of dispatch success), drop the
-        // host-scheduled local alarm so it doesn't fire at the original
-        // endsAtMs while the timer is paused. The host reschedules it
-        // when the user resumes.
-        if !nowRunning {
-            cancelScheduledAlarm()
+        switch result {
+        case .succeeded(let newState), .apnsFailed(let newState):
+            let nowRunning = newState["isRunning"] as? Bool ?? false
+            if !nowRunning {
+                cancelScheduledAlarm()
+            }
+            UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
+            log.notice("ToggleTimerIntent ok nowRunning=\(nowRunning)")
+        case .failed:
+            log.notice("ToggleTimerIntent failed — flags unchanged")
         }
 
-        defaults?.set(true, forKey: pendingToggleKey)
-        defaults?.set(nowRunning, forKey: lastToggleResultRunningKey)
-        log.notice("ToggleTimerIntent dispatched=\(dispatched) wasRunning=\(wasRunning) → nowRunning=\(nowRunning)")
         return .result()
     }
 }
@@ -156,13 +202,21 @@ struct StopTimerIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         log.notice("StopTimerIntent fired")
-        let dispatched = await dispatchActivityAction(.stop)
-        cancelScheduledAlarm()
-        if let defaults = UserDefaults(suiteName: appGroupID) {
-            defaults.set(true, forKey: pendingStopKey)
-            defaults.set(false, forKey: lastToggleResultRunningKey)
+        let result = await dispatchActivityAction(.stop)
+
+        switch result {
+        case .succeeded, .apnsFailed:
+            cancelScheduledAlarm()
+            if let defaults = UserDefaults(suiteName: appGroupID) {
+                defaults.set(true, forKey: pendingStopKey)
+                defaults.set(false, forKey: lastToggleResultRunningKey)
+                defaults.removeObject(forKey: activityStateKey)
+            }
+            log.notice("StopTimerIntent ok")
+        case .failed:
+            log.notice("StopTimerIntent failed — flags unchanged")
         }
-        log.notice("StopTimerIntent dispatched=\(dispatched)")
+
         return .result()
     }
 }
