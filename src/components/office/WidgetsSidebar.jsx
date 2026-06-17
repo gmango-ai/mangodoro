@@ -6,6 +6,8 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import { unlinkRetroFromSession } from "../../lib/syncSession";
 import RetroPicker from "./RetroPicker";
+import PomodoroWidget from "./PomodoroWidget";
+import GoalsWidget from "./GoalsWidget";
 
 // App-wide widgets sidebar. The retro widget is the primary action
 // today (entry point for attaching a retro to the active session).
@@ -33,6 +35,8 @@ export default function WidgetsSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        <PomodoroWidget dark={dark} />
+        <GoalsWidget dark={dark} />
         <RetroWidget dark={dark} />
         <TasksWidget dark={dark} />
       </div>

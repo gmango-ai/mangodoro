@@ -1,15 +1,14 @@
-import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
-import { Users as UsersIcon, Timer, Target, ArrowRight } from "lucide-react";
-import MarkdownText from "../components/MarkdownText";
+import { Users as UsersIcon, Timer, ArrowRight } from "lucide-react";
 import PomodoroSurface from "../components/pomodoro/PomodoroSurface";
+import GoalsList from "../components/GoalsList";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
-import { listCurrentWeekRetros } from "../lib/retro";
+import { useWeekGoals } from "../hooks/useWeekGoals";
 
 // /pomodoro is the timer, full stop. Personal by default — no friction
 // to start a focus block. Picking a room or syncing with a teammate
@@ -17,7 +16,7 @@ import { listCurrentWeekRetros } from "../lib/retro";
 // flips into synced display when SyncSessionContext has a session).
 export default function PomodoroPage({ session, onOpenSync }) {
   const { settings, clockIn, projects, dataLoaded } = useApp();
-  const { activeTeamId, activeTeamSessions, myOrgTeamIds } = useTeam();
+  const { activeTeamId, activeTeamSessions } = useTeam();
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { syncSession } = useSyncSession();
@@ -55,28 +54,8 @@ export default function PomodoroPage({ session, onOpenSync }) {
 
   // Current week's retro goals for the user's tagged departments —
   // glance-able context above the timer keeps the goal in mind during
-  // a focus block. Org-wide goals show for everyone.
-  const [weekGoals, setWeekGoals] = useState([]);
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!activeTeamId) {
-        setWeekGoals([]);
-        return;
-      }
-      const { data } = await listCurrentWeekRetros(activeTeamId);
-      if (cancelled) return;
-      const filtered = data.filter((r) => {
-        if (r.org_team_id == null) return true;
-        return myOrgTeamIds?.has(r.org_team_id);
-      });
-      setWeekGoals(filtered.filter((r) => (r.goal || "").trim().length > 0));
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTeamId, myOrgTeamIds, session?.user?.id]);
+  // a focus block.
+  const { goals: weekGoals } = useWeekGoals();
 
   // Other sessions to surface in the sidebar. When solo, show all
   // active rooms; when synced, exclude the one we're in.
@@ -278,33 +257,9 @@ export default function PomodoroPage({ session, onOpenSync }) {
                   dark ? "text-slate-400" : "text-slate-500"
                 }`}
               >
-                Goals for next week
+                Goals this week
               </h3>
-              <ul className="space-y-3">
-                {weekGoals.map((g) => (
-                  <li
-                    key={g.id}
-                    className={`text-xs ${
-                      dark ? "text-slate-200" : "text-slate-700"
-                    }`}
-                  >
-                    <Link
-                      to={`/retros/${g.id}`}
-                      className={`block group ${
-                        dark ? "hover:text-slate-50" : "hover:text-slate-900"
-                      }`}
-                    >
-                      <span className="inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[9px] mb-1 text-[var(--color-accent)]">
-                        <Target className="w-3 h-3" />
-                        {g.org_team_name || g.department || "Team"}
-                      </span>
-                      <MarkdownText dark={dark} compact>
-                        {g.goal}
-                      </MarkdownText>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <GoalsList goals={weekGoals} dark={dark} />
             </div>
           )}
         </aside>
