@@ -23,6 +23,11 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 let pushTokenListenerHandle = null;
 let lastUploadedKey = null;
 let lastActivityId = null;
+let pendingStateSync = null;
+
+function captureActivityId(result) {
+  if (result?.activityId) lastActivityId = result.activityId;
+}
 
 function buildActivityState({
   endsAtMs,
@@ -50,7 +55,11 @@ function buildActivityState({
 }
 
 async function syncActivityState(state) {
-  if (!lastActivityId || !state || typeof state.isRunning !== "boolean") return;
+  if (!state || typeof state.isRunning !== "boolean") return;
+  if (!lastActivityId) {
+    pendingStateSync = state;
+    return;
+  }
   try {
     const { error } = await supabase.functions.invoke("activity-register", {
       body: {
@@ -59,9 +68,13 @@ async function syncActivityState(state) {
       },
     });
     if (error) {
+      pendingStateSync = state;
       console.warn("[persistentTimer] activity-register state sync failed", error);
+      return;
     }
+    pendingStateSync = null;
   } catch (e) {
+    pendingStateSync = state;
     console.warn("[persistentTimer] activity-register state sync threw", e);
   }
 }
@@ -72,7 +85,8 @@ async function uploadPushToken({ activityId, pushToken, secretHash, apnsEnv, sta
   // De-dupe redundant rotations (same id+token).
   const key = `${activityId}:${pushToken}`;
   if (key === lastUploadedKey) {
-    if (state) await syncActivityState(state);
+    if (pendingStateSync) await syncActivityState(pendingStateSync);
+    else if (state) await syncActivityState(state);
     return;
   }
   try {
@@ -89,6 +103,9 @@ async function uploadPushToken({ activityId, pushToken, secretHash, apnsEnv, sta
       return;
     }
     lastUploadedKey = key;
+    if (pendingStateSync) {
+      await syncActivityState(pendingStateSync);
+    }
   } catch (e) {
     console.warn("[persistentTimer] activity-register threw", e);
   }
@@ -155,7 +172,7 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
   try {
     if (platform === "ios") {
       await ensurePushTokenListener();
-      await IOSLiveActivity.start({
+      const result = await IOSLiveActivity.start({
         endsAtMs,
         mode,
         label,
@@ -165,6 +182,7 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
       });
+      captureActivityId(result);
       await syncActivityState(
         buildActivityState({
           endsAtMs,
@@ -200,7 +218,7 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
   try {
     if (platform === "ios") {
       await ensurePushTokenListener();
-      await IOSLiveActivity.update({
+      const result = await IOSLiveActivity.update({
         endsAtMs,
         mode,
         label,
@@ -210,6 +228,7 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
       });
+      captureActivityId(result);
       await syncActivityState(
         buildActivityState({
           endsAtMs,
@@ -246,13 +265,14 @@ export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }
   const pausedSec = Math.max(0, Math.round(pausedSecondsLeft || 0));
   try {
     if (platform === "ios") {
-      await IOSLiveActivity.pause({
+      const result = await IOSLiveActivity.pause({
         pausedSecondsLeft: pausedSec,
         mode,
         label,
         isSynced: !!isSynced,
         accentColorHex,
       });
+      captureActivityId(result);
       await syncActivityState(
         buildActivityState({
           endsAtMs: Date.now(),
@@ -293,6 +313,7 @@ export async function stopPersistentTimer() {
       }
       lastActivityId = null;
       lastUploadedKey = null;
+      pendingStateSync = null;
     } else if (platform === "android") {
       await AndroidPersistentTimer.stop();
     } else if (isElectron) {

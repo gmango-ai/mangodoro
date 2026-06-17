@@ -38,6 +38,11 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// duplicate emissions if the activity is replaced.
     private var pushTokenTask: Task<Void, Never>?
 
+    @available(iOS 16.1, *)
+    private func resolveWithActivityId(_ call: CAPPluginCall, activity: Activity<PomodoroActivityAttributes>) {
+        call.resolve(["activityId": activity.id])
+    }
+
     public override func load() {
         super.load()
     }
@@ -108,7 +113,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 await MainActor.run {
                     self.observePushToken(for: existing)
-                    call.resolve()
+                    self.resolveWithActivityId(call, activity: existing)
                 }
             }
             return
@@ -131,7 +136,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 )
             }
             observePushToken(for: activity)
-            call.resolve()
+            resolveWithActivityId(call, activity: activity)
         } catch {
             call.reject("Failed to start Live Activity: \(error.localizedDescription)")
         }
@@ -172,7 +177,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             } else {
                 await existing.update(using: state)
             }
-            await MainActor.run { call.resolve() }
+            await MainActor.run { self.resolveWithActivityId(call, activity: existing) }
         }
         #else
         call.resolve()
