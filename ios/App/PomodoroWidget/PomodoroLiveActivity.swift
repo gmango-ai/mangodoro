@@ -17,8 +17,7 @@ import SwiftUI
 ///     uses). Provides the only intentional color in the lockscreen
 ///     so the activity reads as Mangodoro without overwhelming.
 ///
-/// Buttons are intentionally HIDDEN — see ios/LIVE_ACTIVITY_PUSH_SETUP.md.
-/// Tap-to-open works by default and routes users to the host app.
+/// Lock-screen pause/play/stop buttons require iOS 17+ (LiveActivityIntent).
 @available(iOS 16.1, *)
 struct PomodoroLiveActivity: Widget {
     var body: some WidgetConfiguration {
@@ -53,6 +52,19 @@ struct PomodoroLiveActivity: Widget {
                         .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
                         .foregroundColor(.white)
                         .padding(.trailing, 4)
+                }
+                if #available(iOS 17.0, *) {
+                    DynamicIslandExpandedRegion(.bottom) {
+                        HStack(spacing: 12) {
+                            ToggleButton(
+                                isRunning: context.state.isRunning,
+                                tint: accentColor(context.state),
+                                size: 44
+                            )
+                            StopButton(tint: accentColor(context.state), size: 36)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
                 }
             } compactLeading: {
                 MangoMark(tint: accentColor(context.state))
@@ -108,6 +120,16 @@ private struct PomodoroLockScreenView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
+            if #available(iOS 17.0, *) {
+                HStack(spacing: 10) {
+                    ToggleButton(
+                        isRunning: state.isRunning,
+                        tint: accentColor,
+                        size: 44
+                    )
+                    StopButton(tint: accentColor, size: 36)
+                }
+            }
             CountdownText(state: state)
                 .font(.system(size: 38, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundColor(.white)
@@ -116,10 +138,14 @@ private struct PomodoroLockScreenView: View {
         .padding(.vertical, 16)
     }
 
+    private var accentColor: Color {
+        Color(hex: state.accentColorHex) ?? .teal
+    }
+
     @ViewBuilder
     private var subtitle: some View {
         if !state.isRunning {
-            Text("Paused — open Mangodoro to resume")
+            Text("Paused")
         } else if state.isSynced {
             Text("Sync session")
         } else {
@@ -224,62 +250,54 @@ private struct MangoMark: View {
     }
 }
 
-// HIDDEN — interactive button views. Restored from history; left here
-// so re-enabling once APNs is live is a matter of (a) inserting these
-// types into the .bottom region of the Dynamic Island and into the
-// HStack on the lockscreen, and (b) deleting the // HIDDEN marker.
-// Design intent when buttons come back: bigger pause/play and stop,
-// close together, anchored to the .bottom region instead of stacking
-// under .leading/.trailing.
-//
-// @available(iOS 17.0, *)
-// private struct ToggleButton: View {
-//     let isRunning: Bool
-//     let tint: Color
-//     let size: CGFloat
-//
-//     var body: some View {
-//         if isRunning {
-//             button(systemName: "pause.fill").id("pause")
-//         } else {
-//             button(systemName: "play.fill").id("play")
-//         }
-//     }
-//
-//     private func button(systemName: String) -> some View {
-//         Button(intent: ToggleTimerIntent()) {
-//             ZStack {
-//                 Circle().fill(tint)
-//                 Image(systemName: systemName)
-//                     .font(.system(size: size * 0.46, weight: .bold))
-//                     .foregroundColor(.white)
-//             }
-//             .frame(width: size, height: size)
-//             .contentShape(Rectangle())
-//         }
-//         .buttonStyle(.plain)
-//     }
-// }
-//
-// @available(iOS 17.0, *)
-// private struct StopButton: View {
-//     let tint: Color
-//     let size: CGFloat
-//
-//     var body: some View {
-//         Button(intent: StopTimerIntent()) {
-//             ZStack {
-//                 Circle().fill(tint)
-//                 Image(systemName: "stop.fill")
-//                     .font(.system(size: size * 0.46, weight: .bold))
-//                     .foregroundColor(.white)
-//             }
-//             .frame(width: size, height: size)
-//             .contentShape(Rectangle())
-//         }
-//         .buttonStyle(.plain)
-//     }
-// }
+@available(iOS 17.0, *)
+private struct ToggleButton: View {
+    let isRunning: Bool
+    let tint: Color
+    let size: CGFloat
+
+    var body: some View {
+        if isRunning {
+            button(systemName: "pause.fill").id("pause")
+        } else {
+            button(systemName: "play.fill").id("play")
+        }
+    }
+
+    private func button(systemName: String) -> some View {
+        Button(intent: ToggleTimerIntent()) {
+            ZStack {
+                Circle().fill(tint)
+                Image(systemName: systemName)
+                    .font(.system(size: size * 0.46, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .frame(width: size, height: size)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+@available(iOS 17.0, *)
+private struct StopButton: View {
+    let tint: Color
+    let size: CGFloat
+
+    var body: some View {
+        Button(intent: StopTimerIntent()) {
+            ZStack {
+                Circle().fill(tint)
+                Image(systemName: "stop.fill")
+                    .font(.system(size: size * 0.46, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .frame(width: size, height: size)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
 
 extension Color {
     init?(hex: String?) {

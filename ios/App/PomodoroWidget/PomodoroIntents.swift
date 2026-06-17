@@ -100,6 +100,16 @@ private func dispatchActivityAction(_ action: ActivityAction) async -> Bool {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { return false }
         if (200..<300).contains(http.statusCode) {
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let ok = json["ok"] as? Bool {
+                if ok {
+                    log.notice("activity-action: \(action.rawValue, privacy: .public) → \(http.statusCode) ok=true")
+                    return true
+                }
+                let apnsStatus = json["apns_status"] as? Int ?? -1
+                log.error("activity-action: APNs failed apns_status=\(apnsStatus, privacy: .public)")
+                return false
+            }
             log.notice("activity-action: \(action.rawValue, privacy: .public) → \(http.statusCode)")
             return true
         }

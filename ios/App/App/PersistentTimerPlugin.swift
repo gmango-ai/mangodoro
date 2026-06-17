@@ -230,11 +230,18 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         pushTokenTask = Task { [weak self] in
             for await tokenData in activity.pushTokenUpdates {
                 let tokenHex = tokenData.map { String(format: "%02x", $0) }.joined()
-                let payload: [String: Any] = [
+                let contentState: PomodoroActivityAttributes.State
+                if #available(iOS 16.2, *) {
+                    contentState = activity.content.state
+                } else {
+                    contentState = activity.contentState
+                }
+                var payload: [String: Any] = [
                     "activityId": activityId,
                     "pushToken": tokenHex,
                     "secretHash": secretHash,
-                    "apnsEnv": apnsEnv
+                    "apnsEnv": apnsEnv,
+                    "state": Self.stateDictionary(from: contentState)
                 ]
                 // Hop to the main thread via DispatchQueue rather than
                 // MainActor.run — CAPPlugin isn't @MainActor-isolated and
@@ -281,14 +288,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         reloadHomeWidget()
     }
 
-    /// Mirrors the activity content state to the App Group so the widget
-    /// extension can forward it to the activity-action edge function. The
-    /// server uses this as the source of truth when computing the next
-    /// state — avoids a "first tap does nothing" bug when the user
-    /// pauses/resumes from inside the app (which the server otherwise
-    /// wouldn't know about until next phase boundary).
     @available(iOS 16.1, *)
-    private static func mirrorContentState(_ state: PomodoroActivityAttributes.State) {
+    private static func stateDictionary(from state: PomodoroActivityAttributes.State) -> [String: Any] {
         var payload: [String: Any] = [
             "endsAtEpochMs": state.endsAtEpochMs,
             "mode": state.mode,
@@ -302,7 +303,18 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         if let accentColorHex = state.accentColorHex {
             payload["accentColorHex"] = accentColorHex
         }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+        return payload
+    }
+
+    /// Mirrors the activity content state to the App Group so the widget
+    /// extension can forward it to the activity-action edge function. The
+    /// server uses this as the source of truth when computing the next
+    /// state — avoids a "first tap does nothing" bug when the user
+    /// pauses/resumes from inside the app (which the server otherwise
+    /// wouldn't know about until next phase boundary).
+    @available(iOS 16.1, *)
+    private static func mirrorContentState(_ state: PomodoroActivityAttributes.State) {
+        guard let data = try? JSONSerialization.data(withJSONObject: stateDictionary(from: state)),
               let json = String(data: data, encoding: .utf8) else { return }
         UserDefaults(suiteName: AppGroup.identifier)?
             .set(json, forKey: AppGroup.activityStateKey)
