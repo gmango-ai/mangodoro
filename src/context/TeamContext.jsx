@@ -732,6 +732,20 @@ export function TeamProvider({ session, children }) {
     });
   }, [rooms, isAdmin, myOrgTeamIds]);
 
+  // Rooms gated to org_teams the viewer is NOT a member of. Surfaced
+  // in the hallway / office overlay as locked tiles so people can see
+  // what exists across the office without being able to enter. Admins
+  // never have locked rooms (they bypass gating).
+  const lockedRooms = useMemo(() => {
+    if (!rooms || rooms.length === 0) return [];
+    if (isAdmin) return [];
+    return rooms.filter((r) => {
+      const gating = r.room_teams || [];
+      if (gating.length === 0) return false;
+      return !gating.some((rt) => myOrgTeamIds.has(rt.org_team_id));
+    });
+  }, [rooms, isAdmin, myOrgTeamIds]);
+
   return (
     <TeamContext.Provider
       value={{
@@ -742,7 +756,7 @@ export function TeamProvider({ session, children }) {
         removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
-        rooms, visibleRooms, loadRoomsForActiveTeam,
+        rooms, visibleRooms, lockedRooms, loadRoomsForActiveTeam,
         teamSounds, loadTeamSoundsForActive, addTeamSound, renameTeamSound, removeTeamSound,
         teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
         orgTeams, myOrgTeamIds, myOrgTeamLeadIds, teamsByUserId, orgTeamMemberCounts, loadOrgTeamsForActive,

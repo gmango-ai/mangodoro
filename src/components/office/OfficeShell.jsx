@@ -61,7 +61,7 @@ function saveSidebarOpen(v) {
 // Now rooms live in the on-demand overlay; the left rail is for
 // utility widgets that DO need to be glance-able.
 export default function OfficeShell({
-  activeTeam, rooms, sessionByRoomId, orgTeams,
+  activeTeam, rooms, lockedRooms, sessionByRoomId, orgTeams,
   onlineCount, canEdit, busy, onJoin, onStart, onEditOffice,
 }) {
   const { theme } = useTheme();
@@ -83,6 +83,30 @@ export default function OfficeShell({
   const resolvedRoomId = (roomId && (rooms || []).some((r) => r.id === roomId)) ? roomId : null;
   const selectedRoom = resolvedRoomId ? rooms.find((r) => r.id === resolvedRoomId) : null;
   const activeSession = selectedRoom ? (sessionByRoomId?.get(selectedRoom.id) || null) : null;
+
+  // Auto-open into the room the user is already in.
+  // When the user lands on bare /office and they have an active sync
+  // session bound to a visible room, jump straight into that room —
+  // they're "in" it from the system's POV, so showing the hallway is
+  // misleading. Fires once per mount via a ref so the user can still
+  // click "Hallway" to leave intentionally without being yanked back.
+  const { syncSession } = useSyncSession();
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (resolvedRoomId) {
+      // Either we're already in a room URL, or the URL has a roomId
+      // we don't recognize; either way, don't auto-redirect.
+      autoOpenedRef.current = true;
+      return;
+    }
+    const activeRoomId = syncSession?.room_id;
+    if (!activeRoomId) return; // No session, or session not bound to a room
+    const visible = (rooms || []).some((r) => r.id === activeRoomId);
+    if (!visible) return; // Session for a room they can't see — leave them in the hallway
+    autoOpenedRef.current = true;
+    navigate(`/office/r/${activeRoomId}`, { replace: true });
+  }, [resolvedRoomId, syncSession?.room_id, rooms, navigate]);
 
   // Persist last-visited room so we can highlight it in the hallway
   // ("you were here recently"). Doesn't change navigation behavior.
@@ -106,7 +130,6 @@ export default function OfficeShell({
   // Private rooms with an active invite_code are skipped on auto-start:
   // onStart would pop the code prompt, and we don't want that prompt
   // appearing just because the user typed a URL.
-  const { syncSession } = useSyncSession();
   const boundRoomRef = useRef(null);
   const inFlightRef = useRef(false);
   useEffect(() => {
@@ -221,6 +244,7 @@ export default function OfficeShell({
           <HallwayView
             activeTeam={activeTeam}
             rooms={rooms}
+            lockedRooms={lockedRooms}
             sessionByRoomId={sessionByRoomId}
             onlineCount={onlineCount}
             canEdit={canEdit}
@@ -235,6 +259,7 @@ export default function OfficeShell({
         open={overlayOpen}
         onClose={() => setOverlayOpen(false)}
         rooms={rooms}
+        lockedRooms={lockedRooms}
         sessionByRoomId={sessionByRoomId}
         selectedRoomId={resolvedRoomId}
       />
