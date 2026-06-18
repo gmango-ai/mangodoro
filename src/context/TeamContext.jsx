@@ -365,6 +365,19 @@ export function TeamProvider({ session, children }) {
   // Realtime: refresh when team sessions change.
   useEffect(() => {
     if (!activeTeamId) return;
+
+    // Participant rows now also change on every heartbeat (~20s per
+    // connected user, org-wide on this unfiltered subscription), so
+    // coalesce that handler into a short trailing debounce — a burst of
+    // heartbeats collapses into one reload. Session start/stop/end
+    // (sync_sessions, team-filtered, low volume) stays immediate so
+    // join/leave still feels snappy.
+    let partDebounce = null;
+    const reloadOnParticipantChange = () => {
+      if (partDebounce) clearTimeout(partDebounce);
+      partDebounce = setTimeout(loadActiveTeamSessions, 1500);
+    };
+
     const channel = supabase
       .channel(`team-sessions:${activeTeamId}`)
       .on(
@@ -375,14 +388,15 @@ export function TeamProvider({ session, children }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "sync_session_participants" },
-        loadActiveTeamSessions,
+        reloadOnParticipantChange,
       )
       .subscribe();
-    // Lightweight polling fallback every 30s; the timer derives from
-    // ends_at so the UI stays smooth even without fresh rows.
+    // Lightweight polling fallback every 30s; also re-evaluates read-time
+    // liveness so an abandoned room drops off the hallway on its own.
     const pollId = setInterval(loadActiveTeamSessions, 30000);
     return () => {
       clearInterval(pollId);
+      if (partDebounce) clearTimeout(partDebounce);
       supabase.removeChannel(channel);
     };
   }, [activeTeamId, loadActiveTeamSessions]);

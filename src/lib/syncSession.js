@@ -1,5 +1,13 @@
 import { supabase } from "../supabase";
 
+// How long a participant's last_seen_at stays "live" before we treat
+// them as gone. Foreground clients heartbeat every 20s (see
+// SyncSessionContext), so a live tab is never stale; this window only
+// trips for occupants whose tab has been closed/suspended for >2 min.
+// Keep in sync with the `interval '120 seconds'` used server-side in
+// reconcile_room_session / the sweep.
+export const PRESENCE_GRACE_MS = 120_000;
+
 export async function createSyncSession(userId, displayName = "", opts = {}) {
   // Generate a 6-char uppercase alphanumeric join code.
   // Use base32-ish padding so it's always exactly 6 chars (avoiding accidental
@@ -14,6 +22,17 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
   const teamId = opts.teamId ?? null;
   const roomId = opts.roomId ?? null;
   const visibility = opts.visibility ?? (teamId ? "team" : "invite_only");
+
+  // Reset-to-zero: if this room still has an abandoned (all-stale)
+  // session, tear it down first. Otherwise we'd collide with the
+  // one-active-session-per-room unique index and inherit the ghost's
+  // frozen timer. A live session is left untouched (the insert below
+  // would then fail the unique index, surfacing as "could not start" —
+  // correct, since the caller should be joining, not starting).
+  if (roomId) {
+    await supabase.rpc("reconcile_room_session", { p_room_id: roomId });
+  }
+
   const { data: session, error } = await supabase
     .from("sync_sessions")
     .insert({
@@ -268,15 +287,25 @@ export async function listActiveTeamSessions(teamId) {
   const sessionIds = data.map((s) => s.id);
   const { data: parts } = await supabase
     .from("sync_session_participants")
-    .select("session_id, user_id")
+    .select("session_id, user_id, last_seen_at")
     .in("session_id", sessionIds)
     .is("left_at", null);
 
-  // Pull profiles for everyone we'll render (every leader + every participant).
+  // Read-time liveness: only count occupants seen within the grace
+  // window. A participant row with left_at = null but a stale
+  // last_seen_at is a ghost (closed tab), so it must not inflate the
+  // hallway count or keep an abandoned room looking occupied.
+  const liveCutoff = Date.now() - PRESENCE_GRACE_MS;
+  const liveParts = (parts || []).filter((p) => {
+    const seen = p.last_seen_at ? new Date(p.last_seen_at).getTime() : 0;
+    return seen >= liveCutoff;
+  });
+
+  // Pull profiles for everyone we'll render (every leader + every live participant).
   const profileIds = [
     ...new Set([
       ...data.map((s) => s.leader_id),
-      ...(parts || []).map((p) => p.user_id),
+      ...liveParts.map((p) => p.user_id),
     ]),
   ];
   const { data: profiles } = profileIds.length
@@ -287,9 +316,9 @@ export async function listActiveTeamSessions(teamId) {
     : { data: [] };
   const profileMap = new Map((profiles || []).map((r) => [r.user_id, r]));
 
-  // Group participants by session for the avatar stack.
+  // Group live participants by session for the avatar stack.
   const occupantsBySession = new Map();
-  for (const p of (parts || [])) {
+  for (const p of liveParts) {
     const list = occupantsBySession.get(p.session_id) || [];
     const prof = profileMap.get(p.user_id);
     list.push({
@@ -302,13 +331,18 @@ export async function listActiveTeamSessions(teamId) {
   }
 
   return {
-    data: data.map((s) => ({
-      ...s,
-      leader_name: profileMap.get(s.leader_id)?.name || "Team member",
-      leader_avatar: profileMap.get(s.leader_id)?.avatar_url || "",
-      participant_count: (occupantsBySession.get(s.id) || []).length,
-      occupants: occupantsBySession.get(s.id) || [],
-    })),
+    // Drop sessions with no live occupant: they're abandoned ghosts, so
+    // the room should read as empty ("Start a session"), not occupied.
+    // The next start reconciles the ghost away (createSyncSession).
+    data: data
+      .map((s) => ({
+        ...s,
+        leader_name: profileMap.get(s.leader_id)?.name || "Team member",
+        leader_avatar: profileMap.get(s.leader_id)?.avatar_url || "",
+        participant_count: (occupantsBySession.get(s.id) || []).length,
+        occupants: occupantsBySession.get(s.id) || [],
+      }))
+      .filter((s) => s.occupants.length > 0),
     error: null,
   };
 }
