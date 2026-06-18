@@ -45,6 +45,8 @@ export default function OfficeLayoutEditor({
   onJoinRoom,
   onOpenRoom,
   sessionByRoomId,
+  lockedRoomIds,
+  lockedReasonFor,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -210,6 +212,7 @@ export default function OfficeLayoutEditor({
 
         {(rooms || []).map((room) => {
           const r = applyOverride(room);
+          const isLocked = lockedRoomIds?.has?.(room.id) || false;
           return (
             <LayoutTile
               key={room.id}
@@ -223,6 +226,8 @@ export default function OfficeLayoutEditor({
               activeSession={sessionByRoomId?.get(room.id) || null}
               onJoinRoom={onJoinRoom}
               onOpenRoom={onOpenRoom}
+              locked={isLocked}
+              lockedReason={isLocked ? lockedReasonFor?.(room) : undefined}
               canResizeTo={(x, y, w, h) =>
                 !hasCollision(room.id, { x, y, w, h })
               }
@@ -285,6 +290,7 @@ function GridBackdrop({ columns, rows, dark }) {
 function LayoutTile({
   room, readOnly, cellWidth, rowHeight, gap, vibe, busy,
   activeSession, onJoinRoom, onOpenRoom, onResize, canResizeTo,
+  locked, lockedReason,
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: room.id,
@@ -382,6 +388,8 @@ function LayoutTile({
           busy={busy}
           onJoin={onJoinRoom}
           onOpen={onOpenRoom}
+          locked={locked}
+          lockedReason={lockedReason}
         />
       </div>
       {!readOnly && (
