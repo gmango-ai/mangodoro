@@ -128,13 +128,17 @@ function SortableSlot({ id, children }) {
 // Retro link picker. WidgetSection owns the chrome + drag handle.
 function RetroWidget({ dark }) {
   const { session } = useApp();
-  const { syncSession } = useSyncSession();
+  const { syncSession, leaderPresent } = useSyncSession();
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const userId = session?.user?.id;
   const inSession = !!syncSession;
   const linkedRetroId = inSession ? (syncSession.retro_id || null) : null;
   const isLeader = inSession && syncSession.leader_id === userId;
+  // Host away (no fresh heartbeat) → any present member can attach a
+  // retro, so the group isn't blocked from starting one. Mirrors the
+  // server's claim_session_lead fallback.
+  const canLead = inSession && (isLeader || !leaderPresent);
 
   async function unlink() {
     if (!syncSession?.id) return;
@@ -149,7 +153,7 @@ function RetroWidget({ dark }) {
         </p>
       )}
 
-      {inSession && !linkedRetroId && isLeader && (
+      {inSession && !linkedRetroId && canLead && (
         <Button
           type="button"
           onClick={() => setPickerOpen(true)}
@@ -161,9 +165,9 @@ function RetroWidget({ dark }) {
         </Button>
       )}
 
-      {inSession && !linkedRetroId && !isLeader && (
+      {inSession && !linkedRetroId && !canLead && (
         <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-          The session leader can attach a retro for the group.
+          The host can attach a retro for the group.
         </p>
       )}
 
@@ -172,7 +176,7 @@ function RetroWidget({ dark }) {
           <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold w-full bg-[var(--color-accent-light)] text-[var(--color-accent)]">
             <Target className="w-3 h-3" fill="currentColor" />
             <span className="truncate flex-1">Retro attached</span>
-            {isLeader && (
+            {canLead && (
               <button
                 type="button"
                 onClick={unlink}

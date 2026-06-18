@@ -74,6 +74,10 @@ begin
     order by joined_at asc
     limit 1;
     if v_next_leader is not null then
+      -- Bypass the leader-only metadata guard (tr_sync_session_guard_update):
+      -- we're handing leadership to someone OTHER than the caller, which the
+      -- guard would otherwise reject. Same pattern as transfer_sync_leader.
+      perform set_config('sync.internal_update', '1', true);
       update public.sync_sessions
         set leader_id = v_next_leader
         where id = p_session_id;

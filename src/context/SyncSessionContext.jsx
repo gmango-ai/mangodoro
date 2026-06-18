@@ -19,6 +19,7 @@ import {
   takeSyncControl,
   findMyActiveSyncSession,
   heartbeatSyncSession,
+  PRESENCE_GRACE_MS,
 } from "../lib/syncSession";
 import { notifySessionJoined, notifySessionCleared } from "../sync/joinSession";
 
@@ -419,11 +420,27 @@ export function SyncSessionProvider({ session, children }) {
     [syncSession]
   );
 
+  // Is the current leader actually present (fresh heartbeat)? Mirrors the
+  // server's claim_session_lead gate so the UI can offer leader-only
+  // controls (start the meeting timer, attach a retro) to a present
+  // member when the leader has gone away — instead of leaving the room
+  // stuck behind an absent host. Recomputes as participant rows refresh
+  // (heartbeat ~20s, poll 15s), so it tracks the 120s grace closely.
+  const leaderPresent = useMemo(() => {
+    const leaderId = syncSession?.leader_id;
+    if (!leaderId) return false;
+    const row = syncParticipants.find((p) => p.user_id === leaderId);
+    if (!row || row.left_at) return false;
+    const seen = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+    return Date.now() - seen < PRESENCE_GRACE_MS;
+  }, [syncSession?.leader_id, syncParticipants]);
+
   const value = useMemo(
     () => ({
       syncSession,
       syncParticipants,
       presenceMap,
+      leaderPresent,
       joinSession,
       leaveSession,
       endSession,
@@ -436,6 +453,7 @@ export function SyncSessionProvider({ session, children }) {
       syncSession,
       syncParticipants,
       presenceMap,
+      leaderPresent,
       joinSession,
       leaveSession,
       endSession,
