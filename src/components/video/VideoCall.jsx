@@ -160,6 +160,20 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
+  // Best-effort teardown on tab close. The unmount cleanup above does
+  // not reliably run when a tab/window is closed, so a closed tab could
+  // otherwise keep the media bridge connected until the server times the
+  // peer out. pagehide is the most dependable unload signal (fires on
+  // mobile + bfcache where beforeunload often doesn't).
+  useEffect(() => {
+    const onPageHide = () => {
+      try { apiRef.current?.dispose(); } catch { /* */ }
+      apiRef.current = null;
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, []);
+
   // Propagate display-name changes without tearing down the iframe.
   useEffect(() => {
     if (apiRef.current && displayName) {

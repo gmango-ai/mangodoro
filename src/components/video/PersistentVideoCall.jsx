@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useVideoCall } from "../../context/VideoCallContext";
+import { useSyncSession } from "../../context/SyncSessionContext";
 import VideoCall from "./VideoCall";
 
 // Persistent container for the active Jitsi room call. Lives at the
@@ -41,9 +42,29 @@ function pipRect() {
 
 export default function PersistentVideoCall() {
   const { call, endCall, stageEl } = useVideoCall();
+  const { syncSession } = useSyncSession();
   const navigate = useNavigate();
   const containerRef = useRef(null);
   const [rect, setRect] = useState(null);
+
+  // Bind the call's lifetime to the room's sync session. The call and
+  // session are otherwise independent: a call would survive the session
+  // ending, leaving a media bridge connected for no reason. When the
+  // session backing our call's room goes away — explicit leave, host
+  // ended it, swept as empty, or we got kicked — clearLocalSession sets
+  // syncSession to null (or to a different room), and we tear the call
+  // down too. Closing a tab is handled separately by VideoCall's
+  // pagehide dispose; the persistent PiP still survives plain in-app
+  // navigation while the session is alive.
+  const prevSessionRoomRef = useRef(syncSession?.room_id || null);
+  useEffect(() => {
+    const prevRoom = prevSessionRoomRef.current;
+    const curRoom = syncSession?.room_id || null;
+    prevSessionRoomRef.current = curRoom;
+    if (call && prevRoom && curRoom !== prevRoom && call.roomId === prevRoom) {
+      endCall();
+    }
+  }, [syncSession?.room_id, call, endCall]);
 
   // Sync rect to stageEl (or PiP) every time stageEl changes, the
   // stage resizes, or the window resizes. ResizeObserver on the stage
