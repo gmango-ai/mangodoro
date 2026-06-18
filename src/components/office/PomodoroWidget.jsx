@@ -2,6 +2,7 @@ import { Clock, Play, Pause, RotateCcw, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { openPomodoroSurface } from "../../lib/pomodoroSurface";
+import WidgetSection from "./WidgetSection";
 
 // Compact pomodoro controls for the WidgetsSidebar.
 //
@@ -26,31 +27,23 @@ export default function PomodoroWidget({ dark }) {
     ? "Work"
     : mode === "longBreak" ? "Long break" : "Short break";
 
-  return (
-    <section className={`rounded-xl border overflow-hidden ${
-      dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]/40" : "border-slate-200 bg-slate-50"
-    }`}>
-      <header className={`flex items-center justify-between px-3 py-2 ${
-        dark ? "text-slate-400" : "text-slate-500"
-      }`}>
-        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
-          <Clock className="w-3 h-3" />
-          Pomodoro
-        </span>
-        <button
-          type="button"
-          onClick={openPomodoroSurface}
-          aria-label="Open full pomodoro"
-          title="Open full pomodoro"
-          className={`p-0.5 rounded-md transition-colors ${
-            dark ? "hover:bg-[var(--color-surface)] hover:text-slate-200" : "hover:bg-white hover:text-slate-700"
-          }`}
-        >
-          <Maximize2 className="w-3 h-3" />
-        </button>
-      </header>
+  const maximizeAction = (
+    <button
+      type="button"
+      onClick={openPomodoroSurface}
+      aria-label="Open full pomodoro"
+      title="Open full pomodoro"
+      className={`p-0.5 rounded-md transition-colors ${
+        dark ? "hover:bg-[var(--color-surface)] hover:text-slate-200" : "hover:bg-white hover:text-slate-700"
+      }`}
+    >
+      <Maximize2 className="w-3 h-3" />
+    </button>
+  );
 
-      <div className="px-3 pb-3 space-y-2">
+  return (
+    <WidgetSection id="pomodoro" icon={Clock} title="Pomodoro" dark={dark} action={maximizeAction}>
+      <div className="space-y-2">
         <button
           type="button"
           onClick={openPomodoroSurface}
@@ -105,6 +98,6 @@ export default function PomodoroWidget({ dark }) {
           </p>
         )}
       </div>
-    </section>
+    </WidgetSection>
   );
 }
