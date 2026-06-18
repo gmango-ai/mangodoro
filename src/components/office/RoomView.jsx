@@ -5,7 +5,7 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import {
   Hash, Briefcase, MessageSquare, Lock, Video,
-  LogIn, Play, Pause, PanelLeftOpen, PanelLeftClose, Rows2, Columns2,
+  LogIn, LogOut, Play, Pause, PanelLeftOpen, PanelLeftClose, Rows2, Columns2,
   ChevronDown, Target,
 } from "lucide-react";
 import RoomChatPanel from "../RoomChatPanel";
@@ -154,7 +154,7 @@ function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, current
 
 export default function RoomView({
   room, activeSession, orgTeams, busy, onJoin, onStart,
-  sidebarOpen, onToggleSidebar, onOpenRoomSwitcher,
+  sidebarOpen, onToggleSidebar, onOpenRoomSwitcher, onLeaveRoom,
 }) {
   const { theme } = useTheme();
   const { session } = useApp();
@@ -261,6 +261,28 @@ export default function RoomView({
               </p>
             </div>
           </button>
+
+          {/* Leave room — navigates to the hallway, which trips the
+              auto-leave effect in OfficeShell (same path as the
+              overlay's "Leave to hallway"). Kept right next to the
+              name so leaving is a one-click action, not buried in the
+              switcher overlay. */}
+          {onLeaveRoom && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onLeaveRoom}
+              title="Leave room"
+              aria-label="Leave room"
+              className={`h-8 w-8 shrink-0 ${
+                dark
+                  ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
+                  : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+              }`}
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
+          )}
 
           {gatingTeams.length > 0 && (
             <div className="hidden xl:flex flex-wrap items-center gap-1.5">

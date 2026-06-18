@@ -243,6 +243,7 @@ export default function OfficeShell({
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
             onOpenRoomSwitcher={() => setOverlayOpen(true)}
+            onLeaveRoom={() => navigate("/office")}
           />
         ) : (
           <HallwayView
