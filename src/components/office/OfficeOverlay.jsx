@@ -29,7 +29,7 @@ const KIND_ICON = {
 // Closes on backdrop click, Escape, or the X.
 export default function OfficeOverlay({
   open, onClose,
-  rooms, sessionByRoomId, selectedRoomId,
+  rooms, lockedRooms, sessionByRoomId, selectedRoomId,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -112,10 +112,14 @@ export default function OfficeOverlay({
               Map
             </p>
             <OfficeMinimap
-              rooms={rooms}
+              rooms={[...(rooms || []), ...(lockedRooms || [])]}
               sessionByRoomId={sessionByRoomId}
               selectedRoomId={selectedRoomId}
-              onSelect={enterRoom}
+              lockedRoomIds={new Set((lockedRooms || []).map((r) => r.id))}
+              onSelect={(id) => {
+                if ((lockedRooms || []).some((r) => r.id === id)) return;
+                enterRoom(id);
+              }}
             />
           </div>
 
@@ -127,7 +131,10 @@ export default function OfficeOverlay({
               Rooms
             </p>
             <div className="flex-1 px-2 pb-2 space-y-0.5 overflow-y-auto">
-              {(rooms || []).map((room) => {
+              {[
+                ...(rooms || []).map((r) => ({ room: r, locked: false })),
+                ...(lockedRooms || []).map((r) => ({ room: r, locked: true })),
+              ].map(({ room, locked }) => {
                 const Icon = KIND_ICON[room.kind] || Hash;
                 const accent = room.color || "#14b8a6";
                 const active = sessionByRoomId?.get(room.id) || null;
@@ -137,11 +144,18 @@ export default function OfficeOverlay({
                   <button
                     key={room.id}
                     type="button"
-                    onClick={() => enterRoom(room.id)}
+                    onClick={() => {
+                      if (locked) return;
+                      enterRoom(room.id);
+                    }}
+                    disabled={locked}
+                    title={locked ? "Locked — not a member of the gating team" : undefined}
                     className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${
-                      isSelected
-                        ? dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
-                        : dark ? "hover:bg-[var(--color-surface-raised)]/60" : "hover:bg-slate-50"
+                      locked
+                        ? "opacity-60 cursor-not-allowed"
+                        : isSelected
+                          ? dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
+                          : dark ? "hover:bg-[var(--color-surface-raised)]/60" : "hover:bg-slate-50"
                     }`}
                   >
                     <span className="w-1 h-5 rounded-full shrink-0" style={{ background: accent }} aria-hidden />
@@ -151,12 +165,13 @@ export default function OfficeOverlay({
                     }`}>
                       {room.name}
                     </span>
-                    {isSelected && (
+                    {locked && <Lock className="w-3 h-3 shrink-0 opacity-60" />}
+                    {!locked && isSelected && (
                       <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[var(--color-accent-light)] text-[var(--color-accent)]">
                         Here
                       </span>
                     )}
-                    {occupants.length > 0 && !isSelected && (
+                    {!locked && occupants.length > 0 && !isSelected && (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold shrink-0" style={{ color: accent }}>
                         <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: accent }} />
                         {occupants.length}

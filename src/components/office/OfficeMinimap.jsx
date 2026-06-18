@@ -28,7 +28,7 @@ const KIND_ICON = {
 // Empty rooms render as soft tinted shapes so the floor plan still
 // reads as a "place" rather than an empty diagram.
 export default function OfficeMinimap({
-  rooms, sessionByRoomId, selectedRoomId, onSelect,
+  rooms, sessionByRoomId, selectedRoomId, onSelect, lockedRoomIds,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -83,6 +83,7 @@ export default function OfficeMinimap({
         const y = (room.layout_y || 0) + 1;
         const w = room.layout_w || 4;
         const h = room.layout_h || 2;
+        const locked = lockedRoomIds?.has?.(room.id) || false;
 
         // Tile interior: subtle accent wash, tiny icon, occupant dots
         // when present. Selected room gets a 2px accent ring; occupied
@@ -91,8 +92,13 @@ export default function OfficeMinimap({
           <button
             key={room.id}
             type="button"
-            onClick={() => onSelect?.(room.id)}
-            title={`${room.name}${active ? ` · ${occupants.length} here` : ""}`}
+            onClick={() => { if (!locked) onSelect?.(room.id); }}
+            disabled={locked}
+            title={
+              locked
+                ? `${room.name} — locked`
+                : `${room.name}${active ? ` · ${occupants.length} here` : ""}`
+            }
             style={{
               gridColumn: `${x} / span ${w}`,
               gridRow: `${y} / span ${h}`,
@@ -100,7 +106,9 @@ export default function OfficeMinimap({
               borderColor: isSelected ? accent : (active ? `${accent}80` : "transparent"),
             }}
             className={`relative rounded-md border-2 transition-all overflow-hidden flex flex-col items-center justify-center gap-1 ${
-              isSelected ? "shadow-md" : "hover:brightness-110"
+              locked
+                ? "opacity-50 cursor-not-allowed"
+                : isSelected ? "shadow-md" : "hover:brightness-110"
             }`}
           >
             <Icon

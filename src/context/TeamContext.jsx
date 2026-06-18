@@ -65,7 +65,7 @@ export function TeamProvider({ session, children }) {
     setTeamLoading(true);
     const { data, error } = await supabase
       .from("team_members")
-      .select("team_id, role, teams(id, name, invite_code, created_by, created_at, icon_url, color, office_vibe, sounds_admin_only)")
+      .select("team_id, role, is_owner, teams(id, name, invite_code, created_by, created_at, icon_url, color, office_vibe, sounds_admin_only)")
       .eq("user_id", userId);
     setTeamLoading(false);
 
@@ -77,7 +77,7 @@ export function TeamProvider({ session, children }) {
     }
 
     const loaded = (data || [])
-      .map((m) => (m.teams ? { ...m.teams, role: m.role } : null))
+      .map((m) => (m.teams ? { ...m.teams, role: m.role, isOwner: !!m.is_owner } : null))
       .filter(Boolean);
 
     // Auth race-guard. On a fresh page refresh the access token sometimes
@@ -463,6 +463,44 @@ export function TeamProvider({ session, children }) {
     await loadMembers();
   }
 
+  // ── Ownership (owner-only) ────────────────────────────────────
+  // grant_team_owner promotes a member to co-owner; revoke_team_owner
+  // demotes back to admin (last-owner guard server-side);
+  // transfer_team_ownership swaps in one atomic step.
+  async function grantTeamOwner(teamId, memberId) {
+    const { error } = await supabase.rpc("grant_team_owner", {
+      p_team_id: teamId,
+      p_user_id: memberId,
+    });
+    if (!error) {
+      await loadMembers();
+      await loadTeams();
+    }
+    return { error };
+  }
+  async function revokeTeamOwner(teamId, memberId) {
+    const { error } = await supabase.rpc("revoke_team_owner", {
+      p_team_id: teamId,
+      p_user_id: memberId,
+    });
+    if (!error) {
+      await loadMembers();
+      await loadTeams();
+    }
+    return { error };
+  }
+  async function transferTeamOwnership(teamId, newOwnerId) {
+    const { error } = await supabase.rpc("transfer_team_ownership", {
+      p_team_id: teamId,
+      p_new_owner_id: newOwnerId,
+    });
+    if (!error) {
+      await loadMembers();
+      await loadTeams();
+    }
+    return { error };
+  }
+
   // Admin: update a member's HR fields (salary vs hourly, rate, target).
   async function updateMemberHR(teamId, memberId, patch) {
     const { error } = await setMemberHRRpc(teamId, memberId, patch);
@@ -713,6 +751,7 @@ export function TeamProvider({ session, children }) {
   // ── Active team helpers ────────────────────────────────────
   const activeTeam = teams.find((t) => t.id === activeTeamId) || null;
   const isAdmin = activeTeam?.role === "admin";
+  const isOwner = !!activeTeam?.isOwner;
 
   // Filter rooms by team gating for the current viewer.
   //  * Admins always see every room.
@@ -732,17 +771,32 @@ export function TeamProvider({ session, children }) {
     });
   }, [rooms, isAdmin, myOrgTeamIds]);
 
+  // Rooms gated to org_teams the viewer is NOT a member of. Surfaced
+  // in the hallway / office overlay as locked tiles so people can see
+  // what exists across the office without being able to enter. Admins
+  // never have locked rooms (they bypass gating).
+  const lockedRooms = useMemo(() => {
+    if (!rooms || rooms.length === 0) return [];
+    if (isAdmin) return [];
+    return rooms.filter((r) => {
+      const gating = r.room_teams || [];
+      if (gating.length === 0) return false;
+      return !gating.some((rt) => myOrgTeamIds.has(rt.org_team_id));
+    });
+  }, [rooms, isAdmin, myOrgTeamIds]);
+
   return (
     <TeamContext.Provider
       value={{
-        teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin,
+        teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, isOwner,
         defaultTeamId, setDefaultTeam,
         loadTeams, loadMembers, switchTeam,
         createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
         removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
+        grantTeamOwner, revokeTeamOwner, transferTeamOwnership,
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
-        rooms, visibleRooms, loadRoomsForActiveTeam,
+        rooms, visibleRooms, lockedRooms, loadRoomsForActiveTeam,
         teamSounds, loadTeamSoundsForActive, addTeamSound, renameTeamSound, removeTeamSound,
         teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
         orgTeams, myOrgTeamIds, myOrgTeamLeadIds, teamsByUserId, orgTeamMemberCounts, loadOrgTeamsForActive,

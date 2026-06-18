@@ -11,6 +11,8 @@ import { AppProvider, useApp } from "./context/AppContext";
 import { TeamProvider } from "./context/TeamContext";
 import { SyncSessionProvider, useSyncSession } from "./context/SyncSessionContext";
 import { PomodoroProvider } from "./pomodoro/PomodoroContext";
+import { VideoCallProvider } from "./context/VideoCallContext";
+import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
 import ClockBanner from "./components/ClockBanner";
@@ -280,6 +282,11 @@ function AppLayout({ session }) {
             {/* /account merged into /settings → Profile section. */}
             <Route path="/account" element={<Navigate to="/settings" replace />} />
           </Routes>
+
+          {/* Persistent Jitsi mount — lives outside <Routes> so the
+              call survives page navigation. Renders as a PiP when no
+              page has provided a stageEl via VideoCallContext. */}
+          <PersistentVideoCall />
         </div>
       </div>
     </div>
@@ -304,7 +311,9 @@ function AuthenticatedApp({ session }) {
       <TeamProvider session={session}>
         <SyncSessionProvider session={session}>
           <PomodoroProvider userId={session.user.id}>
-            <AppLayout session={session} />
+            <VideoCallProvider>
+              <AppLayout session={session} />
+            </VideoCallProvider>
           </PomodoroProvider>
         </SyncSessionProvider>
       </TeamProvider>

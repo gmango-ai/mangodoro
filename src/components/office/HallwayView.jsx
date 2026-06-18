@@ -1,7 +1,38 @@
+import { useMemo, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
-import { Users, Timer, Pencil } from "lucide-react";
+import { useTeam } from "../../context/TeamContext";
+import {
+  Users, Timer, Pencil, Search, LayoutGrid, List as ListIcon,
+  Hash, Briefcase, MessageSquare, Lock, X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import OfficeLayoutEditor from "../OfficeLayoutEditor";
+
+const KIND_ICON = {
+  general: Hash,
+  department: Briefcase,
+  meeting: MessageSquare,
+  private: Lock,
+};
+const KIND_LABEL = {
+  general: "General",
+  department: "Departments",
+  meeting: "Meetings",
+  private: "Private",
+};
+const KIND_ORDER = ["general", "department", "meeting", "private"];
+
+const VIEW_MODE_KEY = "ql_hallway_view_mode";
+function loadViewMode() {
+  try {
+    const v = localStorage.getItem(VIEW_MODE_KEY);
+    if (v === "list" || v === "floor") return v;
+  } catch { /* */ }
+  return "floor";
+}
+function saveViewMode(v) {
+  try { localStorage.setItem(VIEW_MODE_KEY, v); } catch { /* */ }
+}
 
 // "Hallway" — the bare /office route. Shows the floor-plan of all
 // rooms at a glance, click a tile to enter. Different from the room
@@ -11,13 +42,70 @@ import OfficeLayoutEditor from "../OfficeLayoutEditor";
 // Reuses OfficeLayoutEditor in readOnly mode (same component that
 // admins use to edit the layout). Click handler navigates into the
 // room.
+//
+// Locked rooms (gated to org_teams the viewer isn't in) render inline
+// alongside their team-mates' rooms with a lock badge — same floor
+// plan, no surprise gaps when the team layout decisions get reshuffled.
 export default function HallwayView({
   activeTeam, rooms, sessionByRoomId, onlineCount, canEdit,
-  busy, onEnterRoom, onEditOffice,
+  busy, onEnterRoom, onEditOffice, lockedRooms,
 }) {
   const { theme } = useTheme();
+  const { orgTeams } = useTeam();
   const dark = theme === "dark";
   const sessionCount = [...(sessionByRoomId?.values() || [])].length;
+
+  const [viewMode, setViewModeRaw] = useState(loadViewMode);
+  const setViewMode = (v) => { setViewModeRaw(v); saveViewMode(v); };
+  const [query, setQuery] = useState("");
+
+  // Merge visible + locked into one floor plan, plus a Set the layout
+  // editor uses to flip RoomTile into the disabled+badged state.
+  const mergedRooms = useMemo(
+    () => [...(rooms || []), ...(lockedRooms || [])],
+    [rooms, lockedRooms],
+  );
+  const lockedRoomIds = useMemo(
+    () => new Set((lockedRooms || []).map((r) => r.id)),
+    [lockedRooms],
+  );
+
+  // Search-filtered view for list mode. Floor plan stays unfiltered so
+  // the spatial layout doesn't shuffle around — the grid is a "place,"
+  // not a result set. Names + kind labels are searched.
+  const filteredForList = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return mergedRooms;
+    return mergedRooms.filter((r) => {
+      const name = (r.name || "").toLowerCase();
+      const kind = (r.kind || "").toLowerCase();
+      return name.includes(q) || kind.includes(q);
+    });
+  }, [mergedRooms, query]);
+
+  // Group list-view rooms by kind, in the canonical order (general,
+  // department, meeting, private). Empty groups are dropped.
+  const groupedByKind = useMemo(() => {
+    const groups = new Map();
+    for (const k of KIND_ORDER) groups.set(k, []);
+    for (const r of filteredForList) {
+      const k = KIND_ORDER.includes(r.kind) ? r.kind : "general";
+      groups.get(k).push(r);
+    }
+    return [...groups.entries()].filter(([, list]) => list.length > 0);
+  }, [filteredForList]);
+  // Names of the org_teams that gate a given locked room — surfaced
+  // in the tooltip so the viewer knows who to ask.
+  const lockedReasonFor = useMemo(() => {
+    const teamById = new Map((orgTeams || []).map((t) => [t.id, t]));
+    return (room) => {
+      const names = (room.room_teams || [])
+        .map((rt) => teamById.get(rt.org_team_id)?.name)
+        .filter(Boolean);
+      if (names.length === 0) return "Members of the gating team only";
+      return `Members of ${names.join(", ")} only`;
+    };
+  }, [orgTeams]);
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto">
@@ -47,16 +135,81 @@ export default function HallwayView({
               </span>
             </p>
           </div>
-          {canEdit && (
-            <Button variant="outline" size="sm" onClick={onEditOffice} className="h-8 text-xs">
-              <Pencil className="w-3.5 h-3.5 mr-1" /> Edit office
-            </Button>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* View toggle — floor plan (default) or grouped list (better
+                when room count is high). Persisted per-user. */}
+            <div className={`inline-flex p-0.5 rounded-full ${
+              dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
+            }`}>
+              {[
+                { key: "floor", Icon: LayoutGrid, label: "Floor" },
+                { key: "list",  Icon: ListIcon,   label: "List"  },
+              ].map(({ key, Icon, label }) => {
+                const active = viewMode === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setViewMode(key)}
+                    title={`${label} view`}
+                    aria-pressed={active}
+                    className={`inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
+                      active
+                        ? "bg-[var(--color-accent)] text-white shadow-sm"
+                        : dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {canEdit && (
+              <Button variant="outline" size="sm" onClick={onEditOffice} className="h-8 text-xs">
+                <Pencil className="w-3.5 h-3.5 mr-1" /> Edit office
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* Search — visible in list mode where it makes sense. Floor
+            mode keeps the spatial layout stable rather than filtering
+            tiles in/out of position. */}
+        {viewMode === "list" && (
+          <div className="mt-3 relative max-w-md">
+            <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${
+              dark ? "text-slate-500" : "text-slate-400"
+            }`} />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search rooms…"
+              className={`w-full pl-8 pr-8 py-1.5 rounded-md border text-xs ${
+                dark
+                  ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-200 placeholder:text-slate-500"
+                  : "bg-white border-slate-200 text-slate-700 placeholder:text-slate-400"
+              }`}
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-md ${
+                  dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )}
       </header>
 
       <div className="flex-1 p-6">
-        {(rooms || []).length === 0 ? (
+        {mergedRooms.length === 0 ? (
           <div className={`text-center py-12 rounded-2xl border border-dashed ${
             dark ? "border-[var(--color-border)] text-slate-400" : "border-slate-300 text-slate-500"
           }`}>
@@ -67,18 +220,132 @@ export default function HallwayView({
               </Button>
             )}
           </div>
-        ) : (
+        ) : viewMode === "floor" ? (
           <OfficeLayoutEditor
-            rooms={rooms}
+            rooms={mergedRooms}
             readOnly
             vibe={activeTeam?.office_vibe || "quiet"}
             busy={busy}
-            onOpenRoom={(room) => onEnterRoom?.(room.id)}
-            onJoinRoom={(room) => onEnterRoom?.(room.id)}
+            onOpenRoom={(room) => {
+              if (lockedRoomIds.has(room.id)) return;
+              onEnterRoom?.(room.id);
+            }}
+            onJoinRoom={(room) => {
+              if (lockedRoomIds.has(room.id)) return;
+              onEnterRoom?.(room.id);
+            }}
             sessionByRoomId={sessionByRoomId}
+            lockedRoomIds={lockedRoomIds}
+            lockedReasonFor={lockedReasonFor}
+          />
+        ) : (
+          <ListView
+            grouped={groupedByKind}
+            sessionByRoomId={sessionByRoomId}
+            lockedRoomIds={lockedRoomIds}
+            lockedReasonFor={lockedReasonFor}
+            onEnterRoom={onEnterRoom}
+            dark={dark}
           />
         )}
       </div>
+    </div>
+  );
+}
+
+// Grouped list of rooms — denser than the floor plan once a team has
+// more than ~12 rooms or rooms with similar layouts. Each group is a
+// kind (general / department / meeting / private). Inside a group,
+// rooms render as compact cards with name + occupant dots + status.
+//
+// Locked rooms render with the same dim+lock affordance as in the
+// floor view so the gating cue stays consistent across views.
+function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, onEnterRoom, dark }) {
+  if (!grouped.length) {
+    return (
+      <p className={`text-sm text-center py-10 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+        No rooms match.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-6">
+      {grouped.map(([kind, list]) => {
+        const Icon = KIND_ICON[kind] || Hash;
+        return (
+          <section key={kind}>
+            <header className={`flex items-center gap-1.5 mb-2 text-[10px] font-bold uppercase tracking-wider ${
+              dark ? "text-slate-500" : "text-slate-400"
+            }`}>
+              <Icon className="w-3 h-3" />
+              {KIND_LABEL[kind] || kind}
+              <span className={`ml-1 font-semibold ${dark ? "text-slate-600" : "text-slate-400"}`}>
+                {list.length}
+              </span>
+            </header>
+            <ul className="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {list.map((room) => {
+                const accent = room.color || "#14b8a6";
+                const session = sessionByRoomId?.get(room.id) || null;
+                const occupants = session?.occupants || [];
+                const locked = lockedRoomIds?.has(room.id) || false;
+                const RoomIcon = KIND_ICON[room.kind] || Hash;
+                return (
+                  <li key={room.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (locked) return;
+                        onEnterRoom?.(room.id);
+                      }}
+                      disabled={locked}
+                      title={locked ? lockedReasonFor(room) : room.name}
+                      className={`group w-full text-left rounded-xl border px-3 py-2.5 flex items-center gap-2 transition-colors ${
+                        locked ? "opacity-60 cursor-not-allowed" : "hover:border-[var(--color-accent)]"
+                      } ${
+                        dark
+                          ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+                          : "bg-white border-slate-200"
+                      }`}
+                    >
+                      <span
+                        className="p-1.5 rounded-lg shrink-0"
+                        style={{ background: `${accent}22`, color: accent }}
+                      >
+                        <RoomIcon className="w-3.5 h-3.5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className={`block text-xs font-semibold truncate ${
+                          dark ? "text-slate-100" : "text-slate-800"
+                        }`}>
+                          {room.name}
+                        </span>
+                        <span className={`block text-[10px] truncate ${
+                          dark ? "text-slate-500" : "text-slate-400"
+                        }`}>
+                          {locked
+                            ? "Locked"
+                            : occupants.length > 0
+                              ? `${occupants.length} in here`
+                              : "Empty"}
+                        </span>
+                      </span>
+                      {locked ? (
+                        <Lock className="w-3 h-3 shrink-0 opacity-60" />
+                      ) : occupants.length > 0 ? (
+                        <span
+                          className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0"
+                          style={{ background: accent }}
+                        />
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
     </div>
   );
 }
