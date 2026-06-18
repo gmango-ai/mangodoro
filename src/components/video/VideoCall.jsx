@@ -205,8 +205,11 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
           {/* Floating emoji-reaction bar + particles. Scope by roomId
               so everyone in the same room (regardless of which Jitsi
               tile they're staring at) sees each other's emotes drift
-              up over the video. */}
-          {roomId && <EmoteOverlay channelKey={`room:${roomId}`} />}
+              up over the video. Pinned to the right edge so the bar
+              clears Jitsi's own bottom control toolbar. */}
+          {roomId && (
+            <EmoteOverlay channelKey={`room:${roomId}`} barPosition="right-center" />
+          )}
         </>
       )}
     </div>
