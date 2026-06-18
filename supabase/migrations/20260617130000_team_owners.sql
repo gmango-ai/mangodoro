@@ -157,6 +157,12 @@ grant execute on function public.transfer_team_ownership(uuid, uuid) to authenti
 -- Extend get_team_member_profiles to return is_owner. The members UI
 -- in TeamPage reads the result to decide who shows the "owner" crown
 -- and who can be granted/revoked.
+--
+-- DROP first because Postgres can't change the RETURNS TABLE row type
+-- via CREATE OR REPLACE — it errors with "cannot change return type of
+-- existing function." Drop is safe (we re-create immediately) and
+-- the GRANT below re-establishes the auth-only permission.
+drop function if exists public.get_team_member_profiles(uuid);
 create or replace function public.get_team_member_profiles(p_team_id uuid)
 returns table (
   user_id uuid,
