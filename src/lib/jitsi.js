@@ -6,19 +6,22 @@
 //
 // Provider is decided at module load time based on env vars:
 //   VITE_JITSI_APP_ID    — your JaaS AppID ("vpaas-magic-cookie-…")
-//   VITE_JITSI_DEV_JWT   — a JWT minted from the JaaS console
-//                          ("Generate JWT" → ~2hr lifespan). Dev /
-//                          testing only. Production should swap to
-//                          a Supabase Edge Function that mints per
-//                          user / per session.
+//   VITE_JITSI_DEV_JWT   — optional static fallback JWT (~2h lifespan,
+//                          minted via scripts/jaas-mint.mjs). Used
+//                          only when the Supabase edge function path
+//                          fails — local dev backstop.
 //
-// If both env vars are present we run against JaaS. Either missing
-// → public meet.jit.si. That way the dev gets a one-line opt-in and
-// production builds without JaaS creds still work unchanged.
+// Auth path at runtime: the client calls the `mint-jaas-jwt` Supabase
+// edge function with its session token; the function signs a JWT
+// against the team's stored JaaS private key (Supabase secret) and
+// returns it. So shipping JaaS no longer requires VITE_JITSI_DEV_JWT
+// in Vercel — only VITE_JITSI_APP_ID.
+
+import { supabase } from "../supabase";
 
 const APP_ID = import.meta.env.VITE_JITSI_APP_ID || "";
 const DEV_JWT = import.meta.env.VITE_JITSI_DEV_JWT || "";
-const HAS_JAAS = Boolean(APP_ID && DEV_JWT);
+const HAS_JAAS = Boolean(APP_ID);
 
 export const VIDEO_PROVIDER = HAS_JAAS ? "jaas" : "public";
 export const JITSI_DOMAIN = HAS_JAAS ? "8x8.vc" : "meet.jit.si";
@@ -36,13 +39,54 @@ export function roomNameForRoom(roomId) {
 }
 
 // Returns the JWT to attach to the embed, or null when running
-// against meet.jit.si (which doesn't accept a JWT). For the dev
-// path we hand back the static token from VITE_JITSI_DEV_JWT; the
-// production path will replace this with a fetch() against a
-// Supabase Edge Function that mints per-user JWTs.
-export async function fetchVideoCallToken(/* roomName, userId */) {
+// against meet.jit.si (which doesn't accept a JWT).
+//
+// Calls the `mint-jaas-jwt` Supabase edge function with the user's
+// session, which signs against the JaaS private key stored as a
+// Supabase secret. JWTs are cached per-tab for ~95% of their TTL so
+// re-entering a room within the cache window doesn't re-mint.
+//
+// Local-dev backstop: if VITE_JITSI_DEV_JWT is set AND the edge
+// function call fails, we fall back to the static token. Useful when
+// running before the edge function is deployed or when offline.
+let _tokenCache = null; // { jwt, expiresAtMs }
+
+async function mintFromEdgeFunction({ displayName, room } = {}) {
+  const { data, error } = await supabase.functions.invoke("mint-jaas-jwt", {
+    body: {
+      display_name: displayName || "",
+      room: room || "*",
+    },
+  });
+  if (error) throw error;
+  if (!data?.jwt) throw new Error("mint-jaas-jwt returned no jwt");
+  // exp is unix seconds; refresh when 5% of TTL remains.
+  const expMs = (data.exp || (Math.floor(Date.now() / 1000) + 60 * 60)) * 1000;
+  const ttlMs = Math.max(0, expMs - Date.now());
+  const refreshAtMs = Date.now() + Math.floor(ttlMs * 0.95);
+  return { jwt: data.jwt, expiresAtMs: refreshAtMs };
+}
+
+export async function fetchVideoCallToken(roomName, _userId, displayName) {
   if (!HAS_JAAS) return null;
-  return DEV_JWT;
+  if (_tokenCache && _tokenCache.expiresAtMs > Date.now()) {
+    return _tokenCache.jwt;
+  }
+  try {
+    _tokenCache = await mintFromEdgeFunction({ displayName });
+    return _tokenCache.jwt;
+  } catch (e) {
+    if (DEV_JWT) {
+      // eslint-disable-next-line no-console
+      console.warn("[jitsi] mint-jaas-jwt failed; using VITE_JITSI_DEV_JWT", e);
+      return DEV_JWT;
+    }
+    throw e;
+  }
+}
+
+export function clearVideoCallTokenCache() {
+  _tokenCache = null;
 }
 
 // Lazily load the JitsiMeetExternalAPI script. Returns the global

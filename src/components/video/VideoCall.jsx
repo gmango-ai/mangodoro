@@ -36,10 +36,13 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
         const Ctor = await loadJitsiExternalApi();
         if (cancelled || !containerRef.current) return;
 
-        // Public meet.jit.si returns null. JaaS path will return a
-        // signed JWT minted by an Edge Function (added when we flip
-        // the provider over).
-        const jwt = await fetchVideoCallToken(roomNameForRoom(roomId), session?.user?.id);
+        // Public meet.jit.si returns null. JaaS path mints via the
+        // `mint-jaas-jwt` Supabase edge function (cached per-tab).
+        const jwt = await fetchVideoCallToken(
+          roomNameForRoom(roomId),
+          session?.user?.id,
+          displayName,
+        );
 
         const opts = {
           roomName: roomNameForRoom(roomId),
