@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTheme } from "../../context/ThemeContext";
+import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import WidgetsSidebar from "./WidgetsSidebar";
 import RoomView from "./RoomView";
 import HallwayView from "./HallwayView";
 import OfficeOverlay from "./OfficeOverlay";
+import { leaveSyncSession } from "../../lib/syncSession";
 
 const LAST_ROOM_KEY = "ql_office_last_room";
 const SIDEBAR_OPEN_KEY = "ql_office_widgets_open";
@@ -59,7 +61,7 @@ function saveSidebarOpen(v) {
 // Now rooms live in the on-demand overlay; the left rail is for
 // utility widgets that DO need to be glance-able.
 export default function OfficeShell({
-  activeTeam, rooms, sessionByRoomId, orgTeams,
+  activeTeam, rooms, lockedRooms, sessionByRoomId, orgTeams,
   onlineCount, canEdit, busy, onJoin, onStart, onEditOffice,
 }) {
   const { theme } = useTheme();
@@ -82,11 +84,100 @@ export default function OfficeShell({
   const selectedRoom = resolvedRoomId ? rooms.find((r) => r.id === resolvedRoomId) : null;
   const activeSession = selectedRoom ? (sessionByRoomId?.get(selectedRoom.id) || null) : null;
 
+  // Auto-open into the room the user is already in.
+  // When the user lands on bare /office and they have an active sync
+  // session bound to a visible room, jump straight into that room —
+  // they're "in" it from the system's POV, so showing the hallway is
+  // misleading. Fires once per mount via a ref so the user can still
+  // click "Hallway" to leave intentionally without being yanked back.
+  const { syncSession } = useSyncSession();
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (resolvedRoomId) {
+      // Either we're already in a room URL, or the URL has a roomId
+      // we don't recognize; either way, don't auto-redirect.
+      autoOpenedRef.current = true;
+      return;
+    }
+    const activeRoomId = syncSession?.room_id;
+    if (!activeRoomId) return; // No session, or session not bound to a room
+    const visible = (rooms || []).some((r) => r.id === activeRoomId);
+    if (!visible) return; // Session for a room they can't see — leave them in the hallway
+    autoOpenedRef.current = true;
+    navigate(`/office/r/${activeRoomId}`, { replace: true });
+  }, [resolvedRoomId, syncSession?.room_id, rooms, navigate]);
+
   // Persist last-visited room so we can highlight it in the hallway
   // ("you were here recently"). Doesn't change navigation behavior.
   useEffect(() => {
     if (resolvedRoomId && activeTeam?.id) rememberRoomFor(activeTeam.id, resolvedRoomId);
   }, [resolvedRoomId, activeTeam?.id]);
+
+  // Auto-bind the user's sync session to the room they're viewing.
+  //
+  //   Enter a room  → if an active session exists for it, join. If not,
+  //                   start one (private rooms still go through the
+  //                   code prompt via onStart).
+  //   Leave a room  → if our current session is tied to the room we
+  //                   just left, leave it. leave_sync_session hard-
+  //                   deletes the row when we're the last participant,
+  //                   so empty rooms auto-end with no extra plumbing.
+  //
+  // boundRoomRef de-dupes the effect across re-renders triggered by
+  // sessionByRoomId / syncSession updates — we only want to act on
+  // actual URL transitions, not whenever the realtime list refreshes.
+  // Private rooms with an active invite_code are skipped on auto-start:
+  // onStart would pop the code prompt, and we don't want that prompt
+  // appearing just because the user typed a URL.
+  const boundRoomRef = useRef(null);
+  const inFlightRef = useRef(false);
+  useEffect(() => {
+    const target = resolvedRoomId || null;
+    const bound = boundRoomRef.current;
+    if (target === bound) return;
+    if (inFlightRef.current) return;
+
+    const currentSessionRoom = syncSession?.room_id || null;
+    const sessionToLeave =
+      bound && syncSession?.id && currentSessionRoom === bound
+        ? syncSession.id
+        : null;
+
+    inFlightRef.current = true;
+    (async () => {
+      try {
+        if (sessionToLeave) {
+          await leaveSyncSession(sessionToLeave);
+        }
+        if (target) {
+          // If we're already in this room's session (cross-device
+          // rehydrate landed us here), do nothing — we're aligned.
+          if (currentSessionRoom !== target) {
+            const active = sessionByRoomId?.get(target) || null;
+            const room = (rooms || []).find((r) => r.id === target);
+            if (room?.kind === "private" && room.invite_code && !active) {
+              // Locked private rooms still need explicit code entry.
+              // The user can hit "Start a session" to surface the
+              // prompt manually.
+            } else if (active) {
+              await onJoin?.(room);
+            } else if (room) {
+              await onStart?.(room);
+            }
+          }
+        }
+        boundRoomRef.current = target;
+      } finally {
+        inFlightRef.current = false;
+      }
+    })();
+    // We intentionally depend ONLY on the URL room id. sessionByRoomId
+    // and syncSession changes are captured at fire-time via closure;
+    // re-running on every realtime tick would re-trigger leave/join
+    // cycles when nothing actually changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedRoomId]);
 
   const sidebar = <WidgetsSidebar />;
 
@@ -94,10 +185,14 @@ export default function OfficeShell({
     <div className={`flex h-[calc(100vh-64px)] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
-      {/* Desktop widgets sidebar */}
+      {/* Desktop widgets sidebar.
+          Width: 18rem (288px) open, 0 closed. min-width pins the open
+          state so flex doesn't squeeze it when the room contents
+          push for more space — keeps the right edge flush with the
+          room view's left edge across viewports. */}
       <div
         className={`hidden md:flex shrink-0 h-full overflow-hidden transition-[width] duration-200 ${
-          sidebarOpen ? "w-72" : "w-0"
+          sidebarOpen ? "w-72 min-w-[18rem]" : "w-0 min-w-0"
         }`}
       >
         {sidebarOpen && sidebar}
@@ -153,6 +248,7 @@ export default function OfficeShell({
           <HallwayView
             activeTeam={activeTeam}
             rooms={rooms}
+            lockedRooms={lockedRooms}
             sessionByRoomId={sessionByRoomId}
             onlineCount={onlineCount}
             canEdit={canEdit}
@@ -167,6 +263,7 @@ export default function OfficeShell({
         open={overlayOpen}
         onClose={() => setOverlayOpen(false)}
         rooms={rooms}
+        lockedRooms={lockedRooms}
         sessionByRoomId={sessionByRoomId}
         selectedRoomId={resolvedRoomId}
       />

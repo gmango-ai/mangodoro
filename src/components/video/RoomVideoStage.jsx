@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Video, VideoOff, Bell, Settings as SettingsIcon } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
+import { useVideoCall } from "../../context/VideoCallContext";
 import { Button } from "@/components/ui/button";
 import UserAvatar from "../UserAvatar";
-import VideoCall from "./VideoCall";
 import { useRoomCallPresence } from "./useRoomCallPresence";
 
 const AUTO_JOIN_KEY = "ql_auto_join_room_calls";
@@ -31,48 +31,49 @@ function saveAutoJoinPref(value) {
 //   1. Nobody in the call yet
 //        → "Start a call" button (click → join + become first member)
 //   2. Others in the call, auto_join_room_calls = true (default)
-//        → join immediately, VideoCall iframe mounts
+//        → join immediately
 //   3. Others in the call, auto_join = false
 //        → "{N} in call" preview with avatars + "Ask to join" button
 //   4. I'm in the call
-//        → VideoCall iframe mounts, ignores auto-join from here on
-//
-// "Ask to join" is currently the same action as "join" — there's no
-// knock-and-approve flow yet. We surface it as a separate button so
-// the auto-join opt-out doesn't auto-pull someone into the call,
-// which is the actual privacy concern. A real knock flow lands when
-// JaaS auth is in.
+//        → stage takes over, but the *actual* iframe is owned by
+//          PersistentVideoCall at the AppLayout level. We just hand it
+//          our stageRef so it positions over our area; the iframe
+//          stays mounted across page navigations.
 export default function RoomVideoStage({ roomId, displayName }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { session } = useApp();
   const userId = session?.user?.id;
   const [autoJoin, setAutoJoin] = useState(loadAutoJoinPref);
-  const [intent, setIntent] = useState("idle"); // "idle" | "joining" | "in-call"
   const [showSettings, setShowSettings] = useState(false);
 
-  const inCall = intent === "in-call";
+  // Call state is owned by VideoCallContext — when call.roomId matches
+  // our room, we're "in the call." That state survives navigation,
+  // which is the whole point of this refactor.
+  const { call, startCall, endCall, setStageEl } = useVideoCall();
+  const inCall = call?.roomId === roomId;
 
-  // Single presence hook — mode flips between observe / join based on
-  // intent. Running two hooks in parallel (the old InCallPresenceShim
-  // path) failed because supabase reuses channels by topic name, so
-  // both consumers ended up sharing one channel and the second `.on`
-  // would fire after the first's `.subscribe()` → "cannot add
-  // `presence` callbacks after subscribe()".
+  // The DOM node where the persistent call should be positioned. We
+  // register it via the context when in-call and clear when not.
+  const stageRef = useRef(null);
+  useEffect(() => {
+    if (!inCall) return;
+    setStageEl(stageRef.current);
+    return () => setStageEl(null);
+  }, [inCall, setStageEl]);
+
   const observed = useRoomCallPresence({
     roomId, userId, displayName,
     mode: inCall ? "join" : "observe",
   });
 
   // Auto-join trigger. When others are in the call AND the user has
-  // auto-join enabled, automatically flip intent to "in-call" so the
-  // VideoCall component mounts. Skip if already in-call to avoid
-  // re-popping the camera permission dialog.
+  // auto-join enabled, drop them in.
   useEffect(() => {
-    if (intent === "in-call") return;
+    if (inCall) return;
     if (!observed.isAnyoneInCall) return;
-    if (autoJoin) setIntent("in-call");
-  }, [observed.isAnyoneInCall, autoJoin, intent]);
+    if (autoJoin) startCall(roomId, displayName);
+  }, [observed.isAnyoneInCall, autoJoin, inCall, startCall, roomId, displayName]);
 
   const settingsToggle = (
     <div className="absolute top-2 right-2 z-10">
@@ -120,17 +121,18 @@ export default function RoomVideoStage({ roomId, displayName }) {
     </div>
   );
 
-  // In-call view: the actual Jitsi embed fills the stage. The
-  // presence broadcast happens via the shared useRoomCallPresence
-  // hook above (mode = "join" when inCall).
+  // In-call: render a placeholder div sized like the stage. The actual
+  // Jitsi iframe is layered over this rect by PersistentVideoCall.
   if (inCall) {
     return (
-      <div className="relative w-full h-full">
-        <VideoCall
-          roomId={roomId}
-          displayName={displayName}
-          onLeft={() => setIntent("idle")}
-        />
+      <div
+        ref={stageRef}
+        className="relative w-full h-full rounded-xl overflow-hidden"
+        // The persistent overlay covers this background, but keep a
+        // neutral fill in case of a brief race between the call mount
+        // and the position sync.
+        style={{ background: dark ? "#0f172a" : "#0f172a" }}
+      >
         {settingsToggle}
       </div>
     );
@@ -157,7 +159,7 @@ export default function RoomVideoStage({ roomId, displayName }) {
           ))}
         </div>
         <Button
-          onClick={() => setIntent("in-call")}
+          onClick={() => startCall(roomId, displayName)}
           className="rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
         >
           <Bell className="w-4 h-4 mr-1.5" />
@@ -184,7 +186,7 @@ export default function RoomVideoStage({ roomId, displayName }) {
         Start a call and your teammates in this room get a join prompt.
       </p>
       <Button
-        onClick={() => setIntent("in-call")}
+        onClick={() => startCall(roomId, displayName)}
         className="rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
       >
         <Video className="w-4 h-4 mr-1.5" />
@@ -193,4 +195,3 @@ export default function RoomVideoStage({ roomId, displayName }) {
     </div>
   );
 }
-

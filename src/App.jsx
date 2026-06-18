@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
 import { App as CapApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
@@ -11,6 +11,8 @@ import { AppProvider, useApp } from "./context/AppContext";
 import { TeamProvider } from "./context/TeamContext";
 import { SyncSessionProvider, useSyncSession } from "./context/SyncSessionContext";
 import { PomodoroProvider } from "./pomodoro/PomodoroContext";
+import { VideoCallProvider } from "./context/VideoCallContext";
+import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
 import ClockBanner from "./components/ClockBanner";
@@ -27,6 +29,11 @@ import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
 import RetroPage from "./pages/RetroPage";
 import RetrosListPage from "./pages/RetrosListPage";
 import JoinRetroPage from "./pages/JoinRetroPage";
+// Lazy-load the whiteboard surfaces — xyflow + its CSS land in their
+// own chunk so the initial App bundle isn't paying for the canvas
+// until the user actually opens /whiteboards.
+const WhiteboardsListPage = lazy(() => import("./pages/WhiteboardsListPage"));
+const WhiteboardPage = lazy(() => import("./pages/WhiteboardPage"));
 import PomodoroPage from "./pages/PomodoroPage";
 import OfficePage from "./pages/OfficePage";
 import JoinSyncPage from "./pages/JoinSyncPage";
@@ -117,6 +124,16 @@ function AppLayout({ session }) {
   const [showPomodoro, setShowPomodoro] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+
+  // Cross-tree opener for the floating PomodoroSurface. Room widgets
+  // (header chip, sidebar widget) dispatch `mangodoro:open-pomodoro`
+  // via lib/pomodoroSurface.js to bring the full controls up without
+  // prop-drilling setShowPomodoro through the office shell.
+  useEffect(() => {
+    function onOpen() { setShowPomodoro(true); }
+    window.addEventListener("mangodoro:open-pomodoro", onOpen);
+    return () => window.removeEventListener("mangodoro:open-pomodoro", onOpen);
+  }, []);
 
   const showOnboarding = !onboardingDismissed && !dataSyncing && !settings.name;
 
@@ -260,6 +277,23 @@ function AppLayout({ session }) {
             <Route path="/team/retro" element={<Navigate to="/retros" replace />} />
             <Route path="/retros" element={<RetrosListPage />} />
             <Route path="/retros/:retroId" element={<RetroPage />} />
+            <Route path="/whiteboard" element={<Navigate to="/whiteboards" replace />} />
+            <Route
+              path="/whiteboards"
+              element={
+                <Suspense fallback={<div className="px-4 pt-6" />}>
+                  <WhiteboardsListPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/whiteboards/:whiteboardId"
+              element={
+                <Suspense fallback={<div className="px-4 pt-6" />}>
+                  <WhiteboardPage />
+                </Suspense>
+              }
+            />
             <Route
               path="/pomodoro"
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
@@ -270,6 +304,11 @@ function AppLayout({ session }) {
             {/* /account merged into /settings → Profile section. */}
             <Route path="/account" element={<Navigate to="/settings" replace />} />
           </Routes>
+
+          {/* Persistent Jitsi mount — lives outside <Routes> so the
+              call survives page navigation. Renders as a PiP when no
+              page has provided a stageEl via VideoCallContext. */}
+          <PersistentVideoCall />
         </div>
       </div>
     </div>
@@ -294,7 +333,9 @@ function AuthenticatedApp({ session }) {
       <TeamProvider session={session}>
         <SyncSessionProvider session={session}>
           <PomodoroProvider userId={session.user.id}>
-            <AppLayout session={session} />
+            <VideoCallProvider>
+              <AppLayout session={session} />
+            </VideoCallProvider>
           </PomodoroProvider>
         </SyncSessionProvider>
       </TeamProvider>

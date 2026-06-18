@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { JITSI_DOMAIN, fetchVideoCallToken, loadJitsiExternalApi, roomNameForRoom } from "../../lib/jitsi";
+import { registerJitsiApi, unregisterJitsiApi } from "../../lib/jitsiBridge";
+import EmoteOverlay from "../emotes/EmoteOverlay";
 
 // Embeds a JitsiMeetExternalAPI iframe into the surrounding div.
 // Mounts the iframe on the first render, calls `onJoined` /
@@ -35,10 +37,13 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
         const Ctor = await loadJitsiExternalApi();
         if (cancelled || !containerRef.current) return;
 
-        // Public meet.jit.si returns null. JaaS path will return a
-        // signed JWT minted by an Edge Function (added when we flip
-        // the provider over).
-        const jwt = await fetchVideoCallToken(roomNameForRoom(roomId), session?.user?.id);
+        // Public meet.jit.si returns null. JaaS path mints via the
+        // `mint-jaas-jwt` Supabase edge function (cached per-tab).
+        const jwt = await fetchVideoCallToken(
+          roomNameForRoom(roomId),
+          session?.user?.id,
+          displayName,
+        );
 
         const opts = {
           roomName: roomNameForRoom(roomId),
@@ -75,6 +80,11 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
 
         const api = new Ctor(JITSI_DOMAIN, opts);
         apiRef.current = api;
+        // Publish the api to module-level subscribers (e.g. the
+        // TimerWidget's "Share music" button). Unregister happens in
+        // the cleanup below so a brief gap during HMR reload doesn't
+        // leave a stale reference live.
+        registerJitsiApi(api);
 
         // Log every Jitsi lifecycle event we care about so we can
         // see in the console why the embed isn't reaching "joined"
@@ -140,6 +150,7 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
 
     return () => {
       cancelled = true;
+      unregisterJitsiApi();
       try { apiRef.current?.dispose(); } catch { /* */ }
       apiRef.current = null;
     };
@@ -191,6 +202,11 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
             className="w-full h-full rounded-xl overflow-hidden"
             aria-label="Video call"
           />
+          {/* Floating emoji-reaction bar + particles. Scope by roomId
+              so everyone in the same room (regardless of which Jitsi
+              tile they're staring at) sees each other's emotes drift
+              up over the video. */}
+          {roomId && <EmoteOverlay channelKey={`room:${roomId}`} />}
         </>
       )}
     </div>

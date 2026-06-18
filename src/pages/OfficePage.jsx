@@ -18,7 +18,7 @@ import { resolveRoomByInviteCode } from "../lib/rooms";
 export default function OfficePage() {
   const { session } = useApp();
   const {
-    activeTeam, activeTeamId, activeTeamSessions, visibleRooms, isAdmin,
+    activeTeam, activeTeamId, activeTeamSessions, visibleRooms, lockedRooms, isAdmin,
     teamMembers, myOrgTeamLeadIds, orgTeams,
   } = useTeam();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
@@ -138,6 +138,7 @@ export default function OfficePage() {
       <OfficeShell
         activeTeam={activeTeam}
         rooms={visibleRooms}
+        lockedRooms={lockedRooms}
         sessionByRoomId={sessionByRoomId}
         orgTeams={orgTeams || []}
         onlineCount={onlineCount}

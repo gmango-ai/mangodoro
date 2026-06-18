@@ -1,28 +1,66 @@
 import { useState } from "react";
 import { ClipboardList, Search, Target, X as XIcon } from "lucide-react";
+import {
+  DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors,
+  useDraggable, useDroppable,
+} from "@dnd-kit/core";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import { unlinkRetroFromSession } from "../../lib/syncSession";
+import { useWidgetOrder } from "../../hooks/useWidgetOrder";
 import RetroPicker from "./RetroPicker";
+import TimerWidget from "./TimerWidget";
+import PomodoroWidget from "./PomodoroWidget";
+import GoalsWidget from "./GoalsWidget";
+import RoomMembersWidget from "./RoomMembersWidget";
+import WidgetSection, { DragHandleProvider } from "./WidgetSection";
 
-// App-wide widgets sidebar. The retro widget is the primary action
-// today (entry point for attaching a retro to the active session).
-// Tasks slot stays as a placeholder for ClickUp lookup. Both render
-// regardless of whether the user is in a room or in the hallway —
-// each widget self-gates on the session/team context it needs.
+// App-wide widgets sidebar. Each widget is a WidgetSection so it can
+// collapse independently (state persisted per-widget). Widgets can
+// also be reordered by dragging the grip handle in the header —
+// useWidgetOrder persists the user's chosen order across reloads,
+// reconciling against the default list when widgets get added or
+// removed by future PRs.
 export default function WidgetsSidebar() {
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const { order, reorder } = useWidgetOrder();
+
+  // 5px activation distance lets the header's collapse-on-click work
+  // without the drag intercepting a click. Tap-and-drag still fires
+  // for any pointer movement past that threshold.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    reorder(active.id, over.id);
+  }
+
+  // Lookup table keyed by widget id. Each entry is a render function
+  // so an id with no entry (stale localStorage from a removed widget)
+  // is harmlessly skipped.
+  const widgetById = {
+    timer:        () => <TimerWidget dark={dark} />,
+    pomodoro:     () => <PomodoroWidget dark={dark} />,
+    "room-members": () => <RoomMembersWidget dark={dark} />,
+    goals:        () => <GoalsWidget dark={dark} />,
+    retro:        () => <RetroWidget dark={dark} />,
+    tasks:        () => <TasksWidget dark={dark} />,
+  };
 
   return (
     <aside
-      className={`flex flex-col h-full border-r min-w-0 ${
+      className={`flex flex-col h-full border-r min-w-[18rem] ${
         dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
       }`}
     >
-      <div className={`px-4 py-3 border-b ${
+      <div className={`px-3 py-3 border-b ${
         dark ? "border-[var(--color-border)]" : "border-slate-200"
       }`}>
         <p className={`text-[10px] font-semibold uppercase tracking-wider ${
@@ -32,19 +70,62 @@ export default function WidgetsSidebar() {
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        <RetroWidget dark={dark} />
-        <TasksWidget dark={dark} />
-      </div>
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {order.map((id) => {
+            const render = widgetById[id];
+            if (!render) return null;
+            return (
+              <SortableSlot key={id} id={id}>
+                {render()}
+              </SortableSlot>
+            );
+          })}
+        </div>
+      </DndContext>
     </aside>
   );
 }
 
-// Entry point for the retro-in-room flow.
-//   Not in a session  → muted "Join a session to attach a retro" hint
-//   In a session, no retro linked, leader → "Start a retro" CTA
-//   In a session, no retro linked, not leader → "Waiting for leader" hint
-//   Retro linked → chip + Unlink (leader only)
+// Per-widget drop target + drag source. The drop ref and drag ref
+// share the same DOM node so a widget can be both grabbed and a
+// landing target. The grip-handle listeners are piped to WidgetSection
+// via DragHandleProvider so widgets don't need to know about DnD.
+function SortableSlot({ id, children }) {
+  const draggable = useDraggable({ id });
+  const droppable = useDroppable({ id });
+
+  function setRef(el) {
+    draggable.setNodeRef(el);
+    droppable.setNodeRef(el);
+  }
+
+  const style = draggable.transform
+    ? {
+        transform: `translate3d(${draggable.transform.x}px, ${draggable.transform.y}px, 0)`,
+        zIndex: draggable.isDragging ? 20 : "auto",
+        opacity: draggable.isDragging ? 0.95 : 1,
+      }
+    : undefined;
+
+  return (
+    <div
+      ref={setRef}
+      style={style}
+      className={`transition-colors ${
+        droppable.isOver && !draggable.isDragging
+          ? "outline outline-2 outline-[var(--color-accent)] rounded-xl"
+          : ""
+      }`}
+    >
+      <DragHandleProvider value={{ listeners: draggable.listeners, attributes: draggable.attributes }}>
+        {children}
+      </DragHandleProvider>
+    </div>
+  );
+}
+
+// Retro link picker. WidgetSection owns the chrome + drag handle.
 function RetroWidget({ dark }) {
   const { session } = useApp();
   const { syncSession } = useSyncSession();
@@ -61,84 +142,63 @@ function RetroWidget({ dark }) {
   }
 
   return (
-    <section className={`rounded-xl border overflow-hidden ${
-      dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]/40" : "border-slate-200 bg-slate-50"
-    }`}>
-      <header className={`flex items-center gap-1.5 px-3 py-2 ${
-        dark ? "text-slate-400" : "text-slate-500"
-      }`}>
-        <Target className="w-3 h-3" />
-        <span className="text-[10px] font-bold uppercase tracking-wider">Retro</span>
-      </header>
+    <WidgetSection id="retro" icon={Target} title="Retro" dark={dark}>
+      {!inSession && (
+        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
+          Join a session to attach a retro everyone can see.
+        </p>
+      )}
 
-      <div className="px-3 pb-3">
-        {!inSession && (
-          <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-            Join a session to attach a retro everyone can see.
-          </p>
-        )}
+      {inSession && !linkedRetroId && isLeader && (
+        <Button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          className="w-full justify-start"
+          size="sm"
+        >
+          <Target className="w-3.5 h-3.5 mr-2" />
+          Start a retro
+        </Button>
+      )}
 
-        {inSession && !linkedRetroId && isLeader && (
-          <Button
-            type="button"
-            onClick={() => setPickerOpen(true)}
-            className="w-full justify-start"
-            size="sm"
-          >
-            <Target className="w-3.5 h-3.5 mr-2" />
-            Start a retro
-          </Button>
-        )}
+      {inSession && !linkedRetroId && !isLeader && (
+        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
+          The session leader can attach a retro for the group.
+        </p>
+      )}
 
-        {inSession && !linkedRetroId && !isLeader && (
-          <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-            The session leader can attach a retro for the group.
-          </p>
-        )}
-
-        {linkedRetroId && (
-          <div className="space-y-2">
-            <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold w-full bg-[var(--color-accent-light)] text-[var(--color-accent)]`}>
-              <Target className="w-3 h-3" fill="currentColor" />
-              <span className="truncate flex-1">Retro attached</span>
-              {isLeader && (
-                <button
-                  type="button"
-                  onClick={unlink}
-                  aria-label="Unlink retro"
-                  title="Unlink retro"
-                  className="p-0.5 rounded-full hover:bg-[var(--color-accent)]/15"
-                >
-                  <XIcon className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-            <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-              Pick "Retro" in the room view-mode pill to take over the screen.
-            </p>
+      {linkedRetroId && (
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold w-full bg-[var(--color-accent-light)] text-[var(--color-accent)]">
+            <Target className="w-3 h-3" fill="currentColor" />
+            <span className="truncate flex-1">Retro attached</span>
+            {isLeader && (
+              <button
+                type="button"
+                onClick={unlink}
+                aria-label="Unlink retro"
+                title="Unlink retro"
+                className="p-0.5 rounded-full hover:bg-[var(--color-accent)]/15"
+              >
+                <XIcon className="w-3 h-3" />
+              </button>
+            )}
           </div>
-        )}
-      </div>
+          <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
+            Pick "Retro" in the room view-mode pill to take over the screen.
+          </p>
+        </div>
+      )}
 
       <RetroPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
-    </section>
+    </WidgetSection>
   );
 }
 
 function TasksWidget({ dark }) {
   return (
-    <section className={`rounded-xl border overflow-hidden ${
-      dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]/40" : "border-slate-200 bg-slate-50"
-    }`}>
-      <header className={`flex items-center justify-between px-3 py-2 ${
-        dark ? "text-slate-400" : "text-slate-500"
-      }`}>
-        <span className="text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5">
-          <ClipboardList className="w-3 h-3" />
-          Tasks
-        </span>
-      </header>
-      <div className="px-3 pb-3 space-y-2">
+    <WidgetSection id="tasks" icon={ClipboardList} title="Tasks" dark={dark} defaultCollapsed>
+      <div className="space-y-2">
         <div className={`relative ${
           dark ? "text-slate-500" : "text-slate-400"
         }`}>
@@ -163,6 +223,6 @@ function TasksWidget({ dark }) {
           Coming soon
         </span>
       </div>
-    </section>
+    </WidgetSection>
   );
 }

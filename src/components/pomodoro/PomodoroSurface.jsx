@@ -19,6 +19,8 @@ import SessionDots from "./SessionDots";
 import PendingActionBanner from "./PendingActionBanner";
 import AlarmStopBanner from "./AlarmStopBanner";
 import MeetingCountdown from "./MeetingCountdown";
+import GoalsList from "../GoalsList";
+import { useWeekGoals } from "../../hooks/useWeekGoals";
 import { useTimerTitleAndBadge } from "./useTimerTitleAndBadge";
 import {
   cloneDocStyles,
@@ -49,6 +51,7 @@ const VARIANT_CONFIG = {
     showTeamHeader: true, headerInteractive: false,
     showPopout: true, showClose: false,
     showSound: true, participantsMax: 6,
+    showGoals: false, // PomodoroPage already renders goals in its sidebar.
   },
   floating: {
     clockSize: "md", controlsSize: "md",
@@ -56,6 +59,7 @@ const VARIANT_CONFIG = {
     showTeamHeader: true, headerInteractive: false,
     showPopout: true, showClose: true,
     showSound: true, participantsMax: 4,
+    showGoals: true,
   },
   rail: {
     clockSize: "md", controlsSize: "md",
@@ -63,6 +67,7 @@ const VARIANT_CONFIG = {
     showTeamHeader: false, headerInteractive: false,
     showPopout: false, showClose: false,
     showSound: false, participantsMax: 3,
+    showGoals: false, // No room — rail variant is the tightest.
   },
   popover: {
     clockSize: "sm", controlsSize: "sm",
@@ -70,6 +75,7 @@ const VARIANT_CONFIG = {
     showTeamHeader: true, headerInteractive: true,
     showPopout: true, showClose: false,
     showSound: true, participantsMax: 3,
+    showGoals: true,
   },
 };
 
@@ -91,6 +97,7 @@ export default function PomodoroSurface({
     canControl, transferLeader, kickParticipant,
   } = usePomodoro();
   const { syncParticipants, presenceMap } = useSyncSession();
+  const { goals: weekGoals } = useWeekGoals();
 
   useTimerTitleAndBadge();
 
@@ -276,6 +283,27 @@ export default function PomodoroSurface({
 
           {/* Participants */}
           <ParticipantCards max={cfg.participantsMax} />
+
+          {/* Week goals — small banner showing the goals set in last
+              week's retro that define this week's focus. Hidden when
+              no goal was set (there's no useful action to surface
+              here; setting next week's goal happens in the retro). */}
+          {cfg.showGoals && weekGoals.length > 0 && (
+            <div
+              className={`rounded-xl border p-3 ${
+                dark
+                  ? "bg-[var(--color-surface-raised)]/40 border-[var(--color-border)]"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${
+                dark ? "text-slate-500" : "text-slate-400"
+              }`}>
+                Goals this week
+              </p>
+              <GoalsList goals={weekGoals} dark={dark} compact />
+            </div>
+          )}
 
           {/* Bottom action bar (synced only) */}
           <ActionButtonsBar />

@@ -14,6 +14,7 @@ import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
   ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
   MoreVertical, Search, X, Star, Briefcase, Pencil, Archive, Volume2,
+  ArrowRightLeft,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
@@ -41,11 +42,12 @@ const TEAM_COLORS = [
 
 export default function TeamPage() {
   const {
-    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, orgTeams, loadOrgTeamsForActive,
+    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, isOwner, orgTeams, loadOrgTeamsForActive,
     teamsByUserId, orgTeamMemberCounts, myOrgTeamLeadIds,
     rooms, loadRoomsForActiveTeam,
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
     removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
+    grantTeamOwner, revokeTeamOwner, transferTeamOwnership,
     activeTeamSessions, loadActiveTeamSessions,
     teamSounds, addTeamSound, renameTeamSound, removeTeamSound,
     teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
@@ -802,12 +804,32 @@ export default function TeamPage() {
                           member={m}
                           dark={dark}
                           isAdmin={isAdmin}
-                          isOwner={m.user_id === activeTeam.created_by}
+                          isOwner={!!m.is_owner}
+                          viewerIsOwner={isOwner}
+                          viewerUserId={session?.user?.id}
                           teamsForUser={teamsByUserId.get(m.user_id) || []}
                           onEditHR={() => setHrMember(m)}
                           onEditTeams={() => setMemberTeamsModalFor(m)}
                           onToggleRole={() => handleToggleRole(m.user_id, m.role)}
                           onRemove={() => setMemberToRemove(m)}
+                          onGrantOwner={async () => {
+                            const { error } = await grantTeamOwner(activeTeamId, m.user_id);
+                            if (error) alert(error.message || "Could not promote");
+                          }}
+                          onRevokeOwner={async () => {
+                            const { error } = await revokeTeamOwner(activeTeamId, m.user_id);
+                            if (error) alert(error.message || "Could not demote");
+                          }}
+                          onTransferOwnership={async () => {
+                            const ok = window.confirm(
+                              `Transfer ownership of "${activeTeam?.name}" to ${m.name}?\n\n`
+                              + `You will keep your admin role but no longer be an owner. `
+                              + `This can be reversed by the new owner.`
+                            );
+                            if (!ok) return;
+                            const { error } = await transferTeamOwnership(activeTeamId, m.user_id);
+                            if (error) alert(error.message || "Could not transfer");
+                          }}
                           onTeamChipClick={(teamId) => {
                             setTeamFilter(teamId);
                             focusPeopleSection();
@@ -1021,9 +1043,11 @@ function SectionHeader({ icon: Icon, title, subtitle, dark, danger = false }) {
 // tagline on top, team chips + admin actions on the bottom. Reads as
 // "who they are, what they are, what they're on, what I can do."
 function MemberCard({
-  member: m, dark, isAdmin, isOwner,
+  member: m, dark, isAdmin, isOwner, viewerIsOwner, viewerUserId,
   teamsForUser, onEditHR, onEditTeams, onToggleRole, onRemove, onTeamChipClick,
+  onGrantOwner, onRevokeOwner, onTransferOwnership,
 }) {
+  const isSelf = viewerUserId === m.user_id;
   const presenceRing = (() => {
     switch (m.presence_state) {
       case "in_meeting": return "ring-rose-500";
@@ -1153,6 +1177,12 @@ function MemberCard({
               onEditComp={onEditHR}
               onEditTeams={onEditTeams}
               onRemove={onRemove}
+              viewerIsOwner={viewerIsOwner}
+              targetIsOwner={isOwner}
+              targetIsSelf={isSelf}
+              onGrantOwner={onGrantOwner}
+              onRevokeOwner={onRevokeOwner}
+              onTransferOwnership={onTransferOwnership}
             />
           </div>
         )}
@@ -1269,7 +1299,11 @@ function FilterChip({ label, count, color, active, accent, dark, onClick }) {
 // outside click and Escape — the standard expectations. Lives inline
 // (not a portal) because the row clipping isn't an issue at our card
 // widths; if we hit overflow later we can lift it into a Popover.
-function MemberActionsMenu({ dark, canRemove, onEditComp, onEditTeams, onRemove }) {
+function MemberActionsMenu({
+  dark, canRemove, onEditComp, onEditTeams, onRemove,
+  viewerIsOwner, targetIsOwner, targetIsSelf,
+  onGrantOwner, onRevokeOwner, onTransferOwnership,
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -1337,6 +1371,45 @@ function MemberActionsMenu({ dark, canRemove, onEditComp, onEditTeams, onRemove 
             <Users2 className="w-3.5 h-3.5 opacity-70" />
             Edit teams
           </button>
+
+          {/* Owner-only actions. Grant + Transfer hidden for self
+              (you can't promote/transfer to yourself); Revoke hidden
+              for non-owners and for the viewer (revoking your own
+              ownership goes through Transfer instead). */}
+          {viewerIsOwner && !targetIsSelf && !targetIsOwner && (
+            <button
+              type="button"
+              role="menuitem"
+              className={itemCls}
+              onClick={() => { setOpen(false); onGrantOwner?.(); }}
+            >
+              <Crown className="w-3.5 h-3.5 opacity-70" />
+              Make co-owner
+            </button>
+          )}
+          {viewerIsOwner && !targetIsSelf && targetIsOwner && (
+            <button
+              type="button"
+              role="menuitem"
+              className={itemCls}
+              onClick={() => { setOpen(false); onRevokeOwner?.(); }}
+            >
+              <Crown className="w-3.5 h-3.5 opacity-70" />
+              Remove as co-owner
+            </button>
+          )}
+          {viewerIsOwner && !targetIsSelf && (
+            <button
+              type="button"
+              role="menuitem"
+              className={itemCls}
+              onClick={() => { setOpen(false); onTransferOwnership?.(); }}
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5 opacity-70" />
+              Transfer ownership…
+            </button>
+          )}
+
           {canRemove && (
             <>
               <div className={`my-1 h-px ${dark ? "bg-slate-700/60" : "bg-slate-200"}`} />

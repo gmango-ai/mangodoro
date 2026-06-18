@@ -87,7 +87,7 @@ function OccupantAvatar({ occupant, isLeader, userTeams, size = 28 }) {
   );
 }
 
-export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size: sizeOverride, onOpen }) {
+export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size: sizeOverride, onOpen, locked = false, lockedReason }) {
   const { theme } = useTheme();
   const { teamsByUserId } = useTeam();
   const dark = theme === "dark";
@@ -124,9 +124,31 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
   // back to onJoin (legacy single-action behavior).
   function handlePrimary() {
     if (busy) return;
+    if (locked) return;
     if (onOpen) onOpen(room);
     else if (onJoin) onJoin(room);
   }
+
+  // Common visual treatment for any locked tile size: dim the body, a
+  // lock badge in the top-right, and a tooltip explaining which team
+  // gates the room. The button stays clickable for accessibility but
+  // handlePrimary is a no-op.
+  const lockedClass = locked ? "opacity-60 cursor-not-allowed" : "";
+  const lockTooltip = locked
+    ? (lockedReason
+        ? `Locked — ${lockedReason}`
+        : "Locked — not a member of the gating team")
+    : "";
+  const LockBadge = locked ? (
+    <span
+      className={`absolute top-1.5 right-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] z-10 ${
+        dark ? "bg-[var(--color-surface-raised)] text-slate-400 border border-[var(--color-border)]" : "bg-slate-100 text-slate-500 border border-slate-200"
+      }`}
+      aria-hidden
+    >
+      <Lock className="w-2.5 h-2.5" />
+    </span>
+  ) : null;
 
   // ── COMPACT ─────────────────────────────────────────────────────
   // For ≤2 wide tiles. Renders the room icon + name + occupant dots
@@ -141,12 +163,13 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
       <button
         type="button"
         onClick={handlePrimary}
-        disabled={busy}
-        title={`${room.name} — ${dotTitle}`}
-        className={`relative flex flex-col items-center justify-center rounded-2xl border p-2 transition-all h-full w-full text-center overflow-hidden ${tone} ${pulse} ${
-          "hover:border-[var(--color-accent)]"
+        disabled={busy || locked}
+        title={locked ? lockTooltip : `${room.name} — ${dotTitle}`}
+        className={`relative flex flex-col items-center justify-center rounded-2xl border p-2 transition-all h-full w-full text-center overflow-hidden ${tone} ${pulse} ${lockedClass} ${
+          locked ? "" : "hover:border-[var(--color-accent)]"
         }`}
       >
+        {LockBadge}
         {/* Accent stripe on the top edge — same idea as Huly's tile
             accent. Subtle enough not to overwhelm. */}
         <span
@@ -205,9 +228,13 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
     <button
       type="button"
       onClick={handlePrimary}
-      disabled={busy}
-      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full overflow-hidden ${tone} ${pulse} hover:border-[var(--color-accent)]`}
+      disabled={busy || locked}
+      title={locked ? lockTooltip : undefined}
+      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full overflow-hidden ${tone} ${pulse} ${lockedClass} ${
+        locked ? "" : "hover:border-[var(--color-accent)]"
+      }`}
     >
+      {LockBadge}
       {/* Accent stripe along the top edge — the primary color
           identification cue. Kept thin so it doesn't fight tile
           content. */}
