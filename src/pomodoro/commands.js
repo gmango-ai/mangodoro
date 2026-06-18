@@ -1,4 +1,5 @@
 import { supabase } from "../supabase.js";
+import { stopCompletionSound } from "../lib/pomodoroSound.js";
 import { remoteUpdatedAtMs } from "./derive.js";
 
 export async function flushToServer({
@@ -25,6 +26,12 @@ export async function flushToServer({
         ? override.pending_mode
         : base.pendingMode,
     };
+    if (Object.prototype.hasOwnProperty.call(override, "durations")) {
+      payload.durations = override.durations;
+    }
+    if (Object.prototype.hasOwnProperty.call(override, "auto_transition")) {
+      payload.auto_transition = override.auto_transition;
+    }
     const { data, error } = await supabase
       .from("sync_sessions")
       .update(payload)
@@ -53,6 +60,12 @@ export async function flushToServer({
         ? override.pending_mode
         : base.pendingMode,
     };
+    if (Object.prototype.hasOwnProperty.call(override, "durations")) {
+      payload.durations = override.durations;
+    }
+    if (Object.prototype.hasOwnProperty.call(override, "auto_transition")) {
+      payload.auto_transition = override.auto_transition;
+    }
     const { data, error } = await supabase
       .from("user_pomodoro_state")
       .upsert(payload, { onConflict: "user_id" })
@@ -82,6 +95,7 @@ export async function commitToPhase({
   markUserMutated,
   completionHandledRef,
 }) {
+  stopCompletionSound();
   completionHandledRef.current = null;
   markUserMutated();
   const d = durationsRef.current;
@@ -112,6 +126,7 @@ export async function beginTransition({
   markUserMutated,
   completionHandledRef,
 }) {
+  stopCompletionSound();
   completionHandledRef.current = null;
   markUserMutated();
   setters.setPendingMode(nextBreak);

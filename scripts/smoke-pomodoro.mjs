@@ -55,6 +55,10 @@ async function check(label, fn) {
     const { error } = await supabase.from("sync_sessions").select("controller_id, control_mode, visibility").limit(1);
     return !error;
   });
+  await check("sync_sessions has durations + auto_transition", async () => {
+    const { error } = await supabase.from("sync_sessions").select("durations, auto_transition").limit(1);
+    return !error;
+  });
 
   // ── RPC: set_user_status ──────────────────────────────
   await check("set_user_status round-trips", async () => {
@@ -110,6 +114,28 @@ async function check(label, fn) {
     const { data, error } = await supabase.rpc("take_sync_control", { p_session_id: sessionId });
     if (error) throw error;
     return data?.session?.controller_id === userId;
+  });
+
+  await check("sync_tick_if_due advances expired work phase", async () => {
+    const { error: updErr } = await supabase
+      .from("sync_sessions")
+      .update({
+        mode: "work",
+        sessions: 0,
+        pending_mode: null,
+        remaining_seconds: 1,
+        is_running: true,
+        durations: { work: 1500, shortBreak: 300, longBreak: 900 },
+        auto_transition: false,
+      })
+      .eq("id", sessionId);
+    if (updErr) throw updErr;
+    await new Promise((r) => setTimeout(r, 1100));
+    const { data, error } = await supabase.rpc("sync_tick_if_due", {
+      p_session_id: sessionId,
+    });
+    if (error) throw error;
+    return data?.advanced === true && data?.session?.mode === "shortBreak";
   });
 
   await check("set_sync_control_mode requires leader and validates input", async () => {

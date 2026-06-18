@@ -17,6 +17,7 @@ import ParticipantCards from "./ParticipantCards";
 import ActionButtonsBar from "./ActionButtonsBar";
 import SessionDots from "./SessionDots";
 import PendingActionBanner from "./PendingActionBanner";
+import AlarmStopBanner from "./AlarmStopBanner";
 import MeetingCountdown from "./MeetingCountdown";
 import GoalsList from "../GoalsList";
 import { useWeekGoals } from "../../hooks/useWeekGoals";
@@ -242,6 +243,8 @@ export default function PomodoroSurface({
 
           {/* Pending action confirm */}
           {controlsLocked && <PendingActionBanner />}
+
+          <AlarmStopBanner />
 
           {/* Reconnecting pill — only when realtime isn't healthy */}
           {realtimeStatus && realtimeStatus !== "SUBSCRIBED" && (

@@ -33,17 +33,20 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
     await supabase.rpc("reconcile_room_session", { p_room_id: roomId });
   }
 
+  const insertRow = {
+    leader_id: userId,
+    controller_id: userId,
+    join_code: code,
+    team_id: teamId,
+    room_id: roomId,
+    visibility,
+    control_mode: "leader",
+  };
+  if (opts.durations) insertRow.durations = opts.durations;
+  if (opts.autoTransition !== undefined) insertRow.auto_transition = opts.autoTransition;
   const { data: session, error } = await supabase
     .from("sync_sessions")
-    .insert({
-      leader_id: userId,
-      controller_id: userId,
-      join_code: code,
-      team_id: teamId,
-      room_id: roomId,
-      visibility,
-      control_mode: "leader",
-    })
+    .insert(insertRow)
     .select()
     .single();
   if (error) return { error };

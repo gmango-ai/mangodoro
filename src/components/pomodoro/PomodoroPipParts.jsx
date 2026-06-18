@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import ConfirmRow from "../ConfirmRow";
+import AlarmStopBanner from "./AlarmStopBanner";
 
 /**
  * Renders a subtle "Reconnecting…" indicator when the Supabase Realtime
@@ -211,6 +212,9 @@ export function PipFace({
         </span>
         <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{modeLabel}</span>
         <ReconnectingPill status={realtimeStatus} dark={dark} className="mt-0.5" />
+        <div className="w-full max-w-[220px]">
+          <AlarmStopBanner />
+        </div>
       </div>
 
       {controlsLocked && confirmProps && (

@@ -62,3 +62,30 @@ export function saveStoredDurations(d) {
     /* ignore */
   }
 }
+
+export function getSessionCreatePrefs() {
+  return {
+    durations: loadStoredDurations(),
+    autoTransition: loadAutoTransition(),
+  };
+}
+
+/** Parse durations jsonb from a server row; null when missing/invalid. */
+export function parseDurationsFromRow(row) {
+  const d = row?.durations;
+  if (!d || typeof d !== "object") return null;
+  const work = Number(d.work);
+  const shortBreak = Number(d.shortBreak);
+  const longBreak = Number(d.longBreak);
+  if (!Number.isFinite(work) || work <= 0) return null;
+  return {
+    work,
+    shortBreak: Number.isFinite(shortBreak) && shortBreak > 0 ? shortBreak : DEFAULT_DURATIONS.shortBreak,
+    longBreak: Number.isFinite(longBreak) && longBreak > 0 ? longBreak : DEFAULT_DURATIONS.longBreak,
+  };
+}
+
+export function parseAutoTransitionFromRow(row) {
+  if (row?.auto_transition === undefined || row?.auto_transition === null) return null;
+  return !!row.auto_transition;
+}

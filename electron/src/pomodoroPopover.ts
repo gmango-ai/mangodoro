@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen, Tray } from "electron";
 import path from "path";
+import { pushTimerStateToPopover } from "./timerBridge";
 
 // Menubar popover BrowserWindow — Spark-style. Frameless, hides on
 // blur, repositions under the tray icon on every show, stays alive
@@ -111,6 +112,11 @@ function popoverUrl(hooks: PopoverHooks): string {
   return `${hooks.customScheme}://localhost/?ui=popover`;
 }
 
+export function getPopoverWindow(): BrowserWindow | null {
+  if (popover && !popover.isDestroyed()) return popover;
+  return null;
+}
+
 function showPopover(hooks: PopoverHooks) {
   const win = ensurePopover(hooks);
   // Re-navigate on every show if we've drifted off the popover URL
@@ -124,6 +130,7 @@ function showPopover(hooks: PopoverHooks) {
   isToggling = true;
   win.show();
   win.focus();
+  pushTimerStateToPopover(win);
   setTimeout(() => { isToggling = false; }, 150);
 }
 

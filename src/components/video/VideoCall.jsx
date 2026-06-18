@@ -3,6 +3,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { JITSI_DOMAIN, fetchVideoCallToken, loadJitsiExternalApi, roomNameForRoom } from "../../lib/jitsi";
 import { registerJitsiApi, unregisterJitsiApi } from "../../lib/jitsiBridge";
+import EmoteOverlay from "../emotes/EmoteOverlay";
 
 // Embeds a JitsiMeetExternalAPI iframe into the surrounding div.
 // Mounts the iframe on the first render, calls `onJoined` /
@@ -215,6 +216,11 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
             className="w-full h-full rounded-xl overflow-hidden"
             aria-label="Video call"
           />
+          {/* Floating emoji-reaction bar + particles. Scope by roomId
+              so everyone in the same room (regardless of which Jitsi
+              tile they're staring at) sees each other's emotes drift
+              up over the video. */}
+          {roomId && <EmoteOverlay channelKey={`room:${roomId}`} />}
         </>
       )}
     </div>
