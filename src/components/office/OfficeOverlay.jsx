@@ -30,6 +30,7 @@ const KIND_ICON = {
 export default function OfficeOverlay({
   open, onClose,
   rooms, lockedRooms, sessionByRoomId, selectedRoomId,
+  onLeaveToHallway,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -48,8 +49,14 @@ export default function OfficeOverlay({
     navigate(`/office/r/${id}`);
     onClose();
   };
+  // Explicit leave: unlike picking another room (a switch), heading to
+  // the hallway means "I'm done here", so it routes through the
+  // connection-aware leave (removes the user from the session across
+  // their tabs) rather than just navigating. Falls back to a plain nav
+  // if no leave handler was supplied.
   const goToHallway = () => {
-    navigate("/office");
+    if (onLeaveToHallway) onLeaveToHallway();
+    else navigate("/office");
     onClose();
   };
 
