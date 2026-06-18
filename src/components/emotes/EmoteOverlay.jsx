@@ -13,9 +13,11 @@ import { supabase } from "../../supabase";
 //     feedback AND broadcasts to peers; we don't trust the round-trip
 //     for our own click. Peers receive the broadcast and fire their
 //     own local particle.
-//   * Particles are a single rAF loop with a pooled DOM cap (220 max,
+//   * Particles are a single rAF loop with a pooled DOM cap (120 max,
 //     FIFO recycle) and a setTimeout backstop in case the tab is
-//     hidden and rAF is throttled. No leaks under spam.
+//     hidden and rAF is throttled. No leaks under spam. Glyphs use a
+//     baked text-shadow (not a drop-shadow filter) so the fountain
+//     stays cheap to composite over a playing <video>.
 //
 // The bar is render-prop'd via `barPosition` so callers can mount it
 // at the bottom of a video stage, in a whiteboard toolbar, etc.
@@ -32,13 +34,17 @@ const GLYPH = Object.fromEntries(EMOTES.map((e) => [e.key, e.glyph]));
 
 export default function EmoteOverlay({
   channelKey,
-  // "bottom-center" (default) renders an absolute bar at the bottom
-  // of the relatively-positioned container we live inside. "hidden"
-  // suppresses the bar entirely — useful when the caller wants its
-  // own UI but still wants peers' particles to render.
+  // "bottom-center" (default) renders a horizontal bar at the bottom
+  // of the relatively-positioned container we live inside.
+  // "right-center" renders a vertical bar pinned to the right edge —
+  // use this over a video call so the bar clears Jitsi's own
+  // bottom toolbar. "hidden" suppresses the bar entirely — useful
+  // when the caller wants its own UI but still wants peers' particles
+  // to render.
   barPosition = "bottom-center",
   enabled = true,
 }) {
+  const vertical = barPosition === "right-center";
   const containerRef = useRef(null);
   const particlesRef = useRef([]);
   const rafRef = useRef({ running: false, lastT: 0 });
@@ -93,7 +99,7 @@ export default function EmoteOverlay({
     if (!glyph) return;
     const r = cont.getBoundingClientRect();
     const ps = particlesRef.current;
-    while (ps.length >= 220) {
+    while (ps.length >= 120) {
       const old = ps.shift();
       if (old._t) clearTimeout(old._t);
       if (old.el?.parentNode) old.el.parentNode.removeChild(old.el);
@@ -101,7 +107,7 @@ export default function EmoteOverlay({
     const el = document.createElement("span");
     const size = 24 + Math.random() * 16;
     el.textContent = glyph;
-    el.style.cssText = `position:absolute;left:0;top:0;font-size:${size}px;line-height:1;will-change:transform,opacity;filter:drop-shadow(0 3px 6px rgba(0,0,0,.25));pointer-events:none;user-select:none;`;
+    el.style.cssText = `position:absolute;left:0;top:0;font-size:${size}px;line-height:1;will-change:transform,opacity;text-shadow:0 2px 4px rgba(0,0,0,.35);pointer-events:none;user-select:none;`;
     cont.appendChild(el);
     const ox = x01 * r.width + (Math.random() * 28 - 14);
     const oy = r.height - 58;
@@ -192,14 +198,20 @@ export default function EmoteOverlay({
     }
     const cont = containerRef.current; if (!cont) return;
     const r = cont.getBoundingClientRect();
-    const x01 = ev?.clientX != null ? (ev.clientX - r.left) / r.width : 0.5;
+    // Vertical (right-edge) bar: anchor the fountain to the horizontal
+    // center so emotes rise up the open middle of the stage instead of
+    // straight through the bar. Horizontal bar: originate from the
+    // pressed button.
+    const x01 = vertical
+      ? 0.5
+      : ev?.clientX != null ? (ev.clientX - r.left) / r.width : 0.5;
     sendEmote(key, x01);
     holdRef.current = {
       timer: setInterval(() => {
         sendEmote(key, x01 + (Math.random() * 0.04 - 0.02));
       }, 80),
     };
-  }, [sendEmote]);
+  }, [sendEmote, vertical]);
 
   return (
     <div
@@ -209,7 +221,11 @@ export default function EmoteOverlay({
     >
       {barPosition !== "hidden" && enabled && (
         <div
-          className="absolute left-1/2 bottom-3 -translate-x-1/2 flex items-center gap-0.5 p-1.5 rounded-full pointer-events-auto"
+          className={
+            vertical
+              ? "absolute right-3 top-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5 p-1.5 rounded-full pointer-events-auto"
+              : "absolute left-1/2 bottom-3 -translate-x-1/2 flex items-center gap-0.5 p-1.5 rounded-full pointer-events-auto"
+          }
           style={{
             background: "#0f172a",
             boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
