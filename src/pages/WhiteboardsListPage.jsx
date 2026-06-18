@@ -1,0 +1,278 @@
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useTeam } from "../context/TeamContext";
+import { useTheme } from "../context/ThemeContext";
+import { Button } from "@/components/ui/button";
+import {
+  Plus, ScrollText, Lightbulb, PenLine, Archive, RotateCcw, Trash2,
+} from "lucide-react";
+import { SkeletonCard } from "../components/Skeleton";
+import {
+  listTeamWhiteboards,
+  archiveWhiteboard,
+  unarchiveWhiteboard,
+  deleteWhiteboard,
+  TEMPLATES,
+} from "../lib/whiteboard";
+import NewWhiteboardModal from "../components/NewWhiteboardModal";
+
+const TEMPLATE_ICON = {
+  weekly_review: ScrollText,
+  brainstorm: Lightbulb,
+  blank: PenLine,
+};
+const TEMPLATE_ACCENT = {
+  weekly_review: { dark: "text-amber-400 bg-amber-500/15", light: "text-amber-600 bg-amber-50" },
+  brainstorm:    { dark: "text-violet-400 bg-violet-500/15", light: "text-violet-600 bg-violet-50" },
+  blank:         { dark: "text-slate-400 bg-slate-500/15", light: "text-slate-600 bg-slate-100" },
+};
+
+export default function WhiteboardsListPage() {
+  const { activeTeamId, isAdmin } = useTeam();
+  const { theme } = useTheme();
+  const dark = theme === "dark";
+  const navigate = useNavigate();
+
+  const [boards, setBoards] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!activeTeamId) { setBoards([]); setLoading(false); return; }
+      setLoading(true);
+      const { data } = await listTeamWhiteboards(activeTeamId, { includeArchived: true });
+      if (cancelled) return;
+      setBoards(data || []);
+      setLoading(false);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [activeTeamId]);
+
+  const counts = useMemo(() => {
+    let active = 0, archived = 0;
+    for (const b of boards) (b.archived_at ? archived++ : active++);
+    return { active, archived };
+  }, [boards]);
+
+  const visible = useMemo(
+    () => showArchived ? boards.filter((b) => b.archived_at) : boards.filter((b) => !b.archived_at),
+    [boards, showArchived],
+  );
+
+  async function handleArchive(board) {
+    const { error } = await archiveWhiteboard(board.id);
+    if (error) return;
+    setBoards((prev) => prev.map((b) => (b.id === board.id ? { ...b, archived_at: new Date().toISOString() } : b)));
+  }
+  async function handleUnarchive(board) {
+    const { error } = await unarchiveWhiteboard(board.id);
+    if (error) return;
+    setBoards((prev) => prev.map((b) => (b.id === board.id ? { ...b, archived_at: null } : b)));
+  }
+  async function handleDelete(board) {
+    if (!window.confirm(`Permanently delete "${board.title}"? This can't be undone.`)) return;
+    const { error } = await deleteWhiteboard(board.id);
+    if (error) return;
+    setBoards((prev) => prev.filter((b) => b.id !== board.id));
+  }
+
+  function onCreated(board) {
+    setBoards((prev) => [board, ...prev]);
+    navigate(`/whiteboards/${board.id}`);
+  }
+
+  const tabCls = (active) =>
+    `inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full transition-colors ${
+      active
+        ? "bg-[var(--color-accent)] text-white"
+        : dark
+          ? "text-slate-400 hover:text-slate-200 hover:bg-[var(--color-surface-raised)]"
+          : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+    }`;
+
+  return (
+    <main className="px-4 pt-6 pb-24 max-w-[1200px] mx-auto space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className={`text-2xl font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
+            Whiteboards
+          </h1>
+          <p className={`text-xs mt-0.5 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            Collaborative canvases for your team. Pick a template, drop in stickies, draw, sketch.
+          </p>
+        </div>
+        <Button onClick={() => setShowNewModal(true)} disabled={!activeTeamId}>
+          <Plus className="w-4 h-4 mr-1.5" />
+          New whiteboard
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <button type="button" className={tabCls(!showArchived)} onClick={() => setShowArchived(false)}>
+          Active <span className="opacity-70">{counts.active}</span>
+        </button>
+        <button type="button" className={tabCls(showArchived)} onClick={() => setShowArchived(true)}>
+          Archived <span className="opacity-70">{counts.archived}</span>
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0,1,2,3].map((i) => <SkeletonCard key={i} className="h-32" />)}
+        </div>
+      ) : visible.length === 0 ? (
+        <EmptyState
+          dark={dark}
+          archived={showArchived}
+          onCreate={() => setShowNewModal(true)}
+          disabled={!activeTeamId}
+        />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {visible.map((b) => (
+            <BoardCard
+              key={b.id}
+              board={b}
+              dark={dark}
+              isAdmin={isAdmin}
+              onArchive={() => handleArchive(b)}
+              onUnarchive={() => handleUnarchive(b)}
+              onDelete={() => handleDelete(b)}
+            />
+          ))}
+        </div>
+      )}
+
+      <NewWhiteboardModal
+        open={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        teamId={activeTeamId}
+        onCreated={onCreated}
+      />
+    </main>
+  );
+}
+
+function BoardCard({ board, dark, isAdmin, onArchive, onUnarchive, onDelete }) {
+  const tpl = TEMPLATES[board.template_key] || TEMPLATES.blank;
+  const Icon = TEMPLATE_ICON[tpl.key] || PenLine;
+  const accent = dark ? TEMPLATE_ACCENT[tpl.key].dark : TEMPLATE_ACCENT[tpl.key].light;
+  const archived = !!board.archived_at;
+  const updated = friendly(board.updated_at);
+
+  return (
+    <div
+      className={`rounded-2xl border p-4 flex flex-col gap-3 group transition-colors ${
+        dark
+          ? "bg-[var(--color-surface)] border-[var(--color-border-light)] hover:border-[var(--color-accent)]/40"
+          : "bg-white border-slate-200 hover:border-[var(--color-accent)]/40 shadow-sm"
+      } ${archived ? "opacity-70" : ""}`}
+    >
+      <div className="flex items-start gap-2">
+        <div className={`p-1.5 rounded-md ${accent}`}>
+          <Icon className="w-4 h-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <Link
+            to={`/whiteboards/${board.id}`}
+            className={`text-sm font-bold hover:underline truncate block ${dark ? "text-slate-100" : "text-slate-800"}`}
+          >
+            {board.title || "Untitled whiteboard"}
+          </Link>
+          <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            {tpl.name} · updated {updated}
+          </p>
+        </div>
+      </div>
+      {board.goal && (
+        <p className={`text-[12px] line-clamp-2 ${dark ? "text-slate-300" : "text-slate-600"}`}>
+          {board.goal}
+        </p>
+      )}
+      <div className="flex items-center gap-2 mt-auto">
+        <Link
+          to={`/whiteboards/${board.id}`}
+          className={`text-xs font-semibold px-2.5 py-1 rounded-md ${
+            dark ? "bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white"
+                 : "bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white"
+          }`}
+        >
+          Open
+        </Link>
+        {isAdmin && (
+          <div className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {archived ? (
+              <button
+                type="button"
+                onClick={onUnarchive}
+                title="Restore"
+                className={`p-1.5 rounded-md ${dark ? "text-slate-400 hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:bg-slate-100"}`}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onArchive}
+                title="Archive"
+                className={`p-1.5 rounded-md ${dark ? "text-slate-400 hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:bg-slate-100"}`}
+              >
+                <Archive className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onDelete}
+              title="Delete"
+              className={`p-1.5 rounded-md ${dark ? "text-slate-400 hover:text-red-400 hover:bg-red-500/10" : "text-slate-500 hover:text-red-600 hover:bg-red-50"}`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ dark, archived, onCreate, disabled }) {
+  return (
+    <div className={`rounded-2xl border border-dashed p-10 text-center ${
+      dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-white"
+    }`}>
+      <p className={`text-sm ${dark ? "text-slate-300" : "text-slate-700"} font-semibold`}>
+        {archived ? "No archived whiteboards yet." : "No whiteboards yet."}
+      </p>
+      <p className={`text-xs mt-1 ${dark ? "text-slate-500" : "text-slate-500"}`}>
+        {archived
+          ? "Boards you archive will show up here."
+          : "Start with a Weekly Review, brainstorm freely, or a blank canvas."}
+      </p>
+      {!archived && (
+        <Button onClick={onCreate} disabled={disabled} className="mt-4">
+          <Plus className="w-4 h-4 mr-1.5" />
+          New whiteboard
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function friendly(iso) {
+  if (!iso) return "just now";
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diff = Math.max(0, now - then);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
