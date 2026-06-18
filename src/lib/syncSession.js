@@ -185,6 +185,18 @@ export async function fetchSyncParticipants(sessionId) {
   return { data: data || [], error };
 }
 
+// Stamp the caller's liveness for a session. Called on a steady cadence
+// while a session is active so the server can tell who is *actually*
+// present (vs. a ghost row left behind by a closed tab). Read-time
+// liveness filtering and the empty-room sweeper key off last_seen_at.
+// Fire-and-forget: a missed beat is harmless, the next one re-stamps.
+export async function heartbeatSyncSession(sessionId) {
+  const { error } = await supabase.rpc("heartbeat_sync_session", {
+    p_session_id: sessionId,
+  });
+  return { error };
+}
+
 function takeControlErrorMessage(error) {
   const code = error?.code || "";
   const status = error?.status || error?.statusCode;

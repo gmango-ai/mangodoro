@@ -18,6 +18,7 @@ import {
   setSyncParticipantStatus,
   takeSyncControl,
   findMyActiveSyncSession,
+  heartbeatSyncSession,
 } from "../lib/syncSession";
 import { notifySessionJoined, notifySessionCleared } from "../sync/joinSession";
 
@@ -323,13 +324,25 @@ export function SyncSessionProvider({ session, children }) {
     channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
         await channel.track({ user_id: userId });
+        // Stamp liveness immediately on connect so the server knows this
+        // tab is present without waiting for the first heartbeat tick.
+        heartbeatSyncSession(sessionId);
       }
     });
 
     const pollId = setInterval(refetch, 15000);
 
+    // Heartbeat. last_seen_at is the server's signal for "who is
+    // actually present right now" — read-time liveness filtering, the
+    // empty-room sweeper, leader reassignment, and video teardown all
+    // key off it. A steady 20s cadence sits comfortably inside the
+    // staleness grace window even if a few beats are dropped (e.g. a
+    // briefly-backgrounded tab whose timers get throttled).
+    const heartbeatId = setInterval(() => heartbeatSyncSession(sessionId), 20000);
+
     return () => {
       clearInterval(pollId);
+      clearInterval(heartbeatId);
       supabase.removeChannel(channel);
     };
   }, [syncSession?.id, syncSession?.join_code, session?.user?.id, settings?.name, clearLocalSession]);
