@@ -10,6 +10,7 @@ import {
   TEAM_SOUND_PREFIX,
   playCompletionSound,
   stopCompletionSound,
+  warmupAudioContext,
 } from "../lib/pomodoroSound";
 
 const CATEGORY_LABELS = {
@@ -91,6 +92,7 @@ export default function SoundLibrary({
     stopCompletionSound();
     if (previewTimeoutRef.current) clearTimeout(previewTimeoutRef.current);
     setPreviewingId(presetId);
+    warmupAudioContext();
     playCompletionSound(
       { ...soundSettings, repeat: 1 },
       { presetId, customSoundsByPresetId },

@@ -8,8 +8,9 @@ import { autoUpdater } from 'electron-updater';
 
 import { ElectronCapacitorApp, setupContentSecurityPolicy, setupReloadWatcher } from './setup';
 import { getInstalledTray, installPomodoroTray } from './pomodoroTray';
-import { installPomodoroPopover } from './pomodoroPopover';
+import { installPomodoroPopover, getPopoverWindow } from './pomodoroPopover';
 import { installOAuthHandler } from './oauthFlow';
+import { installTimerBridge } from './timerBridge';
 
 // Graceful handling of unhandled errors.
 unhandled();
@@ -53,6 +54,10 @@ if (electronIsDev) {
   const popover = installPomodoroPopover({
     getTray: () => getInstalledTray(),
     customScheme: myCapacitorApp.getCustomURLScheme(),
+  });
+  installTimerBridge({
+    getMainWindow: () => myCapacitorApp.getMainWindow(),
+    getPopoverWindow: () => getPopoverWindow(),
   });
   installPomodoroTray({
     getMainWindow: () => myCapacitorApp.getMainWindow(),

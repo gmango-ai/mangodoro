@@ -14,17 +14,20 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
   const teamId = opts.teamId ?? null;
   const roomId = opts.roomId ?? null;
   const visibility = opts.visibility ?? (teamId ? "team" : "invite_only");
+  const insertRow = {
+    leader_id: userId,
+    controller_id: userId,
+    join_code: code,
+    team_id: teamId,
+    room_id: roomId,
+    visibility,
+    control_mode: "leader",
+  };
+  if (opts.durations) insertRow.durations = opts.durations;
+  if (opts.autoTransition !== undefined) insertRow.auto_transition = opts.autoTransition;
   const { data: session, error } = await supabase
     .from("sync_sessions")
-    .insert({
-      leader_id: userId,
-      controller_id: userId,
-      join_code: code,
-      team_id: teamId,
-      room_id: roomId,
-      visibility,
-      control_mode: "leader",
-    })
+    .insert(insertRow)
     .select()
     .single();
   if (error) return { error };

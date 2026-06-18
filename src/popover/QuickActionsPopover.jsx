@@ -9,6 +9,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { useTheme } from "../context/ThemeContext";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
+import { getSessionCreatePrefs } from "../pomodoro/storage";
 import { applyAccent } from "../lib/accent";
 import { supabase } from "../supabase";
 import PomodoroSurface from "../components/pomodoro/PomodoroSurface";
@@ -253,7 +254,10 @@ function OfficePage({ dark }) {
       return;
     }
     const { data, error: e } = await createSyncSession(session.user.id, displayName(), {
-      teamId: activeTeam.id, roomId: room.id, visibility: "team",
+      teamId: activeTeam.id,
+      roomId: room.id,
+      visibility: "team",
+      ...getSessionCreatePrefs(),
     });
     setBusy(false);
     if (e) { setError(e.message || "Could not start session."); return; }

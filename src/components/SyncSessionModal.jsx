@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { X, Copy, Users, Plus, LogIn, Link as LinkIcon, Timer } from "lucide-react";
 import { supabase } from "../supabase";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
+import { getSessionCreatePrefs } from "../pomodoro/storage";
 import { getShareableBaseUrl } from "../lib/platform";
 import UserAvatar from "./UserAvatar";
 
@@ -39,7 +40,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
   // adopt the stored name so the user doesn't have to retype it.
   useEffect(() => {
     if (displayName && !nameDraft) setNameDraft(displayName);
-  }, [displayName]);
+  }, [displayName, nameDraft]);
 
   if (!open) return null;
 
@@ -70,6 +71,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
     const { data, error: err } = await createSyncSession(userId, cleanName, {
       teamId: teamIdToSet,
       visibility: desiredVis,
+      ...getSessionCreatePrefs(),
     });
     if (err) { setError(err.message); setLoading(false); return; }
 

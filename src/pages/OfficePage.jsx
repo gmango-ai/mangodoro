@@ -8,6 +8,7 @@ import OfficeShell from "../components/office/OfficeShell";
 import { Button } from "@/components/ui/button";
 import { Pencil } from "lucide-react";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
+import { getSessionCreatePrefs } from "../pomodoro/storage";
 import { resolveRoomByInviteCode } from "../lib/rooms";
 
 // /office — sidebar (minimap + room list) on the left, the selected
@@ -72,6 +73,7 @@ export default function OfficePage() {
       teamId: activeTeamId,
       roomId: room.id,
       visibility: "team",
+      ...getSessionCreatePrefs(),
     });
     setRoomBusy(false);
     if (error) { setJoinError(error.message || "Could not start session."); return false; }
