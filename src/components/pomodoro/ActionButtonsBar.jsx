@@ -7,7 +7,7 @@ import { usePomodoro } from "../../pomodoro/PomodoroContext";
 //
 //   Leader     → "End Session for All" outlined red, full-width
 //                (+ "Take control" when someone else holds the timer)
-//   Non-leader → "Take Leader" + "Leave" as a 50/50 pair
+//   Non-leader → "Take the lead" + "Leave" as a 50/50 pair
 //   Not synced → nothing
 //
 // Replaces the prior top-of-card "× Leave  End Session" row; bottom-
@@ -72,7 +72,7 @@ export default function ActionButtonsBar() {
           }`}
         >
           <Crown className="w-4 h-4" />
-          Take Leader
+          Take the lead
         </button>
       )}
       <button
