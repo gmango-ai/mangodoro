@@ -127,7 +127,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         onChange={setText}
         placeholder="Type a note…"
         className="flex-1"
-        style={{ fontSize: 13, lineHeight: 1.35 }}
+        style={{ fontSize: data?.fontSize ?? 13, lineHeight: 1.35 }}
       />
     </div>
   );
@@ -152,7 +152,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         value={data?.text}
         onChange={setText}
         placeholder="Type some text…"
-        style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.3 }}
+        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3 }}
       />
     </div>
   );
@@ -184,7 +184,7 @@ export const RectNode = memo(function RectNode({ id, data, selected }) {
         value={data?.text}
         onChange={setText}
         placeholder=""
-        style={{ fontSize: 13, fontWeight: 600, textAlign: "center" }}
+        style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center" }}
       />
     </div>
   );
@@ -216,7 +216,7 @@ export const EllipseNode = memo(function EllipseNode({ id, data, selected }) {
         value={data?.text}
         onChange={setText}
         placeholder=""
-        style={{ fontSize: 13, fontWeight: 600, textAlign: "center" }}
+        style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center" }}
       />
     </div>
   );
@@ -251,7 +251,7 @@ export const DiamondNode = memo(function DiamondNode({ id, data, selected }) {
           value={data?.text}
           onChange={setText}
           placeholder=""
-          style={{ fontSize: 12, fontWeight: 600, textAlign: "center", color: "#0f172a" }}
+          style={{ fontSize: data?.fontSize ?? 12, fontWeight: 600, textAlign: "center", color: "#0f172a" }}
         />
       </div>
     </div>

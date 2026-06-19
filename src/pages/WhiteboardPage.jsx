@@ -25,6 +25,7 @@ import {
 } from "../lib/whiteboard";
 import { NODE_TYPES } from "../components/whiteboard/nodes";
 import { EDGE_TYPES } from "../components/whiteboard/edges";
+import Inspector from "../components/whiteboard/Inspector";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import HeroTimerRibbon from "../components/whiteboard/HeroTimerRibbon";
 
@@ -332,6 +333,20 @@ function WhiteboardEditor() {
     setEdges((eds) => eds.filter((e) => !selectedEdgeIds.has(e.id) && !selectedNodeIds.has(e.source) && !selectedNodeIds.has(e.target)));
   }, [nodes, edges, setNodes, setEdges]);
 
+  // ── selection inspector ──
+  const selectedNode = useMemo(() => nodes.find((n) => n.selected && n.type !== "zone") || null, [nodes]);
+  const selectedEdge = useMemo(() => (selectedNode ? null : edges.find((e) => e.selected) || null), [edges, selectedNode]);
+
+  const patchNodeData = useCallback((patch) => {
+    setNodes((nds) => nds.map((n) => (n.selected && n.type !== "zone") ? { ...n, data: { ...n.data, ...patch } } : n));
+  }, [setNodes]);
+  const setNodeType = useCallback((type) => {
+    setNodes((nds) => nds.map((n) => (n.selected && n.type !== "zone") ? { ...n, type } : n));
+  }, [setNodes]);
+  const patchEdge = useCallback((patch) => {
+    setEdges((eds) => eds.map((e) => (e.selected ? { ...e, ...patch } : e)));
+  }, [setEdges]);
+
   // Title / goal / archive — same flow as the prior page, just leaning
   // on the existing setters in lib/whiteboard.
   async function handleSaveTitle() {
@@ -515,6 +530,21 @@ function WhiteboardEditor() {
               <Trash2 className="w-4 h-4" />
             </ToolButton>
           </Panel>
+
+          {/* Selection inspector — node (shape/fill/border/text) or edge
+              (end caps/line/color) tools for whatever's selected. */}
+          {(selectedNode || selectedEdge) && (
+            <Panel position="top-right" className="pointer-events-none">
+              <Inspector
+                node={selectedNode}
+                edge={selectedEdge}
+                dark={dark}
+                patchNodeData={patchNodeData}
+                setNodeType={setNodeType}
+                patchEdge={patchEdge}
+              />
+            </Panel>
+          )}
         </ReactFlow>
 
         {/* Top overlay — Weekly Review's signature goal banner (when
