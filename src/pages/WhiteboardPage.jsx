@@ -6,7 +6,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  ArrowLeft, Target, Pencil, Archive, StickyNote, Type, Shapes, Trash2,
+  ArrowLeft, Target, Pencil, Archive, StickyNote, Type, Shapes, Frame, Trash2,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -41,6 +41,7 @@ const DEFAULTS = {
   diamond: { w: 150, h: 110 },
   shape:   { w: 180, h: 100 },
   goal:    { w: 240, h: 150 },
+  frame:   { w: 280, h: 360 },
 };
 
 const DEFAULT_EDGE_OPTIONS = {
@@ -368,13 +369,14 @@ function WhiteboardEditor() {
         centerWorld = { x: -vp.x / vp.zoom + 200, y: -vp.y / vp.zoom + 200 };
       }
     } catch { /* */ }
-    const sized = type === "shape" || type === "goal" || type === "rect" || type === "ellipse" || type === "diamond";
+    const sized = ["shape", "goal", "frame", "rect", "ellipse", "diamond"].includes(type);
     const node = {
       id: freshId(type),
       type,
       position: { x: centerWorld.x - size.w / 2, y: centerWorld.y - size.h / 2 },
       data: type === "sticky" ? { text: "", color: "yellow" } : { text: "", ...extra },
       ...(sized ? { width: size.w, height: size.h } : {}),
+      ...(type === "frame" ? { zIndex: -1 } : {}),
     };
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({ ...node, selected: true }));
   }, [rf, setNodes]);
@@ -575,6 +577,9 @@ function WhiteboardEditor() {
             <ShapesMenu dark={dark} onPick={(shape) => addNodeAtCenter("shape", { shape })} />
             <ToolButton title="Add goal" tone="amber" dark={dark} onClick={() => addNodeAtCenter("goal")}>
               <Target className="w-4 h-4" />
+            </ToolButton>
+            <ToolButton title="Add frame / section" tone="neutral" dark={dark} onClick={() => addNodeAtCenter("frame")}>
+              <Frame className="w-4 h-4" />
             </ToolButton>
             <div className={`w-px h-5 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
             <ToolButton title="Delete selected" tone="red" dark={dark} onClick={deleteSelected}>

@@ -353,6 +353,29 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
   );
 });
 
+// ─── FrameNode (resizable, labelled container / section) ──────────
+//
+// A first-class container you drop sticky notes / cards into to group
+// them — the building block for retro columns, kanban lanes, etc. Sits
+// behind content (created with a low zIndex) so nodes layer on top; the
+// header is editable.
+
+export const FrameNode = memo(function FrameNode({ id, data, selected }) {
+  const setText = useNodeTextUpdater(id);
+  const tint = data?.tint || "#0ea5e9";
+  const bg = data?.bg || "rgba(14,165,233,.06)";
+  return (
+    <div style={{ width: "100%", height: "100%", borderRadius: 18, border: `2px solid ${selected ? "#f97316" : tint}`, background: bg, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <NodeResizer isVisible={selected} minWidth={160} minHeight={140} lineStyle={{ borderColor: "#f97316" }} handleStyle={{ background: "#f97316", border: "2px solid #fff" }} />
+      <FourHandles visible={false} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px" }}>
+        {data?.icon && <span style={{ fontSize: 18, lineHeight: 1 }}>{data.icon}</span>}
+        <EditableText value={data?.text ?? data?.label} onChange={setText} placeholder="Section title" style={{ fontSize: 15, fontWeight: 800, color: tint }} />
+      </div>
+    </div>
+  );
+});
+
 // ─── ZoneNode ─────────────────────────────────────────────────────
 
 export const ZoneNode = memo(function ZoneNode({ data }) {
@@ -404,6 +427,7 @@ export const NODE_TYPES = {
   text: TextNode,
   shape: ShapeNode,
   goal: GoalNode,
+  frame: FrameNode,
   // Legacy aliases — old snapshots store these node types.
   rect: ShapeNode,
   ellipse: ShapeNode,

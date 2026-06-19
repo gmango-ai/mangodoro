@@ -31,6 +31,14 @@ export const TEMPLATES = {
     hasGoal: false,
     build: () => buildBrainstorm(),
   },
+
+  retro: {
+    key: "retro",
+    name: "Retro",
+    desc: "Celebrate · Went well · Improve · Actions",
+    hasGoal: true,
+    build: () => buildRetro(),
+  },
 };
 
 export const TEMPLATE_LIST = Object.values(TEMPLATES);
@@ -112,6 +120,37 @@ function buildBrainstorm() {
   });
   // A seed prompt sticky so the empty board reads less broken.
   nodes.push(stickyNode("seed-prompt", "What's the question?", 60, 700, "yellow"));
+  return { nodes, edges: [] };
+}
+
+// A resizable, editable container (the new "frame" node) — used by the
+// retro template for its lanes. Unlike the fixed `zone`, users can move,
+// resize, and rename these.
+function frameNode(id, label, icon, tint, bg, x, y, w, h) {
+  return {
+    id: `frame-${id}`,
+    type: "frame",
+    position: { x, y },
+    width: w, height: h,
+    data: { text: label, icon, tint, bg },
+    zIndex: -1,
+  };
+}
+
+function buildRetro() {
+  const LANES = [
+    { id: "celebrate",  label: "Celebrate",    icon: "🎉", tint: "#d97706", bg: "rgba(217,119,6,.07)" },
+    { id: "went_well",  label: "Went well",    icon: "👍", tint: "#059669", bg: "rgba(5,150,105,.07)" },
+    { id: "to_improve", label: "To improve",   icon: "🔧", tint: "#b45309", bg: "rgba(180,83,9,.07)" },
+    { id: "next_week",  label: "Action items", icon: "🚀", tint: "#1d4ed8", bg: "rgba(29,78,216,.07)" },
+  ];
+  const GAP = 40, W = 320, H = 560;
+  const nodes = [];
+  LANES.forEach((z, i) => {
+    const x = 40 + i * (W + GAP);
+    nodes.push(frameNode(z.id, z.label, z.icon, z.tint, z.bg, x, 60, W, H));
+    nodes.push(stickyNode(`seed-${z.id}`, "Add a card…", x + (W - 160) / 2, 140, STICKY_COLOR_FOR_ZONE[z.id]));
+  });
   return { nodes, edges: [] };
 }
 
