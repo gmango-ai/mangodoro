@@ -40,18 +40,33 @@ function roundedPath(points, r = 10) {
   return d;
 }
 
+// Minimum stub: edges leave/enter a node perpendicular to its handle and
+// travel this far before any bend — the FigJam "elbows at the joint" feel.
+const STUB = 22;
+function stubDir(pos) {
+  return pos === "left" ? [-1, 0] : pos === "right" ? [1, 0] : pos === "top" ? [0, -1] : [0, 1];
+}
+
 // Orthogonal route through points — every segment axis-aligned, so manual
-// bends read as clean elbows / stairs instead of diagonals.
+// bends read as clean elbows / stairs. Direction-aware: it alternates the
+// turn axis so consecutive bends form a tidy staircase instead of doubling
+// back on themselves.
 function orthoRoute(points) {
   const out = [points[0]];
+  let lastAxis = null; // "h" | "v"
   for (let i = 1; i < points.length; i++) {
     const a = out[out.length - 1];
     const b = points[i];
-    if (Math.abs(b.x - a.x) > 0.5 && Math.abs(b.y - a.y) > 0.5) {
-      if (Math.abs(b.x - a.x) >= Math.abs(b.y - a.y)) out.push({ x: b.x, y: a.y });
-      else out.push({ x: a.x, y: b.y });
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (Math.abs(dx) < 0.5 || Math.abs(dy) < 0.5) {
+      out.push(b);
+      lastAxis = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+    } else {
+      const hFirst = lastAxis === "h" ? false : lastAxis === "v" ? true : Math.abs(dx) >= Math.abs(dy);
+      if (hFirst) { out.push({ x: b.x, y: a.y }); lastAxis = "v"; }
+      else { out.push({ x: a.x, y: b.y }); lastAxis = "h"; }
+      out.push(b);
     }
-    out.push(b);
   }
   return out;
 }
@@ -194,11 +209,21 @@ const EditableEdge = memo(function EditableEdge({
     } else {
       [path, autoX, autoY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 10 });
     }
-  } else if (routing === "curve") {
-    path = roundedPath(pts, curviness);
   } else {
-    // Elbow: right-angle bends through the waypoints (a stair when several).
-    path = roundedPath(orthoRoute(pts), 6);
+    // Manual bends: leave/enter each node via a perpendicular stub, then
+    // route through the waypoints — orthogonal for elbow, smooth for curve.
+    const [sdx, sdy] = stubDir(sourcePosition);
+    const [tdx, tdy] = stubDir(targetPosition);
+    const routePts = [
+      { x: sourceX, y: sourceY },
+      { x: sourceX + sdx * STUB, y: sourceY + sdy * STUB },
+      ...waypoints,
+      { x: targetX + tdx * STUB, y: targetY + tdy * STUB },
+      { x: targetX, y: targetY },
+    ];
+    path = routing === "curve"
+      ? roundedPath(routePts, Math.min(curviness, 30))
+      : roundedPath(orthoRoute(routePts), 8);
   }
   const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: autoX ?? (sourceX + targetX) / 2, y: autoY ?? (sourceY + targetY) / 2 };
   // "Pull a bend" capsules — one per base segment, placed ON the path so
