@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Pause, RotateCcw, Timer as TimerIcon } from "lucide-react";
+import { Play, Pause, RotateCcw, Timer as TimerIcon, Music } from "lucide-react";
 import { supabase } from "../../supabase";
+
+const TRACKS = [
+  { id: "tokyo",   label: "Tokyo Night Walk", src: "/music/tokyo-night-walk.mp3" },
+  { id: "coffee",  label: "Chill Coffee",     src: "/music/chill-coffee.mp3" },
+  { id: "moon",    label: "Moon Room",        src: "/music/moon-room.mp3" },
+  { id: "focus",   label: "Focus Flow",       src: "/music/focus-flow.mp3" },
+  { id: "workout", label: "Workout",          src: "/music/workout.mp3" },
+];
 
 // A plain shared countdown for the board — "set 5 minutes while everyone
 // writes their thoughts, then chat." Not the Pomodoro: no modes, no
@@ -35,8 +43,11 @@ export default function WhiteboardTimer({ boardId, dark }) {
   const [pausedRemaining, setPausedRemaining] = useState(null); // sec — set while paused
   const [lastDuration, setLastDuration] = useState(5 * 60);     // sec — for display when idle
   const [now, setNow] = useState(() => Date.now());
+  const [music, setMusic] = useState({ trackId: null, playing: false });
+  const [musicOpen, setMusicOpen] = useState(false);
   const chanRef = useRef(null);
   const doneRef = useRef(false);
+  const audioRef = useRef(null);
 
   const running = endsAt != null;
   const paused = pausedRemaining != null;
@@ -69,14 +80,37 @@ export default function WhiteboardTimer({ boardId, dark }) {
     }
   }, []);
 
+  // Shared music: which track + play state, broadcast to all viewers so
+  // everyone hears the same thing (playback is per-client; we sync the
+  // track + on/off, not the exact millisecond position).
+  const applyMusic = useCallback((next, fromPeer) => {
+    setMusic(next);
+    if (!fromPeer) {
+      const ch = chanRef.current;
+      if (ch) { try { ch.send({ type: "broadcast", event: "music", payload: next }); } catch { /* */ } }
+    }
+  }, []);
+
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const track = TRACKS.find((t) => t.id === music.trackId);
+    if (!track) { a.pause(); return; }
+    if (a.getAttribute("src") !== track.src) a.src = track.src;
+    a.volume = 0.4;
+    if (music.playing) a.play().catch(() => { /* autoplay blocked until a gesture */ });
+    else a.pause();
+  }, [music]);
+
   useEffect(() => {
     if (!boardId) return;
     const ch = supabase.channel(`wbtimer:${boardId}`, { config: { broadcast: { self: false } } });
     ch.on("broadcast", { event: "timer" }, (msg) => applyState(msg.payload || {}, true));
+    ch.on("broadcast", { event: "music" }, (msg) => applyMusic(msg.payload || { trackId: null, playing: false }, true));
     ch.subscribe();
     chanRef.current = ch;
     return () => { try { supabase.removeChannel(ch); } catch { /* */ } chanRef.current = null; };
-  }, [boardId, applyState]);
+  }, [boardId, applyState, applyMusic]);
 
   const start = useCallback((sec) => applyState({ endsAt: Date.now() + sec * 1000, pausedRemaining: null, lastDuration: sec }), [applyState]);
   const pause = useCallback(() => { if (running) applyState({ endsAt: null, pausedRemaining: Math.max(0, (endsAt - Date.now()) / 1000), lastDuration }); }, [applyState, running, endsAt, lastDuration]);
@@ -121,6 +155,52 @@ export default function WhiteboardTimer({ boardId, dark }) {
       {!idle && (
         <button type="button" onClick={reset} className={btn} title="Reset"><RotateCcw className="w-4 h-4" /></button>
       )}
+
+      <div className={`w-px h-5 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />
+      <div className="relative">
+        <button type="button" onClick={() => setMusicOpen((v) => !v)} className={btn} title="Music">
+          <Music className="w-4 h-4" style={music.playing ? { color: "var(--color-accent)" } : undefined} />
+        </button>
+        {musicOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setMusicOpen(false)} />
+            <div className={`absolute top-9 right-0 z-20 p-1.5 rounded-xl border shadow-lg w-44 ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}>
+              {TRACKS.map((t) => {
+                const active = music.trackId === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => applyMusic({ trackId: t.id, playing: !(active && music.playing) })}
+                    className={`w-full text-left px-2 py-1 rounded-md text-[12px] font-medium flex items-center justify-between gap-2 ${
+                      active
+                        ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
+                        : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span className="truncate">{t.label}</span>
+                    {active && (music.playing ? <Pause className="w-3 h-3 shrink-0" /> : <Play className="w-3 h-3 shrink-0" />)}
+                  </button>
+                );
+              })}
+              {music.trackId && (
+                <button
+                  type="button"
+                  onClick={() => applyMusic({ trackId: null, playing: false })}
+                  className={`w-full text-left px-2 py-1 mt-0.5 rounded-md text-[12px] font-medium ${
+                    dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+                  }`}
+                >
+                  Stop music
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+      <audio ref={audioRef} loop />
     </div>
   );
 }
