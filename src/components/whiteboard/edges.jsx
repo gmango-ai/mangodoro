@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, MarkerType, useReactFlow } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow } from "@xyflow/react";
 import { ChevronDown, Type, Minus, Spline, MoveRight, AlignJustify } from "lucide-react";
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
@@ -19,10 +19,30 @@ export function EdgeMarkerDefs() {
   );
 }
 
-// Rounded polyline through points. Corner radius r controls the look:
-// near-zero = a sharp ELBOW, large = a smooth CURVE. Multiple points →
-// a stair.
-function roundedPath(points, r = 10) {
+const STUB = 22; // min distance an edge travels perpendicular before bending
+
+function stubDir(pos) {
+  return pos === "left" ? [-1, 0] : pos === "right" ? [1, 0] : pos === "top" ? [0, -1] : [0, 1];
+}
+
+// Default orthogonal route between two handles → interior corner points
+// (source & target are implicit). Exits each node via a perpendicular stub.
+function autoOrtho(sx, sy, sp, tx, ty, tp) {
+  const [sdx, sdy] = stubDir(sp);
+  const [tdx, tdy] = stubDir(tp);
+  const s1 = { x: sx + sdx * STUB, y: sy + sdy * STUB };
+  const t1 = { x: tx + tdx * STUB, y: ty + tdy * STUB };
+  const sHoriz = sdx !== 0, tHoriz = tdx !== 0;
+  const mids = [];
+  if (sHoriz && tHoriz) { const mx = (s1.x + t1.x) / 2; mids.push({ x: mx, y: s1.y }, { x: mx, y: t1.y }); }
+  else if (!sHoriz && !tHoriz) { const my = (s1.y + t1.y) / 2; mids.push({ x: s1.x, y: my }, { x: t1.x, y: my }); }
+  else if (sHoriz && !tHoriz) { mids.push({ x: t1.x, y: s1.y }); }
+  else { mids.push({ x: s1.x, y: t1.y }); }
+  return [s1, ...mids, t1];
+}
+
+// Rounded polyline through points — small r = sharp elbow, large = smooth.
+function roundedPath(points, r = 8) {
   if (points.length < 2) return "";
   if (points.length === 2) return `M${points[0].x},${points[0].y} L${points[1].x},${points[1].y}`;
   let d = `M${points[0].x},${points[0].y}`;
@@ -40,38 +60,6 @@ function roundedPath(points, r = 10) {
   return d;
 }
 
-// Minimum stub: edges leave/enter a node perpendicular to its handle and
-// travel this far before any bend — the FigJam "elbows at the joint" feel.
-const STUB = 22;
-function stubDir(pos) {
-  return pos === "left" ? [-1, 0] : pos === "right" ? [1, 0] : pos === "top" ? [0, -1] : [0, 1];
-}
-
-// Orthogonal route through points — every segment axis-aligned, so manual
-// bends read as clean elbows / stairs. Direction-aware: it alternates the
-// turn axis so consecutive bends form a tidy staircase instead of doubling
-// back on themselves.
-function orthoRoute(points) {
-  const out = [points[0]];
-  let lastAxis = null; // "h" | "v"
-  for (let i = 1; i < points.length; i++) {
-    const a = out[out.length - 1];
-    const b = points[i];
-    const dx = b.x - a.x, dy = b.y - a.y;
-    if (Math.abs(dx) < 0.5 || Math.abs(dy) < 0.5) {
-      out.push(b);
-      lastAxis = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
-    } else {
-      const hFirst = lastAxis === "h" ? false : lastAxis === "v" ? true : Math.abs(dx) >= Math.abs(dy);
-      if (hFirst) { out.push({ x: b.x, y: a.y }); lastAxis = "v"; }
-      else { out.push({ x: a.x, y: b.y }); lastAxis = "h"; }
-      out.push(b);
-    }
-  }
-  return out;
-}
-
-// Point at fraction t (0..1) along an SVG path — locks the label to the line.
 function pointAtT(d, t) {
   try {
     const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -81,6 +69,22 @@ function pointAtT(d, t) {
     const p = el.getPointAtLength(Math.max(0, Math.min(1, t)) * len);
     return { x: p.x, y: p.y };
   } catch { return null; }
+}
+
+function nearestT(d, px, py) {
+  try {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    el.setAttribute("d", d);
+    const len = el.getTotalLength();
+    if (!len) return 0.5;
+    let bestT = 0.5, bd = Infinity;
+    for (let i = 0; i <= 100; i++) {
+      const pt = el.getPointAtLength((i / 100) * len);
+      const dd = (pt.x - px) ** 2 + (pt.y - py) ** 2;
+      if (dd < bd) { bd = dd; bestT = i / 100; }
+    }
+    return bestT;
+  } catch { return 0.5; }
 }
 
 // ─── Contextual edge toolbar (FigJam/Lucidchart style) ────────────
@@ -108,12 +112,9 @@ function capMarker(kind, color) {
 function Dropdown({ openKey, open, setOpen, icon, children }) {
   return (
     <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(open === openKey ? null : openKey)}
+      <button type="button" onClick={() => setOpen(open === openKey ? null : openKey)}
         className="h-7 px-1 rounded-md flex items-center gap-0.5 text-white/90 hover:bg-white/10"
-        style={{ background: open === openKey ? "rgba(255,255,255,.14)" : "transparent" }}
-      >
+        style={{ background: open === openKey ? "rgba(255,255,255,.14)" : "transparent" }}>
         {icon}
         <ChevronDown className="w-3 h-3 opacity-60" />
       </button>
@@ -136,12 +137,8 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
   const endCap = data?.endCap || "arrow";
   const setStyle = (p) => patchEdge({ style: { ...style, ...p } });
   const opt = (active, onClick, label) => (
-    <button
-      key={label}
-      type="button"
-      onClick={() => { onClick(); setOpen(null); }}
-      className={`block w-full text-left px-2 py-1 rounded text-[12px] whitespace-nowrap ${active ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}
-    >
+    <button key={label} type="button" onClick={() => { onClick(); setOpen(null); }}
+      className={`block w-full text-left px-2 py-1 rounded text-[12px] whitespace-nowrap ${active ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}>
       {label}
     </button>
   );
@@ -181,9 +178,9 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
   );
 }
 
-// Editable edge: elbow / curve routing through draggable bend points (a
-// "stair" when you add several), with a contextual toolbar and an inline
-// label that only persists when you actually type something.
+// Editable edge: an orthogonal route whose straight segments you drag
+// (rectangle handles) to reshape — FigJam-style. Double-click anywhere on
+// the line to drop a label there.
 const EditableEdge = memo(function EditableEdge({
   id, sourceX, sourceY, targetX, targetY,
   sourcePosition, targetPosition,
@@ -194,46 +191,20 @@ const EditableEdge = memo(function EditableEdge({
   const [draft, setDraft] = useState(data?.label || "");
   const inputRef = useRef(null);
   useEffect(() => { setDraft(data?.label || ""); }, [data?.label]);
+  useEffect(() => { if (editing) { inputRef.current?.focus(); inputRef.current?.select(); } }, [editing]);
 
   const routing = data?.routing || "elbow";
   const curviness = data?.curviness ?? 18;
-  const waypoints = data?.waypoints || [];
-  const hasWp = waypoints.length > 0;
-  const pts = [{ x: sourceX, y: sourceY }, ...waypoints, { x: targetX, y: targetY }];
-  let path, autoX, autoY;
-  if (!hasWp) {
-    // No manual bends → auto-route cleanly between the two handles
-    // (orthogonal elbow / smooth bezier) instead of a straight diagonal.
-    if (routing === "curve") {
-      [path, autoX, autoY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
-    } else {
-      [path, autoX, autoY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 10 });
-    }
-  } else {
-    // Manual bends: leave/enter each node via a perpendicular stub, then
-    // route through the waypoints — orthogonal for elbow, smooth for curve.
-    const [sdx, sdy] = stubDir(sourcePosition);
-    const [tdx, tdy] = stubDir(targetPosition);
-    const routePts = [
-      { x: sourceX, y: sourceY },
-      { x: sourceX + sdx * STUB, y: sourceY + sdy * STUB },
-      ...waypoints,
-      { x: targetX + tdx * STUB, y: targetY + tdy * STUB },
-      { x: targetX, y: targetY },
-    ];
-    path = routing === "curve"
-      ? roundedPath(routePts, Math.min(curviness, 30))
-      : roundedPath(orthoRoute(routePts), 8);
-  }
-  const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: autoX ?? (sourceX + targetX) / 2, y: autoY ?? (sourceY + targetY) / 2 };
-  // "Pull a bend" capsules — one per base segment, placed ON the path so
-  // they're easy to grab. Insertion index = the base segment.
-  const numSeg = pts.length - 1;
-  const addHandles = [];
-  for (let i = 0; i < numSeg; i++) {
-    const hp = pointAtT(path, (i + 0.5) / numSeg);
-    if (hp) addHandles.push({ seg: i, x: hp.x, y: hp.y });
-  }
+  const stored = data?.route;
+  const interior = (stored && stored.length)
+    ? stored
+    : autoOrtho(sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition);
+  const full = [{ x: sourceX, y: sourceY }, ...interior, { x: targetX, y: targetY }];
+  const path = roundedPath(full, routing === "curve" ? Math.min(curviness, 30) : 8);
+  const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: (sourceX + targetX) / 2, y: (sourceY + targetY) / 2 };
+
+  const label = data?.label || "";
+  const color = style?.stroke || "#0ea5e9";
 
   const patchData = useCallback((patch) => {
     setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
@@ -241,120 +212,91 @@ const EditableEdge = memo(function EditableEdge({
   const patchEdge = useCallback((patch) => {
     setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   }, [id, setEdges]);
-
-  const label = data?.label || "";
-  const color = style?.stroke || "#0ea5e9";
-  const showInput = editing || (selected && !label);
-  useEffect(() => { if (editing) { inputRef.current?.focus(); inputRef.current?.select(); } }, [editing]);
-
-  // Persist only when there's real text; otherwise leave the edge unlabelled.
   const commit = useCallback(() => {
     const v = draft.trim();
     patchData({ label: v || undefined });
     setEditing(false);
   }, [draft, patchData]);
 
-  // Drag a bend (existing waypoint) — or, from a segment midpoint, add one
-  // and start dragging it (this is how you pull out new elbows / stairs).
-  const dragWaypoint = useCallback((index, e) => {
+  // Drag a straight segment perpendicular; its two corner endpoints move
+  // together, so the route stays orthogonal and the neighbours stretch.
+  const dragSeg = useCallback((fullIndex, horiz, e) => {
     e.stopPropagation();
     const onMove = (ev) => {
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
       setEdges((eds) => eds.map((edge) => {
         if (edge.id !== id) return edge;
-        const wps = [...(edge.data?.waypoints || [])];
-        wps[index] = { x: p.x, y: p.y };
-        return { ...edge, data: { ...edge.data, waypoints: wps } };
+        const itr = (edge.data?.route && edge.data.route.length
+          ? edge.data.route
+          : autoOrtho(sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition)
+        ).map((pt) => ({ ...pt }));
+        const ai = fullIndex - 1, bi = fullIndex; // interior indices of the segment ends
+        if (!itr[ai] || !itr[bi]) return edge;
+        if (horiz) { itr[ai].y = p.y; itr[bi].y = p.y; }
+        else { itr[ai].x = p.x; itr[bi].x = p.x; }
+        return { ...edge, data: { ...edge.data, route: itr } };
       }));
     };
     const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [id, screenToFlowPosition, setEdges]);
+  }, [id, sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, screenToFlowPosition, setEdges]);
 
-  const addAndDrag = useCallback((segIndex, mid, e) => {
+  const onEdgeDblClick = useCallback((e) => {
     e.stopPropagation();
-    setEdges((eds) => eds.map((edge) => {
-      if (edge.id !== id) return edge;
-      const wps = [...(edge.data?.waypoints || [])];
-      wps.splice(segIndex, 0, mid);
-      return { ...edge, data: { ...edge.data, waypoints: wps } };
-    }));
-    dragWaypoint(segIndex, e);
-  }, [id, setEdges, dragWaypoint]);
+    const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    patchData({ labelT: nearestT(path, p.x, p.y) });
+    setEditing(true);
+  }, [path, screenToFlowPosition, patchData]);
 
-  const dragLabel = useCallback((e) => {
-    e.stopPropagation();
-    const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    el.setAttribute("d", path);
-    let len = 0; try { len = el.getTotalLength(); } catch { /* */ }
-    if (!len) return;
-    const samples = [];
-    for (let i = 0; i <= 100; i++) { const pt = el.getPointAtLength((i / 100) * len); samples.push({ t: i / 100, x: pt.x, y: pt.y }); }
-    const onMove = (ev) => {
-      const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
-      let best = samples[0], bd = Infinity;
-      for (const s of samples) { const dx = s.x - p.x, dy = s.y - p.y; const d = dx * dx + dy * dy; if (d < bd) { bd = d; best = s; } }
-      patchData({ labelT: best.t });
-    };
-    const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }, [path, patchData, screenToFlowPosition]);
+  // Draggable interior segments (exclude the two perpendicular stubs).
+  const segHandles = [];
+  for (let i = 1; i <= full.length - 3; i++) {
+    const a = full[i], b = full[i + 1];
+    segHandles.push({ i, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, horiz: Math.abs(a.y - b.y) < 0.5 });
+  }
 
   return (
     <>
       <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} style={style} />
+      {/* Wide invisible hit-path: double-click anywhere to label. */}
+      <path d={path} fill="none" stroke="transparent" strokeWidth={22} style={{ cursor: "text" }} onDoubleClick={onEdgeDblClick} />
       <EdgeLabelRenderer>
         {selected && (
           <EdgeToolbar x={labelPt.x} y={labelPt.y} style={style} data={data} patchEdge={patchEdge} onEditLabel={() => setEditing(true)} />
         )}
 
-        {(showInput || label) && (
-          <div
-            className="nodrag nopan"
-            style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${labelPt.x}px,${labelPt.y}px)`, pointerEvents: "all", cursor: showInput ? "text" : "grab" }}
-            onPointerDown={showInput ? undefined : dragLabel}
-            onDoubleClick={() => setEditing(true)}
-          >
-            {showInput ? (
-              <input
-                ref={inputRef}
-                value={draft}
+        {(editing || label) && (
+          <div className="nodrag nopan"
+            style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${labelPt.x}px,${labelPt.y}px)`, pointerEvents: "all", cursor: editing ? "text" : "pointer" }}
+            onDoubleClick={() => setEditing(true)}>
+            {editing ? (
+              <input ref={inputRef} value={draft}
                 onChange={(e) => setDraft(e.target.value.slice(0, 80))}
                 onBlur={commit}
                 onKeyDown={(e) => { if (e.key === "Enter") commit(); else if (e.key === "Escape") { setDraft(label); setEditing(false); } }}
-                placeholder="Label"
-                className="text-[11px] font-semibold rounded-md px-1.5 py-0.5 outline-none text-white placeholder-white/60"
-                style={{ background: color, width: Math.max(54, draft.length * 7 + 24) }}
-              />
+                placeholder="Add text"
+                className="text-[11px] font-semibold rounded-md px-1.5 py-0.5 outline-none text-white placeholder-white/70"
+                style={{ background: color, width: Math.max(60, draft.length * 7 + 24) }} />
             ) : (
-              <span className="text-[11px] font-semibold rounded-md px-1.5 py-0.5 text-white" style={{ background: color }} title="Drag to move · double-click to edit">{label}</span>
+              <span className="text-[11px] font-semibold rounded-md px-1.5 py-0.5 text-white" style={{ background: color }}>{label}</span>
             )}
           </div>
         )}
 
-        {/* Bend grips — only when selected. Capsules at segment midpoints
-            pull out new bends; circles are existing bends (double-click to
-            remove). */}
-        {selected && addHandles.map((h) => (
-          <div
-            key={`add-${h.seg}`}
-            className="nodrag nopan"
-            onPointerDown={(e) => addAndDrag(h.seg, { x: h.x, y: h.y }, e)}
-            title="Drag to add a bend"
-            style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${h.x}px,${h.y}px)`, pointerEvents: "all", width: 18, height: 8, borderRadius: 9999, background: color, border: "2px solid #fff", cursor: "grab", boxShadow: "0 1px 4px rgba(0,0,0,.4)" }}
-          />
-        ))}
-        {selected && waypoints.map((wp, i) => (
-          <div
-            key={`wp-${i}`}
-            className="nodrag nopan"
-            onPointerDown={(e) => dragWaypoint(i, e)}
-            onDoubleClick={(e) => { e.stopPropagation(); patchData({ waypoints: waypoints.filter((_, j) => j !== i) }); }}
-            title="Drag to bend · double-click to remove"
-            style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${wp.x}px,${wp.y}px)`, pointerEvents: "all", width: 12, height: 12, borderRadius: 9999, background: "#fff", border: `2px solid ${color}`, cursor: "grab", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }}
-          />
+        {selected && segHandles.map((h) => (
+          <div key={`seg-${h.i}`} className="nodrag nopan"
+            onPointerDown={(e) => dragSeg(h.i, h.horiz, e)}
+            title="Drag to move this segment"
+            style={{
+              position: "absolute",
+              transform: `translate(-50%,-50%) translate(${h.x}px,${h.y}px)`,
+              pointerEvents: "all",
+              width: h.horiz ? 22 : 9, height: h.horiz ? 9 : 22, borderRadius: 4,
+              background: color, border: "2px solid #fff",
+              cursor: h.horiz ? "ns-resize" : "ew-resize",
+              boxShadow: "0 1px 4px rgba(0,0,0,.4)",
+            }} />
         ))}
         {selected && [{ x: sourceX, y: sourceY }, { x: targetX, y: targetY }].map((pt, i) => (
           <div key={`ep-${i}`} className="nodrag nopan" style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${pt.x}px,${pt.y}px)`, pointerEvents: "none", width: 11, height: 11, borderRadius: 9999, background: "#fff", border: `2px solid ${color}`, boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
