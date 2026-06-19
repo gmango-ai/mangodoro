@@ -1,7 +1,9 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
-import { Target, ChevronDown, Building2, User } from "lucide-react";
+import { Target, ChevronDown, Building2, User, Star } from "lucide-react";
+import { useParams } from "react-router-dom";
 import { useTeam } from "../../context/TeamContext";
+import { setGoal, clearGoal } from "../../lib/goals";
 
 // Shared text editor used inside the sticky / text / shape nodes.
 // Stops propagating wheel + pointerdown so the canvas doesn't pan
@@ -289,10 +291,29 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
 export const GoalNode = memo(function GoalNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
   const patch = useNodeDataPatcher(id);
-  const { orgTeams = [], teamMembers = [] } = useTeam() || {};
+  const { orgTeams = [], teamMembers = [], activeTeamId } = useTeam() || {};
+  const { whiteboardId } = useParams();
   const [pickerOpen, setPickerOpen] = useState(false);
   const linked = data?.linkType && data?.linkId;
   const linkColor = data?.linkColor || "#f59e0b";
+  const goalActive = !!data?.goalActive;
+  const canSet = linked && (data?.text || "").trim();
+
+  async function toggleSetAsGoal() {
+    if (!activeTeamId || !linked) return;
+    if (goalActive) {
+      await clearGoal({ teamId: activeTeamId, ownerType: data.linkType, ownerId: data.linkId });
+      patch({ goalActive: false });
+    } else {
+      if (!(data?.text || "").trim()) return;
+      const { error } = await setGoal({
+        teamId: activeTeamId, ownerType: data.linkType, ownerId: data.linkId,
+        ownerName: data.linkName, ownerColor: data.linkColor, body: data.text,
+        boardId: whiteboardId, nodeId: id,
+      });
+      if (!error) patch({ goalActive: true });
+    }
+  }
   return (
     <div
       style={{
@@ -308,6 +329,18 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "linear-gradient(120deg,#f59e0b,#f97316)", color: "#fff", borderRadius: "12px 12px 0 0" }}>
         <Target style={{ width: 14, height: 14 }} />
         <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".12em" }}>GOAL</span>
+        <button
+          type="button"
+          className="nodrag"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={toggleSetAsGoal}
+          disabled={!goalActive && !canSet}
+          title={goalActive ? "Currently set as the goal — click to unset" : canSet ? "Set as the current goal for its tag" : "Add text + link it first"}
+          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 800, color: "#fff", opacity: goalActive || canSet ? 1 : 0.55, padding: "1px 6px", borderRadius: 9999, background: goalActive ? "rgba(255,255,255,.25)" : "transparent" }}
+        >
+          <Star style={{ width: 12, height: 12 }} fill={goalActive ? "#fff" : "none"} />
+          {goalActive ? "SET" : "Set goal"}
+        </button>
       </div>
       <div style={{ flex: 1, padding: 10, minHeight: 0 }}>
         <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }} />
