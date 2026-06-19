@@ -314,15 +314,27 @@ html.electron-popover body::before {
   display: none;
 }
 
-/* ── Whiteboard: easier-to-grab handles ─────────────────────────────
- * Connection dots (.react-flow__handle): enlarge the invisible hit area
- * so starting an edge is forgiving. They also carry a high z-index in JS
- * so they win the click over the resizer's edge lines at the midpoints.
+/* ── Whiteboard: connection dots reveal on hover ────────────────────
+ * Dots are hidden AND non-interactive until you hover (or select) the
+ * node, so the body stays easy to grab for MOVING and the dots don't
+ * intercept edge-endpoint drags. On hover they appear and become
+ * grabbable, with a modest invisible hit margin. A high z-index (set in
+ * JS) keeps them above the resizer's edge lines at the midpoints.
  */
-.react-flow__handle::after {
+.react-flow__handle.wb-conn-handle {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.react-flow__node:hover .react-flow__handle.wb-conn-handle,
+.react-flow__node.selected .react-flow__handle.wb-conn-handle {
+  opacity: 1;
+  pointer-events: all;
+}
+.react-flow__handle.wb-conn-handle::after {
   content: "";
   position: absolute;
-  inset: -6px; /* ~24px grab target around the 12px dot */
+  inset: -3px; /* ~18px grab target around the 12px dot */
   border-radius: 9999px;
 }
 /* NodeResizer CORNER handles: bigger + a modest invisible margin. We do

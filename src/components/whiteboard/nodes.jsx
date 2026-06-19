@@ -137,22 +137,21 @@ function useNodeDataPatcher(id) {
 // the DRAG DIRECTION (so the arrow points where you dragged). The prior
 // design stacked an invisible target handle over each source handle,
 // which made drags start on the target and reversed the arrow.
-function FourHandles({ visible = true }) {
+function FourHandles() {
+  // Visibility + pointer-events are driven by CSS (.wb-conn-handle) so the
+  // dots only appear/intercept on node hover or selection — the body stays
+  // grabbable for moving. zIndex keeps them above the resizer edge lines.
   const base = {
     width: 12, height: 12, background: "#0ea5e9",
     border: "2px solid #fff", borderRadius: 9999,
-    opacity: visible ? 1 : 0,
-    // Sit above the NodeResizer's edge lines so the dot — not the resize
-    // corridor — wins the click at each side midpoint. CSS enlarges the
-    // hit area (.react-flow__handle::after) so it's easy to grab.
     zIndex: 12,
   };
   return (
     <>
-      <Handle type="source" position={Position.Top}    id="t" style={base} />
-      <Handle type="source" position={Position.Right}  id="r" style={base} />
-      <Handle type="source" position={Position.Bottom} id="b" style={base} />
-      <Handle type="source" position={Position.Left}   id="l" style={base} />
+      <Handle type="source" position={Position.Top}    id="t" className="wb-conn-handle" style={base} />
+      <Handle type="source" position={Position.Right}  id="r" className="wb-conn-handle" style={base} />
+      <Handle type="source" position={Position.Bottom} id="b" className="wb-conn-handle" style={base} />
+      <Handle type="source" position={Position.Left}   id="l" className="wb-conn-handle" style={base} />
     </>
   );
 }

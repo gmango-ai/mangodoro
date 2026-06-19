@@ -282,7 +282,7 @@ const EditableEdge = memo(function EditableEdge({
   sourcePosition, targetPosition,
   markerStart, markerEnd, style, data, selected,
 }) {
-  const { setEdges, screenToFlowPosition, getNode } = useReactFlow();
+  const { setEdges, screenToFlowPosition, getNode, getNodes } = useReactFlow();
 
   // Resolve free perimeter anchors against the live node rects; fall back
   // to xyflow's handle-based endpoints when no anchor is set.
@@ -400,27 +400,37 @@ const EditableEdge = memo(function EditableEdge({
     )));
   }, [id, data?.route, sX, sY, sPos, tX, tY, tPos, setEdges]);
 
-  // Drag an endpoint freely around its node's perimeter (stores an anchor).
+  // Drag an endpoint to move it around its node's perimeter OR drop it on
+  // another node (or back on the parent) to re-attach this end there.
   const dragEndpoint = useCallback((which, e) => {
     e.stopPropagation();
-    const nodeId = which === "source" ? source : target;
-    if (!nodeId) return;
     const key = which === "source" ? "sourceAnchor" : "targetAnchor";
+    const endKey = which === "source" ? "source" : "target";
     const onMove = (ev) => {
-      const rect = nodeRect(getNode(nodeId));
-      if (!rect) return;
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
+      // Node under the cursor → the re-attach target (skip containers).
+      let hit = null;
+      for (const n of getNodes()) {
+        if (n.type === "frame" || n.type === "zone") continue;
+        const r = nodeRect(n);
+        if (r && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) { hit = n; break; }
+      }
+      const overId = hit ? hit.id : (which === "source" ? source : target);
+      const rect = nodeRect(hit || getNode(overId));
+      if (!rect) return;
       const anchor = projectToPerimeter(rect, p.x, p.y);
-      // Clear custom bends so the route re-squares cleanly from the new
-      // anchor (avoids the stale stub overlapping the node).
-      setEdges((eds) => eds.map((edge) => (
-        edge.id === id ? { ...edge, data: { ...edge.data, [key]: anchor, route: undefined } } : edge
-      )));
+      // Clear custom bends so the route re-squares cleanly from the new end.
+      setEdges((eds) => eds.map((edge) => {
+        if (edge.id !== id) return edge;
+        const next = { ...edge, data: { ...edge.data, [key]: anchor, route: undefined } };
+        if (hit && edge[endKey] !== hit.id) next[endKey] = hit.id; // re-attach
+        return next;
+      }));
     };
     const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [id, source, target, getNode, screenToFlowPosition, setEdges]);
+  }, [id, source, target, getNode, getNodes, screenToFlowPosition, setEdges]);
 
   const onEdgeDblClick = useCallback((e) => {
     e.stopPropagation();
