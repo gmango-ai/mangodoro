@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, NodeResizer, useNodes, useReactFlow } from "@xyflow/react";
 import { nodeAbsPos, sortParentsFirst } from "./frame";
-import { Target, ChevronDown, Building2, User, Star } from "lucide-react";
+import { Target, ChevronDown, Building2, User, Star, X } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
@@ -27,6 +27,17 @@ function useMyName() {
 }
 
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🔥"];
+
+const AVATAR_COLORS = ["#f97316", "#ef4444", "#8b5cf6", "#0ea5e9", "#22c55e", "#ec4899", "#f59e0b"];
+function avatarFor(name) {
+  let h = 0; for (const ch of (name || "?")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function initialsOf(name) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
+}
 
 // Shared text editor used inside the sticky / text / shape nodes.
 // Stops propagating wheel + pointerdown so the canvas doesn't pan
@@ -133,52 +144,61 @@ const STICKY_BG = {
 export const StickyNode = memo(function StickyNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
   const patch = useNodeDataPatcher(id);
+  const { setNodes } = useReactFlow();
   const bg = STICKY_BG[data?.color] || STICKY_BG.yellow;
   const reactions = data?.reactions || {};
   const react = (emoji) => patch({ reactions: { ...reactions, [emoji]: (reactions[emoji] || 0) + 1 } });
   const shown = Object.entries(reactions).filter(([, c]) => c > 0);
+  const author = data?.author || "";
+  const stop = (e) => e.stopPropagation();
+  const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
   return (
     <div
       style={{
-        width: 160, height: 160, padding: 10,
+        width: 160, height: 160, padding: 9,
         background: bg,
-        borderRadius: 4,
+        borderRadius: 8,
         boxShadow: selected
           ? "0 0 0 2px #f97316, 0 16px 32px -12px rgba(120,80,20,.55)"
           : "0 7px 14px -7px rgba(120,80,20,.5)",
-        display: "flex", flexDirection: "column", color: "#3a2a10",
+        display: "flex", flexDirection: "column", gap: 4, color: "#3a2a10",
         fontFamily: "inherit",
       }}
     >
       <FourHandles />
-      {/* Note text — centred in the body. */}
-      <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {/* Header — avatar + name (left), delete (right). */}
+      <div className="nodrag" onPointerDown={stop} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+        <span style={{ width: 18, height: 18, borderRadius: 9999, flexShrink: 0, background: avatarFor(author), color: "#fff", fontSize: 8, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {initialsOf(author)}
+        </span>
+        <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.6, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {author || "—"}
+        </span>
+        {selected && (
+          <button type="button" onClick={remove} title="Delete" style={{ opacity: 0.45, display: "flex" }}>
+            <X style={{ width: 12, height: 12 }} />
+          </button>
+        )}
+      </div>
+      {/* Body text. */}
+      <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
         <EditableText
           value={data?.text}
           onChange={setText}
           placeholder="Type a note…"
-          style={{ fontSize: data?.fontSize ?? 14, lineHeight: 1.3, textAlign: "center", width: "100%" }}
+          style={{ fontSize: data?.fontSize ?? 13, lineHeight: 1.3, width: "100%" }}
         />
       </div>
-      {/* Footer: author (left) + reactions (right). */}
-      <div
-        className="nodrag"
-        onPointerDown={(e) => e.stopPropagation()}
-        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, marginTop: 4, minHeight: 16 }}
-      >
-        <span style={{ fontSize: 9, fontWeight: 800, opacity: 0.5, textTransform: "uppercase", letterSpacing: ".05em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 72 }}>
-          {data?.author || ""}
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-          {shown.map(([e, c]) => (
-            <span key={e} style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 1 }}>
-              {e}{c > 1 && <span style={{ fontSize: 8, fontWeight: 700, opacity: 0.65 }}>{c}</span>}
-            </span>
-          ))}
-          {selected && QUICK_REACTIONS.map((e) => (
-            <button key={e} type="button" onClick={() => react(e)} title={`React ${e}`} style={{ fontSize: 11, lineHeight: 1, opacity: 0.4 }}>{e}</button>
-          ))}
-        </div>
+      {/* Reaction chips + quick-react when selected. */}
+      <div className="nodrag" onPointerDown={stop} style={{ display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap", minHeight: 16 }}>
+        {shown.map(([e, c]) => (
+          <span key={e} style={{ fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2, background: "rgba(255,255,255,.55)", borderRadius: 9999, padding: "1px 5px" }}>
+            {e}{c > 1 && <span style={{ opacity: 0.7 }}>{c}</span>}
+          </span>
+        ))}
+        {selected && QUICK_REACTIONS.map((e) => (
+          <button key={e} type="button" onClick={() => react(e)} title={`React ${e}`} style={{ fontSize: 12, lineHeight: 1, opacity: 0.4 }}>{e}</button>
+        ))}
       </div>
     </div>
   );
