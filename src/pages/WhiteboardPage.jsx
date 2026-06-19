@@ -47,6 +47,13 @@ const DEFAULT_EDGE_OPTIONS = {
   style: { stroke: "#0ea5e9", strokeWidth: 2 },
 };
 
+// Map a grabbed handle (by id or position) back to the SOURCE handle on
+// that side, so a drag-created edge leaves from the side you pulled from.
+// Each side carries both a source ("t"/"r"/"b"/"l") and target
+// ("tt"/"rt"/"bt"/"lt") handle.
+const SIDE_FROM_ID = { t: "t", tt: "t", r: "r", rt: "r", b: "b", bt: "b", l: "l", lt: "l" };
+const SIDE_FROM_POS = { top: "t", right: "r", bottom: "b", left: "l" };
+
 // Toolbar icon button — themed tints per tool kind.
 function ToolButton({ title, onClick, tone = "neutral", dark, children }) {
   const tones = {
@@ -221,11 +228,17 @@ function WhiteboardEditor() {
   // for drop-to-connect), so a pull can start on either — what matters
   // is only WHICH node it came from.
   const onConnectEnd = useCallback((event, connectionState) => {
-    // Landed on a real handle → onConnect already made the edge.
-    if (connectionState?.isValid) { connectingRef.current = null; return; }
-    const fromNodeId = connectionState?.fromNode?.id ?? connectingRef.current?.nodeId;
+    const started = connectingRef.current;
     connectingRef.current = null;
+    // Landed on a real handle → onConnect already made the edge.
+    if (connectionState?.isValid) return;
+    const fromNodeId = connectionState?.fromNode?.id ?? started?.nodeId;
     if (!fromNodeId) return;
+    const fromHandle = connectionState?.fromHandle;
+    const sourceHandle =
+      SIDE_FROM_ID[fromHandle?.id] ??
+      SIDE_FROM_ID[started?.handleId] ??
+      SIDE_FROM_POS[fromHandle?.position];
     const ev = "changedTouches" in event ? event.changedTouches[0] : event;
     if (ev?.clientX == null) return;
     let pos;
@@ -242,6 +255,7 @@ function WhiteboardEditor() {
     }));
     setEdges((eds) => addEdge({
       source: fromNodeId,
+      sourceHandle,
       target: newId,
       ...DEFAULT_EDGE_OPTIONS,
     }, eds));
