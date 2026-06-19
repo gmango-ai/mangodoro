@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, MiniMap,
   useNodesState, useEdgesState, addEdge, reconnectEdge, useReactFlow, MarkerType, ConnectionMode, SelectionMode,
+  NodeToolbar, Position,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -684,10 +685,11 @@ function WhiteboardEditor() {
             </ToolButton>
           </Panel>
 
-          {/* Node inspector (shape/fill/border/text). Edges use their own
+          {/* Node inspector (shape/fill/border/text) hovers above the
+              selected node, like the edge toolbar. Edges use their own
               floating contextual toolbar (rendered on the edge itself). */}
           {selectedNode && (
-            <Panel position="top-right" className="pointer-events-none">
+            <NodeToolbar nodeId={selectedNode.id} isVisible position={Position.Top} offset={14} align="center">
               <Inspector
                 node={selectedNode}
                 edge={null}
@@ -696,7 +698,7 @@ function WhiteboardEditor() {
                 setNodeType={setNodeType}
                 patchEdge={patchEdge}
               />
-            </Panel>
+            </NodeToolbar>
           )}
         </ReactFlow>
 
