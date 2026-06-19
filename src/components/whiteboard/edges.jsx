@@ -234,15 +234,62 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
   );
 }
 
+// ── Free connection anchors ─────────────────────────────────────────
+// An edge end can be pinned to ANY point around a node's perimeter
+// (data.sourceAnchor / targetAnchor = { side, t }) instead of a fixed
+// handle. We resolve it against the live node rect on every render.
+const OUT_DIR = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
+
+function nodeRect(node) {
+  if (!node) return null;
+  const p = node.internals?.positionAbsolute || node.position || { x: 0, y: 0 };
+  const w = node.measured?.width ?? node.width ?? 0;
+  const h = node.measured?.height ?? node.height ?? 0;
+  if (!w || !h) return null;
+  return { x: p.x, y: p.y, w, h };
+}
+function anchorPoint(rect, anchor) {
+  if (!rect || !anchor) return null;
+  const t = Math.max(0, Math.min(1, anchor.t ?? 0.5));
+  switch (anchor.side) {
+    case "top": return { x: rect.x + rect.w * t, y: rect.y, pos: "top" };
+    case "bottom": return { x: rect.x + rect.w * t, y: rect.y + rect.h, pos: "bottom" };
+    case "left": return { x: rect.x, y: rect.y + rect.h * t, pos: "left" };
+    case "right": return { x: rect.x + rect.w, y: rect.y + rect.h * t, pos: "right" };
+    default: return null;
+  }
+}
+// Snap a free-dragged point to the nearest side of the node, as { side, t }.
+function projectToPerimeter(rect, px, py) {
+  const { x, y, w, h } = rect;
+  const dl = Math.abs(px - x), dr = Math.abs(px - (x + w));
+  const dt = Math.abs(py - y), db = Math.abs(py - (y + h));
+  const m = Math.min(dl, dr, dt, db);
+  const tx = w ? Math.max(0, Math.min(1, (px - x) / w)) : 0.5;
+  const ty = h ? Math.max(0, Math.min(1, (py - y) / h)) : 0.5;
+  if (m === dt) return { side: "top", t: tx };
+  if (m === db) return { side: "bottom", t: tx };
+  if (m === dl) return { side: "left", t: ty };
+  return { side: "right", t: ty };
+}
+
 // Editable edge: an orthogonal route whose straight segments you drag
 // (rectangle handles) to reshape — FigJam-style. Double-click anywhere on
-// the line to drop a label there.
+// the line to drop a label there. Endpoints can be dragged to any spot
+// around the connected node's perimeter.
 const EditableEdge = memo(function EditableEdge({
-  id, sourceX, sourceY, targetX, targetY,
+  id, source, target, sourceX, sourceY, targetX, targetY,
   sourcePosition, targetPosition,
   markerStart, markerEnd, style, data, selected,
 }) {
-  const { setEdges, screenToFlowPosition } = useReactFlow();
+  const { setEdges, screenToFlowPosition, getNode } = useReactFlow();
+
+  // Resolve free perimeter anchors against the live node rects; fall back
+  // to xyflow's handle-based endpoints when no anchor is set.
+  const sa = anchorPoint(nodeRect(source ? getNode(source) : null), data?.sourceAnchor);
+  const ta = anchorPoint(nodeRect(target ? getNode(target) : null), data?.targetAnchor);
+  const sX = sa ? sa.x : sourceX, sY = sa ? sa.y : sourceY, sPos = sa ? sa.pos : sourcePosition;
+  const tX = ta ? ta.x : targetX, tY = ta ? ta.y : targetY, tPos = ta ? ta.pos : targetPosition;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data?.label || "");
   const inputRef = useRef(null);
@@ -254,13 +301,13 @@ const EditableEdge = memo(function EditableEdge({
   const stored = data?.route;
   const interior = (stored && stored.length)
     ? stored
-    : autoOrtho(sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition);
-  const rawFull = [{ x: sourceX, y: sourceY }, ...interior, { x: targetX, y: targetY }];
+    : autoOrtho(sX, sY, sPos, tX, tY, tPos);
+  const rawFull = [{ x: sX, y: sY }, ...interior, { x: tX, y: tY }];
   // Elbows are squared off — every segment forced horizontal/vertical, even
   // after a node moves and a stub goes stale. Curves keep their diagonals.
   const full = routing === "curve" ? rawFull : orthogonalize(rawFull);
   const path = roundedPath(full, routing === "curve" ? Math.min(curviness, 30) : 8);
-  const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: (sourceX + targetX) / 2, y: (sourceY + targetY) / 2 };
+  const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: (sX + tX) / 2, y: (sY + tY) / 2 };
 
   const label = data?.label || "";
   const color = style?.stroke || "#0ea5e9";
@@ -320,8 +367,8 @@ const EditableEdge = memo(function EditableEdge({
     // drift the segment index, and fold the route back over itself.
     const interior0 = (data?.route && data.route.length)
       ? data.route
-      : autoOrtho(sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition);
-    const base = orthogonalize([{ x: sourceX, y: sourceY }, ...interior0, { x: targetX, y: targetY }]).map((pt) => ({ ...pt }));
+      : autoOrtho(sX, sY, sPos, tX, tY, tPos);
+    const base = orthogonalize([{ x: sX, y: sY }, ...interior0, { x: tX, y: tY }]).map((pt) => ({ ...pt }));
     if (!base[fullIndex] || !base[fullIndex + 1]) return;
     const onMove = (ev) => {
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
@@ -335,7 +382,45 @@ const EditableEdge = memo(function EditableEdge({
     const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [id, data?.route, sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, screenToFlowPosition, setEdges]);
+  }, [id, data?.route, sX, sY, sPos, tX, tY, tPos, screenToFlowPosition, setEdges]);
+
+  // Double-click a segment handle to delete that section: drop its two
+  // corner points and let the route re-square around the gap.
+  const deleteSeg = useCallback((fullIndex, e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const interior0 = (data?.route && data.route.length)
+      ? data.route
+      : autoOrtho(sX, sY, sPos, tX, tY, tPos);
+    const base = orthogonalize([{ x: sX, y: sY }, ...interior0, { x: tX, y: tY }]);
+    const trimmed = base.filter((_, idx) => idx !== fullIndex && idx !== fullIndex + 1);
+    const nextInterior = trimmed.slice(1, -1);
+    setEdges((eds) => eds.map((edge) => (
+      edge.id === id ? { ...edge, data: { ...edge.data, route: nextInterior.length ? nextInterior : undefined } } : edge
+    )));
+  }, [id, data?.route, sX, sY, sPos, tX, tY, tPos, setEdges]);
+
+  // Drag an endpoint freely around its node's perimeter (stores an anchor).
+  const dragEndpoint = useCallback((which, e) => {
+    e.stopPropagation();
+    const nodeId = which === "source" ? source : target;
+    if (!nodeId) return;
+    const key = which === "source" ? "sourceAnchor" : "targetAnchor";
+    const onMove = (ev) => {
+      const rect = nodeRect(getNode(nodeId));
+      if (!rect) return;
+      const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
+      const anchor = projectToPerimeter(rect, p.x, p.y);
+      // Clear custom bends so the route re-squares cleanly from the new
+      // anchor (avoids the stale stub overlapping the node).
+      setEdges((eds) => eds.map((edge) => (
+        edge.id === id ? { ...edge, data: { ...edge.data, [key]: anchor, route: undefined } } : edge
+      )));
+    };
+    const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [id, source, target, getNode, screenToFlowPosition, setEdges]);
 
   const onEdgeDblClick = useCallback((e) => {
     e.stopPropagation();
@@ -383,7 +468,8 @@ const EditableEdge = memo(function EditableEdge({
         {selected && segHandles.map((h) => (
           <div key={`seg-${h.i}`} className="nodrag nopan"
             onPointerDown={(e) => dragSeg(h.i, h.horiz, e)}
-            title="Drag to move this segment"
+            onDoubleClick={(e) => deleteSeg(h.i, e)}
+            title="Drag to move · double-click to remove this section"
             style={{
               position: "absolute",
               transform: `translate(-50%,-50%) translate(${h.x}px,${h.y}px)`,
@@ -394,9 +480,29 @@ const EditableEdge = memo(function EditableEdge({
               boxShadow: "0 1px 4px rgba(0,0,0,.4)",
             }} />
         ))}
-        {selected && [{ x: sourceX, y: sourceY }, { x: targetX, y: targetY }].map((pt, i) => (
-          <div key={`ep-${i}`} className="nodrag nopan" style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${pt.x}px,${pt.y}px)`, pointerEvents: "none", width: 11, height: 11, borderRadius: 9999, background: "#fff", border: `2px solid ${color}`, boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
-        ))}
+        {/* Endpoint handles: drag to move this end anywhere around the
+            node's perimeter. Nudged outward along the exit direction so
+            they sit clear of the node's own connection dots. */}
+        {selected && [
+          { which: "source", x: sX, y: sY, pos: sPos },
+          { which: "target", x: tX, y: tY, pos: tPos },
+        ].map((ep) => {
+          const [ox, oy] = OUT_DIR[ep.pos] || [0, 0];
+          const hx = ep.x + ox * 13, hy = ep.y + oy * 13;
+          return (
+            <div key={`ep-${ep.which}`} className="nodrag nopan"
+              onPointerDown={(e) => dragEndpoint(ep.which, e)}
+              title="Drag to move this end around the node"
+              style={{
+                position: "absolute",
+                transform: `translate(-50%,-50%) translate(${hx}px,${hy}px)`,
+                pointerEvents: "all", zIndex: 8,
+                width: 14, height: 14, borderRadius: 9999,
+                background: "#fff", border: `3px solid ${color}`,
+                cursor: "grab", boxShadow: "0 1px 4px rgba(0,0,0,.35)",
+              }} />
+          );
+        })}
       </EdgeLabelRenderer>
     </>
   );
