@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
+import { useVideoCall } from "../../context/VideoCallContext";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import WidgetsSidebar from "./WidgetsSidebar";
@@ -90,6 +91,7 @@ export default function OfficeShell({
   // misleading. Fires once per mount via a ref so the user can still
   // click "Hallway" to leave intentionally without being yanked back.
   const { syncSession, leaveSession } = useSyncSession();
+  const { call, endCall } = useVideoCall();
   const autoOpenedRef = useRef(false);
 
   // Explicit leave. Connection-aware model: incidental navigation never
@@ -99,6 +101,11 @@ export default function OfficeShell({
   // hallway" both route here, which removes the user from the session
   // (across all their tabs) and drops them in the hallway.
   const handleLeaveRoom = async () => {
+    // Leaving is deliberate — tear the room's video call down too so the
+    // PiP doesn't linger after you've left. (The session-bound teardown
+    // in PersistentVideoCall only fires when a session was tracking the
+    // room; ending here covers the call regardless.)
+    if (call) endCall();
     await leaveSession();
     navigate("/office");
   };

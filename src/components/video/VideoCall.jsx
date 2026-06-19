@@ -26,7 +26,6 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
   const containerRef = useRef(null);
   const apiRef = useRef(null);
   const [error, setError] = useState(null);
-  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!roomId || !containerRef.current) return;
@@ -112,35 +111,17 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
         api.addListener("knockingParticipant", log("knockingParticipant"));
         api.addListener("dataChannelOpened", log("dataChannelOpened"));
 
-        // The earliest event that means "we got past auth and into
-        // the conference". Use it to dismiss our loading overlay so
-        // the user can interact with the iframe (e.g. accept a
-        // prejoin prompt on tenants that override
-        // prejoinPageEnabled).
+        // "We got past auth and into the conference." We let the Jitsi
+        // iframe show its own connecting state rather than overlaying our
+        // own — our overlay used to linger over an already-live feed.
         api.addListener("videoConferenceJoined", (data) => {
           log("videoConferenceJoined")(data);
-          if (!cancelled) {
-            setReady(true);
-            onJoined?.();
-          }
+          if (!cancelled) onJoined?.();
         });
         api.addListener("videoConferenceLeft", (data) => {
           log("videoConferenceLeft")(data);
-          if (!cancelled) {
-            setReady(false);
-            onLeft?.();
-          }
+          if (!cancelled) onLeft?.();
         });
-
-        // Fallback: if the iframe rendered but no join event fired
-        // within 10s, dismiss the overlay anyway. JaaS occasionally
-        // serves a prejoin screen even with prejoinPageEnabled:false
-        // (tenant settings override), and we don't want our overlay
-        // blocking the user's click.
-        const fallback = setTimeout(() => {
-          if (!cancelled) setReady(true);
-        }, 10000);
-        api.addListener("videoConferenceJoined", () => clearTimeout(fallback));
       } catch (e) {
         if (!cancelled) {
           setError(e?.message || "Could not load the video call");
@@ -195,22 +176,6 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
         </div>
       ) : (
         <>
-          {!ready && (
-            // pointer-events-none so the user can still interact with
-            // a possible Jitsi prejoin button underneath if the
-            // "videoConferenceJoined" event is held up by tenant
-            // config. The overlay is just a visual hint, not a
-            // blocker.
-            <div className={`absolute inset-0 flex items-center justify-center rounded-xl pointer-events-none ${
-              dark ? "bg-[var(--color-surface)]/40" : "bg-slate-100/40"
-            }`}>
-              <p className={`text-xs px-3 py-1.5 rounded-full ${
-                dark ? "bg-[var(--color-surface)] text-slate-400" : "bg-white text-slate-500 shadow-sm"
-              }`}>
-                Connecting…
-              </p>
-            </div>
-          )}
           <div
             ref={containerRef}
             className="w-full h-full rounded-xl overflow-hidden"

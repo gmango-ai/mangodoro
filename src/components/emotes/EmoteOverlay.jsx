@@ -225,13 +225,13 @@ export default function EmoteOverlay({
       style={{ zIndex: 60, overflow: "hidden" }}
     >
       {barPosition !== "hidden" && enabled && vertical && (
-        // Video overlay: a compact toggle pinned to the right edge so it
-        // fits even the small PiP. Tap to pop the reactions out to the
-        // left as a single row; tap again to tuck them away.
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-auto">
+        // Video overlay: a compact toggle pinned to the bottom-right
+        // corner so it fits even the small PiP. Tap to pop the reactions
+        // out upward as a vertical column; tap again to tuck them away.
+        <div className="absolute right-2 bottom-2 flex flex-col items-center gap-1 pointer-events-auto">
           {barOpen && (
             <div
-              className="flex items-center gap-0.5 p-1 rounded-full"
+              className="flex flex-col items-center gap-0.5 p-1 rounded-full"
               style={{ background: "#0f172a", boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)" }}
             >
               {EMOTES.map((emo) => (
