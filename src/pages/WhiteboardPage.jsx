@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, MiniMap,
-  useNodesState, useEdgesState, addEdge, useReactFlow, MarkerType,
+  useNodesState, useEdgesState, addEdge, reconnectEdge, useReactFlow, MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
   ArrowLeft, Target, Pencil, Archive, StickyNote, Type,
-  Square, Circle, MousePointer2, Trash2,
+  Square, Circle, Diamond, Trash2,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -24,6 +24,7 @@ import {
   isEmptySnapshot,
 } from "../lib/whiteboard";
 import { NODE_TYPES } from "../components/whiteboard/nodes";
+import { EDGE_TYPES } from "../components/whiteboard/edges";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import HeroTimerRibbon from "../components/whiteboard/HeroTimerRibbon";
 
@@ -37,7 +38,35 @@ const DEFAULTS = {
   text:    { w: 220, h: 60 },
   rect:    { w: 180, h: 100 },
   ellipse: { w: 180, h: 110 },
+  diamond: { w: 150, h: 110 },
 };
+
+const DEFAULT_EDGE_OPTIONS = {
+  type: "editable",
+  markerEnd: { type: MarkerType.ArrowClosed, color: "#0ea5e9" },
+  style: { stroke: "#0ea5e9", strokeWidth: 2 },
+};
+
+// Toolbar icon button — themed tints per tool kind.
+function ToolButton({ title, onClick, tone = "neutral", dark, children }) {
+  const tones = {
+    neutral: dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100",
+    amber:   dark ? "text-amber-400 hover:bg-amber-500/15" : "text-amber-600 hover:bg-amber-50",
+    sky:     dark ? "text-sky-400 hover:bg-sky-500/15" : "text-sky-600 hover:bg-sky-50",
+    red:     dark ? "text-red-400 hover:bg-red-500/15" : "text-red-500 hover:bg-red-50",
+  };
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${tones[tone]}`}
+    >
+      {children}
+    </button>
+  );
+}
 
 let _idSeq = 1;
 function freshId(prefix) {
@@ -82,6 +111,7 @@ function WhiteboardEditor() {
   const [saveState, setSaveState] = useState("idle"); // idle | dirty | saving | saved
 
   const rf = useReactFlow();
+  const connectingRef = useRef(null);
 
   // ── load board metadata + snapshot, seed template if empty ──
   useEffect(() => {
@@ -175,10 +205,47 @@ function WhiteboardEditor() {
 
   // ── handlers ──
   const onConnect = useCallback((conn) => {
-    setEdges((eds) => addEdge(
-      { ...conn, markerEnd: { type: MarkerType.ArrowClosed, color: "#0ea5e9" }, style: { stroke: "#0ea5e9", strokeWidth: 2 } },
-      eds,
-    ));
+    setEdges((eds) => addEdge({ ...conn, ...DEFAULT_EDGE_OPTIONS }, eds));
+  }, [setEdges]);
+
+  const onConnectStart = useCallback((_evt, params) => {
+    connectingRef.current = params; // { nodeId, handleId, handleType }
+  }, []);
+
+  // Drag a connector from a node onto empty canvas → spawn a connected
+  // flow box right where you dropped. Pull, drop, type: the fastest way
+  // to extend a flowchart (the FigJam / xyflow "add node on edge drop"
+  // idiom).
+  const onConnectEnd = useCallback((event, connectionState) => {
+    const info = connectingRef.current;
+    connectingRef.current = null;
+    if (!info || info.handleType !== "source") return;
+    if (connectionState?.isValid) return; // landed on a real handle → onConnect handled it
+    const ev = "changedTouches" in event ? event.changedTouches[0] : event;
+    if (ev?.clientX == null) return;
+    let pos;
+    try { pos = rf.screenToFlowPosition({ x: ev.clientX, y: ev.clientY }); }
+    catch { return; }
+    const size = DEFAULTS.rect;
+    const newId = freshId("rect");
+    setNodes((nds) => nds.concat({
+      id: newId,
+      type: "rect",
+      position: { x: pos.x - size.w / 2, y: pos.y - size.h / 2 },
+      width: size.w, height: size.h,
+      data: { text: "" },
+    }));
+    setEdges((eds) => addEdge({
+      source: info.nodeId,
+      sourceHandle: info.handleId,
+      target: newId,
+      ...DEFAULT_EDGE_OPTIONS,
+    }, eds));
+  }, [rf, setNodes, setEdges]);
+
+  // Drag an edge endpoint onto a different node to re-route it.
+  const onReconnect = useCallback((oldEdge, newConnection) => {
+    setEdges((eds) => reconnectEdge(oldEdge, newConnection, eds));
   }, [setEdges]);
 
   const addNodeAtCenter = useCallback((type) => {
@@ -205,7 +272,7 @@ function WhiteboardEditor() {
       type,
       position: { x: centerWorld.x - size.w / 2, y: centerWorld.y - size.h / 2 },
       data: { text: "" },
-      ...(type === "rect" || type === "ellipse" ? { width: size.w, height: size.h } : {}),
+      ...(type === "rect" || type === "ellipse" || type === "diamond" ? { width: size.w, height: size.h } : {}),
       ...(type === "sticky" ? { data: { text: "", color: "yellow" } } : {}),
     };
     setNodes((nds) => [...nds, node]);
@@ -359,7 +426,12 @@ function WhiteboardEditor() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onConnectStart={onConnectStart}
+          onConnectEnd={onConnectEnd}
+          onReconnect={onReconnect}
           nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
+          defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
           fitView
           fitViewOptions={{ padding: 0.15 }}
           proOptions={{ hideAttribution: true }}
@@ -369,27 +441,32 @@ function WhiteboardEditor() {
           <Controls position="bottom-left" />
           <MiniMap pannable zoomable position="bottom-right" />
 
-          <Panel position="top-left" className="flex items-center gap-1 p-1 rounded-full bg-white border border-slate-200 shadow-sm">
-            <button type="button" title="Select" className="w-8 h-8 rounded-full flex items-center justify-center text-slate-600 hover:bg-slate-100">
-              <MousePointer2 className="w-4 h-4" />
-            </button>
-            <div className="w-px h-5 bg-slate-200 mx-0.5" />
-            <button type="button" title="Add sticky note" onClick={() => addNodeAtCenter("sticky")} className="w-8 h-8 rounded-full flex items-center justify-center text-amber-600 hover:bg-amber-50">
+          <Panel
+            position="top-left"
+            className={`flex items-center gap-0.5 p-1 rounded-full border shadow-sm ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}
+          >
+            <ToolButton title="Add sticky note" tone="amber" dark={dark} onClick={() => addNodeAtCenter("sticky")}>
               <StickyNote className="w-4 h-4" />
-            </button>
-            <button type="button" title="Add text" onClick={() => addNodeAtCenter("text")} className="w-8 h-8 rounded-full flex items-center justify-center text-slate-600 hover:bg-slate-100">
+            </ToolButton>
+            <ToolButton title="Add text" tone="neutral" dark={dark} onClick={() => addNodeAtCenter("text")}>
               <Type className="w-4 h-4" />
-            </button>
-            <button type="button" title="Add rectangle" onClick={() => addNodeAtCenter("rect")} className="w-8 h-8 rounded-full flex items-center justify-center text-sky-600 hover:bg-sky-50">
+            </ToolButton>
+            <div className={`w-px h-5 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+            <ToolButton title="Add rectangle" tone="sky" dark={dark} onClick={() => addNodeAtCenter("rect")}>
               <Square className="w-4 h-4" />
-            </button>
-            <button type="button" title="Add ellipse" onClick={() => addNodeAtCenter("ellipse")} className="w-8 h-8 rounded-full flex items-center justify-center text-sky-600 hover:bg-sky-50">
+            </ToolButton>
+            <ToolButton title="Add ellipse" tone="sky" dark={dark} onClick={() => addNodeAtCenter("ellipse")}>
               <Circle className="w-4 h-4" />
-            </button>
-            <div className="w-px h-5 bg-slate-200 mx-0.5" />
-            <button type="button" title="Delete selected" onClick={deleteSelected} className="w-8 h-8 rounded-full flex items-center justify-center text-red-500 hover:bg-red-50">
+            </ToolButton>
+            <ToolButton title="Add decision (diamond)" tone="sky" dark={dark} onClick={() => addNodeAtCenter("diamond")}>
+              <Diamond className="w-4 h-4" />
+            </ToolButton>
+            <div className={`w-px h-5 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+            <ToolButton title="Delete selected" tone="red" dark={dark} onClick={deleteSelected}>
               <Trash2 className="w-4 h-4" />
-            </button>
+            </ToolButton>
           </Panel>
         </ReactFlow>
 

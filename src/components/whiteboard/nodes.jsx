@@ -224,6 +224,42 @@ export const EllipseNode = memo(function EllipseNode({ id, data, selected }) {
   );
 });
 
+// ─── DiamondShape (flowchart decision) ────────────────────────────
+
+export const DiamondNode = memo(function DiamondNode({ id, data, selected }) {
+  const setText = useNodeTextUpdater(id);
+  return (
+    <div style={{ width: "100%", height: "100%", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <NodeResizer
+        isVisible={selected}
+        minWidth={90} minHeight={70}
+        lineStyle={{ borderColor: "#f97316" }}
+        handleStyle={{ background: "#f97316", border: "2px solid #fff" }}
+      />
+      {/* A rotated square fills the bounding box; its corners land on the
+          box's edge midpoints, so the four handles sit on the diamond's
+          points — exactly where a decision's branches should leave. */}
+      <div
+        style={{
+          position: "absolute", inset: "14%",
+          background: data?.fill || "#fff",
+          border: `2px solid ${selected ? "#f97316" : data?.stroke || "#0ea5e9"}`,
+          transform: "rotate(45deg)", borderRadius: 6,
+        }}
+      />
+      <FourHandles />
+      <div style={{ position: "relative", padding: 10, maxWidth: "70%" }}>
+        <EditableText
+          value={data?.text}
+          onChange={setText}
+          placeholder=""
+          style={{ fontSize: 12, fontWeight: 600, textAlign: "center", color: "#0f172a" }}
+        />
+      </div>
+    </div>
+  );
+});
+
 // ─── ZoneNode ─────────────────────────────────────────────────────
 
 export const ZoneNode = memo(function ZoneNode({ data }) {
@@ -275,5 +311,6 @@ export const NODE_TYPES = {
   text: TextNode,
   rect: RectNode,
   ellipse: EllipseNode,
+  diamond: DiamondNode,
   zone: ZoneNode,
 };
