@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow } from "@xyflow/react";
 import { ChevronDown, Type, Minus, Spline, MoveRight, AlignJustify } from "lucide-react";
+import { useTheme } from "../../context/ThemeContext";
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
 // follow each edge's stroke colour, so they recolour for free.
@@ -156,9 +157,11 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
         <Dropdown openKey="weight" open={open} setOpen={setOpen} icon={<AlignJustify className="w-4 h-4" />}>
           {WEIGHTS.map(([l, v]) => opt(width === v, () => setStyle({ strokeWidth: v }), l))}
         </Dropdown>
-        <button type="button" onClick={() => { onEditLabel(); setOpen(null); }} title="Add text" className="h-7 w-7 rounded-md flex items-center justify-center text-white/90 hover:bg-white/10">
-          <Type className="w-4 h-4" />
-        </button>
+        <Dropdown openKey="text" open={open} setOpen={setOpen} icon={<Type className="w-4 h-4" />}>
+          {opt(false, onEditLabel, "Edit text")}
+          {opt((data?.labelStyle || "pill") === "pill", () => patchEdge({ data: { ...data, labelStyle: "pill" } }), "Pill background")}
+          {opt(data?.labelStyle === "text", () => patchEdge({ data: { ...data, labelStyle: "text" } }), "No background")}
+        </Dropdown>
         <div className="w-px h-5 bg-white/10 mx-0.5" />
         <Dropdown openKey="line" open={open} setOpen={setOpen} icon={<Minus className="w-4 h-4" />}>
           {LINES.map(([l, d]) => opt(dash === d, () => setStyle({ strokeDasharray: d || undefined }), l))}
@@ -205,6 +208,12 @@ const EditableEdge = memo(function EditableEdge({
 
   const label = data?.label || "";
   const color = style?.stroke || "#0ea5e9";
+  const { theme } = useTheme();
+  const isTextLabel = (data?.labelStyle || "pill") === "text";
+  // "text" style masks the line with the canvas colour (no coloured pill).
+  const labelBg = isTextLabel
+    ? { background: theme === "dark" ? "#0f172a" : "#fbf6ee", color }
+    : { background: color, color: "#fff" };
 
   const patchData = useCallback((patch) => {
     setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
@@ -217,6 +226,26 @@ const EditableEdge = memo(function EditableEdge({
     patchData({ label: v || undefined });
     setEditing(false);
   }, [draft, patchData]);
+
+  // Drag the label, locked to the path (stores the nearest length-fraction).
+  const dragLabel = useCallback((e) => {
+    e.stopPropagation();
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    el.setAttribute("d", path);
+    let len = 0; try { len = el.getTotalLength(); } catch { /* */ }
+    if (!len) return;
+    const samples = [];
+    for (let i = 0; i <= 100; i++) { const pt = el.getPointAtLength((i / 100) * len); samples.push({ t: i / 100, x: pt.x, y: pt.y }); }
+    const onMove = (ev) => {
+      const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
+      let best = samples[0], bd = Infinity;
+      for (const s of samples) { const dx = s.x - p.x, dy = s.y - p.y; const d = dx * dx + dy * dy; if (d < bd) { bd = d; best = s; } }
+      patchData({ labelT: best.t });
+    };
+    const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [path, screenToFlowPosition, patchData]);
 
   // Drag a straight segment perpendicular; its two corner endpoints move
   // together, so the route stays orthogonal and the neighbours stretch.
@@ -268,7 +297,8 @@ const EditableEdge = memo(function EditableEdge({
 
         {(editing || label) && (
           <div className="nodrag nopan"
-            style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${labelPt.x}px,${labelPt.y}px)`, pointerEvents: "all", cursor: editing ? "text" : "pointer" }}
+            style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${labelPt.x}px,${labelPt.y}px)`, pointerEvents: "all", cursor: editing ? "text" : "grab" }}
+            onPointerDown={editing ? undefined : dragLabel}
             onDoubleClick={() => setEditing(true)}>
             {editing ? (
               <input ref={inputRef} value={draft}
@@ -276,10 +306,10 @@ const EditableEdge = memo(function EditableEdge({
                 onBlur={commit}
                 onKeyDown={(e) => { if (e.key === "Enter") commit(); else if (e.key === "Escape") { setDraft(label); setEditing(false); } }}
                 placeholder="Add text"
-                className="text-[11px] font-semibold rounded-md px-1.5 py-0.5 outline-none text-white placeholder-white/70"
-                style={{ background: color, width: Math.max(60, draft.length * 7 + 24) }} />
+                className="text-[11px] font-semibold rounded-md px-1.5 py-0.5 outline-none"
+                style={{ ...labelBg, width: Math.max(60, draft.length * 7 + 24) }} />
             ) : (
-              <span className="text-[11px] font-semibold rounded-md px-1.5 py-0.5 text-white" style={{ background: color }}>{label}</span>
+              <span className="text-[11px] font-semibold rounded-md px-1.5 py-0.5" style={labelBg} title="Drag to move · double-click to edit">{label}</span>
             )}
           </div>
         )}
