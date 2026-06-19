@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
+import { Target, ChevronDown, Building2, User } from "lucide-react";
+import { useTeam } from "../../context/TeamContext";
 
 // Shared text editor used inside the sticky / text / shape nodes.
 // Stops propagating wheel + pointerdown so the canvas doesn't pan
@@ -64,6 +66,14 @@ function useNodeTextUpdater(id) {
     setNodes((nds) => nds.map((n) => (
       n.id === id ? { ...n, data: { ...n.data, text } } : n
     )));
+  }, [id, setNodes]);
+}
+
+// Patch arbitrary data fields on the current node.
+function useNodeDataPatcher(id) {
+  const { setNodes } = useReactFlow();
+  return useCallback((patch) => {
+    setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)));
   }, [id, setNodes]);
 }
 
@@ -274,6 +284,75 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
   );
 });
 
+// ─── GoalNode (first-class, linkable to a department or person) ────
+
+export const GoalNode = memo(function GoalNode({ id, data, selected }) {
+  const setText = useNodeTextUpdater(id);
+  const patch = useNodeDataPatcher(id);
+  const { orgTeams = [], teamMembers = [] } = useTeam() || {};
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const linked = data?.linkType && data?.linkId;
+  const linkColor = data?.linkColor || "#f59e0b";
+  return (
+    <div
+      style={{
+        width: "100%", height: "100%", display: "flex", flexDirection: "column",
+        background: "#fff", borderRadius: 14,
+        border: `2px solid ${selected ? "#f97316" : "#f59e0b"}`,
+        boxShadow: selected ? "0 0 0 2px #f9731633, 0 12px 28px -14px rgba(0,0,0,.4)" : "0 8px 20px -12px rgba(0,0,0,.3)",
+        color: "#0f172a",
+      }}
+    >
+      <NodeResizer isVisible={selected} minWidth={200} minHeight={120} lineStyle={{ borderColor: "#f97316" }} handleStyle={{ background: "#f97316", border: "2px solid #fff" }} />
+      <FourHandles />
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "linear-gradient(120deg,#f59e0b,#f97316)", color: "#fff", borderRadius: "12px 12px 0 0" }}>
+        <Target style={{ width: 14, height: 14 }} />
+        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".12em" }}>GOAL</span>
+      </div>
+      <div style={{ flex: 1, padding: 10, minHeight: 0 }}>
+        <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }} />
+      </div>
+      <div className="nodrag nowheel" style={{ position: "relative", padding: "6px 10px", borderTop: "1px solid rgba(0,0,0,.07)" }} onPointerDown={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={() => setPickerOpen((v) => !v)}
+          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: linked ? "#fff" : "#64748b", background: linked ? linkColor : "transparent", padding: linked ? "2px 8px" : 0, borderRadius: 9999 }}
+        >
+          {data?.linkType === "user" ? <User style={{ width: 12, height: 12 }} /> : <Building2 style={{ width: 12, height: 12 }} />}
+          {linked ? data.linkName : "Link to a team or person"}
+          <ChevronDown style={{ width: 11, height: 11, opacity: 0.6 }} />
+        </button>
+        {pickerOpen && (
+          <div style={{ position: "absolute", bottom: 34, left: 8, zIndex: 40, width: 196, maxHeight: 220, overflowY: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 16px 36px -16px rgba(0,0,0,.45)", padding: 4 }}>
+            {orgTeams.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".08em", padding: "4px 8px 2px" }}>Departments</div>}
+            {orgTeams.map((t) => (
+              <button key={t.id} type="button" onClick={() => { patch({ linkType: "department", linkId: t.id, linkName: t.name, linkColor: t.color || "#f59e0b" }); setPickerOpen(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "4px 8px", borderRadius: 8, fontSize: 12, color: "#0f172a" }}>
+                <span style={{ width: 8, height: 8, borderRadius: 9999, background: t.color || "#94a3b8", flexShrink: 0 }} />
+                {t.name}
+              </button>
+            ))}
+            {teamMembers.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".08em", padding: "6px 8px 2px" }}>People</div>}
+            {teamMembers.map((m) => (
+              <button key={m.user_id} type="button" onClick={() => { patch({ linkType: "user", linkId: m.user_id, linkName: m.name || "Member", linkColor: "#64748b" }); setPickerOpen(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "4px 8px", borderRadius: 8, fontSize: 12, color: "#0f172a" }}>
+                <User style={{ width: 12, height: 12, color: "#94a3b8" }} />
+                {m.name || "Member"}
+              </button>
+            ))}
+            {linked && (
+              <button type="button" onClick={() => { patch({ linkType: null, linkId: null, linkName: null, linkColor: null }); setPickerOpen(false); }}
+                style={{ width: "100%", textAlign: "left", padding: "4px 8px", marginTop: 2, borderRadius: 8, fontSize: 12, color: "#ef4444", fontWeight: 600 }}>
+                Clear link
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
 // ─── ZoneNode ─────────────────────────────────────────────────────
 
 export const ZoneNode = memo(function ZoneNode({ data }) {
@@ -324,6 +403,7 @@ export const NODE_TYPES = {
   sticky: StickyNode,
   text: TextNode,
   shape: ShapeNode,
+  goal: GoalNode,
   // Legacy aliases — old snapshots store these node types.
   rect: ShapeNode,
   ellipse: ShapeNode,

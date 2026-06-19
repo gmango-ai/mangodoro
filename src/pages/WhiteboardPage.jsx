@@ -40,6 +40,7 @@ const DEFAULTS = {
   ellipse: { w: 180, h: 110 },
   diamond: { w: 150, h: 110 },
   shape:   { w: 180, h: 100 },
+  goal:    { w: 240, h: 150 },
 };
 
 const DEFAULT_EDGE_OPTIONS = {
@@ -367,7 +368,7 @@ function WhiteboardEditor() {
         centerWorld = { x: -vp.x / vp.zoom + 200, y: -vp.y / vp.zoom + 200 };
       }
     } catch { /* */ }
-    const sized = type === "shape" || type === "rect" || type === "ellipse" || type === "diamond";
+    const sized = type === "shape" || type === "goal" || type === "rect" || type === "ellipse" || type === "diamond";
     const node = {
       id: freshId(type),
       type,
@@ -572,6 +573,9 @@ function WhiteboardEditor() {
             </ToolButton>
             <div className={`w-px h-5 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
             <ShapesMenu dark={dark} onPick={(shape) => addNodeAtCenter("shape", { shape })} />
+            <ToolButton title="Add goal" tone="amber" dark={dark} onClick={() => addNodeAtCenter("goal")}>
+              <Target className="w-4 h-4" />
+            </ToolButton>
             <div className={`w-px h-5 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
             <ToolButton title="Delete selected" tone="red" dark={dark} onClick={deleteSelected}>
               <Trash2 className="w-4 h-4" />
