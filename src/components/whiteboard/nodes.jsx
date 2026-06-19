@@ -158,100 +158,116 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
   );
 });
 
-// ─── RectShape ─────────────────────────────────────────────────────
+// ─── Flowchart shapes (SVG) ───────────────────────────────────────
+//
+// One SVG-backed node renders the whole flowchart catalogue. data.shape
+// picks the geometry; it's drawn at the node's real pixel size (tracked
+// via ResizeObserver) so nothing distorts at any aspect ratio. Legacy
+// "rect"/"ellipse"/"diamond" node types map to a sensible shape.
 
-export const RectNode = memo(function RectNode({ id, data, selected }) {
+export const SHAPES = [
+  { key: "process", label: "Process" },
+  { key: "rounded", label: "Rounded" },
+  { key: "diamond", label: "Decision" },
+  { key: "terminator", label: "Start / End" },
+  { key: "parallelogram", label: "Data" },
+  { key: "hexagon", label: "Preparation" },
+  { key: "document", label: "Document" },
+  { key: "cylinder", label: "Database" },
+  { key: "ellipse", label: "Ellipse" },
+  { key: "triangle", label: "Triangle" },
+];
+
+const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
+
+// SVG children for a shape drawn within w×h (stroke inset by sw so it's
+// never clipped). Used both by the node and the toolbar/inspector previews.
+export function ShapeSvg({ shape, w, h, fill, stroke, sw = 2 }) {
+  const p = { fill, stroke, strokeWidth: sw, strokeLinejoin: "round" };
+  const x0 = sw / 2, y0 = sw / 2, x1 = w - sw / 2, y1 = h - sw / 2, cx = w / 2, cy = h / 2;
+  switch (shape) {
+    case "ellipse":
+      return <ellipse cx={cx} cy={cy} rx={(w - sw) / 2} ry={(h - sw) / 2} {...p} />;
+    case "rounded":
+      return <rect x={x0} y={y0} width={w - sw} height={h - sw} rx={14} ry={14} {...p} />;
+    case "terminator":
+      return <rect x={x0} y={y0} width={w - sw} height={h - sw} rx={(h - sw) / 2} ry={(h - sw) / 2} {...p} />;
+    case "diamond":
+      return <polygon points={`${cx},${y0} ${x1},${cy} ${cx},${y1} ${x0},${cy}`} {...p} />;
+    case "triangle":
+      return <polygon points={`${cx},${y0} ${x1},${y1} ${x0},${y1}`} {...p} />;
+    case "parallelogram": {
+      const s = Math.min(w * 0.22, h * 0.5);
+      return <polygon points={`${x0 + s},${y0} ${x1},${y0} ${x1 - s},${y1} ${x0},${y1}`} {...p} />;
+    }
+    case "hexagon": {
+      const s = Math.min(w * 0.2, h * 0.5);
+      return <polygon points={`${x0 + s},${y0} ${x1 - s},${y0} ${x1},${cy} ${x1 - s},${y1} ${x0 + s},${y1} ${x0},${cy}`} {...p} />;
+    }
+    case "document": {
+      const wob = Math.min(h * 0.16, 22);
+      return <path d={`M${x0},${y0} H${x1} V${h - wob} C${w * 0.72},${h + wob * 0.5} ${w * 0.28},${h - wob * 2.4} ${x0},${h - wob} Z`} {...p} />;
+    }
+    case "cylinder": {
+      const ry = Math.min(h * 0.16, 16);
+      return (
+        <>
+          <path d={`M${x0},${ry} V${h - ry} A${(w - sw) / 2},${ry} 0 0 0 ${x1},${h - ry} V${ry}`} {...p} />
+          <ellipse cx={cx} cy={ry} rx={(w - sw) / 2} ry={ry} {...p} />
+        </>
+      );
+    }
+    case "process":
+    default:
+      return <rect x={x0} y={y0} width={w - sw} height={h - sw} {...p} />;
+  }
+}
+
+function useNodeSize(initial) {
+  const ref = useRef(null);
+  const [size, setSize] = useState(initial);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (r && r.width && r.height) setSize({ w: r.width, h: r.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, size];
+}
+
+export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
   const setText = useNodeTextUpdater(id);
+  const [ref, size] = useNodeSize({ w: 180, h: 100 });
+  const shape = data?.shape || LEGACY_SHAPE[type] || "process";
+  const fill = data?.fill || "#fff";
+  const stroke = selected ? "#f97316" : (data?.stroke || "#0ea5e9");
   return (
-    <div
-      style={{
-        width: "100%", height: "100%",
-        background: data?.fill || "#fff",
-        border: `2px solid ${selected ? "#f97316" : data?.stroke || "#0ea5e9"}`,
-        borderRadius: 10,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 10, color: "#0f172a",
-      }}
-    >
+    <div ref={ref} style={{ width: "100%", height: "100%", position: "relative" }}>
       <NodeResizer
         isVisible={selected}
-        minWidth={80} minHeight={50}
+        minWidth={70} minHeight={50}
         lineStyle={{ borderColor: "#f97316" }}
         handleStyle={{ background: "#f97316", border: "2px solid #fff" }}
       />
+      <svg
+        width={size.w}
+        height={size.h}
+        viewBox={`0 0 ${size.w} ${size.h}`}
+        style={{ position: "absolute", inset: 0, overflow: "visible", display: "block" }}
+      >
+        <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={2} />
+      </svg>
       <FourHandles />
-      <EditableText
-        value={data?.text}
-        onChange={setText}
-        placeholder=""
-        style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center" }}
-      />
-    </div>
-  );
-});
-
-// ─── EllipseShape ──────────────────────────────────────────────────
-
-export const EllipseNode = memo(function EllipseNode({ id, data, selected }) {
-  const setText = useNodeTextUpdater(id);
-  return (
-    <div
-      style={{
-        width: "100%", height: "100%",
-        background: data?.fill || "#fff",
-        border: `2px solid ${selected ? "#f97316" : data?.stroke || "#0ea5e9"}`,
-        borderRadius: 9999,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 10, color: "#0f172a",
-      }}
-    >
-      <NodeResizer
-        isVisible={selected}
-        minWidth={80} minHeight={50}
-        lineStyle={{ borderColor: "#f97316" }}
-        handleStyle={{ background: "#f97316", border: "2px solid #fff" }}
-      />
-      <FourHandles />
-      <EditableText
-        value={data?.text}
-        onChange={setText}
-        placeholder=""
-        style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center" }}
-      />
-    </div>
-  );
-});
-
-// ─── DiamondShape (flowchart decision) ────────────────────────────
-
-export const DiamondNode = memo(function DiamondNode({ id, data, selected }) {
-  const setText = useNodeTextUpdater(id);
-  return (
-    <div style={{ width: "100%", height: "100%", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <NodeResizer
-        isVisible={selected}
-        minWidth={90} minHeight={70}
-        lineStyle={{ borderColor: "#f97316" }}
-        handleStyle={{ background: "#f97316", border: "2px solid #fff" }}
-      />
-      {/* A rotated square fills the bounding box; its corners land on the
-          box's edge midpoints, so the four handles sit on the diamond's
-          points — exactly where a decision's branches should leave. */}
-      <div
-        style={{
-          position: "absolute", inset: "14%",
-          background: data?.fill || "#fff",
-          border: `2px solid ${selected ? "#f97316" : data?.stroke || "#0ea5e9"}`,
-          transform: "rotate(45deg)", borderRadius: 6,
-        }}
-      />
-      <FourHandles />
-      <div style={{ position: "relative", padding: 10, maxWidth: "70%" }}>
+      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 14px" }}>
         <EditableText
           value={data?.text}
           onChange={setText}
           placeholder=""
-          style={{ fontSize: data?.fontSize ?? 12, fontWeight: 600, textAlign: "center", color: "#0f172a" }}
+          style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center", color: "#0f172a" }}
         />
       </div>
     </div>
@@ -307,8 +323,10 @@ export const ZoneNode = memo(function ZoneNode({ data }) {
 export const NODE_TYPES = {
   sticky: StickyNode,
   text: TextNode,
-  rect: RectNode,
-  ellipse: EllipseNode,
-  diamond: DiamondNode,
+  shape: ShapeNode,
+  // Legacy aliases — old snapshots store these node types.
+  rect: ShapeNode,
+  ellipse: ShapeNode,
+  diamond: ShapeNode,
   zone: ZoneNode,
 };

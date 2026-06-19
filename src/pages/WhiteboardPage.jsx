@@ -6,8 +6,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  ArrowLeft, Target, Pencil, Archive, StickyNote, Type,
-  Square, Circle, Diamond, Trash2,
+  ArrowLeft, Target, Pencil, Archive, StickyNote, Type, Shapes, Trash2,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -23,7 +22,7 @@ import {
   templateSnapshotFor,
   isEmptySnapshot,
 } from "../lib/whiteboard";
-import { NODE_TYPES } from "../components/whiteboard/nodes";
+import { NODE_TYPES, SHAPES, ShapeSvg } from "../components/whiteboard/nodes";
 import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine } from "../components/whiteboard/edges";
 import Inspector from "../components/whiteboard/Inspector";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
@@ -40,6 +39,7 @@ const DEFAULTS = {
   rect:    { w: 180, h: 100 },
   ellipse: { w: 180, h: 110 },
   diamond: { w: 150, h: 110 },
+  shape:   { w: 180, h: 100 },
 };
 
 const DEFAULT_EDGE_OPTIONS = {
@@ -75,6 +75,59 @@ function ToolButton({ title, onClick, tone = "neutral", dark, children }) {
     >
       {children}
     </button>
+  );
+}
+
+// Mini outline preview of a shape, for the picker + inspector.
+function ShapePreview({ shape, w = 26, h = 18 }) {
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block" }}>
+      <ShapeSvg shape={shape} w={w} h={h} fill="none" stroke="currentColor" sw={1.5} />
+    </svg>
+  );
+}
+
+// Toolbar dropdown of the full flowchart shape catalogue.
+function ShapesMenu({ dark, onPick }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title="Add shape"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+          dark ? "text-sky-400 hover:bg-sky-500/15" : "text-sky-600 hover:bg-sky-50"
+        }`}
+      >
+        <Shapes className="w-4 h-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className={`absolute top-10 left-0 z-20 p-2 rounded-2xl border shadow-lg grid grid-cols-5 gap-1 ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}
+            style={{ width: 220 }}
+          >
+            {SHAPES.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                title={s.label}
+                onClick={() => { onPick(s.key); setOpen(false); }}
+                className={`h-10 rounded-lg flex items-center justify-center ${
+                  dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <ShapePreview shape={s.key} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -247,8 +300,8 @@ function WhiteboardEditor() {
     let pos;
     try { pos = rf.screenToFlowPosition({ x: ev.clientX, y: ev.clientY }); }
     catch { return; }
-    const size = DEFAULTS.rect;
-    const newId = freshId("rect");
+    const size = DEFAULTS.shape;
+    const newId = freshId("shape");
     // Enter the new node on the side facing the source (its nearest
     // edge), from the source/new-node geometry; fall back to the side
     // opposite where the edge left the source.
@@ -275,10 +328,10 @@ function WhiteboardEditor() {
     // pops immediately — pull, drop, restyle.
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({
       id: newId,
-      type: "rect",
+      type: "shape",
       position: { x: nx, y: ny },
       width: size.w, height: size.h,
-      data: { text: "" },
+      data: { text: "", shape: "process" },
       selected: true,
     }));
     setEdges((eds) => addEdge({
@@ -295,8 +348,8 @@ function WhiteboardEditor() {
     setEdges((eds) => reconnectEdge(oldEdge, newConnection, eds));
   }, [setEdges]);
 
-  const addNodeAtCenter = useCallback((type) => {
-    const size = DEFAULTS[type] || { w: 200, h: 100 };
+  const addNodeAtCenter = useCallback((type, extra = {}) => {
+    const size = DEFAULTS[type] || { w: 180, h: 100 };
     // Drop the new node near the visible center so the user sees it
     // appear without having to pan.
     let centerWorld = { x: 200, y: 200 };
@@ -314,13 +367,13 @@ function WhiteboardEditor() {
         centerWorld = { x: -vp.x / vp.zoom + 200, y: -vp.y / vp.zoom + 200 };
       }
     } catch { /* */ }
+    const sized = type === "shape" || type === "rect" || type === "ellipse" || type === "diamond";
     const node = {
       id: freshId(type),
       type,
       position: { x: centerWorld.x - size.w / 2, y: centerWorld.y - size.h / 2 },
-      data: { text: "" },
-      ...(type === "rect" || type === "ellipse" || type === "diamond" ? { width: size.w, height: size.h } : {}),
-      ...(type === "sticky" ? { data: { text: "", color: "yellow" } } : {}),
+      data: type === "sticky" ? { text: "", color: "yellow" } : { text: "", ...extra },
+      ...(sized ? { width: size.w, height: size.h } : {}),
     };
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({ ...node, selected: true }));
   }, [rf, setNodes]);
@@ -518,15 +571,7 @@ function WhiteboardEditor() {
               <Type className="w-4 h-4" />
             </ToolButton>
             <div className={`w-px h-5 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
-            <ToolButton title="Add rectangle" tone="sky" dark={dark} onClick={() => addNodeAtCenter("rect")}>
-              <Square className="w-4 h-4" />
-            </ToolButton>
-            <ToolButton title="Add ellipse" tone="sky" dark={dark} onClick={() => addNodeAtCenter("ellipse")}>
-              <Circle className="w-4 h-4" />
-            </ToolButton>
-            <ToolButton title="Add decision (diamond)" tone="sky" dark={dark} onClick={() => addNodeAtCenter("diamond")}>
-              <Diamond className="w-4 h-4" />
-            </ToolButton>
+            <ShapesMenu dark={dark} onPick={(shape) => addNodeAtCenter("shape", { shape })} />
             <div className={`w-px h-5 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
             <ToolButton title="Delete selected" tone="red" dark={dark} onClick={deleteSelected}>
               <Trash2 className="w-4 h-4" />

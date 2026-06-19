@@ -1,5 +1,15 @@
-import { Square, Circle, Diamond, ArrowRight, ChevronRight, Minus } from "lucide-react";
+import { Circle, Diamond, ArrowRight, ChevronRight, Minus } from "lucide-react";
 import { MarkerType } from "@xyflow/react";
+import { SHAPES, ShapeSvg } from "./nodes";
+
+const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
+function ShapeMini({ shape }) {
+  return (
+    <svg width={24} height={16} viewBox="0 0 24 16" style={{ display: "block" }}>
+      <ShapeSvg shape={shape} w={24} h={16} fill="none" stroke="currentColor" sw={1.5} />
+    </svg>
+  );
+}
 
 // Edge end-cap options. Built-in arrow markers carry a colour; the dot /
 // diamond reference custom SVG markers (see EdgeMarkerDefs) that follow
@@ -90,17 +100,33 @@ export default function Inspector({ node, edge, dark, patchNodeData, setNodeType
 
   if (node) {
     const isSticky = node.type === "sticky";
-    const isShape = node.type === "rect" || node.type === "ellipse" || node.type === "diamond";
+    const isShape = ["shape", "rect", "ellipse", "diamond"].includes(node.type);
     const isText = node.type === "text";
     const curFont = node.data?.fontSize || (isText ? 16 : isSticky ? 13 : 13);
+    const curShape = node.data?.shape || LEGACY_SHAPE[node.type] || "process";
     return (
       <div className={panelCls} onPointerDown={stop} onClick={stop}>
         {isShape && (
-          <Row label="Shape" dark={dark}>
-            <Seg active={node.type === "rect"} onClick={() => setNodeType("rect")} title="Rectangle" dark={dark}><Square className="w-3.5 h-3.5" /></Seg>
-            <Seg active={node.type === "ellipse"} onClick={() => setNodeType("ellipse")} title="Ellipse" dark={dark}><Circle className="w-3.5 h-3.5" /></Seg>
-            <Seg active={node.type === "diamond"} onClick={() => setNodeType("diamond")} title="Diamond" dark={dark}><Diamond className="w-3.5 h-3.5" /></Seg>
-          </Row>
+          <div>
+            <span className={`text-[10px] font-bold uppercase tracking-wide block mb-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>Shape</span>
+            <div className="grid grid-cols-5 gap-1">
+              {SHAPES.map((s) => (
+                <button
+                  key={s.key}
+                  type="button"
+                  title={s.label}
+                  onClick={() => patchNodeData({ shape: s.key })}
+                  className={`h-7 rounded-md flex items-center justify-center transition-colors ${
+                    curShape === s.key
+                      ? "bg-[var(--color-accent)] text-white"
+                      : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-500 hover:bg-black/5"
+                  }`}
+                >
+                  <ShapeMini shape={s.key} />
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         {isSticky ? (
           <Row label="Color" dark={dark}>
