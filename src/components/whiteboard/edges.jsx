@@ -265,19 +265,18 @@ const EditableEdge = memo(function EditableEdge({
   const label = data?.label || "";
   const color = style?.stroke || "#0ea5e9";
   const { theme } = useTheme();
-  // Label background defaults to transparent; a coloured pill is opt-in via
-  // `labelBg`. When transparent we paint a canvas-coloured text halo so the
-  // text stays legible over the line it sits on. Padding is adjustable.
+  // Label background defaults to the canvas colour, which reads as "no pill"
+  // while still masking the line behind the text (the masked area grows with
+  // the padding). A coloured pill is opt-in via `labelBg`. Padding adjustable.
   const canvasC = theme === "dark" ? "#0f172a" : "#fbf6ee";
   const pillColor = data?.labelBg;
   const labelTextColor = data?.labelTextColor || (pillColor ? "#fff" : color);
   const labelPad = { s: "0px 4px", m: "1px 7px", l: "3px 11px" }[data?.labelPad || "m"];
   const labelBg = {
-    background: pillColor || "transparent",
+    background: pillColor || canvasC,
     color: labelTextColor,
     padding: labelPad,
     textAlign: "center",
-    textShadow: pillColor ? "none" : `0 0 3px ${canvasC}, 0 0 3px ${canvasC}, 0 0 4px ${canvasC}`,
   };
 
   const patchData = useCallback((patch) => {
@@ -373,7 +372,7 @@ const EditableEdge = memo(function EditableEdge({
                 onKeyDown={(e) => { if (e.key === "Enter") commit(); else if (e.key === "Escape") { setDraft(label); setEditing(false); } }}
                 placeholder="Add text"
                 className="text-[11px] font-semibold rounded-md outline-none text-center"
-                style={{ ...labelBg, background: pillColor || canvasC, textShadow: "none", width: Math.max(60, draft.length * 7 + 24) }} />
+                style={{ ...labelBg, width: Math.max(60, draft.length * 7 + 24) }} />
             ) : (
               <span className="text-[11px] font-semibold rounded-md" style={labelBg} title="Drag to move · double-click to edit">{label}</span>
             )}
