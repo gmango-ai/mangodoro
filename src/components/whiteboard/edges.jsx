@@ -1,8 +1,21 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, getStraightPath, useReactFlow,
 } from "@xyflow/react";
 import { useTheme } from "../../context/ThemeContext";
+
+// Point at fraction t (0..1) along an SVG path string — used to lock the
+// edge label to the line while still letting it slide anywhere along it.
+function pointAtT(d, t) {
+  try {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    el.setAttribute("d", d);
+    const len = el.getTotalLength();
+    if (!len) return null;
+    const p = el.getPointAtLength(Math.max(0, Math.min(1, t)) * len);
+    return { x: p.x, y: p.y };
+  } catch { return null; }
+}
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
 // follow each edge's stroke colour, so they recolour for free.
@@ -67,11 +80,11 @@ const EditableEdge = memo(function EditableEdge({
   }, [id, setEdges]);
   const commit = useCallback(() => { patchData({ label: draft.trim() }); setEditing(false); }, [patchData, draft]);
 
-  const dragTo = useCallback((key, e) => {
+  const dragElbow = useCallback((e) => {
     e.stopPropagation();
     const onMove = (ev) => {
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
-      patchData(key === "label" ? { labelXY: { x: p.x, y: p.y } } : { centerX: p.x, centerY: p.y });
+      patchData({ centerX: p.x, centerY: p.y });
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
@@ -81,12 +94,43 @@ const EditableEdge = memo(function EditableEdge({
     window.addEventListener("pointerup", onUp);
   }, [patchData, screenToFlowPosition]);
 
+  // Drag the label, LOCKED to the path: project the cursor onto the edge
+  // and store the nearest length-fraction (0..1), so it slides along the
+  // line and never floats off it.
+  const dragLabel = useCallback((e) => {
+    e.stopPropagation();
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    el.setAttribute("d", path);
+    let len = 0;
+    try { len = el.getTotalLength(); } catch { /* */ }
+    if (!len) return;
+    const N = 100;
+    const samples = [];
+    for (let i = 0; i <= N; i++) {
+      const pt = el.getPointAtLength((i / N) * len);
+      samples.push({ t: i / N, x: pt.x, y: pt.y });
+    }
+    const onMove = (ev) => {
+      const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
+      let best = samples[0], bd = Infinity;
+      for (const s of samples) { const dx = s.x - p.x, dy = s.y - p.y; const d = dx * dx + dy * dy; if (d < bd) { bd = d; best = s; } }
+      patchData({ labelT: best.t });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [path, patchData, screenToFlowPosition]);
+
   const showElbow = selected && routing === "smooth";
   const showLabel = editing || label || selected;
-  // Default label sits on the bend (lifted off the handle when both show);
-  // once the user drags it, it stays where they put it.
-  const lx = data?.labelXY?.x ?? labelX;
-  const ly = data?.labelXY?.y ?? (showElbow && !data?.labelXY ? labelY - 16 : labelY);
+  // Label rides at length-fraction labelT along the path; defaults to the
+  // path centre (lifted off the bend handle when both show).
+  const labelPoint = useMemo(() => (data?.labelT != null ? pointAtT(path, data.labelT) : null), [path, data?.labelT]);
+  const lx = labelPoint?.x ?? labelX;
+  const ly = labelPoint?.y ?? (showElbow ? labelY - 16 : labelY);
 
   const pillStyle = isMask
     ? { background: canvasBg, color, fontWeight: 700 }
@@ -105,9 +149,9 @@ const EditableEdge = memo(function EditableEdge({
               pointerEvents: "all",
               cursor: editing ? "text" : "grab",
             }}
-            onPointerDown={editing ? undefined : (e) => dragTo("label", e)}
+            onPointerDown={editing ? undefined : dragLabel}
             onDoubleClick={() => setEditing(true)}
-            title={editing ? undefined : "Drag to move · double-click to edit"}
+            title={editing ? undefined : "Drag along the edge · double-click to edit"}
           >
             {editing ? (
               <input
@@ -133,7 +177,7 @@ const EditableEdge = memo(function EditableEdge({
         {showElbow && (
           <div
             className="nodrag nopan"
-            onPointerDown={(e) => dragTo("center", e)}
+            onPointerDown={dragElbow}
             onDoubleClick={(e) => { e.stopPropagation(); patchData({ centerX: undefined, centerY: undefined }); }}
             title="Drag to route the edge · double-click to reset"
             style={{

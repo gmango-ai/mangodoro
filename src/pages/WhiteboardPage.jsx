@@ -27,7 +27,7 @@ import { NODE_TYPES } from "../components/whiteboard/nodes";
 import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine } from "../components/whiteboard/edges";
 import Inspector from "../components/whiteboard/Inspector";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
-import HeroTimerRibbon from "../components/whiteboard/HeroTimerRibbon";
+import WhiteboardTimer from "../components/whiteboard/WhiteboardTimer";
 
 const SAVE_DEBOUNCE_MS = 1200;
 
@@ -609,7 +609,7 @@ function WhiteboardEditor() {
               </div>
             </div>
           )}
-          <HeroTimerRibbon />
+          <WhiteboardTimer boardId={board.id} dark={dark} />
         </div>
 
         {/* Floating-emote layer scoped to this whiteboard. Same scope
