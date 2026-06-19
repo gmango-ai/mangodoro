@@ -26,6 +26,8 @@ import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor, setPreferredStickyC
 import { nodeAbsPos, sortParentsFirst, frameAt } from "../components/whiteboard/frame";
 import { useApp } from "../context/AppContext";
 import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine, connectedNodePlacement, siblingPlacement } from "../components/whiteboard/edges";
+import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
+import { CollabCursors, PresenceStack } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import WhiteboardTimer from "../components/whiteboard/WhiteboardTimer";
@@ -276,6 +278,19 @@ function WhiteboardEditor() {
   const connectingRef = useRef(null);
   const { session, settings } = useApp();
   const myName = settings?.name || session?.user?.user_metadata?.name || session?.user?.email?.split("@")[0] || "";
+
+  // ── live collaboration: broadcast node/edge diffs + cursors on top of
+  // the snapshot-of-record, plus presence. See useWhiteboardSync.
+  const { peers, members, pushCursor } = useWhiteboardSync({
+    boardId: board?.id,
+    enabled: !loading && !!board?.id,
+    nodes, edges, setNodes, setEdges,
+    name: myName,
+  });
+  const onWbPointerMove = useCallback((e) => {
+    try { const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); pushCursor(p.x, p.y); }
+    catch { /* */ }
+  }, [rf, pushCursor]);
 
   // ── load board metadata + snapshot, seed template if empty ──
   useEffect(() => {
@@ -613,7 +628,7 @@ function WhiteboardEditor() {
     saveState === "dirty" ? "Unsaved" : "";
 
   return (
-    <main className="relative w-full h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] overflow-hidden">
+    <main className="relative w-full h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] overflow-hidden" onPointerMove={onWbPointerMove}>
         <EdgeMarkerDefs />
         <ReactFlow
           nodes={nodes}
@@ -638,6 +653,8 @@ function WhiteboardEditor() {
           <Background gap={26} size={1.6} color={dark ? "rgba(255,255,255,.06)" : "rgba(120,80,20,.14)"} />
           <Controls position="bottom-left" />
           <MiniMap pannable zoomable position="bottom-right" />
+          <CollabCursors peers={peers} />
+          <PresenceStack members={members} dark={dark} />
 
           <Panel
             position="center-left"
