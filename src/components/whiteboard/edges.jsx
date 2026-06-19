@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, getStraightPath, useReactFlow,
+  BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, getStraightPath, MarkerType, useReactFlow,
 } from "@xyflow/react";
+import { ChevronDown, Type, Minus, Spline, MoveRight, AlignJustify } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 
 // Point at fraction t (0..1) along an SVG path string — used to lock the
@@ -31,6 +32,104 @@ export function EdgeMarkerDefs() {
         </marker>
       </defs>
     </svg>
+  );
+}
+
+// ─── Contextual edge toolbar (FigJam/Lucidchart style) ────────────
+
+const EDGE_SWATCHES = ["#0ea5e9", "#0f172a", "#ef4444", "#f97316", "#22c55e", "#8b5cf6", "#64748b", "#ffffff"];
+const WEIGHTS = [["Thin", 1.5], ["Medium", 2], ["Thick", 3.5]];
+const LINES = [["Solid", ""], ["Dashed", "6 4"], ["Dotted", "1.5 5"]];
+const ROUTES = [["Straight", "straight"], ["Elbow", "smooth"], ["Curved", "curved"]];
+const EDGE_CAPS = [["None", "none"], ["Arrow", "arrow"], ["Open arrow", "open"], ["Dot", "dot"], ["Diamond", "diamond"]];
+
+function capMarker(kind, color) {
+  switch (kind) {
+    case "arrow": return { type: MarkerType.ArrowClosed, color };
+    case "open": return { type: MarkerType.Arrow, color };
+    case "dot": return "url(#wb-dot)";
+    case "diamond": return "url(#wb-diamond)";
+    default: return undefined;
+  }
+}
+
+function Dropdown({ openKey, open, setOpen, icon, children }) {
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(open === openKey ? null : openKey)}
+        className="h-7 px-1 rounded-md flex items-center gap-0.5 text-white/90 hover:bg-white/10"
+        style={{ background: open === openKey ? "rgba(255,255,255,.14)" : "transparent" }}
+      >
+        {icon}
+        <ChevronDown className="w-3 h-3 opacity-60" />
+      </button>
+      {open === openKey && (
+        <div
+          className="absolute top-8 left-0 z-30 rounded-lg shadow-2xl p-1 min-w-[96px]"
+          style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.1)" }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
+  const [open, setOpen] = useState(null);
+  const color = style?.stroke || "#0ea5e9";
+  const width = style?.strokeWidth || 2;
+  const dash = style?.strokeDasharray || "";
+  const routing = data?.routing || "smooth";
+  const endCap = data?.endCap || "arrow";
+  const setStyle = (p) => patchEdge({ style: { ...style, ...p } });
+  const opt = (active, onClick, label) => (
+    <button
+      key={label}
+      type="button"
+      onClick={() => { onClick(); setOpen(null); }}
+      className={`block w-full text-left px-2 py-1 rounded text-[12px] whitespace-nowrap ${active ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div
+      className="nodrag nopan"
+      style={{ position: "absolute", transform: `translate(-50%,-100%) translate(${x}px,${y - 18}px)`, pointerEvents: "all" }}
+    >
+      <div
+        className="flex items-center gap-0.5 px-1.5 py-1 rounded-xl shadow-2xl"
+        style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.08)" }}
+      >
+        <Dropdown openKey="color" open={open} setOpen={setOpen} icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: color }} />}>
+          <div className="grid grid-cols-4 gap-1 p-1">
+            {EDGE_SWATCHES.map((c) => (
+              <button key={c} type="button" onClick={() => { patchEdge({ style: { ...style, stroke: c }, ...(endCap !== "none" ? { markerEnd: capMarker(endCap, c) } : {}) }); setOpen(null); }}
+                className="w-5 h-5 rounded-full border border-white/20" style={{ background: c, outline: color === c ? "2px solid #fff" : "none" }} />
+            ))}
+          </div>
+        </Dropdown>
+        <Dropdown openKey="weight" open={open} setOpen={setOpen} icon={<AlignJustify className="w-4 h-4" />}>
+          {WEIGHTS.map(([l, v]) => opt(width === v, () => setStyle({ strokeWidth: v }), l))}
+        </Dropdown>
+        <button type="button" onClick={() => { onEditLabel(); setOpen(null); }} title="Add text" className="h-7 w-7 rounded-md flex items-center justify-center text-white/90 hover:bg-white/10">
+          <Type className="w-4 h-4" />
+        </button>
+        <div className="w-px h-5 bg-white/10 mx-0.5" />
+        <Dropdown openKey="line" open={open} setOpen={setOpen} icon={<Minus className="w-4 h-4" />}>
+          {LINES.map(([l, d]) => opt(dash === d, () => setStyle({ strokeDasharray: d || undefined }), l))}
+        </Dropdown>
+        <Dropdown openKey="route" open={open} setOpen={setOpen} icon={<Spline className="w-4 h-4" />}>
+          {ROUTES.map(([l, k]) => opt(routing === k, () => patchEdge({ data: { ...data, routing: k } }), l))}
+        </Dropdown>
+        <Dropdown openKey="cap" open={open} setOpen={setOpen} icon={<MoveRight className="w-4 h-4" />}>
+          {EDGE_CAPS.map(([l, k]) => opt(endCap === k, () => patchEdge({ markerEnd: capMarker(k, color), data: { ...data, endCap: k } }), l))}
+        </Dropdown>
+      </div>
+    </div>
   );
 }
 
@@ -77,6 +176,9 @@ const EditableEdge = memo(function EditableEdge({
 
   const patchData = useCallback((patch) => {
     setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
+  }, [id, setEdges]);
+  const patchEdge = useCallback((patch) => {
+    setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   }, [id, setEdges]);
   const commit = useCallback(() => { patchData({ label: draft.trim() }); setEditing(false); }, [patchData, draft]);
 
@@ -140,6 +242,16 @@ const EditableEdge = memo(function EditableEdge({
     <>
       <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} style={style} />
       <EdgeLabelRenderer>
+        {selected && (
+          <EdgeToolbar
+            x={labelX}
+            y={labelY}
+            style={style}
+            data={data}
+            patchEdge={patchEdge}
+            onEditLabel={() => setEditing(true)}
+          />
+        )}
         {showLabel && (
           <div
             className="nodrag nopan"
@@ -183,12 +295,24 @@ const EditableEdge = memo(function EditableEdge({
             style={{
               position: "absolute",
               transform: `translate(-50%,-50%) translate(${labelX}px,${labelY}px)`,
-              pointerEvents: "all", width: 13, height: 13, borderRadius: 9999,
-              background: "#fff", border: `2px solid ${color}`, cursor: "grab",
-              boxShadow: "0 1px 3px rgba(0,0,0,.3)",
+              pointerEvents: "all", width: 18, height: 8, borderRadius: 9999,
+              background: color, border: "2px solid #fff", cursor: "grab",
+              boxShadow: "0 1px 4px rgba(0,0,0,.4)",
             }}
           />
         )}
+        {selected && [{ x: sourceX, y: sourceY }, { x: targetX, y: targetY }].map((pt, i) => (
+          <div
+            key={`ep-${i}`}
+            className="nodrag nopan"
+            style={{
+              position: "absolute",
+              transform: `translate(-50%,-50%) translate(${pt.x}px,${pt.y}px)`,
+              pointerEvents: "none", width: 11, height: 11, borderRadius: 9999,
+              background: "#fff", border: `2px solid ${color}`, boxShadow: "0 1px 3px rgba(0,0,0,.3)",
+            }}
+          />
+        ))}
       </EdgeLabelRenderer>
     </>
   );

@@ -578,13 +578,13 @@ function WhiteboardEditor() {
             </ToolButton>
           </Panel>
 
-          {/* Selection inspector — node (shape/fill/border/text) or edge
-              (end caps/line/color) tools for whatever's selected. */}
-          {(selectedNode || selectedEdge) && (
+          {/* Node inspector (shape/fill/border/text). Edges use their own
+              floating contextual toolbar (rendered on the edge itself). */}
+          {selectedNode && (
             <Panel position="top-right" className="pointer-events-none">
               <Inspector
                 node={selectedNode}
-                edge={selectedEdge}
+                edge={null}
                 dark={dark}
                 patchNodeData={patchNodeData}
                 setNodeType={setNodeType}
