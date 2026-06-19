@@ -90,7 +90,27 @@ function nearestT(d, px, py) {
 
 // ─── Contextual edge toolbar (FigJam/Lucidchart style) ────────────
 
-const EDGE_SWATCHES = ["#0ea5e9", "#0f172a", "#ef4444", "#f97316", "#22c55e", "#8b5cf6", "#64748b", "#ffffff"];
+const PALETTE = [
+  "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#ef4444",
+  "#f97316", "#f59e0b", "#eab308", "#22c55e", "#10b981", "#14b8a6",
+  "#06b6d4", "#64748b", "#475569", "#0f172a", "#9ca3af", "#ffffff",
+];
+
+function SwatchGrid({ value, onPick }) {
+  return (
+    <div className="grid grid-cols-6 gap-2 p-2">
+      {PALETTE.map((c) => (
+        <button
+          key={c}
+          type="button"
+          onClick={() => onPick(c)}
+          className="w-6 h-6 rounded-full border border-white/20"
+          style={{ background: c, outline: value === c ? "2px solid #fff" : "none", outlineOffset: 2 }}
+        />
+      ))}
+    </div>
+  );
+}
 const WEIGHTS = [["Thin", 1.5], ["Medium", 2], ["Thick", 3.5]];
 const LINES = [["Solid", ""], ["Dashed", "6 4"], ["Dotted", "1.5 5"]];
 const ROUTES = [
@@ -144,23 +164,26 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
     </button>
   );
   return (
-    <div className="nodrag nopan" style={{ position: "absolute", transform: `translate(-50%,-100%) translate(${x}px,${y - 18}px)`, pointerEvents: "all" }}>
+    <div className="nodrag nopan" style={{ position: "absolute", transform: `translate(-50%,-100%) translate(${x}px,${y - 18}px)`, pointerEvents: "all", zIndex: 50 }}>
       <div className="flex items-center gap-0.5 px-1.5 py-1 rounded-xl shadow-2xl" style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.08)" }}>
         <Dropdown openKey="color" open={open} setOpen={setOpen} icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: color }} />}>
-          <div className="grid grid-cols-4 gap-1 p-1">
-            {EDGE_SWATCHES.map((c) => (
-              <button key={c} type="button" onClick={() => { patchEdge({ style: { ...style, stroke: c }, ...(endCap !== "none" ? { markerEnd: capMarker(endCap, c) } : {}) }); setOpen(null); }}
-                className="w-5 h-5 rounded-full border border-white/20" style={{ background: c, outline: color === c ? "2px solid #fff" : "none" }} />
-            ))}
-          </div>
+          <SwatchGrid value={color} onPick={(c) => patchEdge({ style: { ...style, stroke: c }, ...(endCap !== "none" ? { markerEnd: capMarker(endCap, c) } : {}) })} />
         </Dropdown>
         <Dropdown openKey="weight" open={open} setOpen={setOpen} icon={<AlignJustify className="w-4 h-4" />}>
           {WEIGHTS.map(([l, v]) => opt(width === v, () => setStyle({ strokeWidth: v }), l))}
         </Dropdown>
         <Dropdown openKey="text" open={open} setOpen={setOpen} icon={<Type className="w-4 h-4" />}>
-          {opt(false, onEditLabel, "Edit text")}
-          {opt((data?.labelStyle || "pill") === "pill", () => patchEdge({ data: { ...data, labelStyle: "pill" } }), "Pill background")}
-          {opt(data?.labelStyle === "text", () => patchEdge({ data: { ...data, labelStyle: "text" } }), "No background")}
+          <div className="min-w-[212px]">
+            {opt(false, onEditLabel, "Edit text")}
+            <div className="flex gap-1 px-1 pt-1">
+              <button type="button" onClick={() => patchEdge({ data: { ...data, labelStyle: "pill" } })} className={`flex-1 px-2 py-1 rounded text-[12px] ${(data?.labelStyle || "pill") === "pill" ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}>Pill</button>
+              <button type="button" onClick={() => patchEdge({ data: { ...data, labelStyle: "text" } })} className={`flex-1 px-2 py-1 rounded text-[12px] ${data?.labelStyle === "text" ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}>No bg</button>
+            </div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1.5">Text colour</div>
+            <SwatchGrid value={data?.labelTextColor} onPick={(c) => patchEdge({ data: { ...data, labelTextColor: c } })} />
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2">Pill colour</div>
+            <SwatchGrid value={data?.labelBg} onPick={(c) => patchEdge({ data: { ...data, labelBg: c } })} />
+          </div>
         </Dropdown>
         <div className="w-px h-5 bg-white/10 mx-0.5" />
         <Dropdown openKey="line" open={open} setOpen={setOpen} icon={<Minus className="w-4 h-4" />}>
@@ -210,10 +233,11 @@ const EditableEdge = memo(function EditableEdge({
   const color = style?.stroke || "#0ea5e9";
   const { theme } = useTheme();
   const isTextLabel = (data?.labelStyle || "pill") === "text";
+  // Text + pill-background colours are independent of the line colour.
   // "text" style masks the line with the canvas colour (no coloured pill).
-  const labelBg = isTextLabel
-    ? { background: theme === "dark" ? "#0f172a" : "#fbf6ee", color }
-    : { background: color, color: "#fff" };
+  const labelTextColor = data?.labelTextColor || (isTextLabel ? color : "#fff");
+  const labelBgColor = isTextLabel ? (theme === "dark" ? "#0f172a" : "#fbf6ee") : (data?.labelBg || color);
+  const labelBg = { background: labelBgColor, color: labelTextColor, textAlign: "center" };
 
   const patchData = useCallback((patch) => {
     setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
