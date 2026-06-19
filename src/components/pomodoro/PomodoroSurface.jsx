@@ -159,7 +159,10 @@ export default function PomodoroSurface({
       }`;
     }
     if (cfg.container === "floating") {
-      return `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-[26rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
+      // z-[160] keeps this floating panel above the persistent video
+      // call (z-150 in PersistentVideoCall) so the PiP/stage no longer
+      // bleeds over the timer, while staying below ESC-able modals (180+).
+      return `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[160] sm:w-[26rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
         !open && !(controlsLocked && !pipMountEl) ? "hidden" : ""
       } ${
         dark

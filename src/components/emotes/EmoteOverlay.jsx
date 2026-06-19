@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Smile, X } from "lucide-react";
 import { supabase } from "../../supabase";
 
 // EmoteOverlay — Google-Meet-style floating-reaction layer that any
@@ -45,6 +46,10 @@ export default function EmoteOverlay({
   enabled = true,
 }) {
   const vertical = barPosition === "right-center";
+  // The video overlay collapses to a single side button (tap to pop the
+  // reactions out) so it fits even the small PiP. The whiteboard bar
+  // stays always-open.
+  const [barOpen, setBarOpen] = useState(false);
   const containerRef = useRef(null);
   const particlesRef = useRef([]);
   const rafRef = useRef({ running: false, lastT: 0 });
@@ -219,13 +224,48 @@ export default function EmoteOverlay({
       className="absolute inset-0 pointer-events-none"
       style={{ zIndex: 60, overflow: "hidden" }}
     >
-      {barPosition !== "hidden" && enabled && (
+      {barPosition !== "hidden" && enabled && vertical && (
+        // Video overlay: a compact toggle pinned to the right edge so it
+        // fits even the small PiP. Tap to pop the reactions out to the
+        // left as a single row; tap again to tuck them away.
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-auto">
+          {barOpen && (
+            <div
+              className="flex items-center gap-0.5 p-1 rounded-full"
+              style={{ background: "#0f172a", boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)" }}
+            >
+              {EMOTES.map((emo) => (
+                <button
+                  key={emo.key}
+                  type="button"
+                  onPointerDown={(e) => startEmit(emo.key, e)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/15"
+                  title={emo.key}
+                  aria-label={`Send ${emo.key} emote`}
+                  style={{ fontSize: 18 }}
+                >
+                  <span>{emo.glyph}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setBarOpen((v) => !v)}
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white/90 hover:text-white shrink-0"
+            style={{ background: "#0f172a", boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)" }}
+            title={barOpen ? "Hide reactions" : "Send a reaction"}
+            aria-label={barOpen ? "Hide reactions" : "Send a reaction"}
+            aria-expanded={barOpen}
+          >
+            {barOpen ? <X className="w-4 h-4" /> : <Smile className="w-5 h-5" />}
+          </button>
+        </div>
+      )}
+      {barPosition !== "hidden" && enabled && !vertical && (
+        // Whiteboard: always-visible horizontal bar (plenty of room).
         <div
-          className={
-            vertical
-              ? "absolute right-3 top-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5 p-1.5 rounded-full pointer-events-auto"
-              : "absolute left-1/2 bottom-3 -translate-x-1/2 flex items-center gap-0.5 p-1.5 rounded-full pointer-events-auto"
-          }
+          className="absolute left-1/2 bottom-3 -translate-x-1/2 flex items-center gap-0.5 p-1.5 rounded-full pointer-events-auto"
           style={{
             background: "#0f172a",
             boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
