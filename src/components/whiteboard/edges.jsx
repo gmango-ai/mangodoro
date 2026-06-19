@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, MarkerType, useReactFlow } from "@xyflow/react";
 import { ChevronDown, Type, Minus, Spline, MoveRight, AlignJustify } from "lucide-react";
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
@@ -155,6 +155,7 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
 // label that only persists when you actually type something.
 const EditableEdge = memo(function EditableEdge({
   id, sourceX, sourceY, targetX, targetY,
+  sourcePosition, targetPosition,
   markerStart, markerEnd, style, data, selected,
 }) {
   const { setEdges, screenToFlowPosition } = useReactFlow();
@@ -166,10 +167,26 @@ const EditableEdge = memo(function EditableEdge({
   const routing = data?.routing || "elbow";
   const curviness = data?.curviness ?? 18;
   const waypoints = data?.waypoints || [];
+  const hasWp = waypoints.length > 0;
   const pts = [{ x: sourceX, y: sourceY }, ...waypoints, { x: targetX, y: targetY }];
-  const radius = routing === "curve" ? curviness : 3;
-  const path = roundedPath(pts, radius);
-  const labelPt = pointAtT(path, data?.labelT ?? 0.5) || pts[Math.floor(pts.length / 2)];
+  let path, autoX, autoY;
+  if (!hasWp) {
+    // No manual bends → auto-route cleanly between the two handles
+    // (orthogonal elbow / smooth bezier) instead of a straight diagonal.
+    if (routing === "curve") {
+      [path, autoX, autoY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+    } else {
+      [path, autoX, autoY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 10 });
+    }
+  } else {
+    path = roundedPath(pts, routing === "curve" ? curviness : 3);
+  }
+  const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: autoX ?? (sourceX + targetX) / 2, y: autoY ?? (sourceY + targetY) / 2 };
+  // Where the "pull a bend" capsules live: along each manual segment, or a
+  // single one at the path midpoint when the edge is still auto-routed.
+  const addHandles = hasWp
+    ? pts.slice(0, -1).map((p, i) => ({ seg: i, x: (p.x + pts[i + 1].x) / 2, y: (p.y + pts[i + 1].y) / 2 }))
+    : [{ seg: 0, x: labelPt.x, y: labelPt.y }];
 
   const patchData = useCallback((patch) => {
     setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
@@ -273,19 +290,15 @@ const EditableEdge = memo(function EditableEdge({
         {/* Bend grips — only when selected. Capsules at segment midpoints
             pull out new bends; circles are existing bends (double-click to
             remove). */}
-        {selected && pts.slice(0, -1).map((p, i) => {
-          const q = pts[i + 1];
-          const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2;
-          return (
-            <div
-              key={`add-${i}`}
-              className="nodrag nopan"
-              onPointerDown={(e) => addAndDrag(i, { x: mx, y: my }, e)}
-              title="Drag to add a bend"
-              style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${mx}px,${my}px)`, pointerEvents: "all", width: 18, height: 8, borderRadius: 9999, background: color, border: "2px solid #fff", cursor: "grab", boxShadow: "0 1px 4px rgba(0,0,0,.4)" }}
-            />
-          );
-        })}
+        {selected && addHandles.map((h) => (
+          <div
+            key={`add-${h.seg}`}
+            className="nodrag nopan"
+            onPointerDown={(e) => addAndDrag(h.seg, { x: h.x, y: h.y }, e)}
+            title="Drag to add a bend"
+            style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${h.x}px,${h.y}px)`, pointerEvents: "all", width: 18, height: 8, borderRadius: 9999, background: color, border: "2px solid #fff", cursor: "grab", boxShadow: "0 1px 4px rgba(0,0,0,.4)" }}
+          />
+        ))}
         {selected && waypoints.map((wp, i) => (
           <div
             key={`wp-${i}`}

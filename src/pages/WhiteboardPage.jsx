@@ -531,7 +531,7 @@ function WhiteboardEditor() {
           ribbon, and EmoteOverlay can absolute-position themselves
           over the same bounds. */}
       <div
-        className="relative h-[720px] rounded-2xl overflow-hidden border"
+        className="relative h-[calc(100dvh-150px)] min-h-[420px] rounded-2xl overflow-hidden border"
         style={{ borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
       >
         <EdgeMarkerDefs />
