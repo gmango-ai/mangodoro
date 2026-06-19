@@ -1,11 +1,15 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, memo, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, NodeResizer, useNodes, useReactFlow } from "@xyflow/react";
 import { nodeAbsPos, sortParentsFirst } from "./frame";
-import { Target, ChevronDown, Building2, User, Star, X } from "lucide-react";
+import { Target, ChevronDown, Building2, User, Star, X, Plus } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
 import { setGoal, clearGoal } from "../../lib/goals";
+
+// Full emoji picker for sticky reactions — lazy so its chunk only loads
+// when someone opens it.
+const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
 // Preferred sticky colour (per device) — new stickies (toolbar + frame
 // double-click) use it; changing a sticky's colour updates it.
@@ -136,16 +140,29 @@ function FourHandles({ visible = true }) {
 
 // ─── StickyNote ───────────────────────────────────────────────────
 
-const STICKY_BG = {
+// Legacy named sticky colors (still on old notes). New notes store a hex
+// directly; stickyHex() resolves either form to a hex.
+export const STICKY_BG = {
   yellow: "#fde68a", pink: "#fbcfe8", blue: "#bfdbfe", green: "#bbf7d0",
   purple: "#ddd6fe", orange: "#fed7aa", coral: "#fecaca", slate: "#e2e8f0",
 };
+export function stickyHex(c) {
+  return STICKY_BG[c] || c || STICKY_BG.yellow;
+}
+// Curated "white range" of sticky pastels for the toolbar + inspector.
+export const STICKY_PALETTE = [
+  "#c4b5fd", "#ddd6fe", "#e9d5ff", "#f5d0fe", "#fbcfe8", "#fce7f3",
+  "#fecaca", "#fed7aa", "#fde68a", "#fef08a", "#d9f99d", "#bbf7d0",
+  "#a7f3d0", "#99f6e4", "#a5f3fc", "#bae6fd", "#bfdbfe", "#c7d2fe",
+  "#e2e8f0", "#cbd5e1", "#f1f5f9", "#e7e5e4", "#d6d3d1", "#fafaf9",
+];
 
 export const StickyNode = memo(function StickyNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
   const patch = useNodeDataPatcher(id);
   const { setNodes } = useReactFlow();
-  const bg = STICKY_BG[data?.color] || STICKY_BG.yellow;
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const bg = stickyHex(data?.color);
   const reactions = data?.reactions || {};
   const react = (emoji) => patch({ reactions: { ...reactions, [emoji]: (reactions[emoji] || 0) + 1 } });
   const shown = Object.entries(reactions).filter(([, c]) => c > 0);
@@ -165,7 +182,8 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         fontFamily: "inherit",
       }}
     >
-      <FourHandles />
+      {/* No connection handles — stickies aren't edge-connectable
+          (edges attach to shapes only). */}
       {/* Header — avatar + name (left), delete (right). */}
       <div className="nodrag" onPointerDown={stop} style={{ display: "flex", alignItems: "center", gap: 5 }}>
         <span style={{ width: 18, height: 18, borderRadius: 9999, flexShrink: 0, background: avatarFor(author), color: "#fff", fontSize: 8, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -189,16 +207,46 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
           style={{ fontSize: data?.fontSize ?? 13, lineHeight: 1.3, width: "100%" }}
         />
       </div>
-      {/* Reaction chips + quick-react when selected. */}
-      <div className="nodrag" onPointerDown={stop} style={{ display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap", minHeight: 16 }}>
+      {/* Reaction chips (click to +1) + a quick-react row & full emoji
+          picker when the note is selected. */}
+      <div className="nodrag nowheel" onPointerDown={stop} style={{ position: "relative", display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap", minHeight: 18 }}>
         {shown.map(([e, c]) => (
-          <span key={e} style={{ fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2, background: "rgba(255,255,255,.55)", borderRadius: 9999, padding: "1px 5px" }}>
+          <button
+            key={e}
+            type="button"
+            onClick={() => react(e)}
+            title="React again"
+            style={{ fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2, background: "rgba(255,255,255,.7)", borderRadius: 9999, padding: "1px 6px", cursor: "pointer" }}
+          >
             {e}{c > 1 && <span style={{ opacity: 0.7 }}>{c}</span>}
-          </span>
+          </button>
         ))}
-        {selected && QUICK_REACTIONS.map((e) => (
-          <button key={e} type="button" onClick={() => react(e)} title={`React ${e}`} style={{ fontSize: 12, lineHeight: 1, opacity: 0.4 }}>{e}</button>
-        ))}
+        {selected && (
+          <>
+            {QUICK_REACTIONS.map((e) => (
+              <button key={e} type="button" onClick={() => react(e)} title={`React ${e}`} style={{ fontSize: 13, lineHeight: 1, opacity: 0.55 }}>{e}</button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setEmojiOpen((v) => !v)}
+              title="More emojis"
+              aria-label="More emojis"
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 9999, background: "rgba(255,255,255,.7)", color: "#3a2a10" }}
+            >
+              <Plus style={{ width: 11, height: 11 }} />
+            </button>
+          </>
+        )}
+        {emojiOpen && (
+          <>
+            <div className="nodrag" onPointerDown={(e) => { stop(e); setEmojiOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
+            <div className="nodrag nowheel" onPointerDown={stop} style={{ position: "absolute", bottom: 26, left: 0, zIndex: 60, borderRadius: 12, overflow: "hidden", boxShadow: "0 16px 36px -16px rgba(0,0,0,.5)" }}>
+              <Suspense fallback={null}>
+                <EmojiPicker onEmojiClick={(d) => { react(d.emoji); setEmojiOpen(false); }} theme="light" width={280} height={340} lazyLoadEmojis skinTonesDisabled previewConfig={{ showPreview: false }} />
+              </Suspense>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

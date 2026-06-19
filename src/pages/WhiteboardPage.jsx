@@ -6,7 +6,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  ArrowLeft, Target, Pencil, Archive, StickyNote, Type, Shapes, Frame, Trash2,
+  ArrowLeft, Target, Pencil, Archive, Type, Shapes, Frame, Trash2, ChevronDown, Smile,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -22,10 +22,10 @@ import {
   templateSnapshotFor,
   isEmptySnapshot,
 } from "../lib/whiteboard";
-import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor } from "../components/whiteboard/nodes";
+import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor, setPreferredStickyColor, STICKY_PALETTE, stickyHex } from "../components/whiteboard/nodes";
 import { nodeAbsPos, sortParentsFirst, frameAt } from "../components/whiteboard/frame";
 import { useApp } from "../context/AppContext";
-import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine } from "../components/whiteboard/edges";
+import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine, connectedNodePlacement, siblingPlacement } from "../components/whiteboard/edges";
 import Inspector from "../components/whiteboard/Inspector";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import WhiteboardTimer from "../components/whiteboard/WhiteboardTimer";
@@ -110,7 +110,7 @@ function ShapesMenu({ dark, onPick }) {
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
-            className={`absolute top-10 left-0 z-20 p-2 rounded-2xl border shadow-lg grid grid-cols-5 gap-1 ${
+            className={`absolute left-10 top-0 z-20 p-2 rounded-2xl border shadow-lg grid grid-cols-5 gap-1 ${
               dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
             }`}
             style={{ width: 220 }}
@@ -128,6 +128,93 @@ function ShapesMenu({ dark, onPick }) {
                 <ShapePreview shape={s.key} />
               </button>
             ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Sticky tool for the rail. The button shows the current default color
+// and adds a note in it; the corner caret opens a palette flyout to
+// change the default (curated pastels + any custom hex). Picking a color
+// sets it as the default AND drops a note in that color.
+function StickyTool({ dark, onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState(() => stickyHex(preferredStickyColor()));
+
+  function pick(hex) {
+    setPreferredStickyColor(hex);
+    setCurrent(stickyHex(hex));
+    onAdd(hex);
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title="Add sticky note"
+        aria-label="Add sticky note"
+        onClick={() => onAdd()}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+          dark ? "hover:bg-white/10" : "hover:bg-slate-100"
+        }`}
+      >
+        <span style={{ width: 18, height: 18, borderRadius: 4, background: current, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.18)" }} />
+      </button>
+      <button
+        type="button"
+        title="Choose sticky color"
+        aria-label="Choose sticky color"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+          dark ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]" : "bg-white text-slate-500 border border-slate-200"
+        }`}
+      >
+        <ChevronDown className="w-2.5 h-2.5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}
+            style={{ width: 188 }}
+          >
+            <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              Sticky color
+            </div>
+            <div className="grid grid-cols-6 gap-1">
+              {STICKY_PALETTE.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  title={hex}
+                  onClick={() => pick(hex)}
+                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
+                  style={{
+                    background: hex,
+                    outline: current.toLowerCase() === hex.toLowerCase() ? "2px solid #f97316" : "none",
+                    outlineOffset: 1,
+                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
+                  }}
+                />
+              ))}
+            </div>
+            <label
+              className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}
+            >
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(current) ? current : "#fde68a"}
+                onChange={(e) => pick(e.target.value)}
+                style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+              />
+              Custom color
+            </label>
           </div>
         </>
       )}
@@ -171,6 +258,14 @@ function WhiteboardEditor() {
   const [titleDraft, setTitleDraft] = useState("");
   const [goalEditing, setGoalEditing] = useState(false);
   const [goalDraft, setGoalDraft] = useState("");
+  // Toggle for the floating emote reaction bar (per device). Peers'
+  // emotes still render when off — only your bar is hidden.
+  const [emoteBarOn, setEmoteBarOn] = useState(() => {
+    try { return localStorage.getItem("ql_wb_emote_bar") !== "0"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("ql_wb_emote_bar", emoteBarOn ? "1" : "0"); } catch { /* */ }
+  }, [emoteBarOn]);
 
   const lastSavedRef = useRef("");
   const saveTimerRef = useRef(null);
@@ -277,13 +372,19 @@ function WhiteboardEditor() {
     setEdges((eds) => addEdge({ ...conn, ...DEFAULT_EDGE_OPTIONS }, eds));
   }, [setEdges]);
 
-  const onConnectStart = useCallback((_evt, params) => {
-    connectingRef.current = params; // { nodeId, handleId, handleType } — fallback
+  const onConnectStart = useCallback((evt, params) => {
+    const e = evt && "touches" in evt ? evt.touches[0] : evt;
+    // Remember where the pull began so onConnectEnd can tell a click
+    // (auto-place a sibling) from a drag (drop where released).
+    connectingRef.current = { ...params, sx: e?.clientX, sy: e?.clientY };
   }, []);
 
-  // Drag a connector from a node onto empty canvas → spawn a connected
-  // flow box right where you dropped. Pull, drop, type: the fastest way
-  // to extend a flowchart (the xyflow "add node on edge drop" idiom).
+  // Pull a connector from a node and either DRAG onto empty canvas (the new
+  // node spawns where you drop) or just CLICK the handle (it auto-places a
+  // sibling beside the parent — FigJam quick-add). Either way the new node
+  // is "similar to the parent": same type/shape/size/fill, so flows stay
+  // visually consistent. Placement uses the SAME helper as the live preview
+  // so the ghost always matches the result.
   //
   // We use connectionState.fromNode rather than gating on handleType:
   // each side carries overlapping source+target handles (target on top,
@@ -294,57 +395,65 @@ function WhiteboardEditor() {
     connectingRef.current = null;
     // Landed on a real handle → onConnect already made the edge.
     if (connectionState?.isValid) return;
-    const fromNodeId = connectionState?.fromNode?.id ?? started?.nodeId;
+    const srcNode = connectionState?.fromNode;
+    const fromNodeId = srcNode?.id ?? started?.nodeId;
     if (!fromNodeId) return;
     const fromHandle = connectionState?.fromHandle;
     const sourceHandle =
       SIDE_FROM_ID[fromHandle?.id] ??
       SIDE_FROM_ID[started?.handleId] ??
-      SIDE_FROM_POS[fromHandle?.position];
+      SIDE_FROM_POS[fromHandle?.position] ?? "r";
     const ev = "changedTouches" in event ? event.changedTouches[0] : event;
     if (ev?.clientX == null) return;
     let pos;
     try { pos = rf.screenToFlowPosition({ x: ev.clientX, y: ev.clientY }); }
     catch { return; }
-    const size = DEFAULTS.shape;
-    const newId = freshId("shape");
-    // Enter the new node on the side facing the source (its nearest
-    // edge), from the source/new-node geometry; fall back to the side
-    // opposite where the edge left the source.
-    let targetHandle = sourceHandle ? OPPOSITE_TARGET[sourceHandle] : undefined;
-    const srcNode = connectionState?.fromNode;
-    if (srcNode?.position) {
-      const sw = srcNode.measured?.width ?? srcNode.width ?? 0;
-      const sh = srcNode.measured?.height ?? srcNode.height ?? 0;
-      const dx = (srcNode.position.x + sw / 2) - pos.x;
-      const dy = (srcNode.position.y + sh / 2) - pos.y;
-      targetHandle = Math.abs(dx) > Math.abs(dy)
-        ? (dx > 0 ? "r" : "l")
-        : (dy > 0 ? "b" : "t");
+
+    // New node mirrors the parent (fall back to a default process box).
+    const isShapeParent = ["shape", "rect", "ellipse", "diamond"].includes(srcNode?.type);
+    const size = {
+      w: srcNode?.measured?.width ?? srcNode?.width ?? DEFAULTS.shape.w,
+      h: srcNode?.measured?.height ?? srcNode?.height ?? DEFAULTS.shape.h,
+    };
+    const newData = {
+      text: "",
+      shape: (isShapeParent && srcNode?.data?.shape) || "process",
+      ...(srcNode?.data?.fill ? { fill: srcNode.data.fill } : {}),
+      ...(srcNode?.data?.stroke ? { stroke: srcNode.data.stroke } : {}),
+      ...(srcNode?.data?.fontSize ? { fontSize: srcNode.data.fontSize } : {}),
+    };
+
+    // Click (barely moved) → auto-place a sibling; drag → drop placement.
+    const moved = started?.sx != null
+      ? Math.hypot(ev.clientX - started.sx, ev.clientY - started.sy)
+      : Infinity;
+    const hasGeom = srcNode?.position != null;
+    let place;
+    if (moved < 6 && hasGeom) {
+      place = siblingPlacement({ x: srcNode.position.x, y: srcNode.position.y, w: size.w, h: size.h }, sourceHandle, size);
+    } else if (hasGeom) {
+      const center = { x: srcNode.position.x + size.w / 2, y: srcNode.position.y + size.h / 2 };
+      place = connectedNodePlacement(center, pos.x, pos.y, size);
+    } else {
+      place = { x: pos.x - size.w / 2, y: pos.y - size.h / 2, side: sourceHandle ? OPPOSITE_TARGET[sourceHandle] : "l" };
     }
-    // Offset so the node's CONNECTING edge sits at the release point —
-    // the node grows away from the source — rather than centering on it.
-    let nx = pos.x - size.w / 2;
-    let ny = pos.y - size.h / 2;
-    if (targetHandle === "r") nx = pos.x - size.w;
-    else if (targetHandle === "l") nx = pos.x;
-    else if (targetHandle === "b") ny = pos.y - size.h;
-    else if (targetHandle === "t") ny = pos.y;
+
+    const newId = freshId("shape");
     // Auto-select the new node (and deselect the rest) so its inspector
     // pops immediately — pull, drop, restyle.
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({
       id: newId,
       type: "shape",
-      position: { x: nx, y: ny },
+      position: { x: place.x, y: place.y },
       width: size.w, height: size.h,
-      data: { text: "", shape: "process" },
+      data: newData,
       selected: true,
     }));
     setEdges((eds) => addEdge({
       source: fromNodeId,
       sourceHandle,
       target: newId,
-      targetHandle,
+      targetHandle: place.side,
       ...DEFAULT_EDGE_OPTIONS,
     }, eds));
   }, [rf, setNodes, setEdges]);
@@ -406,7 +515,7 @@ function WhiteboardEditor() {
       id: freshId(type),
       type,
       position: { x: centerWorld.x - size.w / 2, y: centerWorld.y - size.h / 2 },
-      data: type === "sticky" ? { text: "", color: preferredStickyColor(), author: myName } : { text: "", ...extra },
+      data: type === "sticky" ? { text: "", color: extra.color || preferredStickyColor(), author: myName } : { text: "", ...extra },
       ...(sized ? { width: size.w, height: size.h } : {}),
       ...(type === "frame" ? { zIndex: -1 } : {}),
     };
@@ -495,80 +604,7 @@ function WhiteboardEditor() {
     saveState === "dirty" ? "Unsaved" : "";
 
   return (
-    <main className="px-4 pt-4 pb-4 max-w-[1400px] mx-auto">
-      {/* Header — back, title, template badge, save indicator. */}
-      <div className="flex items-center gap-3 flex-wrap mb-3">
-        <Link
-          to="/whiteboards"
-          className={`inline-flex items-center gap-1 text-xs ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
-        >
-          <ArrowLeft className="w-3 h-3" /> Whiteboards
-        </Link>
-        {titleEditing ? (
-          <div className="flex items-center gap-2">
-            <input
-              autoFocus
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value.slice(0, 120))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSaveTitle();
-                else if (e.key === "Escape") { setTitleDraft(board.title); setTitleEditing(false); }
-              }}
-              className={`rounded-md border px-2 py-1 text-lg font-bold ${
-                dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-300 text-slate-800"
-              }`}
-            />
-            <Button size="sm" onClick={handleSaveTitle}>Save</Button>
-            <Button size="sm" variant="outline" onClick={() => { setTitleDraft(board.title); setTitleEditing(false); }}>Cancel</Button>
-          </div>
-        ) : (
-          <h1
-            className={`text-lg font-bold inline-flex items-center gap-2 cursor-text ${dark ? "text-slate-100" : "text-slate-800"}`}
-            onDoubleClick={() => setTitleEditing(true)}
-            title="Double-click to rename"
-          >
-            {board.title}
-            <button
-              type="button"
-              onClick={() => setTitleEditing(true)}
-              className={`opacity-50 hover:opacity-100 ${dark ? "text-slate-300" : "text-slate-500"}`}
-              title="Rename"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-          </h1>
-        )}
-        {template && (
-          <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-accent-light)] text-[var(--color-accent)]">
-            {template.name}
-          </span>
-        )}
-        <span className={`ml-auto text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
-          {saveLabel}
-        </span>
-        {isAdmin && (
-          <Button size="sm" variant="outline" onClick={handleArchive} className="h-7 text-xs">
-            <Archive className="w-3.5 h-3.5 mr-1" />
-            Archive
-          </Button>
-        )}
-      </div>
-
-      {error && (
-        <div className={`text-xs font-medium px-3 py-1.5 rounded-lg mb-2 ${
-          dark ? "bg-red-500/15 text-red-400" : "bg-red-50 text-red-600"
-        }`}>
-          {error}
-        </div>
-      )}
-
-      {/* Canvas — relative wrapper so the goal banner, hero timer
-          ribbon, and EmoteOverlay can absolute-position themselves
-          over the same bounds. */}
-      <div
-        className="relative h-[calc(100dvh-150px)] min-h-[420px] rounded-2xl overflow-hidden border"
-        style={{ borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
-      >
+    <main className="relative w-full h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] overflow-hidden">
         <EdgeMarkerDefs />
         <ReactFlow
           nodes={nodes}
@@ -595,18 +631,16 @@ function WhiteboardEditor() {
           <MiniMap pannable zoomable position="bottom-right" />
 
           <Panel
-            position="top-left"
-            className={`flex items-center gap-0.5 p-1 rounded-full border shadow-sm ${
+            position="center-left"
+            className={`flex flex-col items-center gap-0.5 p-1 rounded-2xl border shadow-sm ${
               dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
             }`}
           >
-            <ToolButton title="Add sticky note" tone="amber" dark={dark} onClick={() => addNodeAtCenter("sticky")}>
-              <StickyNote className="w-4 h-4" />
-            </ToolButton>
+            <StickyTool dark={dark} onAdd={(hex) => addNodeAtCenter("sticky", hex ? { color: hex } : {})} />
             <ToolButton title="Add text" tone="neutral" dark={dark} onClick={() => addNodeAtCenter("text")}>
               <Type className="w-4 h-4" />
             </ToolButton>
-            <div className={`w-px h-5 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+            <div className={`h-px w-5 my-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
             <ShapesMenu dark={dark} onPick={(shape) => addNodeAtCenter("shape", { shape })} />
             <ToolButton title="Add goal" tone="amber" dark={dark} onClick={() => addNodeAtCenter("goal")}>
               <Target className="w-4 h-4" />
@@ -614,7 +648,7 @@ function WhiteboardEditor() {
             <ToolButton title="Add frame / section" tone="neutral" dark={dark} onClick={() => addNodeAtCenter("frame")}>
               <Frame className="w-4 h-4" />
             </ToolButton>
-            <div className={`w-px h-5 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+            <div className={`h-px w-5 my-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
             <ToolButton title="Delete selected" tone="red" dark={dark} onClick={deleteSelected}>
               <Trash2 className="w-4 h-4" />
             </ToolButton>
@@ -635,6 +669,87 @@ function WhiteboardEditor() {
             </Panel>
           )}
         </ReactFlow>
+
+        {/* Breadcrumb / board chrome — a floating card pinned top-left,
+            like the timer. Holds back-nav, title, template badge, save
+            state, the reactions-bar toggle, and archive. */}
+        <div className="absolute left-3 top-3 z-40 flex flex-col gap-2 items-start max-w-[calc(100%-24px)]">
+          <div
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-2xl border shadow-md"
+            style={{ background: dark ? "var(--color-surface)" : "#fff", borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
+          >
+            <Link
+              to="/whiteboards"
+              title="Back to whiteboards"
+              className={`inline-flex items-center gap-1 text-xs shrink-0 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+            <div className={`w-px h-4 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+            {titleEditing ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value.slice(0, 120))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveTitle();
+                    else if (e.key === "Escape") { setTitleDraft(board.title); setTitleEditing(false); }
+                  }}
+                  className={`rounded-md border px-2 py-0.5 text-sm font-bold w-44 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-300 text-slate-800"}`}
+                />
+                <Button size="sm" onClick={handleSaveTitle} className="h-7">Save</Button>
+                <Button size="sm" variant="outline" onClick={() => { setTitleDraft(board.title); setTitleEditing(false); }} className="h-7">Cancel</Button>
+              </div>
+            ) : (
+              <span
+                className={`text-sm font-bold inline-flex items-center gap-1.5 cursor-text max-w-[220px] ${dark ? "text-slate-100" : "text-slate-800"}`}
+                onDoubleClick={() => setTitleEditing(true)}
+                title="Double-click to rename"
+              >
+                <span className="truncate">{board.title}</span>
+                <button type="button" onClick={() => setTitleEditing(true)} className={`opacity-50 hover:opacity-100 shrink-0 ${dark ? "text-slate-300" : "text-slate-500"}`} title="Rename">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            )}
+            {template && (
+              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-accent-light)] text-[var(--color-accent)] shrink-0">
+                {template.name}
+              </span>
+            )}
+            {saveLabel && (
+              <span className={`text-[11px] shrink-0 ${dark ? "text-slate-500" : "text-slate-400"}`}>{saveLabel}</span>
+            )}
+            <div className={`w-px h-4 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+            <button
+              type="button"
+              onClick={() => setEmoteBarOn((v) => !v)}
+              title={emoteBarOn ? "Hide reactions bar" : "Show reactions bar"}
+              aria-label={emoteBarOn ? "Hide reactions bar" : "Show reactions bar"}
+              aria-pressed={emoteBarOn}
+              className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${emoteBarOn ? "text-[var(--color-accent)] bg-[var(--color-accent-light)]" : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}
+            >
+              <Smile className="w-4 h-4" />
+            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={handleArchive}
+                title="Archive whiteboard"
+                aria-label="Archive whiteboard"
+                className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}
+              >
+                <Archive className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {error && (
+            <div className={`text-xs font-medium px-3 py-1.5 rounded-lg shadow ${dark ? "bg-red-500/15 text-red-400" : "bg-red-50 text-red-600"}`}>
+              {error}
+            </div>
+          )}
+        </div>
 
         {/* Top overlay — Weekly Review's signature goal banner (when
             the template opts in) sitting next to the hero focus-timer
@@ -700,9 +815,12 @@ function WhiteboardEditor() {
         </div>
 
         {/* Floating-emote layer scoped to this whiteboard. Same scope
-            key on every client → emotes broadcast peer-to-peer. */}
-        <EmoteOverlay channelKey={`whiteboard:${board.id}`} />
-      </div>
+            key on every client → emotes broadcast peer-to-peer. The bar
+            is toggleable; peers' emotes still render when it's hidden. */}
+        <EmoteOverlay
+          channelKey={`whiteboard:${board.id}`}
+          barPosition={emoteBarOn ? "bottom-center" : "hidden"}
+        />
     </main>
   );
 }

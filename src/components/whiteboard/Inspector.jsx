@@ -1,6 +1,6 @@
 import { Circle, Diamond, ArrowRight, ChevronRight, Minus } from "lucide-react";
 import { MarkerType } from "@xyflow/react";
-import { SHAPES, ShapeSvg, setPreferredStickyColor } from "./nodes";
+import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex } from "./nodes";
 
 const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
 function ShapeMini({ shape }) {
@@ -46,11 +46,6 @@ function recolorMarker(m, color) {
 
 const FILL_SWATCHES = ["#ffffff", "#fde68a", "#fbcfe8", "#bfdbfe", "#bbf7d0", "#ddd6fe", "#fed7aa", "#fecaca", "#e2e8f0"];
 const STROKE_SWATCHES = ["#0ea5e9", "#0f172a", "#ef4444", "#f97316", "#22c55e", "#8b5cf6", "#64748b"];
-const STICKY_COLORS = ["yellow", "pink", "blue", "green", "purple", "orange", "coral", "slate"];
-const STICKY_HEX = {
-  yellow: "#fde68a", pink: "#fbcfe8", blue: "#bfdbfe", green: "#bbf7d0",
-  purple: "#ddd6fe", orange: "#fed7aa", coral: "#fecaca", slate: "#e2e8f0",
-};
 const FONT_SIZES = [{ k: "S", v: 12 }, { k: "M", v: 14 }, { k: "L", v: 18 }, { k: "XL", v: 24 }];
 
 function Row({ label, dark, children }) {
@@ -130,9 +125,22 @@ export default function Inspector({ node, edge, dark, patchNodeData, setNodeType
         )}
         {isSticky ? (
           <Row label="Color" dark={dark}>
-            {STICKY_COLORS.map((c) => (
-              <Swatch key={c} color={STICKY_HEX[c]} active={(node.data?.color || "yellow") === c} onClick={() => { patchNodeData({ color: c }); setPreferredStickyColor(c); }} />
+            {STICKY_PALETTE.map((hex) => (
+              <Swatch
+                key={hex}
+                color={hex}
+                active={stickyHex(node.data?.color).toLowerCase() === hex.toLowerCase()}
+                onClick={() => { patchNodeData({ color: hex }); setPreferredStickyColor(hex); }}
+              />
             ))}
+            <label title="Custom color" className="w-5 h-5 rounded-full border border-black/15 overflow-hidden inline-flex cursor-pointer">
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(stickyHex(node.data?.color)) ? stickyHex(node.data?.color) : "#fde68a"}
+                onChange={(e) => { patchNodeData({ color: e.target.value }); setPreferredStickyColor(e.target.value); }}
+                style={{ width: 28, height: 28, margin: -4, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+              />
+            </label>
           </Row>
         ) : !isText ? (
           <Row label="Fill" dark={dark}>

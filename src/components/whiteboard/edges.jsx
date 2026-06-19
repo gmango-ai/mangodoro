@@ -401,29 +401,62 @@ const EditableEdge = memo(function EditableEdge({
   );
 });
 
+export const SIDE_POS = { r: "right", l: "left", t: "top", b: "bottom" };
+
+// ── Connected-node placement (shared by preview + real drop) ────────
+// Keeping this in one place is what makes the drag ghost land EXACTLY
+// where the node actually spawns.
+
+// DROP: release at (toX,toY) pulling from a source whose centre is
+// srcCenter → the new node grows away from the source, with its entering
+// edge sitting on the release point. Returns {x,y, side} (side = the new
+// node's target-handle side).
+export function connectedNodePlacement(srcCenter, toX, toY, size) {
+  const dx = srcCenter.x - toX;
+  const dy = srcCenter.y - toY;
+  const side = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "r" : "l") : (dy > 0 ? "b" : "t");
+  let x = toX - size.w / 2, y = toY - size.h / 2;
+  if (side === "r") x = toX - size.w;
+  else if (side === "l") x = toX;
+  else if (side === "b") y = toY - size.h;
+  else if (side === "t") y = toY;
+  return { x, y, side };
+}
+
+// CLICK (no drag): drop a same-size sibling beside the parent on the
+// pulled handle's side, gapped and aligned to the parent's centre axis.
+export function siblingPlacement(srcRect, fromSide, size, gap = 56) {
+  const cx = srcRect.x + srcRect.w / 2;
+  const cy = srcRect.y + srcRect.h / 2;
+  if (fromSide === "l") return { x: srcRect.x - gap - size.w, y: cy - size.h / 2, side: "r" };
+  if (fromSide === "t") return { x: cx - size.w / 2, y: srcRect.y - gap - size.h, side: "b" };
+  if (fromSide === "b") return { x: cx - size.w / 2, y: srcRect.y + srcRect.h + gap, side: "t" };
+  return { x: srcRect.x + srcRect.w + gap, y: cy - size.h / 2, side: "l" }; // right (default)
+}
+
 // Preview shown while pulling a new connection (FigJam/Lucidchart style):
 // a smooth orthogonal route that follows the cursor, a "+" drop affordance,
-// and — over empty canvas — a faint ghost of the shape that a drop creates.
-export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, connectionStatus }) {
+// and — over empty canvas — a faint ghost of the node a drop would create,
+// sized to the parent and placed via the SAME helper as the real drop.
+export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, connectionStatus, fromNode }) {
   const ok = connectionStatus === "valid"; // hovering a real target handle
   const accent = ok ? "#22c55e" : "#64748b";
   const fp = fromPosition || "right";
-  const dx = toX - fromX, dy = toY - fromY;
-  // Enter the cursor from the side facing the source, so the route reads clean.
-  const tp = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "left" : "right") : (dy >= 0 ? "top" : "bottom");
-  const interior = autoOrtho(fromX, fromY, fp, toX, toY, tp);
+  // New node is "similar to the parent" → same size; ghost reflects that.
+  const sw = fromNode?.measured?.width ?? fromNode?.width ?? 150;
+  const sh = fromNode?.measured?.height ?? fromNode?.height ?? 90;
+  const center = fromNode?.position
+    ? { x: fromNode.position.x + sw / 2, y: fromNode.position.y + sh / 2 }
+    : { x: fromX, y: fromY };
+  const { x: gx, y: gy, side } = connectedNodePlacement(center, toX, toY, { w: sw, h: sh });
+  const interior = autoOrtho(fromX, fromY, fp, toX, toY, SIDE_POS[side]);
   const d = roundedPath(orthogonalize([{ x: fromX, y: fromY }, ...interior, { x: toX, y: toY }]), 12);
-  // Ghost positioned the way the real node spawns (grows away from source).
-  const W = 150, H = 90;
-  let gx = toX - W / 2, gy = toY - H / 2;
-  if (tp === "left") gx = toX; else if (tp === "right") gx = toX - W;
-  else if (tp === "top") gy = toY; else if (tp === "bottom") gy = toY - H;
   return (
     <g>
       <path fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" d={d} />
       <circle cx={fromX} cy={fromY} r={3.5} fill={accent} />
       {!ok && (
-        <rect x={gx} y={gy} width={W} height={H} rx={12}
+        <rect x={gx} y={gy} width={sw} height={sh} rx={12}
           fill="rgba(100,116,139,.06)" stroke={accent} strokeWidth={1.5} strokeDasharray="6 5" opacity={0.6} />
       )}
       <g transform={`translate(${toX},${toY})`}>
