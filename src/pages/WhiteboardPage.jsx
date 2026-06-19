@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, MiniMap,
-  useNodesState, useEdgesState, addEdge, reconnectEdge, useReactFlow, MarkerType,
+  useNodesState, useEdgesState, addEdge, reconnectEdge, useReactFlow, MarkerType, ConnectionMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -54,7 +54,7 @@ const DEFAULT_EDGE_OPTIONS = {
 const SIDE_FROM_ID = { t: "t", tt: "t", r: "r", rt: "r", b: "b", bt: "b", l: "l", lt: "l" };
 const SIDE_FROM_POS = { top: "t", right: "r", bottom: "b", left: "l" };
 // Fallback entry side: opposite the side the edge left the source from.
-const OPPOSITE_TARGET = { t: "bt", r: "lt", b: "tt", l: "rt" };
+const OPPOSITE_TARGET = { t: "b", r: "l", b: "t", l: "r" };
 
 // Toolbar icon button — themed tints per tool kind.
 function ToolButton({ title, onClick, tone = "neutral", dark, children }) {
@@ -259,15 +259,26 @@ function WhiteboardEditor() {
       const dx = (srcNode.position.x + sw / 2) - pos.x;
       const dy = (srcNode.position.y + sh / 2) - pos.y;
       targetHandle = Math.abs(dx) > Math.abs(dy)
-        ? (dx > 0 ? "rt" : "lt")
-        : (dy > 0 ? "bt" : "tt");
+        ? (dx > 0 ? "r" : "l")
+        : (dy > 0 ? "b" : "t");
     }
-    setNodes((nds) => nds.concat({
+    // Offset so the node's CONNECTING edge sits at the release point —
+    // the node grows away from the source — rather than centering on it.
+    let nx = pos.x - size.w / 2;
+    let ny = pos.y - size.h / 2;
+    if (targetHandle === "r") nx = pos.x - size.w;
+    else if (targetHandle === "l") nx = pos.x;
+    else if (targetHandle === "b") ny = pos.y - size.h;
+    else if (targetHandle === "t") ny = pos.y;
+    // Auto-select the new node (and deselect the rest) so its inspector
+    // pops immediately — pull, drop, restyle.
+    setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({
       id: newId,
       type: "rect",
-      position: { x: pos.x - size.w / 2, y: pos.y - size.h / 2 },
+      position: { x: nx, y: ny },
       width: size.w, height: size.h,
       data: { text: "" },
+      selected: true,
     }));
     setEdges((eds) => addEdge({
       source: fromNodeId,
@@ -310,7 +321,7 @@ function WhiteboardEditor() {
       ...(type === "rect" || type === "ellipse" || type === "diamond" ? { width: size.w, height: size.h } : {}),
       ...(type === "sticky" ? { data: { text: "", color: "yellow" } } : {}),
     };
-    setNodes((nds) => [...nds, node]);
+    setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({ ...node, selected: true }));
   }, [rf, setNodes]);
 
   const deleteSelected = useCallback(() => {
@@ -464,6 +475,7 @@ function WhiteboardEditor() {
           onConnectStart={onConnectStart}
           onConnectEnd={onConnectEnd}
           onReconnect={onReconnect}
+          connectionMode={ConnectionMode.Loose}
           nodeTypes={NODE_TYPES}
           edgeTypes={EDGE_TYPES}
           defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}

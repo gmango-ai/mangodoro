@@ -67,9 +67,11 @@ function useNodeTextUpdater(id) {
   }, [id, setNodes]);
 }
 
-// Four-side connection handles. Source + target on every side so a
-// user can pull a connector from any edge — the FigJam idiom that
-// makes flowcharts feel natural.
+// One connection handle per side. With ConnectionMode.Loose on the
+// canvas these act as both source and target, and a connection follows
+// the DRAG DIRECTION (so the arrow points where you dragged). The prior
+// design stacked an invisible target handle over each source handle,
+// which made drags start on the target and reversed the arrow.
 function FourHandles({ visible = true }) {
   const base = {
     width: 9, height: 9, background: "#0ea5e9",
@@ -82,10 +84,6 @@ function FourHandles({ visible = true }) {
       <Handle type="source" position={Position.Right}  id="r" style={base} />
       <Handle type="source" position={Position.Bottom} id="b" style={base} />
       <Handle type="source" position={Position.Left}   id="l" style={base} />
-      <Handle type="target" position={Position.Top}    id="tt" style={{ ...base, opacity: 0 }} />
-      <Handle type="target" position={Position.Right}  id="rt" style={{ ...base, opacity: 0 }} />
-      <Handle type="target" position={Position.Bottom} id="bt" style={{ ...base, opacity: 0 }} />
-      <Handle type="target" position={Position.Left}   id="lt" style={{ ...base, opacity: 0 }} />
     </>
   );
 }
