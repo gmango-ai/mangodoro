@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow } from "@xyflow/react";
-import { ChevronDown, Type, Minus, Spline, MoveRight, AlignJustify } from "lucide-react";
+import { Type, Minus, Spline, MoveRight, AlignJustify } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
+import { Pill, ToolDivider, Dropdown, SwatchGrid } from "./toolbarUI";
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
 // follow each edge's stroke colour, so they recolour for free.
@@ -110,30 +111,9 @@ function nearestT(d, px, py) {
 }
 
 // ─── Contextual edge toolbar (FigJam/Lucidchart style) ────────────
+// Shared dark-pill primitives (Pill / Dropdown / SwatchGrid) live in
+// ./toolbarUI so the node toolbar matches this exactly.
 
-const PALETTE = [
-  "#0ea5e9", "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#ef4444",
-  "#f97316", "#f59e0b", "#eab308", "#22c55e", "#10b981", "#14b8a6",
-  "#06b6d4", "#64748b", "#475569", "#0f172a", "#9ca3af", "#ffffff",
-];
-
-function SwatchGrid({ value, onPick }) {
-  // Fixed-width tracks (not fractional grid-cols) so swatches keep their full
-  // size and gap no matter how the dropdown panel sizes itself — no overlap.
-  return (
-    <div className="grid gap-2.5 p-2.5" style={{ gridTemplateColumns: "repeat(6, 24px)", justifyContent: "center" }}>
-      {PALETTE.map((c) => (
-        <button
-          key={c}
-          type="button"
-          onClick={() => onPick(c)}
-          className="rounded-full border border-white/20 hover:scale-110 transition-transform"
-          style={{ width: 24, height: 24, background: c, outline: value === c ? "2px solid #fff" : "none", outlineOffset: 2 }}
-        />
-      ))}
-    </div>
-  );
-}
 const WEIGHTS = [["Thin", 1.5], ["Medium", 2], ["Thick", 3.5]];
 const LINES = [["Solid", ""], ["Dashed", "6 4"], ["Dotted", "1.5 5"]];
 const ROUTES = [
@@ -153,24 +133,6 @@ function capMarker(kind, color) {
   }
 }
 
-function Dropdown({ openKey, open, setOpen, icon, children }) {
-  return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen(open === openKey ? null : openKey)}
-        className="h-7 px-1 rounded-md flex items-center gap-0.5 text-white/90 hover:bg-white/10"
-        style={{ background: open === openKey ? "rgba(255,255,255,.14)" : "transparent" }}>
-        {icon}
-        <ChevronDown className="w-3 h-3 opacity-60" />
-      </button>
-      {open === openKey && (
-        <div className="absolute top-8 left-0 z-30 rounded-lg shadow-2xl p-1 min-w-[96px]" style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.1)" }}>
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
   const [open, setOpen] = useState(null);
   const color = style?.stroke || "#0ea5e9";
@@ -188,7 +150,7 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
   );
   return (
     <div className="nodrag nopan" style={{ position: "absolute", transform: `translate(-50%,-100%) translate(${x}px,${y - 18}px)`, pointerEvents: "all", zIndex: 50 }}>
-      <div className="flex items-center gap-0.5 px-1.5 py-1 rounded-xl shadow-2xl" style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.08)" }}>
+      <Pill>
         <Dropdown openKey="color" open={open} setOpen={setOpen} icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: color }} />}>
           <SwatchGrid value={color} onPick={(c) => patchEdge({ style: { ...style, stroke: c }, ...(endCap !== "none" ? { markerEnd: capMarker(endCap, c) } : {}) })} />
         </Dropdown>
@@ -215,7 +177,7 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
             <SwatchGrid value={data?.labelBg} onPick={(c) => patchEdge({ data: { ...data, labelBg: c } })} />
           </div>
         </Dropdown>
-        <div className="w-px h-5 bg-white/10 mx-0.5" />
+        <ToolDivider />
         <Dropdown openKey="line" open={open} setOpen={setOpen} icon={<Minus className="w-4 h-4" />}>
           {LINES.map(([l, d]) => opt(dash === d, () => setStyle({ strokeDasharray: d || undefined }), l))}
         </Dropdown>
@@ -229,7 +191,7 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
         <Dropdown openKey="cap" open={open} setOpen={setOpen} icon={<MoveRight className="w-4 h-4" />}>
           {EDGE_CAPS.map(([l, k]) => opt(endCap === k, () => patchEdge({ markerEnd: capMarker(k, color), data: { ...data, endCap: k } }), l))}
         </Dropdown>
-      </div>
+      </Pill>
     </div>
   );
 }
@@ -238,8 +200,6 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
 // An edge end can be pinned to ANY point around a node's perimeter
 // (data.sourceAnchor / targetAnchor = { side, t }) instead of a fixed
 // handle. We resolve it against the live node rect on every render.
-const OUT_DIR = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
-
 function nodeRect(node) {
   if (!node) return null;
   const p = node.internals?.positionAbsolute || node.position || { x: 0, y: 0 };
@@ -291,6 +251,7 @@ const EditableEdge = memo(function EditableEdge({
   const sX = sa ? sa.x : sourceX, sY = sa ? sa.y : sourceY, sPos = sa ? sa.pos : sourcePosition;
   const tX = ta ? ta.x : targetX, tY = ta ? ta.y : targetY, tPos = ta ? ta.pos : targetPosition;
   const [editing, setEditing] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const [draft, setDraft] = useState(data?.label || "");
   const inputRef = useRef(null);
   useEffect(() => { setDraft(data?.label || ""); }, [data?.label]);
@@ -308,6 +269,13 @@ const EditableEdge = memo(function EditableEdge({
   const full = routing === "curve" ? rawFull : orthogonalize(rawFull);
   const path = roundedPath(full, routing === "curve" ? Math.min(curviness, 30) : 8);
   const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: (sX + tX) / 2, y: (sY + tY) / 2 };
+  // The toolbar always floats above the edge's highest point (smallest y),
+  // not wherever the label happens to sit, so it never overlaps the line.
+  // Centre it across the topmost run so a flat edge gets a centred toolbar
+  // instead of one pinned over an endpoint.
+  const minY = Math.min(...full.map((p) => p.y));
+  const topXs = full.filter((p) => p.y <= minY + 0.5).map((p) => p.x);
+  const topPt = { x: (Math.min(...topXs) + Math.max(...topXs)) / 2, y: minY };
 
   const label = data?.label || "";
   const color = style?.stroke || "#0ea5e9";
@@ -439,6 +407,19 @@ const EditableEdge = memo(function EditableEdge({
     setEditing(true);
   }, [path, screenToFlowPosition, patchData]);
 
+  // Hover with a short leave-delay so moving from the line onto an endpoint
+  // handle (a separate layer) doesn't unmount it before you can grab it.
+  const hoverTimer = useRef(null);
+  const enterHover = useCallback(() => {
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
+    setHovered(true);
+  }, []);
+  const leaveHover = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setHovered(false), 140);
+  }, []);
+  useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); }, []);
+
   // Draggable interior segments (exclude the two perpendicular stubs).
   const segHandles = [];
   for (let i = 1; i <= full.length - 3; i++) {
@@ -449,11 +430,15 @@ const EditableEdge = memo(function EditableEdge({
   return (
     <>
       <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} style={style} />
-      {/* Wide invisible hit-path: double-click anywhere to label. */}
-      <path d={path} fill="none" stroke="transparent" strokeWidth={22} style={{ cursor: "text" }} onDoubleClick={onEdgeDblClick} />
+      {/* Wide invisible hit-path: double-click anywhere to label; hover
+          surfaces the endpoint handles so you can grab an end to re-route. */}
+      <path d={path} fill="none" stroke="transparent" strokeWidth={22} style={{ cursor: "text" }}
+        onDoubleClick={onEdgeDblClick}
+        onPointerEnter={enterHover}
+        onPointerLeave={leaveHover} />
       <EdgeLabelRenderer>
         {selected && (
-          <EdgeToolbar x={labelPt.x} y={labelPt.y} style={style} data={data} patchEdge={patchEdge} onEditLabel={() => setEditing(true)} />
+          <EdgeToolbar x={topPt.x} y={topPt.y} style={style} data={data} patchEdge={patchEdge} onEditLabel={() => setEditing(true)} />
         )}
 
         {(editing || label) && (
@@ -490,29 +475,31 @@ const EditableEdge = memo(function EditableEdge({
               boxShadow: "0 1px 4px rgba(0,0,0,.4)",
             }} />
         ))}
-        {/* Endpoint handles: drag to move this end anywhere around the
-            node's perimeter. Nudged outward along the exit direction so
-            they sit clear of the node's own connection dots. */}
-        {selected && [
-          { which: "source", x: sX, y: sY, pos: sPos },
-          { which: "target", x: tX, y: tY, pos: tPos },
-        ].map((ep) => {
-          const [ox, oy] = OUT_DIR[ep.pos] || [0, 0];
-          const hx = ep.x + ox * 13, hy = ep.y + oy * 13;
-          return (
-            <div key={`ep-${ep.which}`} className="nodrag nopan"
-              onPointerDown={(e) => dragEndpoint(ep.which, e)}
-              title="Drag to move this end around the node"
-              style={{
-                position: "absolute",
-                transform: `translate(-50%,-50%) translate(${hx}px,${hy}px)`,
-                pointerEvents: "all", zIndex: 8,
-                width: 14, height: 14, borderRadius: 9999,
-                background: "#fff", border: `3px solid ${color}`,
-                cursor: "grab", boxShadow: "0 1px 4px rgba(0,0,0,.35)",
-              }} />
-          );
-        })}
+        {/* Endpoint handles: shown on hover or selection, sitting right ON
+            the endpoint. They live in the edge-label layer (above the node
+            layer) so they win the click over the node's connection dot —
+            and because they're not a child of the node, grabbing one does
+            NOT reveal the node's dots. Drag to slide the end anywhere around
+            the perimeter, or drop on another node to re-attach. This moves
+            the EXISTING edge (never spawns a new one). */}
+        {(selected || hovered) && [
+          { which: "source", x: sX, y: sY },
+          { which: "target", x: tX, y: tY },
+        ].map((ep) => (
+          <div key={`ep-${ep.which}`} className="nodrag nopan"
+            onPointerEnter={enterHover}
+            onPointerLeave={leaveHover}
+            onPointerDown={(e) => dragEndpoint(ep.which, e)}
+            title="Drag to move this end · drop on a node to re-attach"
+            style={{
+              position: "absolute",
+              transform: `translate(-50%,-50%) translate(${ep.x}px,${ep.y}px)`,
+              pointerEvents: "all", zIndex: 9,
+              width: 16, height: 16, borderRadius: 9999,
+              background: "#fff", border: `3px solid ${color}`,
+              cursor: "grab", boxShadow: "0 1px 4px rgba(0,0,0,.4)",
+            }} />
+        ))}
       </EdgeLabelRenderer>
     </>
   );
