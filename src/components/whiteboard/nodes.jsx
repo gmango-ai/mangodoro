@@ -139,9 +139,13 @@ function useNodeDataPatcher(id) {
 // which made drags start on the target and reversed the arrow.
 function FourHandles({ visible = true }) {
   const base = {
-    width: 9, height: 9, background: "#0ea5e9",
+    width: 12, height: 12, background: "#0ea5e9",
     border: "2px solid #fff", borderRadius: 9999,
     opacity: visible ? 1 : 0,
+    // Sit above the NodeResizer's edge lines so the dot — not the resize
+    // corridor — wins the click at each side midpoint. CSS enlarges the
+    // hit area (.react-flow__handle::after) so it's easy to grab.
+    zIndex: 12,
   };
   return (
     <>

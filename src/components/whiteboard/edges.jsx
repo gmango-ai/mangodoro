@@ -315,26 +315,27 @@ const EditableEdge = memo(function EditableEdge({
   // together, so the route stays orthogonal and the neighbours stretch.
   const dragSeg = useCallback((fullIndex, horiz, e) => {
     e.stopPropagation();
+    // Snapshot the orthogonalized polyline ONCE at drag start. Re-running
+    // orthogonalize on every move could change the point count mid-drag,
+    // drift the segment index, and fold the route back over itself.
+    const interior0 = (data?.route && data.route.length)
+      ? data.route
+      : autoOrtho(sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition);
+    const base = orthogonalize([{ x: sourceX, y: sourceY }, ...interior0, { x: targetX, y: targetY }]).map((pt) => ({ ...pt }));
+    if (!base[fullIndex] || !base[fullIndex + 1]) return;
     const onMove = (ev) => {
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
-      setEdges((eds) => eds.map((edge) => {
-        if (edge.id !== id) return edge;
-        const interior0 = (edge.data?.route && edge.data.route.length)
-          ? edge.data.route
-          : autoOrtho(sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition);
-        // Reshape on the same orthogonalized polyline the handles sit on, so
-        // the dragged segment + its neighbours all stay axis-aligned.
-        const f = orthogonalize([{ x: sourceX, y: sourceY }, ...interior0, { x: targetX, y: targetY }]).map((pt) => ({ ...pt }));
-        if (!f[fullIndex] || !f[fullIndex + 1]) return edge;
-        if (horiz) { f[fullIndex].y = p.y; f[fullIndex + 1].y = p.y; }
-        else { f[fullIndex].x = p.x; f[fullIndex + 1].x = p.x; }
-        return { ...edge, data: { ...edge.data, route: f.slice(1, -1) } };
-      }));
+      const pts = base.map((pt) => ({ ...pt }));
+      if (horiz) { pts[fullIndex].y = p.y; pts[fullIndex + 1].y = p.y; }
+      else { pts[fullIndex].x = p.x; pts[fullIndex + 1].x = p.x; }
+      setEdges((eds) => eds.map((edge) => (
+        edge.id === id ? { ...edge, data: { ...edge.data, route: pts.slice(1, -1) } } : edge
+      )));
     };
     const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [id, sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, screenToFlowPosition, setEdges]);
+  }, [id, data?.route, sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, screenToFlowPosition, setEdges]);
 
   const onEdgeDblClick = useCallback((e) => {
     e.stopPropagation();

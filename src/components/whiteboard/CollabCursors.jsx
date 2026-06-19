@@ -1,25 +1,85 @@
+import { useEffect, useRef, useState } from "react";
 import { ViewportPortal, useViewport, Panel } from "@xyflow/react";
 
-// Remote collaborators' cursors, drawn in FLOW space (so each cursor sits
-// at the same board location for everyone) but counter-scaled by the zoom
-// so they stay a constant on-screen size — FigJam style.
+// Remote cursors arrive throttled (~45ms) so rendering them raw makes them
+// jump. We ease each cursor toward its latest target every animation frame
+// (exponential smoothing) with a small velocity lead so it tracks motion
+// without lagging — and write the transform to the DOM directly so a moving
+// cursor never re-renders React. Positions are in FLOW space and counter-
+// scaled by zoom so cursors stay a constant on-screen size (FigJam style).
+
+const SMOOTH = 0.32;   // 0..1 — higher snaps faster, lower glides more
+const LEAD = 0.6;      // how far to project along recent velocity
+const LEAD_CLAMP = 36; // cap the lead so fast flicks don't overshoot
+
 export function CollabCursors({ peers }) {
   const { zoom } = useViewport();
-  const ids = Object.keys(peers || {});
-  if (!ids.length) return null;
-  const s = 1 / (zoom || 1);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
+  const targets = useRef({});   // id → { x, y, vx, vy, name, color }
+  const anim = useRef({});      // id → { x, y } (rendered, smoothed)
+  const els = useRef({});       // id → DOM node
+  const [ids, setIds] = useState([]);
+  const idsKey = useRef("");
+
+  // Fold incoming peer positions into targets + velocity estimates.
+  useEffect(() => {
+    const next = peers || {};
+    const keys = Object.keys(next);
+    for (const id of keys) {
+      const prev = targets.current[id];
+      const p = next[id];
+      const vx = prev ? p.x - prev.x : 0;
+      const vy = prev ? p.y - prev.y : 0;
+      targets.current[id] = {
+        x: p.x, y: p.y, name: p.name, color: p.color,
+        // smooth the velocity so a single jittery sample doesn't fling it
+        vx: prev ? prev.vx * 0.5 + vx * 0.5 : 0,
+        vy: prev ? prev.vy * 0.5 + vy * 0.5 : 0,
+      };
+      if (!anim.current[id]) anim.current[id] = { x: p.x, y: p.y };
+    }
+    for (const id of Object.keys(targets.current)) {
+      if (!next[id]) { delete targets.current[id]; delete anim.current[id]; }
+    }
+    const key = keys.slice().sort().join(",");
+    if (key !== idsKey.current) { idsKey.current = key; setIds(keys); }
+  }, [peers]);
+
+  // One rAF loop drives every cursor's transform imperatively.
+  useEffect(() => {
+    let raf;
+    const tick = () => {
+      const s = 1 / (zoomRef.current || 1);
+      for (const id of Object.keys(targets.current)) {
+        const t = targets.current[id];
+        const a = anim.current[id] || (anim.current[id] = { x: t.x, y: t.y });
+        const lx = Math.max(-LEAD_CLAMP, Math.min(LEAD_CLAMP, t.vx * LEAD));
+        const ly = Math.max(-LEAD_CLAMP, Math.min(LEAD_CLAMP, t.vy * LEAD));
+        a.x += (t.x + lx - a.x) * SMOOTH;
+        a.y += (t.y + ly - a.y) * SMOOTH;
+        const el = els.current[id];
+        if (el) el.style.transform = `translate(${a.x}px, ${a.y}px) scale(${s})`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   return (
     <ViewportPortal>
       {ids.map((id) => {
-        const p = peers[id];
+        const p = targets.current[id] || { color: "#64748b" };
         return (
           <div
             key={id}
+            ref={(el) => { if (el) els.current[id] = el; else delete els.current[id]; }}
             style={{
               position: "absolute",
               left: 0,
               top: 0,
-              transform: `translate(${p.x}px, ${p.y}px) scale(${s})`,
               transformOrigin: "0 0",
               pointerEvents: "none",
               zIndex: 1000,

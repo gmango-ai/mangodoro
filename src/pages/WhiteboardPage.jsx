@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, MiniMap,
-  useNodesState, useEdgesState, addEdge, reconnectEdge, useReactFlow, MarkerType, ConnectionMode,
+  useNodesState, useEdgesState, addEdge, reconnectEdge, useReactFlow, MarkerType, ConnectionMode, SelectionMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -645,6 +645,10 @@ function WhiteboardEditor() {
           nodeTypes={NODE_TYPES}
           edgeTypes={EDGE_TYPES}
           defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
+          selectionOnDrag
+          selectionMode={SelectionMode.Partial}
+          panOnDrag={[1, 2]}
+          panActivationKeyCode="Alt"
           fitView
           fitViewOptions={{ padding: 0.15 }}
           proOptions={{ hideAttribution: true }}
