@@ -40,6 +40,22 @@ function roundedPath(points, r = 10) {
   return d;
 }
 
+// Orthogonal route through points — every segment axis-aligned, so manual
+// bends read as clean elbows / stairs instead of diagonals.
+function orthoRoute(points) {
+  const out = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = out[out.length - 1];
+    const b = points[i];
+    if (Math.abs(b.x - a.x) > 0.5 && Math.abs(b.y - a.y) > 0.5) {
+      if (Math.abs(b.x - a.x) >= Math.abs(b.y - a.y)) out.push({ x: b.x, y: a.y });
+      else out.push({ x: a.x, y: b.y });
+    }
+    out.push(b);
+  }
+  return out;
+}
+
 // Point at fraction t (0..1) along an SVG path — locks the label to the line.
 function pointAtT(d, t) {
   try {
@@ -178,15 +194,21 @@ const EditableEdge = memo(function EditableEdge({
     } else {
       [path, autoX, autoY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 10 });
     }
+  } else if (routing === "curve") {
+    path = roundedPath(pts, curviness);
   } else {
-    path = roundedPath(pts, routing === "curve" ? curviness : 3);
+    // Elbow: right-angle bends through the waypoints (a stair when several).
+    path = roundedPath(orthoRoute(pts), 6);
   }
   const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: autoX ?? (sourceX + targetX) / 2, y: autoY ?? (sourceY + targetY) / 2 };
-  // Where the "pull a bend" capsules live: along each manual segment, or a
-  // single one at the path midpoint when the edge is still auto-routed.
-  const addHandles = hasWp
-    ? pts.slice(0, -1).map((p, i) => ({ seg: i, x: (p.x + pts[i + 1].x) / 2, y: (p.y + pts[i + 1].y) / 2 }))
-    : [{ seg: 0, x: labelPt.x, y: labelPt.y }];
+  // "Pull a bend" capsules — one per base segment, placed ON the path so
+  // they're easy to grab. Insertion index = the base segment.
+  const numSeg = pts.length - 1;
+  const addHandles = [];
+  for (let i = 0; i < numSeg; i++) {
+    const hp = pointAtT(path, (i + 0.5) / numSeg);
+    if (hp) addHandles.push({ seg: i, x: hp.x, y: hp.y });
+  }
 
   const patchData = useCallback((patch) => {
     setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
