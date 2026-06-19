@@ -149,7 +149,13 @@ function buildRetro() {
   LANES.forEach((z, i) => {
     const x = 40 + i * (W + GAP);
     nodes.push(frameNode(z.id, z.label, z.icon, z.tint, z.bg, x, 60, W, H));
-    nodes.push(stickyNode(`seed-${z.id}`, "Add a card…", x + (W - 160) / 2, 140, STICKY_COLOR_FOR_ZONE[z.id]));
+    // Seed sticky as a CHILD of the frame (position relative) so it moves
+    // with the lane.
+    nodes.push({
+      ...stickyNode(`seed-${z.id}`, "Add a card…", (W - 160) / 2, 80, STICKY_COLOR_FOR_ZONE[z.id]),
+      parentId: `frame-${z.id}`,
+      extent: "parent",
+    });
   });
   return { nodes, edges: [] };
 }

@@ -23,6 +23,7 @@ import {
   isEmptySnapshot,
 } from "../lib/whiteboard";
 import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor } from "../components/whiteboard/nodes";
+import { nodeAbsPos, sortParentsFirst, frameAt } from "../components/whiteboard/frame";
 import { useApp } from "../context/AppContext";
 import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine } from "../components/whiteboard/edges";
 import Inspector from "../components/whiteboard/Inspector";
@@ -353,6 +354,34 @@ function WhiteboardEditor() {
     setEdges((eds) => reconnectEdge(oldEdge, newConnection, eds));
   }, [setEdges]);
 
+  // Frame containers: when a node is dropped inside a frame, adopt it as a
+  // child (so it moves with the frame); when dragged out, release it.
+  const onNodeDragStop = useCallback((_evt, node) => {
+    if (!node || node.type === "frame" || node.type === "zone") return;
+    setNodes((nds) => {
+      const byId = new Map(nds.map((n) => [n.id, n]));
+      const cur = byId.get(node.id);
+      if (!cur) return nds;
+      const abs = nodeAbsPos(cur, byId);
+      const center = { x: abs.x + (cur.width || 0) / 2, y: abs.y + (cur.height || 0) / 2 };
+      const hit = frameAt(center, nds, byId, node.id);
+      let changed = false;
+      const next = nds.map((n) => {
+        if (n.id !== node.id) return n;
+        if (hit && n.parentId !== hit.frame.id) {
+          changed = true;
+          return { ...n, parentId: hit.frame.id, extent: "parent", position: { x: abs.x - hit.fp.x, y: abs.y - hit.fp.y } };
+        }
+        if (!hit && n.parentId) {
+          changed = true;
+          return { ...n, parentId: undefined, extent: undefined, position: abs };
+        }
+        return n;
+      });
+      return changed ? sortParentsFirst(next) : nds;
+    });
+  }, [setNodes]);
+
   const addNodeAtCenter = useCallback((type, extra = {}) => {
     const size = DEFAULTS[type] || { w: 180, h: 100 };
     // Drop the new node near the visible center so the user sees it
@@ -550,6 +579,7 @@ function WhiteboardEditor() {
           onConnectStart={onConnectStart}
           onConnectEnd={onConnectEnd}
           onReconnect={onReconnect}
+          onNodeDragStop={onNodeDragStop}
           connectionMode={ConnectionMode.Loose}
           connectionLineComponent={ConnectionLine}
           nodeTypes={NODE_TYPES}

@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
+import { Handle, Position, NodeResizer, useNodes, useReactFlow } from "@xyflow/react";
+import { nodeAbsPos, sortParentsFirst } from "./frame";
 import { Target, ChevronDown, Building2, User, Star } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { useTeam } from "../../context/TeamContext";
@@ -435,18 +436,27 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
   const { setNodes, screenToFlowPosition } = useReactFlow();
   const myName = useMyName();
+  const childCount = useNodes().filter((n) => n.parentId === id).length;
   const tint = data?.tint || "#0ea5e9";
   const bg = data?.bg || "rgba(14,165,233,.06)";
   const addSticky = (e) => {
     e.stopPropagation();
     const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({
-      id: freshStickyId(),
-      type: "sticky",
-      position: { x: p.x - 80, y: p.y - 80 },
-      data: { text: "", color: preferredStickyColor(), author: myName },
-      selected: true,
-    }));
+    setNodes((nds) => {
+      const byId = new Map(nds.map((n) => [n.id, n]));
+      const fAbs = byId.get(id) ? nodeAbsPos(byId.get(id), byId) : { x: 0, y: 0 };
+      const sticky = {
+        id: freshStickyId(),
+        type: "sticky",
+        parentId: id,
+        extent: "parent",
+        position: { x: p.x - fAbs.x - 80, y: p.y - fAbs.y - 80 },
+        data: { text: "", color: preferredStickyColor(), author: myName },
+        selected: true,
+      };
+      const deselected = nds.map((n) => (n.selected ? { ...n, selected: false } : n));
+      return sortParentsFirst([...deselected, sticky]);
+    });
   };
   return (
     <div style={{ width: "100%", height: "100%", borderRadius: 18, border: `2px solid ${selected ? "#f97316" : tint}`, background: bg, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -455,6 +465,7 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px" }}>
         {data?.icon && <span style={{ fontSize: 18, lineHeight: 1 }}>{data.icon}</span>}
         <EditableText value={data?.text ?? data?.label} onChange={setText} placeholder="Section title" style={{ fontSize: 15, fontWeight: 800, color: tint }} />
+        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 800, color: tint, opacity: 0.75, background: "rgba(255,255,255,.6)", borderRadius: 9999, padding: "0 7px", lineHeight: "18px" }}>{childCount}</span>
       </div>
       {/* Double-click the body to drop a sticky in your preferred colour. */}
       <div style={{ flex: 1, minHeight: 0 }} onDoubleClick={addSticky} title="Double-click to add a sticky note" />
