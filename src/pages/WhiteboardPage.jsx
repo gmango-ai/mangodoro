@@ -22,7 +22,8 @@ import {
   templateSnapshotFor,
   isEmptySnapshot,
 } from "../lib/whiteboard";
-import { NODE_TYPES, SHAPES, ShapeSvg } from "../components/whiteboard/nodes";
+import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor } from "../components/whiteboard/nodes";
+import { useApp } from "../context/AppContext";
 import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine } from "../components/whiteboard/edges";
 import Inspector from "../components/whiteboard/Inspector";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
@@ -177,6 +178,8 @@ function WhiteboardEditor() {
 
   const rf = useReactFlow();
   const connectingRef = useRef(null);
+  const { session, settings } = useApp();
+  const myName = settings?.name || session?.user?.user_metadata?.name || session?.user?.email?.split("@")[0] || "";
 
   // ── load board metadata + snapshot, seed template if empty ──
   useEffect(() => {
@@ -374,12 +377,12 @@ function WhiteboardEditor() {
       id: freshId(type),
       type,
       position: { x: centerWorld.x - size.w / 2, y: centerWorld.y - size.h / 2 },
-      data: type === "sticky" ? { text: "", color: "yellow" } : { text: "", ...extra },
+      data: type === "sticky" ? { text: "", color: preferredStickyColor(), author: myName } : { text: "", ...extra },
       ...(sized ? { width: size.w, height: size.h } : {}),
       ...(type === "frame" ? { zIndex: -1 } : {}),
     };
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({ ...node, selected: true }));
-  }, [rf, setNodes]);
+  }, [rf, setNodes, myName]);
 
   const deleteSelected = useCallback(() => {
     const selectedNodeIds = new Set(nodes.filter((n) => n.selected).map((n) => n.id));

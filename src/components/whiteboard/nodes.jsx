@@ -3,7 +3,29 @@ import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
 import { Target, ChevronDown, Building2, User, Star } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { useTeam } from "../../context/TeamContext";
+import { useApp } from "../../context/AppContext";
 import { setGoal, clearGoal } from "../../lib/goals";
+
+// Preferred sticky colour (per device) — new stickies (toolbar + frame
+// double-click) use it; changing a sticky's colour updates it.
+const STICKY_COLOR_KEY = "ql_wb_sticky_color";
+export function preferredStickyColor() {
+  try { return localStorage.getItem(STICKY_COLOR_KEY) || "yellow"; } catch { return "yellow"; }
+}
+export function setPreferredStickyColor(c) {
+  try { localStorage.setItem(STICKY_COLOR_KEY, c); } catch { /* */ }
+}
+
+let _sid = 1;
+function freshStickyId() { return `sticky-${Date.now().toString(36)}-${_sid++}`; }
+
+// Current user's short display name, for stamping authorship.
+function useMyName() {
+  const { session, settings } = useApp() || {};
+  return settings?.name || session?.user?.user_metadata?.name || session?.user?.email?.split("@")[0] || "";
+}
+
+const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🔥"];
 
 // Shared text editor used inside the sticky / text / shape nodes.
 // Stops propagating wheel + pointerdown so the canvas doesn't pan
@@ -109,7 +131,11 @@ const STICKY_BG = {
 
 export const StickyNode = memo(function StickyNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
+  const patch = useNodeDataPatcher(id);
   const bg = STICKY_BG[data?.color] || STICKY_BG.yellow;
+  const reactions = data?.reactions || {};
+  const react = (emoji) => patch({ reactions: { ...reactions, [emoji]: (reactions[emoji] || 0) + 1 } });
+  const shown = Object.entries(reactions).filter(([, c]) => c > 0);
   return (
     <div
       style={{
@@ -124,23 +150,35 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
       }}
     >
       <FourHandles />
-      {data?.author && (
-        <div
-          style={{
-            fontSize: 9, fontWeight: 800, opacity: 0.6, marginBottom: 4,
-            textTransform: "uppercase", letterSpacing: ".06em",
-          }}
-        >
-          {data.author}
+      {/* Note text — centred in the body. */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <EditableText
+          value={data?.text}
+          onChange={setText}
+          placeholder="Type a note…"
+          style={{ fontSize: data?.fontSize ?? 14, lineHeight: 1.3, textAlign: "center", width: "100%" }}
+        />
+      </div>
+      {/* Footer: author (left) + reactions (right). */}
+      <div
+        className="nodrag"
+        onPointerDown={(e) => e.stopPropagation()}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, marginTop: 4, minHeight: 16 }}
+      >
+        <span style={{ fontSize: 9, fontWeight: 800, opacity: 0.5, textTransform: "uppercase", letterSpacing: ".05em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 72 }}>
+          {data?.author || ""}
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+          {shown.map(([e, c]) => (
+            <span key={e} style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 1 }}>
+              {e}{c > 1 && <span style={{ fontSize: 8, fontWeight: 700, opacity: 0.65 }}>{c}</span>}
+            </span>
+          ))}
+          {selected && QUICK_REACTIONS.map((e) => (
+            <button key={e} type="button" onClick={() => react(e)} title={`React ${e}`} style={{ fontSize: 11, lineHeight: 1, opacity: 0.4 }}>{e}</button>
+          ))}
         </div>
-      )}
-      <EditableText
-        value={data?.text}
-        onChange={setText}
-        placeholder="Type a note…"
-        className="flex-1"
-        style={{ fontSize: data?.fontSize ?? 13, lineHeight: 1.35 }}
-      />
+      </div>
     </div>
   );
 });
@@ -395,8 +433,21 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
 
 export const FrameNode = memo(function FrameNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
+  const { setNodes, screenToFlowPosition } = useReactFlow();
+  const myName = useMyName();
   const tint = data?.tint || "#0ea5e9";
   const bg = data?.bg || "rgba(14,165,233,.06)";
+  const addSticky = (e) => {
+    e.stopPropagation();
+    const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({
+      id: freshStickyId(),
+      type: "sticky",
+      position: { x: p.x - 80, y: p.y - 80 },
+      data: { text: "", color: preferredStickyColor(), author: myName },
+      selected: true,
+    }));
+  };
   return (
     <div style={{ width: "100%", height: "100%", borderRadius: 18, border: `2px solid ${selected ? "#f97316" : tint}`, background: bg, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <NodeResizer isVisible={selected} minWidth={160} minHeight={140} lineStyle={{ borderColor: "#f97316" }} handleStyle={{ background: "#f97316", border: "2px solid #fff" }} />
@@ -405,6 +456,8 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
         {data?.icon && <span style={{ fontSize: 18, lineHeight: 1 }}>{data.icon}</span>}
         <EditableText value={data?.text ?? data?.label} onChange={setText} placeholder="Section title" style={{ fontSize: 15, fontWeight: 800, color: tint }} />
       </div>
+      {/* Double-click the body to drop a sticky in your preferred colour. */}
+      <div style={{ flex: 1, minHeight: 0 }} onDoubleClick={addSticky} title="Double-click to add a sticky note" />
     </div>
   );
 });

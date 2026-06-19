@@ -1,6 +1,6 @@
 import { Circle, Diamond, ArrowRight, ChevronRight, Minus } from "lucide-react";
 import { MarkerType } from "@xyflow/react";
-import { SHAPES, ShapeSvg } from "./nodes";
+import { SHAPES, ShapeSvg, setPreferredStickyColor } from "./nodes";
 
 const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
 function ShapeMini({ shape }) {
@@ -131,7 +131,7 @@ export default function Inspector({ node, edge, dark, patchNodeData, setNodeType
         {isSticky ? (
           <Row label="Color" dark={dark}>
             {STICKY_COLORS.map((c) => (
-              <Swatch key={c} color={STICKY_HEX[c]} active={(node.data?.color || "yellow") === c} onClick={() => patchNodeData({ color: c })} />
+              <Swatch key={c} color={STICKY_HEX[c]} active={(node.data?.color || "yellow") === c} onClick={() => { patchNodeData({ color: c }); setPreferredStickyColor(c); }} />
             ))}
           </Row>
         ) : !isText ? (
