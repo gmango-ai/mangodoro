@@ -53,6 +53,8 @@ const DEFAULT_EDGE_OPTIONS = {
 // ("tt"/"rt"/"bt"/"lt") handle.
 const SIDE_FROM_ID = { t: "t", tt: "t", r: "r", rt: "r", b: "b", bt: "b", l: "l", lt: "l" };
 const SIDE_FROM_POS = { top: "t", right: "r", bottom: "b", left: "l" };
+// Fallback entry side: opposite the side the edge left the source from.
+const OPPOSITE_TARGET = { t: "bt", r: "lt", b: "tt", l: "rt" };
 
 // Toolbar icon button — themed tints per tool kind.
 function ToolButton({ title, onClick, tone = "neutral", dark, children }) {
@@ -246,6 +248,20 @@ function WhiteboardEditor() {
     catch { return; }
     const size = DEFAULTS.rect;
     const newId = freshId("rect");
+    // Enter the new node on the side facing the source (its nearest
+    // edge), from the source/new-node geometry; fall back to the side
+    // opposite where the edge left the source.
+    let targetHandle = sourceHandle ? OPPOSITE_TARGET[sourceHandle] : undefined;
+    const srcNode = connectionState?.fromNode;
+    if (srcNode?.position) {
+      const sw = srcNode.measured?.width ?? srcNode.width ?? 0;
+      const sh = srcNode.measured?.height ?? srcNode.height ?? 0;
+      const dx = (srcNode.position.x + sw / 2) - pos.x;
+      const dy = (srcNode.position.y + sh / 2) - pos.y;
+      targetHandle = Math.abs(dx) > Math.abs(dy)
+        ? (dx > 0 ? "rt" : "lt")
+        : (dy > 0 ? "bt" : "tt");
+    }
     setNodes((nds) => nds.concat({
       id: newId,
       type: "rect",
@@ -257,6 +273,7 @@ function WhiteboardEditor() {
       source: fromNodeId,
       sourceHandle,
       target: newId,
+      targetHandle,
       ...DEFAULT_EDGE_OPTIONS,
     }, eds));
   }, [rf, setNodes, setEdges]);
