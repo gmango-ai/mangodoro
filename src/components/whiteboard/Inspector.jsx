@@ -1,5 +1,34 @@
-import { Square, Circle, Diamond, ArrowRight, Minus } from "lucide-react";
+import { Square, Circle, Diamond, ArrowRight, ChevronRight, Minus } from "lucide-react";
 import { MarkerType } from "@xyflow/react";
+
+// Edge end-cap options. Built-in arrow markers carry a colour; the dot /
+// diamond reference custom SVG markers (see EdgeMarkerDefs) that follow
+// the stroke colour, so they need no colour baked in.
+const CAPS = [
+  { k: "none", title: "None", icon: () => <Minus className="w-3.5 h-3.5" /> },
+  { k: "arrow", title: "Arrow", icon: (start) => <ArrowRight className={`w-3.5 h-3.5 ${start ? "-scale-x-100" : ""}`} /> },
+  { k: "open", title: "Open arrow", icon: (start) => <ChevronRight className={`w-3.5 h-3.5 ${start ? "-scale-x-100" : ""}`} /> },
+  { k: "dot", title: "Dot", icon: () => <Circle className="w-3 h-3 fill-current" /> },
+  { k: "diamond", title: "Diamond", icon: () => <Diamond className="w-3.5 h-3.5 fill-current" /> },
+];
+function capValue(kind, color) {
+  switch (kind) {
+    case "arrow": return { type: MarkerType.ArrowClosed, color };
+    case "open": return { type: MarkerType.Arrow, color };
+    case "dot": return "url(#wb-dot)";
+    case "diamond": return "url(#wb-diamond)";
+    default: return undefined;
+  }
+}
+function capKind(m) {
+  if (!m) return "none";
+  if (typeof m === "string") return m.includes("wb-dot") ? "dot" : m.includes("wb-diamond") ? "diamond" : "arrow";
+  return m.type === MarkerType.Arrow ? "open" : "arrow";
+}
+function recolorMarker(m, color) {
+  if (m && typeof m === "object") return { ...m, color };
+  return m; // custom string markers follow the stroke via context-stroke
+}
 
 // Floating properties panel for the current selection. Shows node tools
 // (shape / fill / border / text size) or edge tools (end caps / line
@@ -104,23 +133,39 @@ export default function Inspector({ node, edge, dark, patchNodeData, setNodeType
 
   // ── edge ──
   const stroke = edge.style?.stroke || "#0ea5e9";
-  const dashed = !!edge.style?.strokeDasharray;
-  const hasEnd = !!edge.markerEnd;
-  const hasStart = !!edge.markerStart;
-  const mk = (color) => ({ type: MarkerType.ArrowClosed, color });
+  const width = edge.style?.strokeWidth || 2;
+  const dash = edge.style?.strokeDasharray || "";
+  const routing = edge.data?.routing || "smooth";
+  const startKind = capKind(edge.markerStart);
+  const endKind = capKind(edge.markerEnd);
+  const setStyle = (patch) => patchEdge({ style: { ...edge.style, ...patch } });
+  const setData = (patch) => patchEdge({ data: { ...edge.data, ...patch } });
   return (
     <div className={panelCls} onPointerDown={stop} onClick={stop}>
+      <Row label="Route" dark={dark}>
+        <Seg active={routing === "straight"} onClick={() => setData({ routing: "straight" })} title="Straight line" dark={dark}>Straight</Seg>
+        <Seg active={routing === "smooth"} onClick={() => setData({ routing: "smooth" })} title="Elbow / orthogonal" dark={dark}>Elbow</Seg>
+        <Seg active={routing === "curved"} onClick={() => setData({ routing: "curved" })} title="Curved" dark={dark}>Curved</Seg>
+      </Row>
       <Row label="Start" dark={dark}>
-        <Seg active={!hasStart} onClick={() => patchEdge({ markerStart: undefined })} title="No cap" dark={dark}><Minus className="w-3.5 h-3.5" /></Seg>
-        <Seg active={hasStart} onClick={() => patchEdge({ markerStart: mk(stroke) })} title="Arrow" dark={dark}><ArrowRight className="w-3.5 h-3.5 -scale-x-100" /></Seg>
+        {CAPS.map((cap) => (
+          <Seg key={cap.k} active={startKind === cap.k} onClick={() => patchEdge({ markerStart: capValue(cap.k, stroke) })} title={cap.title} dark={dark}>{cap.icon(true)}</Seg>
+        ))}
       </Row>
       <Row label="End" dark={dark}>
-        <Seg active={!hasEnd} onClick={() => patchEdge({ markerEnd: undefined })} title="No cap" dark={dark}><Minus className="w-3.5 h-3.5" /></Seg>
-        <Seg active={hasEnd} onClick={() => patchEdge({ markerEnd: mk(stroke) })} title="Arrow" dark={dark}><ArrowRight className="w-3.5 h-3.5" /></Seg>
+        {CAPS.map((cap) => (
+          <Seg key={cap.k} active={endKind === cap.k} onClick={() => patchEdge({ markerEnd: capValue(cap.k, stroke) })} title={cap.title} dark={dark}>{cap.icon(false)}</Seg>
+        ))}
       </Row>
       <Row label="Line" dark={dark}>
-        <Seg active={!dashed} onClick={() => patchEdge({ style: { ...edge.style, strokeDasharray: undefined } })} title="Solid" dark={dark}>Solid</Seg>
-        <Seg active={dashed} onClick={() => patchEdge({ style: { ...edge.style, strokeDasharray: "6 4" } })} title="Dashed" dark={dark}>Dashed</Seg>
+        <Seg active={!dash} onClick={() => setStyle({ strokeDasharray: undefined })} title="Solid" dark={dark}>Solid</Seg>
+        <Seg active={dash === "6 4"} onClick={() => setStyle({ strokeDasharray: "6 4" })} title="Dashed" dark={dark}>Dashed</Seg>
+        <Seg active={dash === "1.5 5"} onClick={() => setStyle({ strokeDasharray: "1.5 5" })} title="Dotted" dark={dark}>Dotted</Seg>
+      </Row>
+      <Row label="Weight" dark={dark}>
+        <Seg active={width <= 1.5} onClick={() => setStyle({ strokeWidth: 1.5 })} title="Thin" dark={dark}>S</Seg>
+        <Seg active={width > 1.5 && width < 3} onClick={() => setStyle({ strokeWidth: 2 })} title="Medium" dark={dark}>M</Seg>
+        <Seg active={width >= 3} onClick={() => setStyle({ strokeWidth: 3.5 })} title="Thick" dark={dark}>L</Seg>
       </Row>
       <Row label="Color" dark={dark}>
         {STROKE_SWATCHES.map((c) => (
@@ -130,8 +175,8 @@ export default function Inspector({ node, edge, dark, patchNodeData, setNodeType
             active={stroke === c}
             onClick={() => patchEdge({
               style: { ...edge.style, stroke: c },
-              ...(hasEnd ? { markerEnd: mk(c) } : {}),
-              ...(hasStart ? { markerStart: mk(c) } : {}),
+              ...(edge.markerEnd ? { markerEnd: recolorMarker(edge.markerEnd, c) } : {}),
+              ...(edge.markerStart ? { markerStart: recolorMarker(edge.markerStart, c) } : {}),
             })}
           />
         ))}

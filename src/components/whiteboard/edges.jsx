@@ -1,5 +1,25 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useReactFlow } from "@xyflow/react";
+import {
+  BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, getStraightPath, useReactFlow,
+} from "@xyflow/react";
+
+// Custom end-cap markers (dot + diamond) for edges, rendered once near
+// the canvas. fill:context-stroke makes them follow each edge's stroke
+// colour, so they recolour for free.
+export function EdgeMarkerDefs() {
+  return (
+    <svg aria-hidden style={{ position: "absolute", width: 0, height: 0 }}>
+      <defs>
+        <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" markerUnits="strokeWidth" orient="auto">
+          <circle cx="4" cy="4" r="3" fill="context-stroke" />
+        </marker>
+        <marker id="wb-diamond" markerWidth="11" markerHeight="11" refX="5.5" refY="5.5" markerUnits="strokeWidth" orient="auto">
+          <path d="M5.5 1 L10 5.5 L5.5 10 L1 5.5 Z" fill="context-stroke" />
+        </marker>
+      </defs>
+    </svg>
+  );
+}
 
 // Rounded polyline through source → waypoints → target. Each interior
 // point gets a rounded corner (the FigJam look) instead of a hard angle.
@@ -30,7 +50,7 @@ function roundedPath(points, r = 10) {
 // and broadcast like everything else on the board.
 const EditableEdge = memo(function EditableEdge({
   id, sourceX, sourceY, targetX, targetY,
-  sourcePosition, targetPosition, markerEnd, style, data, selected,
+  sourcePosition, targetPosition, markerStart, markerEnd, style, data, selected,
 }) {
   const { setEdges, screenToFlowPosition } = useReactFlow();
   const [editing, setEditing] = useState(false);
@@ -43,11 +63,18 @@ const EditableEdge = memo(function EditableEdge({
   const waypoints = data?.waypoints || [];
   const pts = [{ x: sourceX, y: sourceY }, ...waypoints, { x: targetX, y: targetY }];
 
+  // Routing: "smooth" elbow (default), "straight", or "curved" bezier.
+  // Manual bends always win — once you add a waypoint it's a polyline.
+  const routing = data?.routing || "smooth";
   let path, labelX, labelY;
   if (waypoints.length) {
     path = roundedPath(pts);
     const m = pts[Math.floor(pts.length / 2)];
     labelX = m.x; labelY = m.y;
+  } else if (routing === "straight") {
+    [path, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY });
+  } else if (routing === "curved") {
+    [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   } else {
     [path, labelX, labelY] = getSmoothStepPath({
       sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 12,
@@ -95,7 +122,7 @@ const EditableEdge = memo(function EditableEdge({
 
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} style={style} />
       <EdgeLabelRenderer>
         {showLabel && (
           <div

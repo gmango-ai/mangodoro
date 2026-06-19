@@ -24,7 +24,7 @@ import {
   isEmptySnapshot,
 } from "../lib/whiteboard";
 import { NODE_TYPES } from "../components/whiteboard/nodes";
-import { EDGE_TYPES } from "../components/whiteboard/edges";
+import { EDGE_TYPES, EdgeMarkerDefs } from "../components/whiteboard/edges";
 import Inspector from "../components/whiteboard/Inspector";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import HeroTimerRibbon from "../components/whiteboard/HeroTimerRibbon";
@@ -481,6 +481,7 @@ function WhiteboardEditor() {
         className="relative h-[720px] rounded-2xl overflow-hidden border"
         style={{ borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
       >
+        <EdgeMarkerDefs />
         <ReactFlow
           nodes={nodes}
           edges={edges}
