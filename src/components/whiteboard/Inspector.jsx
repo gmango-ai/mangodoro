@@ -181,6 +181,10 @@ export default function Inspector({ node, edge, dark, patchNodeData, setNodeType
           />
         ))}
       </Row>
+      <Row label="Label" dark={dark}>
+        <Seg active={(edge.data?.labelStyle || "pill") === "pill"} onClick={() => setData({ labelStyle: "pill" })} title="Filled pill" dark={dark}>Pill</Seg>
+        <Seg active={edge.data?.labelStyle === "mask"} onClick={() => setData({ labelStyle: "mask" })} title="Text only (masks the line)" dark={dark}>Text</Seg>
+      </Row>
     </div>
   );
 }

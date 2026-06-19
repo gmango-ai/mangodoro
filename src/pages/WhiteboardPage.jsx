@@ -24,7 +24,7 @@ import {
   isEmptySnapshot,
 } from "../lib/whiteboard";
 import { NODE_TYPES } from "../components/whiteboard/nodes";
-import { EDGE_TYPES, EdgeMarkerDefs } from "../components/whiteboard/edges";
+import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine } from "../components/whiteboard/edges";
 import Inspector from "../components/whiteboard/Inspector";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import HeroTimerRibbon from "../components/whiteboard/HeroTimerRibbon";
@@ -492,6 +492,7 @@ function WhiteboardEditor() {
           onConnectEnd={onConnectEnd}
           onReconnect={onReconnect}
           connectionMode={ConnectionMode.Loose}
+          connectionLineComponent={ConnectionLine}
           nodeTypes={NODE_TYPES}
           edgeTypes={EDGE_TYPES}
           defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
