@@ -42,6 +42,27 @@ function autoOrtho(sx, sy, sp, tx, ty, tp) {
   return [s1, ...mids, t1];
 }
 
+// Force every segment axis-aligned: insert a corner wherever two points
+// are diagonal, so an elbow is ALWAYS horizontal/vertical (never angled),
+// even after a connected node moves and a stub goes stale.
+function orthogonalize(points) {
+  if (points.length < 2) return points;
+  const out = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = out[out.length - 1];
+    const b = points[i];
+    if (Math.abs(a.x - b.x) > 0.5 && Math.abs(a.y - b.y) > 0.5) {
+      const prev = out[out.length - 2];
+      const prevHoriz = prev ? (Math.abs(prev.y - a.y) < 0.5 && Math.abs(prev.x - a.x) > 0.5) : null;
+      if (prevHoriz === true) out.push({ x: a.x, y: b.y });        // turn vertical
+      else if (prevHoriz === false) out.push({ x: b.x, y: a.y });  // turn horizontal
+      else out.push(Math.abs(b.x - a.x) >= Math.abs(b.y - a.y) ? { x: b.x, y: a.y } : { x: a.x, y: b.y });
+    }
+    out.push(b);
+  }
+  return out;
+}
+
 // Rounded polyline through points — small r = sharp elbow, large = smooth.
 function roundedPath(points, r = 8) {
   if (points.length < 2) return "";
@@ -97,15 +118,17 @@ const PALETTE = [
 ];
 
 function SwatchGrid({ value, onPick }) {
+  // Fixed-width tracks (not fractional grid-cols) so swatches keep their full
+  // size and gap no matter how the dropdown panel sizes itself — no overlap.
   return (
-    <div className="grid grid-cols-6 gap-2 p-2">
+    <div className="grid gap-2.5 p-2.5" style={{ gridTemplateColumns: "repeat(6, 24px)", justifyContent: "center" }}>
       {PALETTE.map((c) => (
         <button
           key={c}
           type="button"
           onClick={() => onPick(c)}
-          className="w-6 h-6 rounded-full border border-white/20"
-          style={{ background: c, outline: value === c ? "2px solid #fff" : "none", outlineOffset: 2 }}
+          className="rounded-full border border-white/20 hover:scale-110 transition-transform"
+          style={{ width: 24, height: 24, background: c, outline: value === c ? "2px solid #fff" : "none", outlineOffset: 2 }}
         />
       ))}
     </div>
@@ -173,15 +196,22 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
           {WEIGHTS.map(([l, v]) => opt(width === v, () => setStyle({ strokeWidth: v }), l))}
         </Dropdown>
         <Dropdown openKey="text" open={open} setOpen={setOpen} icon={<Type className="w-4 h-4" />}>
-          <div className="min-w-[212px]">
+          <div className="min-w-[236px]">
             {opt(false, onEditLabel, "Edit text")}
-            <div className="flex gap-1 px-1 pt-1">
-              <button type="button" onClick={() => patchEdge({ data: { ...data, labelStyle: "pill" } })} className={`flex-1 px-2 py-1 rounded text-[12px] ${(data?.labelStyle || "pill") === "pill" ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}>Pill</button>
-              <button type="button" onClick={() => patchEdge({ data: { ...data, labelStyle: "text" } })} className={`flex-1 px-2 py-1 rounded text-[12px] ${data?.labelStyle === "text" ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}>No bg</button>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1.5 pb-1">Padding</div>
+            <div className="flex gap-1 px-1.5 pb-1">
+              {[["S", "s"], ["M", "m"], ["L", "l"]].map(([l, k]) => (
+                <button key={k} type="button" onClick={() => patchEdge({ data: { ...data, labelPad: k } })}
+                  className={`flex-1 px-2 py-1 rounded text-[12px] ${(data?.labelPad || "m") === k ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}>{l}</button>
+              ))}
             </div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1.5">Text colour</div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1">Text colour</div>
             <SwatchGrid value={data?.labelTextColor} onPick={(c) => patchEdge({ data: { ...data, labelTextColor: c } })} />
-            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2">Pill colour</div>
+            <div className="flex items-center justify-between px-2 pt-1">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-white/40">Background</span>
+              <button type="button" onClick={() => patchEdge({ data: { ...data, labelBg: undefined } })}
+                className={`px-2 py-0.5 rounded text-[11px] ${!data?.labelBg ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"}`}>None</button>
+            </div>
             <SwatchGrid value={data?.labelBg} onPick={(c) => patchEdge({ data: { ...data, labelBg: c } })} />
           </div>
         </Dropdown>
@@ -225,19 +255,30 @@ const EditableEdge = memo(function EditableEdge({
   const interior = (stored && stored.length)
     ? stored
     : autoOrtho(sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition);
-  const full = [{ x: sourceX, y: sourceY }, ...interior, { x: targetX, y: targetY }];
+  const rawFull = [{ x: sourceX, y: sourceY }, ...interior, { x: targetX, y: targetY }];
+  // Elbows are squared off — every segment forced horizontal/vertical, even
+  // after a node moves and a stub goes stale. Curves keep their diagonals.
+  const full = routing === "curve" ? rawFull : orthogonalize(rawFull);
   const path = roundedPath(full, routing === "curve" ? Math.min(curviness, 30) : 8);
   const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: (sourceX + targetX) / 2, y: (sourceY + targetY) / 2 };
 
   const label = data?.label || "";
   const color = style?.stroke || "#0ea5e9";
   const { theme } = useTheme();
-  const isTextLabel = (data?.labelStyle || "pill") === "text";
-  // Text + pill-background colours are independent of the line colour.
-  // "text" style masks the line with the canvas colour (no coloured pill).
-  const labelTextColor = data?.labelTextColor || (isTextLabel ? color : "#fff");
-  const labelBgColor = isTextLabel ? (theme === "dark" ? "#0f172a" : "#fbf6ee") : (data?.labelBg || color);
-  const labelBg = { background: labelBgColor, color: labelTextColor, textAlign: "center" };
+  // Label background defaults to transparent; a coloured pill is opt-in via
+  // `labelBg`. When transparent we paint a canvas-coloured text halo so the
+  // text stays legible over the line it sits on. Padding is adjustable.
+  const canvasC = theme === "dark" ? "#0f172a" : "#fbf6ee";
+  const pillColor = data?.labelBg;
+  const labelTextColor = data?.labelTextColor || (pillColor ? "#fff" : color);
+  const labelPad = { s: "0px 4px", m: "1px 7px", l: "3px 11px" }[data?.labelPad || "m"];
+  const labelBg = {
+    background: pillColor || "transparent",
+    color: labelTextColor,
+    padding: labelPad,
+    textAlign: "center",
+    textShadow: pillColor ? "none" : `0 0 3px ${canvasC}, 0 0 3px ${canvasC}, 0 0 4px ${canvasC}`,
+  };
 
   const patchData = useCallback((patch) => {
     setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
@@ -279,15 +320,16 @@ const EditableEdge = memo(function EditableEdge({
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
       setEdges((eds) => eds.map((edge) => {
         if (edge.id !== id) return edge;
-        const itr = (edge.data?.route && edge.data.route.length
+        const interior0 = (edge.data?.route && edge.data.route.length)
           ? edge.data.route
-          : autoOrtho(sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition)
-        ).map((pt) => ({ ...pt }));
-        const ai = fullIndex - 1, bi = fullIndex; // interior indices of the segment ends
-        if (!itr[ai] || !itr[bi]) return edge;
-        if (horiz) { itr[ai].y = p.y; itr[bi].y = p.y; }
-        else { itr[ai].x = p.x; itr[bi].x = p.x; }
-        return { ...edge, data: { ...edge.data, route: itr } };
+          : autoOrtho(sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition);
+        // Reshape on the same orthogonalized polyline the handles sit on, so
+        // the dragged segment + its neighbours all stay axis-aligned.
+        const f = orthogonalize([{ x: sourceX, y: sourceY }, ...interior0, { x: targetX, y: targetY }]).map((pt) => ({ ...pt }));
+        if (!f[fullIndex] || !f[fullIndex + 1]) return edge;
+        if (horiz) { f[fullIndex].y = p.y; f[fullIndex + 1].y = p.y; }
+        else { f[fullIndex].x = p.x; f[fullIndex + 1].x = p.x; }
+        return { ...edge, data: { ...edge.data, route: f.slice(1, -1) } };
       }));
     };
     const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
@@ -321,7 +363,7 @@ const EditableEdge = memo(function EditableEdge({
 
         {(editing || label) && (
           <div className="nodrag nopan"
-            style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${labelPt.x}px,${labelPt.y}px)`, pointerEvents: "all", cursor: editing ? "text" : "grab" }}
+            style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${labelPt.x}px,${labelPt.y}px)`, pointerEvents: "all", cursor: editing ? "text" : "grab", zIndex: 6 }}
             onPointerDown={editing ? undefined : dragLabel}
             onDoubleClick={() => setEditing(true)}>
             {editing ? (
@@ -330,10 +372,10 @@ const EditableEdge = memo(function EditableEdge({
                 onBlur={commit}
                 onKeyDown={(e) => { if (e.key === "Enter") commit(); else if (e.key === "Escape") { setDraft(label); setEditing(false); } }}
                 placeholder="Add text"
-                className="text-[11px] font-semibold rounded-md px-1.5 py-0.5 outline-none"
-                style={{ ...labelBg, width: Math.max(60, draft.length * 7 + 24) }} />
+                className="text-[11px] font-semibold rounded-md outline-none text-center"
+                style={{ ...labelBg, background: pillColor || canvasC, textShadow: "none", width: Math.max(60, draft.length * 7 + 24) }} />
             ) : (
-              <span className="text-[11px] font-semibold rounded-md px-1.5 py-0.5" style={labelBg} title="Drag to move · double-click to edit">{label}</span>
+              <span className="text-[11px] font-semibold rounded-md" style={labelBg} title="Drag to move · double-click to edit">{label}</span>
             )}
           </div>
         )}
@@ -345,7 +387,7 @@ const EditableEdge = memo(function EditableEdge({
             style={{
               position: "absolute",
               transform: `translate(-50%,-50%) translate(${h.x}px,${h.y}px)`,
-              pointerEvents: "all",
+              pointerEvents: "all", zIndex: 4,
               width: h.horiz ? 22 : 9, height: h.horiz ? 9 : 22, borderRadius: 4,
               background: color, border: "2px solid #fff",
               cursor: h.horiz ? "ns-resize" : "ew-resize",
