@@ -209,18 +209,23 @@ function WhiteboardEditor() {
   }, [setEdges]);
 
   const onConnectStart = useCallback((_evt, params) => {
-    connectingRef.current = params; // { nodeId, handleId, handleType }
+    connectingRef.current = params; // { nodeId, handleId, handleType } — fallback
   }, []);
 
   // Drag a connector from a node onto empty canvas → spawn a connected
   // flow box right where you dropped. Pull, drop, type: the fastest way
-  // to extend a flowchart (the FigJam / xyflow "add node on edge drop"
-  // idiom).
+  // to extend a flowchart (the xyflow "add node on edge drop" idiom).
+  //
+  // We use connectionState.fromNode rather than gating on handleType:
+  // each side carries overlapping source+target handles (target on top,
+  // for drop-to-connect), so a pull can start on either — what matters
+  // is only WHICH node it came from.
   const onConnectEnd = useCallback((event, connectionState) => {
-    const info = connectingRef.current;
+    // Landed on a real handle → onConnect already made the edge.
+    if (connectionState?.isValid) { connectingRef.current = null; return; }
+    const fromNodeId = connectionState?.fromNode?.id ?? connectingRef.current?.nodeId;
     connectingRef.current = null;
-    if (!info || info.handleType !== "source") return;
-    if (connectionState?.isValid) return; // landed on a real handle → onConnect handled it
+    if (!fromNodeId) return;
     const ev = "changedTouches" in event ? event.changedTouches[0] : event;
     if (ev?.clientX == null) return;
     let pos;
@@ -236,8 +241,7 @@ function WhiteboardEditor() {
       data: { text: "" },
     }));
     setEdges((eds) => addEdge({
-      source: info.nodeId,
-      sourceHandle: info.handleId,
+      source: fromNodeId,
       target: newId,
       ...DEFAULT_EDGE_OPTIONS,
     }, eds));
