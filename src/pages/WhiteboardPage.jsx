@@ -22,7 +22,7 @@ import {
   templateSnapshotFor,
   isEmptySnapshot,
 } from "../lib/whiteboard";
-import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor, setPreferredStickyColor, STICKY_PALETTE, stickyHex } from "../components/whiteboard/nodes";
+import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor, setPreferredStickyColor, STICKY_PALETTE, stickyHex, markNodeForEdit } from "../components/whiteboard/nodes";
 import { nodeAbsPos, sortParentsFirst, frameAt } from "../components/whiteboard/frame";
 import { useApp } from "../context/AppContext";
 import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine, connectedNodePlacement, siblingPlacement } from "../components/whiteboard/edges";
@@ -423,22 +423,30 @@ function WhiteboardEditor() {
       ...(srcNode?.data?.fontSize ? { fontSize: srcNode.data.fontSize } : {}),
     };
 
-    // Click (barely moved) → auto-place a sibling; drag → drop placement.
-    const moved = started?.sx != null
-      ? Math.hypot(ev.clientX - started.sx, ev.clientY - started.sy)
-      : Infinity;
+    // Quick-add vs drag-to-place. A "click" isn't decided by movement
+    // distance (unreliable for a tap on a handle) but by whether you
+    // RELEASED on/near the parent rather than dragging away. That makes
+    // quick-add fire reliably on every side — including straight under the
+    // node, which the distance check used to miss.
     const hasGeom = srcNode?.position != null;
+    const sx0 = srcNode?.position?.x ?? 0;
+    const sy0 = srcNode?.position?.y ?? 0;
+    const M = 12;
+    const nearParent = hasGeom &&
+      pos.x >= sx0 - M && pos.x <= sx0 + size.w + M &&
+      pos.y >= sy0 - M && pos.y <= sy0 + size.h + M;
     let place;
-    if (moved < 6 && hasGeom) {
-      place = siblingPlacement({ x: srcNode.position.x, y: srcNode.position.y, w: size.w, h: size.h }, sourceHandle, size);
+    if (hasGeom && nearParent) {
+      place = siblingPlacement({ x: sx0, y: sy0, w: size.w, h: size.h }, sourceHandle, size);
     } else if (hasGeom) {
-      const center = { x: srcNode.position.x + size.w / 2, y: srcNode.position.y + size.h / 2 };
+      const center = { x: sx0 + size.w / 2, y: sy0 + size.h / 2 };
       place = connectedNodePlacement(center, pos.x, pos.y, size);
     } else {
       place = { x: pos.x - size.w / 2, y: pos.y - size.h / 2, side: sourceHandle ? OPPOSITE_TARGET[sourceHandle] : "l" };
     }
 
     const newId = freshId("shape");
+    markNodeForEdit(newId); // open the new node straight into text edit
     // Auto-select the new node (and deselect the rest) so its inspector
     // pops immediately — pull, drop, restyle.
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({
@@ -519,6 +527,7 @@ function WhiteboardEditor() {
       ...(sized ? { width: size.w, height: size.h } : {}),
       ...(type === "frame" ? { zIndex: -1 } : {}),
     };
+    markNodeForEdit(node.id); // newly placed node opens straight into edit
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({ ...node, selected: true }));
   }, [rf, setNodes, myName]);
 

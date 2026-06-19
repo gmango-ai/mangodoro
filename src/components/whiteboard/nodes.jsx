@@ -43,13 +43,27 @@ function initialsOf(name) {
   return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
 }
 
+// Nodes that should open straight into edit mode (just created via the
+// toolbar or a quick-add pull). Tracked outside node data so the flag
+// never persists to the snapshot or syncs to peers.
+const PENDING_EDIT = new Set();
+export function markNodeForEdit(id) { if (id) PENDING_EDIT.add(id); }
+
 // Shared text editor used inside the sticky / text / shape nodes.
-// Stops propagating wheel + pointerdown so the canvas doesn't pan
-// under the cursor mid-edit.
-function EditableText({ value, onChange, placeholder, className, style }) {
+// Stops propagating wheel + pointerdown so the canvas doesn't pan under
+// the cursor mid-edit. Opens immediately for freshly-created nodes
+// (markNodeForEdit) and on a single click once the node is selected.
+function EditableText({ value, onChange, placeholder, className, style, nodeId, selected }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
   const textareaRef = useRef(null);
+
+  // Fresh nodes (markNodeForEdit) open straight into edit. Consume the
+  // flag in an effect — NOT the state initializer — so the delete side
+  // effect is StrictMode-safe (state survives its simulated remount).
+  useEffect(() => {
+    if (nodeId && PENDING_EDIT.has(nodeId)) { PENDING_EDIT.delete(nodeId); setEditing(true); }
+  }, [nodeId]);
 
   useEffect(() => { setDraft(value || ""); }, [value]);
   useEffect(() => {
@@ -69,6 +83,7 @@ function EditableText({ value, onChange, placeholder, className, style }) {
       <div
         className={`whitespace-pre-wrap break-words ${className || ""}`}
         style={style}
+        onClick={() => { if (selected) setEditing(true); }}
         onDoubleClick={() => setEditing(true)}
       >
         {value || (
@@ -184,8 +199,10 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
     >
       {/* No connection handles — stickies aren't edge-connectable
           (edges attach to shapes only). */}
-      {/* Header — avatar + name (left), delete (right). */}
-      <div className="nodrag" onPointerDown={stop} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+      {/* Header — avatar + name (left), delete (right). Draggable so you
+          can grab the note by its name area; only the delete button opts
+          out of the drag. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
         <span style={{ width: 18, height: 18, borderRadius: 9999, flexShrink: 0, background: avatarFor(author), color: "#fff", fontSize: 8, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>
           {initialsOf(author)}
         </span>
@@ -193,7 +210,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
           {author || "—"}
         </span>
         {selected && (
-          <button type="button" onClick={remove} title="Delete" style={{ opacity: 0.45, display: "flex" }}>
+          <button type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete" style={{ opacity: 0.45, display: "flex" }}>
             <X style={{ width: 12, height: 12 }} />
           </button>
         )}
@@ -204,6 +221,8 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
           value={data?.text}
           onChange={setText}
           placeholder="Type a note…"
+          nodeId={id}
+          selected={selected}
           style={{ fontSize: data?.fontSize ?? 13, lineHeight: 1.3, width: "100%" }}
         />
       </div>
@@ -271,6 +290,8 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         value={data?.text}
         onChange={setText}
         placeholder="Type some text…"
+        nodeId={id}
+        selected={selected}
         style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3 }}
       />
     </div>
@@ -386,6 +407,8 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
           value={data?.text}
           onChange={setText}
           placeholder=""
+          nodeId={id}
+          selected={selected}
           style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center", color: "#0f172a" }}
         />
       </div>
@@ -450,7 +473,7 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
         </button>
       </div>
       <div style={{ flex: 1, padding: 10, minHeight: 0 }}>
-        <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }} />
+        <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }} />
       </div>
       <div className="nodrag nowheel" style={{ position: "relative", padding: "6px 10px", borderTop: "1px solid rgba(0,0,0,.07)" }} onPointerDown={(e) => e.stopPropagation()}>
         <button
@@ -532,7 +555,7 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
       <FourHandles visible={false} />
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px" }}>
         {data?.icon && <span style={{ fontSize: 18, lineHeight: 1 }}>{data.icon}</span>}
-        <EditableText value={data?.text ?? data?.label} onChange={setText} placeholder="Section title" style={{ fontSize: 15, fontWeight: 800, color: tint }} />
+        <EditableText value={data?.text ?? data?.label} onChange={setText} placeholder="Section title" nodeId={id} selected={selected} style={{ fontSize: 15, fontWeight: 800, color: tint }} />
         <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 800, color: tint, opacity: 0.75, background: "rgba(255,255,255,.6)", borderRadius: 9999, padding: "0 7px", lineHeight: "18px" }}>{childCount}</span>
       </div>
       {/* Double-click the body to drop a sticky in your preferred colour. */}
