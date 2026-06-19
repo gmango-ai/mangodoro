@@ -401,18 +401,35 @@ const EditableEdge = memo(function EditableEdge({
   );
 });
 
-// Ghost preview while dragging a new connection onto empty canvas.
-export function ConnectionLine({ fromX, fromY, toX, toY }) {
-  const W = 180, H = 100;
+// Preview shown while pulling a new connection (FigJam/Lucidchart style):
+// a smooth orthogonal route that follows the cursor, a "+" drop affordance,
+// and — over empty canvas — a faint ghost of the shape that a drop creates.
+export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, connectionStatus }) {
+  const ok = connectionStatus === "valid"; // hovering a real target handle
+  const accent = ok ? "#22c55e" : "#64748b";
+  const fp = fromPosition || "right";
   const dx = toX - fromX, dy = toY - fromY;
-  let gx, gy;
-  if (Math.abs(dx) > Math.abs(dy)) { gx = dx > 0 ? toX : toX - W; gy = toY - H / 2; }
-  else { gy = dy > 0 ? toY : toY - H; gx = toX - W / 2; }
+  // Enter the cursor from the side facing the source, so the route reads clean.
+  const tp = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "left" : "right") : (dy >= 0 ? "top" : "bottom");
+  const interior = autoOrtho(fromX, fromY, fp, toX, toY, tp);
+  const d = roundedPath(orthogonalize([{ x: fromX, y: fromY }, ...interior, { x: toX, y: toY }]), 12);
+  // Ghost positioned the way the real node spawns (grows away from source).
+  const W = 150, H = 90;
+  let gx = toX - W / 2, gy = toY - H / 2;
+  if (tp === "left") gx = toX; else if (tp === "right") gx = toX - W;
+  else if (tp === "top") gy = toY; else if (tp === "bottom") gy = toY - H;
   return (
     <g>
-      <path fill="none" stroke="#0ea5e9" strokeWidth={2} strokeDasharray="4 3" d={`M${fromX},${fromY} L${toX},${toY}`} />
-      <rect x={gx} y={gy} width={W} height={H} rx={10} fill="rgba(14,165,233,.08)" stroke="#0ea5e9" strokeWidth={1.5} strokeDasharray="5 4" />
-      <circle cx={toX} cy={toY} r={3.5} fill="#0ea5e9" />
+      <path fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" d={d} />
+      <circle cx={fromX} cy={fromY} r={3.5} fill={accent} />
+      {!ok && (
+        <rect x={gx} y={gy} width={W} height={H} rx={12}
+          fill="rgba(100,116,139,.06)" stroke={accent} strokeWidth={1.5} strokeDasharray="6 5" opacity={0.6} />
+      )}
+      <g transform={`translate(${toX},${toY})`}>
+        <circle r={9} fill={ok ? "rgba(34,197,94,.2)" : "#fff"} stroke={accent} strokeWidth={2.5} />
+        {!ok && <path d="M-4 0 H4 M0 -4 V4" stroke={accent} strokeWidth={2} strokeLinecap="round" />}
+      </g>
     </g>
   );
 }
