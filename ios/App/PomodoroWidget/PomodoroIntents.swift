@@ -108,6 +108,32 @@ private func revertOptimisticToggle(_ original: [String: Any]?) {
     reloadHomeWidget()
 }
 
+// Optimistically clear the activity snapshot so the home widget immediately
+// shows the stopped (empty "Start a session") state before the round-trip
+// confirms. Returns the original snapshot so a failed stop can restore it.
+private func applyOptimisticStop() -> [String: Any]? {
+    guard let defaults = UserDefaults(suiteName: appGroupID) else { return nil }
+    var original: [String: Any]?
+    if let json = defaults.string(forKey: activityStateKey),
+       let data = json.data(using: .utf8),
+       let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        original = state
+    }
+    defaults.set(false, forKey: lastToggleResultRunningKey)
+    defaults.removeObject(forKey: activityStateKey)
+    reloadHomeWidget()
+    return original
+}
+
+private func revertOptimisticStop(_ original: [String: Any]?) {
+    guard let original, let defaults = UserDefaults(suiteName: appGroupID),
+          let data = try? JSONSerialization.data(withJSONObject: original),
+          let json = String(data: data, encoding: .utf8) else { return }
+    defaults.set(json, forKey: activityStateKey)
+    defaults.set(original["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
+    reloadHomeWidget()
+}
+
 private enum ActivityAction: String {
     case toggle
     case stop
@@ -226,62 +252,52 @@ private func dispatchActivityAction(_ action: ActivityAction, currentState: [Str
     }
 }
 
-// MARK: - Shared intent bodies
+// MARK: - Shared network + reconcile
 //
-// Toggle/stop logic is identical whether it's fired from a Live Activity
-// button (LiveActivityIntent) or a Home Screen widget button (plain
-// AppIntent), so both intent flavors funnel through these. `label` is
-// only used for log correlation.
+// The optimistic App Group write has already happened by the time these
+// run; here we do the authoritative server round-trip and reconcile the
+// local snapshot to the server's truth (or revert the optimistic change if
+// the round-trip ultimately failed).
 
 @available(iOS 17.0, *)
-private func performTimerToggle(_ label: StaticString) async {
-    log.notice("\(label) fired")
-
-    // Instant feedback: repaint the home widget from the toggled state
-    // before the network round-trip confirms it.
-    let original = applyOptimisticToggle()
-
+private func dispatchToggleAndReconcile(original: [String: Any]?) async {
     let result = await dispatchActivityAction(.toggle, currentState: original)
-
     switch result {
     case .succeeded(let newState), .apnsFailed(let newState):
         let nowRunning = newState["isRunning"] as? Bool ?? false
-        if !nowRunning {
-            cancelScheduledAlarm()
-        }
-        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
+        if !nowRunning { cancelScheduledAlarm() }
+        // dispatchActivityAction already mirrored the server state into the
+        // App Group; repaint so the widget settles on the authoritative value.
         reloadHomeWidget()
-        log.notice("\(label) ok nowRunning=\(nowRunning)")
+        log.notice("toggle reconciled nowRunning=\(nowRunning)")
     case .failed:
+        // The round-trip never reached the server — snap the optimistic flip
+        // back to the pre-tap state so the widget doesn't lie.
         revertOptimisticToggle(original)
-        log.notice("\(label) failed — reverted optimistic toggle")
+        log.notice("toggle failed — reverted optimistic flip")
     }
 }
 
 @available(iOS 17.0, *)
-private func performTimerStop(_ label: StaticString) async {
-    log.notice("\(label) fired")
+private func dispatchStopAndReconcile(restoreOnFailure original: [String: Any]?) async {
     let result = await dispatchActivityAction(.stop)
-
     switch result {
     case .succeeded, .apnsFailed:
         cancelScheduledAlarm()
-        if let defaults = UserDefaults(suiteName: appGroupID) {
-            defaults.set(true, forKey: pendingStopKey)
-            defaults.set(false, forKey: lastToggleResultRunningKey)
-            defaults.removeObject(forKey: activityStateKey)
-        }
         reloadHomeWidget()
-        log.notice("\(label) ok")
+        log.notice("stop reconciled")
     case .failed:
-        log.notice("\(label) failed — flags unchanged")
+        revertOptimisticStop(original)
+        log.notice("stop failed — restored session")
     }
 }
 
 // MARK: - Live Activity buttons (lock screen / Dynamic Island)
 //
-// These MUST be LiveActivityIntent so they run in-process for the Live
-// Activity without launching the host app.
+// MUST be LiveActivityIntent so they run in-process for the Live Activity
+// without launching the host app. These AWAIT the round-trip: the
+// lock-screen UI is driven by the edge function's APNs push, so there's no
+// faster local path to wait for anyway.
 
 @available(iOS 17.0, *)
 struct ToggleTimerIntent: LiveActivityIntent {
@@ -291,7 +307,10 @@ struct ToggleTimerIntent: LiveActivityIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        await performTimerToggle("ToggleTimerIntent")
+        log.notice("ToggleTimerIntent fired")
+        let original = applyOptimisticToggle()
+        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
+        await dispatchToggleAndReconcile(original: original)
         return .result()
     }
 }
@@ -304,24 +323,27 @@ struct StopTimerIntent: LiveActivityIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        await performTimerStop("StopTimerIntent")
+        log.notice("StopTimerIntent fired")
+        let original = applyOptimisticStop()
+        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingStopKey)
+        await dispatchStopAndReconcile(restoreOnFailure: original)
         return .result()
     }
 }
 
 // MARK: - Home Screen widget buttons
 //
-// Deliberately PLAIN AppIntents, not LiveActivityIntent. A Home Screen
-// widget button that runs a LiveActivityIntent is tagged by the system as
-// a `SessionStartingAction`: chronod then pauses the widget's timeline
-// reloads and HOLDS them for a fixed ~3.8s settle (waiting on Live Activity
-// session coordination) before the widget can repaint — even though our
-// network toggle finishes in <1s. Device logs showed every home tap stuck
-// behind "Pausing reloads … Reload not permitted … Finished handling
-// interaction. Elapsed: 3.7". A plain AppIntent carries no SessionStarting
-// coordination, so the interaction ends right after perform() returns and
-// the widget repaints promptly. They still call the same edge function, so
-// the lock-screen Live Activity is updated via APNs exactly as before.
+// Deliberately PLAIN AppIntents, not LiveActivityIntent (a home-widget
+// button running a LiveActivityIntent gets tagged SessionStartingAction,
+// which makes chronod freeze the widget's reloads for a fixed ~3.8s settle).
+//
+// They also DO NOT await the network: the optimistic App Group write has
+// flipped the snapshot synchronously, so `perform()` returns immediately and
+// the system repaints the widget from the flipped local state without the
+// (cold-on-first-tap) round-trip on the critical path — instant response.
+// The round-trip runs detached and reconciles when it lands; the pending
+// flag is set synchronously so the app still converges on next open even if
+// the detached request is cut short by the extension suspending.
 
 @available(iOS 17.0, *)
 struct HomeToggleTimerIntent: AppIntent {
@@ -331,7 +353,12 @@ struct HomeToggleTimerIntent: AppIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        await performTimerToggle("HomeToggleTimerIntent")
+        log.notice("HomeToggleTimerIntent fired")
+        let original = applyOptimisticToggle()
+        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
+        Task.detached(priority: .userInitiated) {
+            await dispatchToggleAndReconcile(original: original)
+        }
         return .result()
     }
 }
@@ -344,7 +371,12 @@ struct HomeStopTimerIntent: AppIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        await performTimerStop("HomeStopTimerIntent")
+        log.notice("HomeStopTimerIntent fired")
+        let original = applyOptimisticStop()
+        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingStopKey)
+        Task.detached(priority: .userInitiated) {
+            await dispatchStopAndReconcile(restoreOnFailure: original)
+        }
         return .result()
     }
 }
