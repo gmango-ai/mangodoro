@@ -743,14 +743,12 @@ export class PomodoroEngine {
   }
 
   requestReset() {
-    const { mode, pendingAction, durations, secondsLeft, isRunning } = this._state;
-    if (!this._refs.canControlRef.current) return;
-    if (pendingAction) return;
-    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
-      this._setField("pendingAction", { type: "reset" });
-    } else {
-      this.resetTimer();
-    }
+    // No confirmation. Several timer surfaces (office widget, whiteboard
+    // ribbon, PiP) call reset but never render the confirm banner, which
+    // left the timer stuck in a pending state with no way to confirm.
+    // Reset immediately everywhere — pressing the button IS the
+    // confirmation. resetTimer() already guards on canControl.
+    this.resetTimer();
   }
 
   requestApplyCustomDuration(minutesStr, persist) {

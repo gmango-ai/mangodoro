@@ -187,7 +187,11 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
               up over the video. Pinned to the right edge so the bar
               clears Jitsi's own bottom control toolbar. */}
           {roomId && (
-            <EmoteOverlay channelKey={`room:${roomId}`} barPosition="right-center" />
+            <EmoteOverlay
+              channelKey={`room:${roomId}`}
+              barPosition="right-center"
+              senderName={displayName}
+            />
           )}
         </>
       )}

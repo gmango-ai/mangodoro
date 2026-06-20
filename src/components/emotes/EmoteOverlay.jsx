@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Smile, X } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Smile, X, Plus } from "lucide-react";
 import { supabase } from "../../supabase";
+import { useApp } from "../../context/AppContext";
+import { useTheme } from "../../context/ThemeContext";
 
 // EmoteOverlay — Google-Meet-style floating-reaction layer that any
 // surface (whiteboard, video call, eventually rooms) can mount.
@@ -19,19 +21,52 @@ import { supabase } from "../../supabase";
 //     hidden and rAF is throttled. No leaks under spam. Glyphs use a
 //     baked text-shadow (not a drop-shadow filter) so the fountain
 //     stays cheap to composite over a playing <video>.
+//   * Each particle carries the sender's name as a small pill so you
+//     can tell who reacted (your own included).
+//
+// The payload carries the actual emoji `glyph` (so any emoji works, not
+// just the presets) plus the sender `name`. `key` is still sent for the
+// six presets so a not-yet-updated peer can still resolve those via the
+// legacy GLYPH map.
 //
 // The bar is render-prop'd via `barPosition` so callers can mount it
 // at the bottom of a video stage, in a whiteboard toolbar, etc.
 
 const EMOTES = [
-  { key: "like",  glyph: "👍", color: "#f97316" },
-  { key: "love",  glyph: "❤️", color: "#ef4444" },
-  { key: "party", glyph: "🎉", color: "#8b5cf6" },
-  { key: "fire",  glyph: "🔥", color: "#f59e0b" },
-  { key: "clap",  glyph: "👏", color: "#facc15" },
-  { key: "smile", glyph: "😊", color: "#10b981" },
+  { key: "like",  glyph: "👍" },
+  { key: "love",  glyph: "❤️" },
+  { key: "party", glyph: "🎉" },
+  { key: "fire",  glyph: "🔥" },
+  { key: "clap",  glyph: "👏" },
+  { key: "smile", glyph: "😊" },
 ];
 const GLYPH = Object.fromEntries(EMOTES.map((e) => [e.key, e.glyph]));
+const PRESET_GLYPHS = new Set(EMOTES.map((e) => e.glyph));
+
+// Charge mechanic: a quick tap sends one; holding charges up and, on
+// release, bursts a fountain whose size scales with how long it charged.
+const CLICK_MS = 180;        // below this, a press counts as a single tap
+const CHARGE_FULL_MS = 1500; // held this long (from press) = full charge
+const BURST_MIN = 6;         // emojis in the smallest charged fountain
+const BURST_MAX = 40;        // emojis at full charge (and the cap per burst)
+const STREAM_INTERVAL_MS = 90; // cadence of constant-stream chunks past full charge
+const STREAM_PER_TICK = 3;     // emojis emitted per stream chunk
+
+// Recently-used emojis, per device. Quick access to anything you've
+// picked from the full set without re-opening the picker.
+const RECENTS_KEY = "ql_emote_recents";
+function readRecents() {
+  try {
+    const a = JSON.parse(localStorage.getItem(RECENTS_KEY) || "[]");
+    return Array.isArray(a) ? a.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+// The full emoji picker is heavy — code-split it so it only loads when a
+// user actually opens it.
+const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
 export default function EmoteOverlay({
   channelKey,
@@ -44,17 +79,44 @@ export default function EmoteOverlay({
   // to render.
   barPosition = "bottom-center",
   enabled = true,
+  // Name shown under this user's reactions. Defaults to the session's
+  // display name; callers with a curated name (e.g. the video call's
+  // displayName) can pass it explicitly.
+  senderName,
 }) {
   const vertical = barPosition === "right-center";
+  // Defensive: this overlay can be mounted on surfaces that may not sit
+  // under the App/Theme providers, and both contexts default to null.
+  const session = useApp()?.session;
+  const dark = (useTheme()?.theme) === "dark";
+  const myName =
+    senderName ||
+    session?.user?.user_metadata?.name ||
+    session?.user?.email?.split("@")[0] ||
+    "Guest";
+
   // The video overlay collapses to a single side button (tap to pop the
   // reactions out) so it fits even the small PiP. The whiteboard bar
   // stays always-open.
   const [barOpen, setBarOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [recents, setRecents] = useState(readRecents);
+  // While a button is held past the click threshold, `charge` drives the
+  // button's grow/glow indicator: { glyph, level (0..1) } or null.
+  const [charge, setCharge] = useState(null);
   const containerRef = useRef(null);
   const particlesRef = useRef([]);
   const rafRef = useRef({ running: false, lastT: 0 });
   const channelRef = useRef(null);
-  const holdRef = useRef(null);
+  const chargeRef = useRef(null);
+
+  const pushRecent = useCallback((glyph) => {
+    setRecents((prev) => {
+      const next = [glyph, ...prev.filter((g) => g !== glyph)].slice(0, 16);
+      try { localStorage.setItem(RECENTS_KEY, JSON.stringify(next)); } catch { /* */ }
+      return next;
+    });
+  }, []);
 
   // ─── particle system ───
   const startLoop = useCallback(() => {
@@ -93,15 +155,13 @@ export default function EmoteOverlay({
     requestAnimationFrame(step);
   }, []);
 
-  // Burst a particle at a horizontal anchor `x01` (0..1 of container
-  // width). We accept a normalized x so the broadcast sender can
-  // describe "from the middle button" in a way that maps across
-  // peers with different viewport widths.
-  const burst = useCallback((key, x01 = 0.5) => {
+  // Burst a particle (emoji glyph + optional name pill) at a horizontal
+  // anchor `x01` (0..1 of container width). We accept a normalized x so
+  // the broadcast sender can describe "from the middle button" in a way
+  // that maps across peers with different viewport widths.
+  const burst = useCallback((glyph, x01 = 0.5, name = "") => {
     const cont = containerRef.current;
-    if (!cont) return;
-    const glyph = GLYPH[key];
-    if (!glyph) return;
+    if (!cont || !glyph) return;
     const r = cont.getBoundingClientRect();
     const ps = particlesRef.current;
     while (ps.length >= 120) {
@@ -109,10 +169,19 @@ export default function EmoteOverlay({
       if (old._t) clearTimeout(old._t);
       if (old.el?.parentNode) old.el.parentNode.removeChild(old.el);
     }
-    const el = document.createElement("span");
+    const el = document.createElement("div");
+    el.style.cssText = "position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;gap:2px;will-change:transform,opacity;pointer-events:none;user-select:none;";
     const size = 24 + Math.random() * 16;
-    el.textContent = glyph;
-    el.style.cssText = `position:absolute;left:0;top:0;font-size:${size}px;line-height:1;will-change:transform,opacity;text-shadow:0 2px 4px rgba(0,0,0,.35);pointer-events:none;user-select:none;`;
+    const gly = document.createElement("span");
+    gly.textContent = glyph;
+    gly.style.cssText = `font-size:${size}px;line-height:1;text-shadow:0 2px 4px rgba(0,0,0,.35);`;
+    el.appendChild(gly);
+    if (name) {
+      const lbl = document.createElement("span");
+      lbl.textContent = name;
+      lbl.style.cssText = "max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:600;color:#fff;background:rgba(15,23,42,.72);padding:1px 6px;border-radius:9999px;text-shadow:0 1px 2px rgba(0,0,0,.4);";
+      el.appendChild(lbl);
+    }
     cont.appendChild(el);
     const ox = x01 * r.width + (Math.random() * 28 - 14);
     const oy = r.height - 58;
@@ -133,6 +202,23 @@ export default function EmoteOverlay({
     startLoop();
   }, [startLoop]);
 
+  // Fountain: spawn `count` particles staggered over a few frames so a
+  // charged release reads as a burst rather than one clump. Only the
+  // first particle wears the name pill — N labels would be noise.
+  const burstMany = useCallback((glyph, x01 = 0.5, name = "", count = 1) => {
+    const n = Math.max(1, Math.min(BURST_MAX, Math.round(count)));
+    let i = 0;
+    const spawn = () => {
+      const batch = Math.min(5, n - i);
+      for (let k = 0; k < batch; k++) {
+        burst(glyph, x01 + (Math.random() * 0.2 - 0.1), i === 0 && k === 0 ? name : "");
+      }
+      i += batch;
+      if (i < n) setTimeout(spawn, 45);
+    };
+    spawn();
+  }, [burst]);
+
   // ─── realtime channel ───
   useEffect(() => {
     if (!enabled || !channelKey) return;
@@ -142,9 +228,15 @@ export default function EmoteOverlay({
       config: { broadcast: { self: false, ack: false } },
     });
     ch.on("broadcast", { event: "emote" }, (msg) => {
-      const { key, x01 } = msg.payload || {};
-      if (!key) return;
-      burst(key, typeof x01 === "number" ? x01 : 0.5);
+      const { key, glyph, x01, name, count } = msg.payload || {};
+      // Prefer the explicit glyph; fall back to the legacy preset map so
+      // emotes from a not-yet-updated peer still render.
+      const g = glyph || GLYPH[key];
+      if (!g) return;
+      const xx = typeof x01 === "number" ? x01 : 0.5;
+      const nm = typeof name === "string" ? name : "";
+      if (typeof count === "number" && count > 1) burstMany(g, xx, nm, count);
+      else burst(g, xx, nm);
     });
     ch.subscribe();
     channelRef.current = ch;
@@ -152,26 +244,13 @@ export default function EmoteOverlay({
       try { supabase.removeChannel(ch); } catch { /* */ }
       channelRef.current = null;
     };
-  }, [channelKey, enabled, burst]);
+  }, [channelKey, enabled, burst, burstMany]);
 
-  // ─── click + hold ───
-  // Single click = single burst. Hold = rapid fire (~80ms cadence)
-  // until the global pointerup fires. The hold ref is cleared on any
-  // pointerup so we don't leak intervals when the user drags off.
+  // Clean up particles + any active charge timer on unmount.
   useEffect(() => {
-    function stopHold() {
-      if (holdRef.current) {
-        clearInterval(holdRef.current.timer);
-        holdRef.current = null;
-      }
-    }
-    window.addEventListener("pointerup", stopHold);
-    window.addEventListener("pointercancel", stopHold);
     return () => {
-      window.removeEventListener("pointerup", stopHold);
-      window.removeEventListener("pointercancel", stopHold);
-      stopHold();
-      // Clean up in-flight particles on unmount.
+      const c = chargeRef.current;
+      if (c?.timer) clearInterval(c.timer);
       for (const p of particlesRef.current) {
         if (p._t) clearTimeout(p._t);
         if (p.el?.parentNode) p.el.parentNode.removeChild(p.el);
@@ -181,26 +260,82 @@ export default function EmoteOverlay({
     };
   }, []);
 
-  const sendEmote = useCallback((key, x01) => {
-    if (!enabled) return;
-    burst(key, x01);
+  const sendEmote = useCallback((glyph, x01, key) => {
+    if (!enabled || !glyph) return;
+    burst(glyph, x01, myName);
     const ch = channelRef.current;
     if (ch) {
       // Fire-and-forget. If the broadcast fails (e.g. channel not
       // joined yet), the sender still saw their own particle —
       // which is the only thing they're checking for.
       try {
-        ch.send({ type: "broadcast", event: "emote", payload: { key, x01 } });
+        ch.send({ type: "broadcast", event: "emote", payload: { glyph, key, name: myName, x01 } });
       } catch { /* */ }
     }
-  }, [burst, enabled]);
+  }, [burst, enabled, myName]);
 
-  const startEmit = useCallback((key, ev) => {
-    ev?.preventDefault?.();
-    if (holdRef.current) {
-      clearInterval(holdRef.current.timer);
-      holdRef.current = null;
+  // A charged fountain (or one stream chunk): render locally and
+  // broadcast as ONE event with a count so peers reproduce it without N
+  // messages. showName=false keeps mid-stream chunks from stacking name
+  // pills on every chunk.
+  const sendBurst = useCallback((glyph, x01, key, count, showName = true) => {
+    if (!enabled || !glyph) return;
+    const nm = showName ? myName : "";
+    burstMany(glyph, x01, nm, count);
+    const ch = channelRef.current;
+    if (ch) {
+      try {
+        ch.send({ type: "broadcast", event: "emote", payload: { glyph, key, name: nm, x01, count } });
+      } catch { /* */ }
     }
+  }, [burstMany, enabled, myName]);
+
+  // Pointer released: a quick tap sends one; a hold released before full
+  // charge sends a fountain scaled to how far it charged. If it had
+  // tipped into stream mode, the stream already played — nothing more.
+  const releaseCharge = useCallback(() => {
+    const c = chargeRef.current;
+    if (!c) return;
+    if (c.timer) clearInterval(c.timer);
+    chargeRef.current = null;
+    setCharge(null);
+    if (c.streaming) return; // the constant stream already played while held
+    const held = performance.now() - c.startT;
+    if (held < CLICK_MS) {
+      sendEmote(c.glyph, c.x01, c.key);
+    } else {
+      const level = Math.max(0, Math.min(1, (held - CLICK_MS) / (CHARGE_FULL_MS - CLICK_MS)));
+      const count = Math.round(BURST_MIN + (BURST_MAX - BURST_MIN) * level);
+      sendBurst(c.glyph, c.x01, c.key, count);
+    }
+    pushRecent(c.glyph);
+  }, [sendEmote, sendBurst, pushRecent]);
+
+  // Pointer cancelled (gesture interrupted): drop the charge, fire nothing.
+  const abortCharge = useCallback(() => {
+    const c = chargeRef.current;
+    if (!c) return;
+    if (c.timer) clearInterval(c.timer);
+    chargeRef.current = null;
+    setCharge(null);
+  }, []);
+
+  // Release/cancel are tracked on the window so dragging off the button
+  // before letting go still resolves the charge.
+  useEffect(() => {
+    window.addEventListener("pointerup", releaseCharge);
+    window.addEventListener("pointercancel", abortCharge);
+    return () => {
+      window.removeEventListener("pointerup", releaseCharge);
+      window.removeEventListener("pointercancel", abortCharge);
+    };
+  }, [releaseCharge, abortCharge]);
+
+  const startEmit = useCallback((glyph, ev, key) => {
+    ev?.preventDefault?.();
+    // Abort any in-flight charge (e.g. a second finger) before starting.
+    const prev = chargeRef.current;
+    if (prev?.timer) clearInterval(prev.timer);
     const cont = containerRef.current; if (!cont) return;
     const r = cont.getBoundingClientRect();
     // Vertical (right-edge) bar: anchor the fountain to the horizontal
@@ -210,13 +345,87 @@ export default function EmoteOverlay({
     const x01 = vertical
       ? 0.5
       : ev?.clientX != null ? (ev.clientX - r.left) / r.width : 0.5;
-    sendEmote(key, x01);
-    holdRef.current = {
-      timer: setInterval(() => {
-        sendEmote(key, x01 + (Math.random() * 0.04 - 0.02));
-      }, 80),
+    chargeRef.current = { glyph, key, x01, startT: performance.now(), streaming: false, lastStreamT: 0, timer: null };
+    chargeRef.current.timer = setInterval(() => {
+      const c = chargeRef.current;
+      if (!c) return;
+      const held = performance.now() - c.startT;
+      if (held < CLICK_MS) return; // still inside the single-tap window
+      if (c.streaming) {
+        // Past full charge: emit a constant stream until release.
+        if (held - c.lastStreamT >= STREAM_INTERVAL_MS) {
+          c.lastStreamT = held;
+          sendBurst(c.glyph, c.x01, c.key, STREAM_PER_TICK, false);
+        }
+        // Pulse the glow so the button reads as actively streaming.
+        setCharge({ glyph: c.glyph, level: 0.82 + 0.18 * (0.5 + 0.5 * Math.sin(held / 110)) });
+        return;
+      }
+      const level = Math.max(0, Math.min(1, (held - CLICK_MS) / (CHARGE_FULL_MS - CLICK_MS)));
+      setCharge({ glyph: c.glyph, level });
+      if (held >= CHARGE_FULL_MS) {
+        // Tip into stream mode; the first chunk carries the name pill.
+        c.streaming = true;
+        c.lastStreamT = held;
+        pushRecent(c.glyph);
+        sendBurst(c.glyph, c.x01, c.key, STREAM_PER_TICK, true);
+      }
+    }, 50);
+  }, [vertical, sendBurst, pushRecent]);
+
+  // Picker selection — always a single emote (no charge).
+  const pickEmote = useCallback((glyph) => {
+    sendEmote(glyph, 0.5);
+    pushRecent(glyph);
+    setPickerOpen(false);
+  }, [sendEmote, pushRecent]);
+
+  // Grow + amber glow on the button currently being charged.
+  function chargeStyleFor(glyph) {
+    if (charge?.glyph !== glyph) return undefined;
+    const l = charge.level;
+    return {
+      transform: `scale(${1 + 0.45 * l})`,
+      boxShadow: `0 0 ${10 + 28 * l}px rgba(250,204,21,${0.4 + 0.5 * l})`,
+      transition: "transform 60ms linear, box-shadow 60ms linear",
+      position: "relative",
+      zIndex: 1,
     };
-  }, [sendEmote, vertical]);
+  }
+
+  // Quick row: the six presets, then recently-used emojis that aren't
+  // already presets (capped so the bar stays compact).
+  const quick = [
+    ...EMOTES.map((e) => ({ glyph: e.glyph, key: e.key, label: e.key })),
+    ...recents
+      .filter((g) => !PRESET_GLYPHS.has(g))
+      .slice(0, 6)
+      .map((g) => ({ glyph: g, key: undefined, label: g })),
+  ];
+
+  const picker = pickerOpen && (
+    <Suspense fallback={null}>
+      <div
+        className="absolute pointer-events-auto rounded-xl overflow-hidden"
+        style={{
+          boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
+          ...(vertical
+            ? { right: 48, bottom: 8 }
+            : { left: "50%", transform: "translateX(-50%)", bottom: 64 }),
+        }}
+      >
+        <EmojiPicker
+          onEmojiClick={(d) => pickEmote(d.emoji)}
+          theme={dark ? "dark" : "light"}
+          width={300}
+          height={380}
+          lazyLoadEmojis
+          skinTonesDisabled
+          previewConfig={{ showPreview: false }}
+        />
+      </div>
+    </Suspense>
+  );
 
   return (
     <div
@@ -224,34 +433,53 @@ export default function EmoteOverlay({
       className="absolute inset-0 pointer-events-none"
       style={{ zIndex: 60, overflow: "hidden" }}
     >
+      {/* Click-away backdrop for the picker. */}
+      {pickerOpen && barPosition !== "hidden" && enabled && (
+        <div
+          className="absolute inset-0 pointer-events-auto"
+          onPointerDown={() => setPickerOpen(false)}
+        />
+      )}
+
       {barPosition !== "hidden" && enabled && vertical && (
         // Video overlay: a compact toggle pinned to the bottom-right
         // corner so it fits even the small PiP. Tap to pop the reactions
         // out upward as a vertical column; tap again to tuck them away.
         <div className="absolute right-2 bottom-2 flex flex-col items-center gap-1 pointer-events-auto">
+          {picker}
           {barOpen && (
             <div
               className="flex flex-col items-center gap-0.5 p-1 rounded-full"
               style={{ background: "#0f172a", boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)" }}
             >
-              {EMOTES.map((emo) => (
+              {quick.map((emo) => (
                 <button
-                  key={emo.key}
+                  key={emo.glyph}
                   type="button"
-                  onPointerDown={(e) => startEmit(emo.key, e)}
+                  onPointerDown={(e) => startEmit(emo.glyph, e, emo.key)}
                   className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/15"
-                  title={emo.key}
-                  aria-label={`Send ${emo.key} emote`}
-                  style={{ fontSize: 18 }}
+                  title={`${emo.label} — tap, hold for a burst, keep holding for a stream`}
+                  aria-label={`Send ${emo.label} emote`}
+                  style={{ fontSize: 18, ...chargeStyleFor(emo.glyph) }}
                 >
                   <span>{emo.glyph}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setPickerOpen((v) => !v)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white hover:bg-white/15"
+                title="More emojis"
+                aria-label="Pick any emoji"
+                aria-expanded={pickerOpen}
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             </div>
           )}
           <button
             type="button"
-            onClick={() => setBarOpen((v) => !v)}
+            onClick={() => { setBarOpen((v) => !v); setPickerOpen(false); }}
             className="w-9 h-9 rounded-full flex items-center justify-center text-white/90 hover:text-white shrink-0"
             style={{ background: "#0f172a", boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)" }}
             title={barOpen ? "Hide reactions" : "Send a reaction"}
@@ -262,28 +490,42 @@ export default function EmoteOverlay({
           </button>
         </div>
       )}
+
       {barPosition !== "hidden" && enabled && !vertical && (
         // Whiteboard: always-visible horizontal bar (plenty of room).
-        <div
-          className="absolute left-1/2 bottom-3 -translate-x-1/2 flex items-center gap-0.5 p-1.5 rounded-full pointer-events-auto"
-          style={{
-            background: "#0f172a",
-            boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
-          }}
-        >
-          {EMOTES.map((emo) => (
+        <div className="absolute left-1/2 bottom-3 -translate-x-1/2 flex flex-col items-center pointer-events-none">
+          {picker}
+          <div
+            className="flex items-center gap-0.5 p-1.5 rounded-full pointer-events-auto"
+            style={{
+              background: "#0f172a",
+              boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
+            }}
+          >
+            {quick.map((emo) => (
+              <button
+                key={emo.glyph}
+                type="button"
+                onPointerDown={(e) => startEmit(emo.glyph, e, emo.key)}
+                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/15 transition-transform"
+                title={`${emo.label} — tap once, or hold to charge a fountain`}
+                aria-label={`Send ${emo.label} emote`}
+                style={{ fontSize: 22, ...chargeStyleFor(emo.glyph) }}
+              >
+                <span>{emo.glyph}</span>
+              </button>
+            ))}
             <button
-              key={emo.key}
               type="button"
-              onPointerDown={(e) => startEmit(emo.key, e)}
-              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/15 transition-transform"
-              title={emo.key}
-              aria-label={`Send ${emo.key} emote`}
-              style={{ fontSize: 22 }}
+              onClick={() => setPickerOpen((v) => !v)}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white/80 hover:text-white hover:bg-white/15"
+              title="More emojis"
+              aria-label="Pick any emoji"
+              aria-expanded={pickerOpen}
             >
-              <span>{emo.glyph}</span>
+              <Plus className="w-5 h-5" />
             </button>
-          ))}
+          </div>
         </div>
       )}
     </div>

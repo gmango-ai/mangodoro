@@ -26,7 +26,7 @@ import {
 import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor, setPreferredStickyColor, STICKY_PALETTE, stickyHex, markNodeForEdit } from "../components/whiteboard/nodes";
 import { nodeAbsPos, sortParentsFirst, frameAt } from "../components/whiteboard/frame";
 import { useApp } from "../context/AppContext";
-import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine, connectedNodePlacement, siblingPlacement } from "../components/whiteboard/edges";
+import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine, connectedNodePlacement, siblingPlacement, nodeRect, projectToPerimeter, ANCHOR_TO_HANDLE } from "../components/whiteboard/edges";
 import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
 import { CollabCursors, PresenceStack } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
@@ -384,9 +384,10 @@ function WhiteboardEditor() {
   }, [board?.id, nodes, edges]);
 
   // ── handlers ──
-  const onConnect = useCallback((conn) => {
-    setEdges((eds) => addEdge({ ...conn, ...DEFAULT_EDGE_OPTIONS }, eds));
-  }, [setEdges]);
+  // Connection completion is handled entirely in onConnectEnd (so we can
+  // attach to ANY point on a node, not just its 4 handles). onConnect is a
+  // no-op to avoid a second, handle-snapped edge being created.
+  const onConnect = useCallback(() => {}, []);
 
   const onConnectStart = useCallback((evt, params) => {
     const e = evt && "touches" in evt ? evt.touches[0] : evt;
@@ -562,12 +563,6 @@ function WhiteboardEditor() {
   const patchNodeData = useCallback((patch) => {
     setNodes((nds) => nds.map((n) => (n.selected && n.type !== "zone") ? { ...n, data: { ...n.data, ...patch } } : n));
   }, [setNodes]);
-  const setNodeType = useCallback((type) => {
-    setNodes((nds) => nds.map((n) => (n.selected && n.type !== "zone") ? { ...n, type } : n));
-  }, [setNodes]);
-  const patchEdge = useCallback((patch) => {
-    setEdges((eds) => eds.map((e) => (e.selected ? { ...e, ...patch } : e)));
-  }, [setEdges]);
 
   // Title / goal / archive — same flow as the prior page, just leaning
   // on the existing setters in lib/whiteboard.
@@ -690,14 +685,7 @@ function WhiteboardEditor() {
               floating contextual toolbar (rendered on the edge itself). */}
           {selectedNode && (
             <NodeToolbar nodeId={selectedNode.id} isVisible position={Position.Top} offset={14} align="center">
-              <Inspector
-                node={selectedNode}
-                edge={null}
-                dark={dark}
-                patchNodeData={patchNodeData}
-                setNodeType={setNodeType}
-                patchEdge={patchEdge}
-              />
+              <Inspector node={selectedNode} patchNodeData={patchNodeData} />
             </NodeToolbar>
           )}
         </ReactFlow>
