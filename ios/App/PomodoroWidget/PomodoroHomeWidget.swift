@@ -46,6 +46,10 @@ struct PomodoroSnapshot {
     let endsAtEpochMs: Double
     let pausedSecondsLeft: Int?
     let accentColorHex: String?
+    // "pausing" | "resuming" while a widget tap's server round-trip is in
+    // flight, else nil. The widget shows a transition label instead of a
+    // (possibly stale) time until the authoritative state is mirrored back.
+    let transition: String?
 
     static func read() -> PomodoroSnapshot? {
         let defaults = UserDefaults(suiteName: "group.com.gmango.mangodoro")
@@ -62,7 +66,8 @@ struct PomodoroSnapshot {
             room: (roomRaw?.isEmpty == false) ? roomRaw : nil,
             endsAtEpochMs: obj["endsAtEpochMs"] as? Double ?? 0,
             pausedSecondsLeft: obj["pausedSecondsLeft"] as? Int,
-            accentColorHex: obj["accentColorHex"] as? String
+            accentColorHex: obj["accentColorHex"] as? String,
+            transition: obj["transition"] as? String
         )
     }
 }
@@ -120,7 +125,7 @@ struct PomodoroHomeWidgetView: View {
             HStack(spacing: 8) {
                 MangoMark().frame(width: 28, height: 28)
                 Spacer(minLength: 0)
-                statusPill(isRunning: s.isRunning)
+                statusPill(isRunning: s.isRunning, transition: s.transition)
             }
             Spacer(minLength: 0)
             if let room = s.room {
@@ -153,7 +158,7 @@ struct PomodoroHomeWidgetView: View {
                     .font(.headline)
                     .foregroundColor(.white)
                     .lineLimit(1)
-                statusPill(isRunning: s.isRunning)
+                statusPill(isRunning: s.isRunning, transition: s.transition)
                 Spacer(minLength: 0)
                 if #available(iOS 17.0, *) {
                     HomeControls(isRunning: s.isRunning)
@@ -199,8 +204,8 @@ struct PomodoroHomeWidgetView: View {
     }
 
     @ViewBuilder
-    private func statusPill(isRunning: Bool) -> some View {
-        let label = isRunning ? "Running" : "Paused"
+    private func statusPill(isRunning: Bool, transition: String?) -> some View {
+        let label = transition != nil ? "Syncing…" : (isRunning ? "Running" : "Paused")
         Text(label)
             .font(.caption2.weight(.semibold))
             .foregroundColor(.white)
@@ -255,7 +260,12 @@ private struct HomeCountdown: View {
     private static let intervalStart = Date(timeIntervalSince1970: 0)
 
     var body: some View {
-        if snapshot.isRunning, snapshot.endsAtEpochMs > 0 {
+        if let t = snapshot.transition {
+            // Round-trip in flight: show intent, not a (possibly stale) time —
+            // "Resuming…" before a resume, "Paused" the instant you pause. The
+            // real time fills in when the server's state is mirrored back.
+            Text(t == "resuming" ? "Resuming…" : "Paused")
+        } else if snapshot.isRunning, snapshot.endsAtEpochMs > 0 {
             let endsAt = Date(timeIntervalSince1970: snapshot.endsAtEpochMs / 1000.0)
             if endsAt > Date() {
                 Text(timerInterval: Self.intervalStart...endsAt, countsDown: true)

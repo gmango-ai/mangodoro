@@ -58,44 +58,37 @@ private func reloadHomeWidget() {
     WidgetCenter.shared.reloadTimelines(ofKind: "MangodoroHomeWidget")
 }
 
-// Mirror the edge function's toggle so we can repaint instantly. running →
-// paused (remaining seconds); paused → running (fresh end time).
-private func computeToggledState(_ state: [String: Any]) -> [String: Any] {
-    var next = state
-    let nowMs = Date().timeIntervalSince1970 * 1000
-    if state["isRunning"] as? Bool ?? false {
-        let endsAt = state["endsAtEpochMs"] as? Double ?? nowMs
-        next["isRunning"] = false
-        next["pausedSecondsLeft"] = Int(max(0, (endsAt - nowMs) / 1000))
-    } else {
-        let paused = state["pausedSecondsLeft"] as? Int ?? 0
-        next["isRunning"] = true
-        next["endsAtEpochMs"] = nowMs + Double(paused) * 1000
-        next.removeValue(forKey: "pausedSecondsLeft")
-    }
-    return next
-}
-
-// Optimistically reflect a toggle in the App Group + home widget BEFORE the
-// network round-trip, so the widget responds instantly. Returns the original
-// state JSON so a failed dispatch can revert. The round-trip's mirrorServerState
-// then overwrites with the server's authoritative state.
-private func applyOptimisticToggle() -> [String: Any]? {
+// Mark the toggle as IN PROGRESS in the App Group + home widget BEFORE the
+// network round-trip, so the widget gives instant, honest feedback: a tap on
+// pause flips the home widget to "Paused" / a tap on resume to "Resuming…"
+// right away, then fills in the authoritative time once the server confirms.
+//
+// We deliberately do NOT paint an optimistic *time* here (the old behavior):
+// the local state can be stale (the website may have changed the timer while
+// the app was backgrounded), so a computed time could be wrong and then
+// visibly "revert". A transition label only states intent, never a wrong
+// number; the real time arrives when mirrorServerState writes the server's
+// authoritative state (which has no `transition` key, so it clears this).
+//
+// Returns the ORIGINAL (pre-tap) state so the dispatch can revert on failure
+// and forward it as the fallback current_state.
+private func applyTransitionToggle() -> [String: Any]? {
     guard let defaults = UserDefaults(suiteName: appGroupID),
           let json = defaults.string(forKey: activityStateKey),
           let data = json.data(using: .utf8),
           let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     else { return nil }
-    let next = computeToggledState(state)
-    if let nextData = try? JSONSerialization.data(withJSONObject: next),
+    let wasRunning = state["isRunning"] as? Bool ?? false
+    let target = !wasRunning
+    var transitional = state
+    transitional["isRunning"] = target
+    transitional["transition"] = wasRunning ? "pausing" : "resuming"
+    if let nextData = try? JSONSerialization.data(withJSONObject: transitional),
        let nextJSON = String(data: nextData, encoding: .utf8) {
         defaults.set(nextJSON, forKey: activityStateKey)
-        defaults.set(next["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
+        defaults.set(target, forKey: lastToggleResultRunningKey)
         reloadHomeWidget()
     }
-    // Return the ORIGINAL (pre-toggle) state so the dispatch forwards it as
-    // current_state — otherwise the server would toggle our optimistic state
-    // a second time and flip the wrong way.
     return state
 }
 
@@ -308,7 +301,7 @@ struct ToggleTimerIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         log.notice("ToggleTimerIntent fired")
-        let original = applyOptimisticToggle()
+        let original = applyTransitionToggle()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
         await dispatchToggleAndReconcile(original: original)
         return .result()
@@ -354,7 +347,7 @@ struct HomeToggleTimerIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         log.notice("HomeToggleTimerIntent fired")
-        let original = applyOptimisticToggle()
+        let original = applyTransitionToggle()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
         Task.detached(priority: .userInitiated) {
             await dispatchToggleAndReconcile(original: original)
