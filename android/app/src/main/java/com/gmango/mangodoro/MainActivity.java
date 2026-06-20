@@ -1,6 +1,7 @@
 package com.gmango.mangodoro;
 
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 
 import com.getcapacitor.BridgeActivity;
@@ -11,6 +12,12 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(PersistentTimerPlugin.class);
         super.onCreate(savedInstanceState);
+        // Lock phones to portrait; tablets (smallest width >= 600dp) keep free
+        // rotation. lock_portrait is true in res/values and false in
+        // res/values-sw600dp.
+        if (getResources().getBoolean(R.bool.lock_portrait)) {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        }
         handleRoutingIntent(getIntent());
     }
 

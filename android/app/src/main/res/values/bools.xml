@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Phones lock to portrait. Overridden to false on tablets
+         (res/values-sw600dp/bools.xml), where rotation stays free. -->
+    <bool name="lock_portrait">true</bool>
+</resources>
