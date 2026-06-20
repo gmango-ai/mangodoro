@@ -23,44 +23,62 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
   const roomId = opts.roomId ?? null;
   const visibility = opts.visibility ?? (teamId ? "team" : "invite_only");
 
-  // Reset-to-zero: if this room still has an abandoned (all-stale)
-  // session, tear it down first. Otherwise we'd collide with the
-  // one-active-session-per-room unique index and inherit the ghost's
-  // frozen timer. A live session is left untouched (the insert below
-  // would then fail the unique index, surfacing as "could not start" —
-  // correct, since the caller should be joining, not starting).
+  let session;
   if (roomId) {
-    await supabase.rpc("reconcile_room_session", { p_room_id: roomId });
+    // Room sessions go through an atomic, advisory-locked RPC that does
+    // reconcile + find-or-create in one transaction. This removes the
+    // start-vs-start race on sync_sessions_one_active_per_room: concurrent
+    // starts (or a double-fire) queue on the per-room lock, so the loser
+    // gets back the existing session to JOIN instead of a 23505. The
+    // returned row may therefore be a session someone else just started —
+    // we join it below with ITS join_code, not our generated one.
+    const { data, error } = await supabase.rpc("start_or_join_room_session", {
+      p_room_id: roomId,
+      p_join_code: code,
+      p_team_id: teamId,
+      p_visibility: visibility,
+      p_control_mode: "leader",
+      p_durations: opts.durations ?? null,
+      p_auto_transition: opts.autoTransition ?? null,
+    });
+    if (error) return { error };
+    session = Array.isArray(data) ? data[0] : data;
+    if (!session?.join_code) return { error: { message: "Could not start or join the room session." } };
+  } else {
+    // Non-room (ad-hoc / invite-only) session: no per-room constraint, plain insert.
+    const insertRow = {
+      leader_id: userId,
+      controller_id: userId,
+      join_code: code,
+      team_id: teamId,
+      room_id: null,
+      visibility,
+      control_mode: "leader",
+    };
+    if (opts.durations) insertRow.durations = opts.durations;
+    if (opts.autoTransition !== undefined) insertRow.auto_transition = opts.autoTransition;
+    const { data, error } = await supabase
+      .from("sync_sessions")
+      .insert(insertRow)
+      .select()
+      .single();
+    if (error) return { error };
+    session = data;
   }
 
-  const insertRow = {
-    leader_id: userId,
-    controller_id: userId,
-    join_code: code,
-    team_id: teamId,
-    room_id: roomId,
-    visibility,
-    control_mode: "leader",
-  };
-  if (opts.durations) insertRow.durations = opts.durations;
-  if (opts.autoTransition !== undefined) insertRow.auto_transition = opts.autoTransition;
-  const { data: session, error } = await supabase
-    .from("sync_sessions")
-    .insert(insertRow)
-    .select()
-    .single();
-  if (error) return { error };
-
-  // Add self as participant via the security-definer RPC.
-  // This bypasses participant-insert RLS, which can otherwise silently fail
-  // for the creator (e.g. policy subqueries that depend on already-being-a-participant).
+  // Add self as participant via the security-definer RPC (idempotent).
+  // Bypasses participant-insert RLS, which can otherwise silently fail for
+  // the creator. Uses the resolved session's code — for a room start-or-join
+  // that may be the session someone else just created.
   const { error: joinErr } = await supabase.rpc("join_sync_session", {
-    p_join_code: code,
+    p_join_code: session.join_code,
     p_display_name: displayName,
   });
   if (joinErr) {
-    // Best-effort cleanup so we don't leave a session with no participants.
-    await supabase.from("sync_sessions").delete().eq("id", session.id);
+    // Only clean up a session we definitely created ourselves. A room
+    // session left participant-less is a ghost that the next
+    // start_or_join_room_session / sweep reconciles away, so we leave it.
+    if (!roomId) await supabase.from("sync_sessions").delete().eq("id", session.id);
     return { error: joinErr };
   }
 
