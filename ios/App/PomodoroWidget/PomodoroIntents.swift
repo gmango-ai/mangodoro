@@ -80,7 +80,7 @@ private func computeToggledState(_ state: [String: Any]) -> [String: Any] {
 // network round-trip, so the widget responds instantly. Returns the original
 // state JSON so a failed dispatch can revert. The round-trip's mirrorServerState
 // then overwrites with the server's authoritative state.
-private func applyOptimisticToggle() -> String? {
+private func applyOptimisticToggle() -> [String: Any]? {
     guard let defaults = UserDefaults(suiteName: appGroupID),
           let json = defaults.string(forKey: activityStateKey),
           let data = json.data(using: .utf8),
@@ -93,16 +93,18 @@ private func applyOptimisticToggle() -> String? {
         defaults.set(next["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
         reloadHomeWidget()
     }
-    return json
+    // Return the ORIGINAL (pre-toggle) state so the dispatch forwards it as
+    // current_state — otherwise the server would toggle our optimistic state
+    // a second time and flip the wrong way.
+    return state
 }
 
-private func revertOptimisticToggle(_ originalJSON: String?) {
-    guard let originalJSON, let defaults = UserDefaults(suiteName: appGroupID) else { return }
-    defaults.set(originalJSON, forKey: activityStateKey)
-    if let data = originalJSON.data(using: .utf8),
-       let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-        defaults.set(state["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
-    }
+private func revertOptimisticToggle(_ original: [String: Any]?) {
+    guard let original, let defaults = UserDefaults(suiteName: appGroupID),
+          let data = try? JSONSerialization.data(withJSONObject: original),
+          let json = String(data: data, encoding: .utf8) else { return }
+    defaults.set(json, forKey: activityStateKey)
+    defaults.set(original["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
     reloadHomeWidget()
 }
 
@@ -169,7 +171,7 @@ private func parseDispatchResponse(
 /// POSTs to `<supabaseUrl>/functions/v1/activity-action`. On success
 /// mirrors the server's new_state into the App Group for the next tap.
 @available(iOS 17.0, *)
-private func dispatchActivityAction(_ action: ActivityAction) async -> DispatchResult {
+private func dispatchActivityAction(_ action: ActivityAction, currentState: [String: Any]? = nil) async -> DispatchResult {
     guard let defaults = UserDefaults(suiteName: appGroupID) else {
         log.notice("activity-action: App Group unavailable")
         return .failed
@@ -196,13 +198,15 @@ private func dispatchActivityAction(_ action: ActivityAction) async -> DispatchR
         "secret": secret,
         "action": action.rawValue
     ]
-    // Forward the host's last-known content state if available so the
-    // server uses fresh state instead of whatever it had stored at last
-    // register/action. Covers in-app pause/resume that never round-tripped
-    // through the server.
-    if let stateJSON = defaults.string(forKey: activityStateKey),
-       let stateData = stateJSON.data(using: .utf8),
-       let stateObj = try? JSONSerialization.jsonObject(with: stateData) {
+    // Forward the host's last-known content state so the server toggles from
+    // the right state. Prefer the caller-supplied ORIGINAL state (so an
+    // optimistic local toggle doesn't make the server flip the wrong way);
+    // fall back to the mirrored App Group state.
+    if let currentState {
+        body["current_state"] = currentState
+    } else if let stateJSON = defaults.string(forKey: activityStateKey),
+              let stateData = stateJSON.data(using: .utf8),
+              let stateObj = try? JSONSerialization.jsonObject(with: stateData) {
         body["current_state"] = stateObj
     }
     do {
@@ -236,7 +240,7 @@ struct ToggleTimerIntent: LiveActivityIntent {
         // before the network round-trip confirms it.
         let original = applyOptimisticToggle()
 
-        let result = await dispatchActivityAction(.toggle)
+        let result = await dispatchActivityAction(.toggle, currentState: original)
 
         switch result {
         case .succeeded(let newState), .apnsFailed(let newState):
