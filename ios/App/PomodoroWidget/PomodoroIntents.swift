@@ -58,6 +58,54 @@ private func reloadHomeWidget() {
     WidgetCenter.shared.reloadTimelines(ofKind: "MangodoroHomeWidget")
 }
 
+// Mirror the edge function's toggle so we can repaint instantly. running →
+// paused (remaining seconds); paused → running (fresh end time).
+private func computeToggledState(_ state: [String: Any]) -> [String: Any] {
+    var next = state
+    let nowMs = Date().timeIntervalSince1970 * 1000
+    if state["isRunning"] as? Bool ?? false {
+        let endsAt = state["endsAtEpochMs"] as? Double ?? nowMs
+        next["isRunning"] = false
+        next["pausedSecondsLeft"] = Int(max(0, (endsAt - nowMs) / 1000))
+    } else {
+        let paused = state["pausedSecondsLeft"] as? Int ?? 0
+        next["isRunning"] = true
+        next["endsAtEpochMs"] = nowMs + Double(paused) * 1000
+        next.removeValue(forKey: "pausedSecondsLeft")
+    }
+    return next
+}
+
+// Optimistically reflect a toggle in the App Group + home widget BEFORE the
+// network round-trip, so the widget responds instantly. Returns the original
+// state JSON so a failed dispatch can revert. The round-trip's mirrorServerState
+// then overwrites with the server's authoritative state.
+private func applyOptimisticToggle() -> String? {
+    guard let defaults = UserDefaults(suiteName: appGroupID),
+          let json = defaults.string(forKey: activityStateKey),
+          let data = json.data(using: .utf8),
+          let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return nil }
+    let next = computeToggledState(state)
+    if let nextData = try? JSONSerialization.data(withJSONObject: next),
+       let nextJSON = String(data: nextData, encoding: .utf8) {
+        defaults.set(nextJSON, forKey: activityStateKey)
+        defaults.set(next["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
+        reloadHomeWidget()
+    }
+    return json
+}
+
+private func revertOptimisticToggle(_ originalJSON: String?) {
+    guard let originalJSON, let defaults = UserDefaults(suiteName: appGroupID) else { return }
+    defaults.set(originalJSON, forKey: activityStateKey)
+    if let data = originalJSON.data(using: .utf8),
+       let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        defaults.set(state["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
+    }
+    reloadHomeWidget()
+}
+
 private enum ActivityAction: String {
     case toggle
     case stop
@@ -184,6 +232,10 @@ struct ToggleTimerIntent: LiveActivityIntent {
     func perform() async throws -> some IntentResult {
         log.notice("ToggleTimerIntent fired")
 
+        // Instant feedback: repaint the home widget from the toggled state
+        // before the network round-trip confirms it.
+        let original = applyOptimisticToggle()
+
         let result = await dispatchActivityAction(.toggle)
 
         switch result {
@@ -196,7 +248,8 @@ struct ToggleTimerIntent: LiveActivityIntent {
             reloadHomeWidget()
             log.notice("ToggleTimerIntent ok nowRunning=\(nowRunning)")
         case .failed:
-            log.notice("ToggleTimerIntent failed — flags unchanged")
+            revertOptimisticToggle(original)
+            log.notice("ToggleTimerIntent failed — reverted optimistic toggle")
         }
 
         return .result()
