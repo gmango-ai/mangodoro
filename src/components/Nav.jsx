@@ -195,6 +195,14 @@ export default function Nav({ onOpenPomodoro }) {
             ? "border-r bg-[var(--color-surface)] border-[var(--color-border)]"
             : "bg-white border-r border-slate-200"
         }`}
+        // The drawer is pinned to the very top/bottom of the screen, so its
+        // first/last rows would otherwise sit under the Dynamic Island and
+        // the home indicator. Inset its content by the safe areas (the drawer
+        // background still fills behind them).
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
         aria-hidden={!sidebarOpen}
       >
         <div className={`flex items-center justify-between px-4 py-3 border-b ${

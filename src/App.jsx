@@ -145,7 +145,13 @@ function AppLayout({ session }) {
 
   return (
     <div>
-      <div className="relative min-h-screen w-full overflow-hidden transition-colors duration-300">
+      {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis
+          here makes this div a scroll container, which traps the sticky
+          <header> so it scrolls away and lets content slide under the
+          Dynamic Island. `clip` on the x-axis alone keeps the decorative
+          glows from causing horizontal scroll without establishing a
+          scroll container, so the header stays pinned to the viewport. */}
+      <div className="relative min-h-screen w-full overflow-x-clip transition-colors duration-300">
         {/*
           Animated background glows tinted by the user's accent (and its
           color-theory partner --color-break). We use color-mix() against
