@@ -285,6 +285,9 @@ private struct ToggleButton: View {
                     .foregroundColor(.white)
             }
             .frame(width: size, height: size)
+            // Generous invisible hit area so the button is easy to hit
+            // quickly even though the visible circle stays compact.
+            .padding(9)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -305,6 +308,7 @@ private struct StopButton: View {
                     .foregroundColor(.white)
             }
             .frame(width: size, height: size)
+            .padding(9)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

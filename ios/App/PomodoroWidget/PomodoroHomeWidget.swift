@@ -238,7 +238,8 @@ private struct HomeControls: View {
                 .foregroundColor(.white)
                 .frame(width: size, height: size)
                 .background(Circle().fill(Color.white.opacity(fill)))
-                .contentShape(Circle())
+                .padding(7)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
