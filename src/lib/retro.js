@@ -45,22 +45,21 @@ export async function listCurrentWeekRetros(teamId) {
   return { data: data || [], error };
 }
 
-// Fetch the retros whose `goal` field defines THIS WEEK's focus.
-// Because retros are set at the end of a week for the next week,
-// this means the retros from the previous ISO week. Used by the
-// office sidebar widget + the floating pomodoro modal so the user
-// sees "what we said we'd do this week" rather than "what we'll
-// decide for next week."
-export async function listGoalsForCurrentWeek(teamId) {
+// Fetch the goals a team has marked as "current" (goal_shown = true) —
+// the ones surfaced in the pomodoro + office goal displays. A team can
+// show one or several at once; an admin controls which from the retro
+// page. Because it's an explicit flag, a freshly-set goal shows up the
+// moment it's flagged, with no waiting for the next ISO week. Newest
+// first.
+export async function listShownGoals(teamId) {
   if (!teamId) return { data: [], error: null };
-  const lastWeek = new Date();
-  lastWeek.setDate(lastWeek.getDate() - 7);
-  const weekStart = isoMonday(lastWeek);
   const { data, error } = await supabase
     .from("retros")
     .select("*")
     .eq("team_id", teamId)
-    .eq("week_start", weekStart);
+    .eq("goal_shown", true)
+    .neq("goal", "")
+    .order("goal_updated_at", { ascending: false, nullsFirst: false });
   return { data: data || [], error };
 }
 
@@ -110,6 +109,17 @@ export async function setRetroGoal(retroId, goal) {
   const { error } = await supabase.rpc("set_retro_goal", {
     p_retro_id: retroId,
     p_goal: goal ?? "",
+  });
+  return { error };
+}
+
+// Admin-only: mark a retro's goal as shown (or not) as a current goal in
+// the pomodoro + office displays. Independent of the goal text and of
+// whether the retro is live, so a past goal can be pinned too.
+export async function setRetroGoalShown(retroId, shown) {
+  const { error } = await supabase.rpc("set_retro_goal_shown", {
+    p_retro_id: retroId,
+    p_shown: !!shown,
   });
   return { error };
 }

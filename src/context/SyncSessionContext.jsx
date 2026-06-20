@@ -35,6 +35,7 @@ const METADATA_FIELDS = [
   "team_id",
   "room_id",
   "retro_id",
+  "whiteboard_id",
   "expires_at",
   // Meeting timer — server time + duration; clients compute remaining locally.
   "meeting_timer_started_at",

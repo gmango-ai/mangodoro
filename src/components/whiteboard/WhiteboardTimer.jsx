@@ -16,14 +16,46 @@ const TRACKS = [
   { id: "focus",   label: "Focus Flow",       src: "/music/focus-flow.mp3" },
   { id: "workout", label: "Workout",          src: "/music/workout.mp3" },
 ];
+// A track is always selected — silence is per-person via the mute button.
+const DEFAULT_TRACK_ID = "tokyo";
 const DURATIONS = [1, 2, 3, 5, 10, 15, 20, 30]; // minutes
+const WRAP_UP_SECONDS = 15; // soft per-second ticks over the final stretch
 
 function fmt(sec) {
   const s = Math.max(0, Math.ceil(sec));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function beep() {
+// A short "time's up" chime — three ascending notes. Synthesized so it
+// never has to load a file and can't be silently swallowed the way the
+// looping background track was.
+function chime() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const notes = [659.25, 880, 1174.66]; // E5 · A5 · D6
+    const noteDur = 0.18;
+    notes.forEach((freq, i) => {
+      const t0 = ctx.currentTime + i * noteDur;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = "sine";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.2, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + noteDur);
+      o.start(t0);
+      o.stop(t0 + noteDur + 0.02);
+    });
+    setTimeout(() => { try { ctx.close(); } catch { /* */ } }, (notes.length * noteDur + 0.3) * 1000);
+  } catch { /* */ }
+}
+
+// A soft, short tick for the final wrap-up countdown — percussive enough to
+// notice over the music, quiet enough not to nag.
+function tick() {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
@@ -31,10 +63,15 @@ function beep() {
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.connect(g); g.connect(ctx.destination);
-    o.type = "sine"; o.frequency.value = 880; g.gain.value = 0.08;
-    o.start();
-    setTimeout(() => { o.frequency.value = 1320; }, 180);
-    setTimeout(() => { o.stop(); ctx.close(); }, 420);
+    o.type = "triangle";
+    o.frequency.value = 1200;
+    const t0 = ctx.currentTime;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.06);
+    o.start(t0);
+    o.stop(t0 + 0.08);
+    setTimeout(() => { try { ctx.close(); } catch { /* */ } }, 150);
   } catch { /* */ }
 }
 
@@ -43,12 +80,13 @@ export default function WhiteboardTimer({ boardId, dark }) {
   const [pausedRemaining, setPausedRemaining] = useState(null);
   const [lastDuration, setLastDuration] = useState(5 * 60);
   const [now, setNow] = useState(() => Date.now());
-  const [trackId, setTrackId] = useState(null);
+  const [trackId, setTrackId] = useState(DEFAULT_TRACK_ID);
   const [muted, setMuted] = useState(false);
   const [menu, setMenu] = useState(null); // "length" | "music"
   const chanRef = useRef(null);
   const audioRef = useRef(null);
   const doneRef = useRef(false);
+  const lastTickRef = useRef(null);
 
   const running = endsAt != null;
   const paused = pausedRemaining != null;
@@ -63,16 +101,30 @@ export default function WhiteboardTimer({ boardId, dark }) {
   }, [running]);
 
   useEffect(() => {
-    if (finished && !doneRef.current) { doneRef.current = true; beep(); }
+    if (finished && !doneRef.current) { doneRef.current = true; chime(); }
     if (!finished && remaining > 0.5) doneRef.current = false;
   }, [finished, remaining]);
+
+  // Soft per-second ticks over the final stretch so people know to wrap up.
+  useEffect(() => {
+    const inWrapUp = running && !finished && remaining > 0 && remaining <= WRAP_UP_SECONDS;
+    if (!inWrapUp) {
+      if (!running || remaining > WRAP_UP_SECONDS) lastTickRef.current = null; // re-arm
+      return;
+    }
+    const sec = Math.ceil(remaining); // matches the displayed countdown number
+    if (sec !== lastTickRef.current) {
+      lastTickRef.current = sec;
+      if (!muted) tick();
+    }
+  }, [remaining, running, finished, muted]);
 
   // Shared timer + music-track state on a board-scoped channel.
   const applyState = useCallback((p, fromPeer) => {
     setEndsAt(p.endsAt ?? null);
     setPausedRemaining(p.pausedRemaining ?? null);
     if (p.lastDuration) setLastDuration(p.lastDuration);
-    if ("trackId" in p) setTrackId(p.trackId ?? null);
+    if ("trackId" in p) setTrackId(p.trackId ?? DEFAULT_TRACK_ID);
     setNow(Date.now());
     doneRef.current = false;
     if (!fromPeer) {
@@ -90,7 +142,9 @@ export default function WhiteboardTimer({ boardId, dark }) {
     return () => { try { supabase.removeChannel(ch); } catch { /* */ } chanRef.current = null; };
   }, [boardId, applyState]);
 
-  // Music follows the timer: loops while running (unless this person muted).
+  // Music follows the timer: loops while it's actively counting down (unless
+  // this person muted). When the timer hits zero (`finished`) we pause so the
+  // track doesn't loop forever — the chime takes over from here.
   useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
@@ -98,9 +152,9 @@ export default function WhiteboardTimer({ boardId, dark }) {
     if (!track) { a.pause(); return; }
     if (a.getAttribute("src") !== track.src) a.src = track.src;
     a.volume = 0.4;
-    if (running && !muted) a.play().catch(() => { /* autoplay blocked until a gesture */ });
+    if (running && !finished && !muted) a.play().catch(() => { /* autoplay blocked until a gesture */ });
     else a.pause();
-  }, [trackId, running, muted]);
+  }, [trackId, running, finished, muted]);
 
   const base = { lastDuration, trackId };
   const start = useCallback(() => applyState({ ...base, endsAt: Date.now() + lastDuration * 1000, pausedRemaining: null }), [applyState, lastDuration, trackId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -181,7 +235,6 @@ export default function WhiteboardTimer({ boardId, dark }) {
             {TRACKS.map((t) => (
               <button key={t.id} type="button" onClick={() => pickTrack(t.id)} className={itemCls(trackId === t.id)}>{t.label}</button>
             ))}
-            <button type="button" onClick={() => pickTrack(null)} className={itemCls(!trackId)}>No music</button>
           </div>
         )}
       </div>

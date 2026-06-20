@@ -577,7 +577,7 @@ export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode 
   const fp = fromPosition || "right";
 
   // Is the cursor over an existing node? If so we'll connect to it at the
-  // exact projected point (snap to any side), so preview THAT instead of
+  // exact projected point (snap to any side), so preview that instead of
   // the new-node ghost.
   let over = null;
   for (const n of getNodes()) {

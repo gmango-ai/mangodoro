@@ -233,17 +233,23 @@ function freshId(prefix) {
 }
 
 export default function WhiteboardPage() {
-  // Wrap the actual editor in ReactFlowProvider so the toolbar/buttons
-  // outside <ReactFlow /> can still call useReactFlow().
+  const { whiteboardId } = useParams();
+  return <WhiteboardBoard boardId={whiteboardId} />;
+}
+
+// Reusable board: the full editor wrapped in its own ReactFlowProvider so
+// it can be dropped into the /whiteboards route (above) OR a room panel
+// tile. `embedded` trims page-only chrome (back link, archive, full-
+// viewport height) so it fits inside an arbitrary container.
+export function WhiteboardBoard({ boardId, embedded = false }) {
   return (
     <ReactFlowProvider>
-      <WhiteboardEditor />
+      <WhiteboardEditor boardId={boardId} embedded={embedded} />
     </ReactFlowProvider>
   );
 }
 
-function WhiteboardEditor() {
-  const { whiteboardId } = useParams();
+function WhiteboardEditor({ boardId, embedded = false }) {
   const { theme } = useTheme();
   const { isAdmin } = useTeam();
   const navigate = useNavigate();
@@ -252,6 +258,10 @@ function WhiteboardEditor() {
   const [board, setBoard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // When embedded in a small room tile, shed the heavier chrome (minimap,
+  // goal banner, badges) so the canvas stays usable.
+  const mainRef = useRef(null);
+  const [compact, setCompact] = useState(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -269,6 +279,19 @@ function WhiteboardEditor() {
   useEffect(() => {
     try { localStorage.setItem("ql_wb_emote_bar", emoteBarOn ? "1" : "0"); } catch { /* */ }
   }, [emoteBarOn]);
+
+  // Track the board's own size (only when embedded) to toggle compact chrome.
+  useEffect(() => {
+    if (!embedded) { setCompact(false); return; }
+    const el = mainRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect();
+      setCompact(r.width < 760 || r.height < 520);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [embedded, board?.id, loading]);
 
   const lastSavedRef = useRef("");
   const saveTimerRef = useRef(null);
@@ -297,9 +320,9 @@ function WhiteboardEditor() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!whiteboardId) return;
+      if (!boardId) return;
       setLoading(true); setError("");
-      const { data, error: err } = await fetchWhiteboardById(whiteboardId);
+      const { data, error: err } = await fetchWhiteboardById(boardId);
       if (cancelled) return;
       if (err || !data) {
         setError(err?.message || "Whiteboard not found.");
@@ -333,7 +356,7 @@ function WhiteboardEditor() {
     load();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [whiteboardId]);
+  }, [boardId]);
 
   // ── debounced save on every node / edge change ──
   // We collapse rapid edits into a single network call. The save is
@@ -594,12 +617,6 @@ function WhiteboardEditor() {
   const patchNodeData = useCallback((patch) => {
     setNodes((nds) => nds.map((n) => (n.selected && n.type !== "zone") ? { ...n, data: { ...n.data, ...patch } } : n));
   }, [setNodes]);
-  const setNodeType = useCallback((type) => {
-    setNodes((nds) => nds.map((n) => (n.selected && n.type !== "zone") ? { ...n, type } : n));
-  }, [setNodes]);
-  const patchEdge = useCallback((patch) => {
-    setEdges((eds) => eds.map((e) => (e.selected ? { ...e, ...patch } : e)));
-  }, [setEdges]);
 
   // Title / goal / archive — same flow as the prior page, just leaning
   // on the existing setters in lib/whiteboard.
@@ -633,9 +650,10 @@ function WhiteboardEditor() {
   );
 
   // ── early returns ──
+  const frameCls = embedded ? "w-full h-full p-4 space-y-3" : "px-4 pt-6 pb-6 max-w-[1400px] mx-auto space-y-3";
   if (loading) {
     return (
-      <main className="px-4 pt-6 pb-6 max-w-[1400px] mx-auto space-y-3">
+      <main className={frameCls}>
         <Skeleton className="h-7 w-48" />
         <Skeleton className="h-12 w-full" />
         <Skeleton className="h-[640px] w-full" />
@@ -644,10 +662,12 @@ function WhiteboardEditor() {
   }
   if (!board) {
     return (
-      <main className="px-4 pt-6 pb-6 max-w-[1400px] mx-auto space-y-3">
-        <Link to="/whiteboards" className="inline-flex items-center gap-1 text-sm text-[var(--color-accent)]">
-          <ArrowLeft className="w-4 h-4" /> Back to whiteboards
-        </Link>
+      <main className={frameCls}>
+        {!embedded && (
+          <Link to="/whiteboards" className="inline-flex items-center gap-1 text-sm text-[var(--color-accent)]">
+            <ArrowLeft className="w-4 h-4" /> Back to whiteboards
+          </Link>
+        )}
         <p className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
           {error || "Whiteboard not found, or you don't have access."}
         </p>
@@ -661,7 +681,11 @@ function WhiteboardEditor() {
     saveState === "dirty" ? "Unsaved" : "";
 
   return (
-    <main className="relative w-full h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] overflow-hidden" onPointerMove={onWbPointerMove}>
+    <main
+      ref={mainRef}
+      className={`relative w-full overflow-hidden ${embedded ? "h-full" : "h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)]"}`}
+      onPointerMove={onWbPointerMove}
+    >
         <EdgeMarkerDefs />
         <ReactFlow
           nodes={nodes}
@@ -689,7 +713,7 @@ function WhiteboardEditor() {
         >
           <Background gap={26} size={1.6} color={dark ? "rgba(255,255,255,.06)" : "rgba(120,80,20,.14)"} />
           <Controls position="bottom-left" />
-          <MiniMap pannable zoomable position="bottom-right" />
+          {!compact && <MiniMap pannable zoomable position="bottom-right" />}
           <CollabCursors peers={peers} />
           <PresenceStack members={members} dark={dark} />
 
@@ -722,14 +746,7 @@ function WhiteboardEditor() {
               floating contextual toolbar (rendered on the edge itself). */}
           {selectedNode && (
             <NodeToolbar nodeId={selectedNode.id} isVisible position={Position.Top} offset={14} align="center">
-              <Inspector
-                node={selectedNode}
-                edge={null}
-                dark={dark}
-                patchNodeData={patchNodeData}
-                setNodeType={setNodeType}
-                patchEdge={patchEdge}
-              />
+              <Inspector node={selectedNode} patchNodeData={patchNodeData} />
             </NodeToolbar>
           )}
         </ReactFlow>
@@ -742,14 +759,18 @@ function WhiteboardEditor() {
             className="flex items-center gap-2 px-2.5 py-1.5 rounded-2xl border shadow-md"
             style={{ background: dark ? "var(--color-surface)" : "#fff", borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
           >
-            <Link
-              to="/whiteboards"
-              title="Back to whiteboards"
-              className={`inline-flex items-center gap-1 text-xs shrink-0 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
-            <div className={`w-px h-4 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+            {!embedded && (
+              <>
+                <Link
+                  to="/whiteboards"
+                  title="Back to whiteboards"
+                  className={`inline-flex items-center gap-1 text-xs shrink-0 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </Link>
+                <div className={`w-px h-4 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+              </>
+            )}
             {titleEditing ? (
               <div className="flex items-center gap-1.5">
                 <input
@@ -777,7 +798,7 @@ function WhiteboardEditor() {
                 </button>
               </span>
             )}
-            {template && (
+            {template && !compact && (
               <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-accent-light)] text-[var(--color-accent)] shrink-0">
                 {template.name}
               </span>
@@ -785,18 +806,22 @@ function WhiteboardEditor() {
             {saveLabel && (
               <span className={`text-[11px] shrink-0 ${dark ? "text-slate-500" : "text-slate-400"}`}>{saveLabel}</span>
             )}
-            <div className={`w-px h-4 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
-            <button
-              type="button"
-              onClick={() => setEmoteBarOn((v) => !v)}
-              title={emoteBarOn ? "Hide reactions bar" : "Show reactions bar"}
-              aria-label={emoteBarOn ? "Hide reactions bar" : "Show reactions bar"}
-              aria-pressed={emoteBarOn}
-              className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${emoteBarOn ? "text-[var(--color-accent)] bg-[var(--color-accent-light)]" : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}
-            >
-              <Smile className="w-4 h-4" />
-            </button>
-            {isAdmin && (
+            {!compact && (
+              <>
+                <div className={`w-px h-4 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+                <button
+                  type="button"
+                  onClick={() => setEmoteBarOn((v) => !v)}
+                  title={emoteBarOn ? "Hide reactions bar" : "Show reactions bar"}
+                  aria-label={emoteBarOn ? "Hide reactions bar" : "Show reactions bar"}
+                  aria-pressed={emoteBarOn}
+                  className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${emoteBarOn ? "text-[var(--color-accent)] bg-[var(--color-accent-light)]" : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}
+                >
+                  <Smile className="w-4 h-4" />
+                </button>
+              </>
+            )}
+            {isAdmin && !embedded && (
               <button
                 type="button"
                 onClick={handleArchive}
@@ -823,7 +848,7 @@ function WhiteboardEditor() {
           className="absolute left-1/2 -translate-x-1/2 top-3 z-30 flex items-stretch gap-3 max-w-[calc(100%-32px)]"
           style={{ pointerEvents: "none" }}
         >
-          {template?.hasGoal && (
+          {template?.hasGoal && !compact && (
             <div
               className="flex items-center gap-3 pl-3 pr-4 py-2 rounded-2xl shadow-md min-w-0 max-w-[520px]"
               style={{
@@ -883,7 +908,7 @@ function WhiteboardEditor() {
             is toggleable; peers' emotes still render when it's hidden. */}
         <EmoteOverlay
           channelKey={`whiteboard:${board.id}`}
-          barPosition={emoteBarOn ? "bottom-center" : "hidden"}
+          barPosition={emoteBarOn && !compact ? "bottom-center" : "hidden"}
         />
     </main>
   );
