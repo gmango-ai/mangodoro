@@ -449,7 +449,10 @@ export default function EmoteOverlay({
           {picker}
           {barOpen && (
             <div
-              className="flex flex-col items-center gap-0.5 p-1 rounded-full"
+              // select-none + touch-callout:none so long-pressing an emote
+              // (to charge a burst) doesn't select the glyph as text or pop
+              // the iOS callout menu.
+              className="flex flex-col items-center gap-0.5 p-1 rounded-full select-none [-webkit-touch-callout:none]"
               style={{ background: "#0f172a", boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)" }}
             >
               {quick.map((emo) => (
@@ -496,7 +499,9 @@ export default function EmoteOverlay({
         <div className="absolute left-1/2 bottom-3 -translate-x-1/2 flex flex-col items-center pointer-events-none">
           {picker}
           <div
-            className="flex items-center gap-0.5 p-1.5 rounded-full pointer-events-auto"
+            // select-none + touch-callout:none so long-pressing an emote
+            // doesn't select the glyph as text or pop the iOS callout menu.
+            className="flex items-center gap-0.5 p-1.5 rounded-full pointer-events-auto select-none [-webkit-touch-callout:none]"
             style={{
               background: "#0f172a",
               boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
