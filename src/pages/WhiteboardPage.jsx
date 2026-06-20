@@ -683,7 +683,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   return (
     <main
       ref={mainRef}
-      className={`relative w-full overflow-hidden ${embedded ? "h-full" : "h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)]"}`}
+      // Subtract the nav bar (3.5rem mobile / 4rem desktop) AND the top
+      // safe-area inset. Without the env() term the canvas is ~59px too tall
+      // on Dynamic Island phones, which pushes the top timer ribbon under the
+      // nav and the bottom emote/emoji island below the fold (you'd have to
+      // scroll to reach it). env() resolves to 0 on desktop, so it's a no-op
+      // there.
+      className={`relative w-full overflow-hidden ${embedded ? "h-full" : "h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] sm:h-[calc(100dvh-4rem-env(safe-area-inset-top))]"}`}
       onPointerMove={onWbPointerMove}
     >
         <EdgeMarkerDefs />
