@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ClipboardList, Search, Target, X as XIcon } from "lucide-react";
+import { ClipboardList, Search, PenLine, X as XIcon } from "lucide-react";
 import {
   DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors,
   useDraggable, useDroppable,
@@ -8,10 +8,9 @@ import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
-import { unlinkRetroFromSession } from "../../lib/syncSession";
+import { unlinkWhiteboardFromSession } from "../../lib/syncSession";
 import { useWidgetOrder } from "../../hooks/useWidgetOrder";
-import RetroPicker from "./RetroPicker";
-import TimerWidget from "./TimerWidget";
+import WhiteboardPicker from "./WhiteboardPicker";
 import PomodoroWidget from "./PomodoroWidget";
 import GoalsWidget from "./GoalsWidget";
 import RoomMembersWidget from "./RoomMembersWidget";
@@ -46,11 +45,10 @@ export default function WidgetsSidebar() {
   // so an id with no entry (stale localStorage from a removed widget)
   // is harmlessly skipped.
   const widgetById = {
-    timer:        () => <TimerWidget dark={dark} />,
     pomodoro:     () => <PomodoroWidget dark={dark} />,
     "room-members": () => <RoomMembersWidget dark={dark} />,
     goals:        () => <GoalsWidget dark={dark} />,
-    retro:        () => <RetroWidget dark={dark} />,
+    whiteboard:   () => <WhiteboardWidget dark={dark} />,
     tasks:        () => <TasksWidget dark={dark} />,
   };
 
@@ -125,63 +123,64 @@ function SortableSlot({ id, children }) {
   );
 }
 
-// Retro link picker. WidgetSection owns the chrome + drag handle.
-function RetroWidget({ dark }) {
+// Whiteboard link picker. WidgetSection owns the chrome + drag handle.
+// (Replaces the deprecated retro widget — the whiteboard is now what a
+// room attaches for shared work.)
+function WhiteboardWidget({ dark }) {
   const { session } = useApp();
   const { syncSession, leaderPresent } = useSyncSession();
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const userId = session?.user?.id;
   const inSession = !!syncSession;
-  const linkedRetroId = inSession ? (syncSession.retro_id || null) : null;
+  const linkedId = inSession ? (syncSession.whiteboard_id || null) : null;
   const isLeader = inSession && syncSession.leader_id === userId;
   // Host away (no fresh heartbeat) → any present member can attach a
-  // retro, so the group isn't blocked from starting one. Mirrors the
-  // server's claim_session_lead fallback.
+  // board, so the group isn't blocked. Mirrors the server's leader fallback.
   const canLead = inSession && (isLeader || !leaderPresent);
 
   async function unlink() {
     if (!syncSession?.id) return;
-    await unlinkRetroFromSession(syncSession.id);
+    await unlinkWhiteboardFromSession(syncSession.id);
   }
 
   return (
-    <WidgetSection id="retro" icon={Target} title="Retro" dark={dark}>
+    <WidgetSection id="whiteboard" icon={PenLine} title="Whiteboard" dark={dark}>
       {!inSession && (
         <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-          Join a session to attach a retro everyone can see.
+          Join a session to attach a whiteboard everyone can see.
         </p>
       )}
 
-      {inSession && !linkedRetroId && canLead && (
+      {inSession && !linkedId && canLead && (
         <Button
           type="button"
           onClick={() => setPickerOpen(true)}
           className="w-full justify-start"
           size="sm"
         >
-          <Target className="w-3.5 h-3.5 mr-2" />
-          Start a retro
+          <PenLine className="w-3.5 h-3.5 mr-2" />
+          Attach a whiteboard
         </Button>
       )}
 
-      {inSession && !linkedRetroId && !canLead && (
+      {inSession && !linkedId && !canLead && (
         <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-          The host can attach a retro for the group.
+          The host can attach a whiteboard for the group.
         </p>
       )}
 
-      {linkedRetroId && (
+      {linkedId && (
         <div className="space-y-2">
           <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold w-full bg-[var(--color-accent-light)] text-[var(--color-accent)]">
-            <Target className="w-3 h-3" fill="currentColor" />
-            <span className="truncate flex-1">Retro attached</span>
+            <PenLine className="w-3 h-3" />
+            <span className="truncate flex-1">Whiteboard attached</span>
             {canLead && (
               <button
                 type="button"
                 onClick={unlink}
-                aria-label="Unlink retro"
-                title="Unlink retro"
+                aria-label="Unlink whiteboard"
+                title="Unlink whiteboard"
                 className="p-0.5 rounded-full hover:bg-[var(--color-accent)]/15"
               >
                 <XIcon className="w-3 h-3" />
@@ -189,12 +188,12 @@ function RetroWidget({ dark }) {
             )}
           </div>
           <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-            Pick "Retro" in the room view-mode pill to take over the screen.
+            Pick a "Whiteboard" layout in the room's layout menu to focus it.
           </p>
         </div>
       )}
 
-      <RetroPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
+      <WhiteboardPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
     </WidgetSection>
   );
 }

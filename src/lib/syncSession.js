@@ -129,6 +129,22 @@ export async function unlinkRetroFromSession(sessionId) {
   return { error };
 }
 
+// Attach / detach a whiteboard to the active session — same leader-only
+// contract as the retro link (see 20260619160000_sync_session_whiteboard).
+export async function linkWhiteboardToSession(sessionId, whiteboardId) {
+  const { error } = await supabase.rpc("link_whiteboard_to_session", {
+    p_session_id: sessionId,
+    p_whiteboard_id: whiteboardId,
+  });
+  return { error };
+}
+export async function unlinkWhiteboardFromSession(sessionId) {
+  const { error } = await supabase.rpc("unlink_whiteboard_from_session", {
+    p_session_id: sessionId,
+  });
+  return { error };
+}
+
 // Meeting timer — leader-only controls. The timer state lives on
 // sync_sessions and is broadcast to everyone via realtime; per-client
 // math turns started_at + duration into a live countdown.

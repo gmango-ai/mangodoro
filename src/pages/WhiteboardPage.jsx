@@ -233,17 +233,23 @@ function freshId(prefix) {
 }
 
 export default function WhiteboardPage() {
-  // Wrap the actual editor in ReactFlowProvider so the toolbar/buttons
-  // outside <ReactFlow /> can still call useReactFlow().
+  const { whiteboardId } = useParams();
+  return <WhiteboardBoard boardId={whiteboardId} />;
+}
+
+// Reusable board: the full editor wrapped in its own ReactFlowProvider so
+// it can be dropped into the /whiteboards route (above) OR a room panel
+// tile. `embedded` trims page-only chrome (back link, archive, full-
+// viewport height) so it fits inside an arbitrary container.
+export function WhiteboardBoard({ boardId, embedded = false }) {
   return (
     <ReactFlowProvider>
-      <WhiteboardEditor />
+      <WhiteboardEditor boardId={boardId} embedded={embedded} />
     </ReactFlowProvider>
   );
 }
 
-function WhiteboardEditor() {
-  const { whiteboardId } = useParams();
+function WhiteboardEditor({ boardId, embedded = false }) {
   const { theme } = useTheme();
   const { isAdmin } = useTeam();
   const navigate = useNavigate();
@@ -297,9 +303,9 @@ function WhiteboardEditor() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!whiteboardId) return;
+      if (!boardId) return;
       setLoading(true); setError("");
-      const { data, error: err } = await fetchWhiteboardById(whiteboardId);
+      const { data, error: err } = await fetchWhiteboardById(boardId);
       if (cancelled) return;
       if (err || !data) {
         setError(err?.message || "Whiteboard not found.");
@@ -333,7 +339,7 @@ function WhiteboardEditor() {
     load();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [whiteboardId]);
+  }, [boardId]);
 
   // ── debounced save on every node / edge change ──
   // We collapse rapid edits into a single network call. The save is
@@ -596,9 +602,10 @@ function WhiteboardEditor() {
   );
 
   // ── early returns ──
+  const frameCls = embedded ? "w-full h-full p-4 space-y-3" : "px-4 pt-6 pb-6 max-w-[1400px] mx-auto space-y-3";
   if (loading) {
     return (
-      <main className="px-4 pt-6 pb-6 max-w-[1400px] mx-auto space-y-3">
+      <main className={frameCls}>
         <Skeleton className="h-7 w-48" />
         <Skeleton className="h-12 w-full" />
         <Skeleton className="h-[640px] w-full" />
@@ -607,10 +614,12 @@ function WhiteboardEditor() {
   }
   if (!board) {
     return (
-      <main className="px-4 pt-6 pb-6 max-w-[1400px] mx-auto space-y-3">
-        <Link to="/whiteboards" className="inline-flex items-center gap-1 text-sm text-[var(--color-accent)]">
-          <ArrowLeft className="w-4 h-4" /> Back to whiteboards
-        </Link>
+      <main className={frameCls}>
+        {!embedded && (
+          <Link to="/whiteboards" className="inline-flex items-center gap-1 text-sm text-[var(--color-accent)]">
+            <ArrowLeft className="w-4 h-4" /> Back to whiteboards
+          </Link>
+        )}
         <p className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
           {error || "Whiteboard not found, or you don't have access."}
         </p>
@@ -624,7 +633,10 @@ function WhiteboardEditor() {
     saveState === "dirty" ? "Unsaved" : "";
 
   return (
-    <main className="relative w-full h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] overflow-hidden" onPointerMove={onWbPointerMove}>
+    <main
+      className={`relative w-full overflow-hidden ${embedded ? "h-full" : "h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)]"}`}
+      onPointerMove={onWbPointerMove}
+    >
         <EdgeMarkerDefs />
         <ReactFlow
           nodes={nodes}
@@ -698,14 +710,18 @@ function WhiteboardEditor() {
             className="flex items-center gap-2 px-2.5 py-1.5 rounded-2xl border shadow-md"
             style={{ background: dark ? "var(--color-surface)" : "#fff", borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
           >
-            <Link
-              to="/whiteboards"
-              title="Back to whiteboards"
-              className={`inline-flex items-center gap-1 text-xs shrink-0 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
-            <div className={`w-px h-4 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+            {!embedded && (
+              <>
+                <Link
+                  to="/whiteboards"
+                  title="Back to whiteboards"
+                  className={`inline-flex items-center gap-1 text-xs shrink-0 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </Link>
+                <div className={`w-px h-4 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+              </>
+            )}
             {titleEditing ? (
               <div className="flex items-center gap-1.5">
                 <input
@@ -752,7 +768,7 @@ function WhiteboardEditor() {
             >
               <Smile className="w-4 h-4" />
             </button>
-            {isAdmin && (
+            {isAdmin && !embedded && (
               <button
                 type="button"
                 onClick={handleArchive}
