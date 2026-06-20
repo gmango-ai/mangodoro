@@ -229,16 +229,23 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
             key={`div:${d.path.join("") || "root"}`}
             role="separator"
             aria-orientation={horiz ? "vertical" : "horizontal"}
-            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); setDrag({ path: d.path, dir: d.dir, splitRect: d.splitRect }); }}
-            // touch-none: without it a touch-drag on the divider is claimed by
-            // the page as a scroll and the resize never starts on mobile.
-            className={`group absolute z-10 flex items-center justify-center rounded-full transition-colors touch-none ${
+            // The visible gutter/grip stays slim; the real pointer target is an
+            // enlarged invisible child (below) so the thin divider is grabbable
+            // with a thumb.
+            className={`group absolute z-10 flex items-center justify-center rounded-full transition-colors ${
               horiz ? "cursor-col-resize" : "cursor-row-resize"
             } ${drag ? "bg-[var(--color-accent)]/20" : "hover:bg-[var(--color-accent)]/12"}`}
             style={{ left: d.rect.x, top: d.rect.y, width: d.rect.w, height: d.rect.h }}
           >
+            {/* Enlarged touch target — extends ~8px past the 12px gutter each
+                side (≈28px zone). touch-none so a touch-drag resizes instead of
+                the page scrolling. */}
             <div
-              className={`rounded-full transition-all group-hover:!opacity-90 group-hover:bg-[var(--color-accent)] ${
+              onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); setDrag({ path: d.path, dir: d.dir, splitRect: d.splitRect }); }}
+              className={`absolute touch-none ${horiz ? "-inset-x-2 inset-y-0 cursor-col-resize" : "-inset-y-2 inset-x-0 cursor-row-resize"}`}
+            />
+            <div
+              className={`pointer-events-none rounded-full transition-all group-hover:!opacity-90 group-hover:bg-[var(--color-accent)] ${
                 drag ? "opacity-90 bg-[var(--color-accent)]"
                   : arranging ? "opacity-70 bg-[var(--color-accent)]"
                   : `opacity-40 ${dark ? "bg-slate-400" : "bg-slate-500"}`
@@ -280,11 +287,11 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
                     onClick={() => onClose?.(l.panel)}
                     title={`Remove ${panel?.title || l.panel}`}
                     aria-label={`Remove ${panel?.title || l.panel}`}
-                    className={`absolute top-2 right-2 w-6 h-6 rounded-full inline-flex items-center justify-center ${
+                    className={`absolute top-1.5 right-1.5 w-9 h-9 rounded-full inline-flex items-center justify-center ${
                       dark ? "bg-white/10 text-slate-200 hover:bg-rose-500/30" : "bg-black/5 text-slate-600 hover:bg-rose-500/15 hover:text-rose-600"
                     }`}
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="w-4 h-4" />
                   </button>
                 )}
                 {Icon && <Icon className="w-5 h-5 text-[var(--color-accent)]" />}
@@ -355,7 +362,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
                       key={id}
                       type="button"
                       onPointerDown={(e) => startChipDrag(id, e)}
-                      className={`flex items-center gap-1.5 px-2.5 h-8 rounded-full cursor-grab active:cursor-grabbing select-none touch-none transition-opacity ${
+                      className={`flex items-center gap-1.5 px-3 h-9 rounded-full cursor-grab active:cursor-grabbing select-none touch-none transition-opacity ${
                         dark ? "bg-white/10 text-slate-200 hover:bg-white/15" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                       } ${lifted ? "opacity-40" : ""}`}
                       title={`Add ${p?.title || id}`}
