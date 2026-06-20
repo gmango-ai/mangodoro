@@ -226,6 +226,63 @@ private func dispatchActivityAction(_ action: ActivityAction, currentState: [Str
     }
 }
 
+// MARK: - Shared intent bodies
+//
+// Toggle/stop logic is identical whether it's fired from a Live Activity
+// button (LiveActivityIntent) or a Home Screen widget button (plain
+// AppIntent), so both intent flavors funnel through these. `label` is
+// only used for log correlation.
+
+@available(iOS 17.0, *)
+private func performTimerToggle(_ label: StaticString) async {
+    log.notice("\(label) fired")
+
+    // Instant feedback: repaint the home widget from the toggled state
+    // before the network round-trip confirms it.
+    let original = applyOptimisticToggle()
+
+    let result = await dispatchActivityAction(.toggle, currentState: original)
+
+    switch result {
+    case .succeeded(let newState), .apnsFailed(let newState):
+        let nowRunning = newState["isRunning"] as? Bool ?? false
+        if !nowRunning {
+            cancelScheduledAlarm()
+        }
+        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
+        reloadHomeWidget()
+        log.notice("\(label) ok nowRunning=\(nowRunning)")
+    case .failed:
+        revertOptimisticToggle(original)
+        log.notice("\(label) failed — reverted optimistic toggle")
+    }
+}
+
+@available(iOS 17.0, *)
+private func performTimerStop(_ label: StaticString) async {
+    log.notice("\(label) fired")
+    let result = await dispatchActivityAction(.stop)
+
+    switch result {
+    case .succeeded, .apnsFailed:
+        cancelScheduledAlarm()
+        if let defaults = UserDefaults(suiteName: appGroupID) {
+            defaults.set(true, forKey: pendingStopKey)
+            defaults.set(false, forKey: lastToggleResultRunningKey)
+            defaults.removeObject(forKey: activityStateKey)
+        }
+        reloadHomeWidget()
+        log.notice("\(label) ok")
+    case .failed:
+        log.notice("\(label) failed — flags unchanged")
+    }
+}
+
+// MARK: - Live Activity buttons (lock screen / Dynamic Island)
+//
+// These MUST be LiveActivityIntent so they run in-process for the Live
+// Activity without launching the host app.
+
 @available(iOS 17.0, *)
 struct ToggleTimerIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Toggle pomodoro timer"
@@ -234,28 +291,7 @@ struct ToggleTimerIntent: LiveActivityIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        log.notice("ToggleTimerIntent fired")
-
-        // Instant feedback: repaint the home widget from the toggled state
-        // before the network round-trip confirms it.
-        let original = applyOptimisticToggle()
-
-        let result = await dispatchActivityAction(.toggle, currentState: original)
-
-        switch result {
-        case .succeeded(let newState), .apnsFailed(let newState):
-            let nowRunning = newState["isRunning"] as? Bool ?? false
-            if !nowRunning {
-                cancelScheduledAlarm()
-            }
-            UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
-            reloadHomeWidget()
-            log.notice("ToggleTimerIntent ok nowRunning=\(nowRunning)")
-        case .failed:
-            revertOptimisticToggle(original)
-            log.notice("ToggleTimerIntent failed — reverted optimistic toggle")
-        }
-
+        await performTimerToggle("ToggleTimerIntent")
         return .result()
     }
 }
@@ -268,23 +304,47 @@ struct StopTimerIntent: LiveActivityIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        log.notice("StopTimerIntent fired")
-        let result = await dispatchActivityAction(.stop)
+        await performTimerStop("StopTimerIntent")
+        return .result()
+    }
+}
 
-        switch result {
-        case .succeeded, .apnsFailed:
-            cancelScheduledAlarm()
-            if let defaults = UserDefaults(suiteName: appGroupID) {
-                defaults.set(true, forKey: pendingStopKey)
-                defaults.set(false, forKey: lastToggleResultRunningKey)
-                defaults.removeObject(forKey: activityStateKey)
-            }
-            reloadHomeWidget()
-            log.notice("StopTimerIntent ok")
-        case .failed:
-            log.notice("StopTimerIntent failed — flags unchanged")
-        }
+// MARK: - Home Screen widget buttons
+//
+// Deliberately PLAIN AppIntents, not LiveActivityIntent. A Home Screen
+// widget button that runs a LiveActivityIntent is tagged by the system as
+// a `SessionStartingAction`: chronod then pauses the widget's timeline
+// reloads and HOLDS them for a fixed ~3.8s settle (waiting on Live Activity
+// session coordination) before the widget can repaint — even though our
+// network toggle finishes in <1s. Device logs showed every home tap stuck
+// behind "Pausing reloads … Reload not permitted … Finished handling
+// interaction. Elapsed: 3.7". A plain AppIntent carries no SessionStarting
+// coordination, so the interaction ends right after perform() returns and
+// the widget repaints promptly. They still call the same edge function, so
+// the lock-screen Live Activity is updated via APNs exactly as before.
 
+@available(iOS 17.0, *)
+struct HomeToggleTimerIntent: AppIntent {
+    static let title: LocalizedStringResource = "Toggle pomodoro timer"
+    static let description = IntentDescription("Pauses or resumes the running pomodoro timer.")
+    static let openAppWhenRun: Bool = false
+    static let isDiscoverable: Bool = false
+
+    func perform() async throws -> some IntentResult {
+        await performTimerToggle("HomeToggleTimerIntent")
+        return .result()
+    }
+}
+
+@available(iOS 17.0, *)
+struct HomeStopTimerIntent: AppIntent {
+    static let title: LocalizedStringResource = "Stop pomodoro timer"
+    static let description = IntentDescription("Ends the current pomodoro phase and resets the timer.")
+    static let openAppWhenRun: Bool = false
+    static let isDiscoverable: Bool = false
+
+    func perform() async throws -> some IntentResult {
+        await performTimerStop("HomeStopTimerIntent")
         return .result()
     }
 }

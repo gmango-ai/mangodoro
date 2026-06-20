@@ -214,9 +214,13 @@ struct PomodoroHomeWidgetView: View {
 }
 
 /// Interactive controls for the home widget (iOS 17+). Pause/resume runs
-/// ToggleTimerIntent; reset runs StopTimerIntent — the same intents the
-/// Live Activity uses, so they go through the activity-action edge
-/// function and reconcile back to the app.
+/// HomeToggleTimerIntent; reset runs HomeStopTimerIntent — plain AppIntents
+/// (NOT the Live Activity's LiveActivityIntent versions). A Home Screen
+/// widget button running a LiveActivityIntent gets tagged as a
+/// SessionStartingAction, which makes chronod freeze the widget's reloads
+/// for a fixed ~3.8s settle before it can repaint. The plain AppIntents
+/// avoid that hold while still hitting the same activity-action edge
+/// function, so the lock-screen Live Activity updates via APNs as before.
 @available(iOS 17.0, *)
 private struct HomeControls: View {
     let isRunning: Bool
@@ -224,9 +228,9 @@ private struct HomeControls: View {
 
     var body: some View {
         HStack(spacing: compact ? 8 : 10) {
-            ctrl(ToggleTimerIntent(), systemName: isRunning ? "pause.fill" : "play.fill",
+            ctrl(HomeToggleTimerIntent(), systemName: isRunning ? "pause.fill" : "play.fill",
                  size: compact ? 44 : 56, fill: 0.42)
-            ctrl(StopTimerIntent(), systemName: "stop.fill",
+            ctrl(HomeStopTimerIntent(), systemName: "stop.fill",
                  size: compact ? 38 : 46, fill: 0.22)
         }
     }
