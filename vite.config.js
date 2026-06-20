@@ -81,8 +81,39 @@ export default defineConfig({
     },
   },
   build: {
+    // The only chunk over the default 500 kB is exceljs (~940 kB) — a large
+    // spreadsheet lib that's already lazy-loaded (it only downloads when the
+    // user exports an .xlsx). It can't be split further, so we raise the
+    // ceiling just past it to stop flagging that benign chunk while still
+    // catching a real regression in the eager app bundle.
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       external: [],
+      output: {
+        // Split heavy, eagerly-loaded vendor libs out of the main app bundle
+        // into their own cacheable chunks (vendor code changes rarely, so it
+        // caches across deploys and keeps the entry chunk lean). We only name
+        // the EAGER heavyweights here — lazy-only deps (xyflow, exceljs,
+        // jspdf, emoji-picker-react, html2canvas) are already isolated by
+        // their dynamic imports, so naming them would just pull them eager.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          // Keep the whole React ecosystem in one chunk (single instance).
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return "react-vendor";
+          if (id.includes("@supabase")) return "supabase";
+          if (id.includes("recharts") || /[\\/]d3-/.test(id) || id.includes("victory-vendor") || id.includes("internmap")) return "charts";
+          if (id.includes("@codemirror") || id.includes("@uiw") || id.includes("@lezer")) return "codemirror";
+          if (
+            id.includes("react-markdown") || id.includes("remark") || id.includes("micromark") ||
+            id.includes("mdast") || id.includes("hast") || id.includes("unist") || id.includes("unified") ||
+            id.includes("vfile") || id.includes("property-information") ||
+            id.includes("character-entities") || id.includes("decode-named-character-reference") ||
+            id.includes("space-separated-tokens") || id.includes("comma-separated-tokens")
+          ) return "markdown";
+          if (id.includes("lucide-react")) return "icons";
+          if (/[\\/]node_modules[\\/]motion[\\/]/.test(id)) return "motion";
+        },
+      },
     },
   },
   optimizeDeps: {
