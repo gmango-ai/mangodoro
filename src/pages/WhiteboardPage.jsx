@@ -24,7 +24,7 @@ import {
   isEmptySnapshot,
 } from "../lib/whiteboard";
 import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor, setPreferredStickyColor, STICKY_PALETTE, stickyHex, markNodeForEdit } from "../components/whiteboard/nodes";
-import { nodeAbsPos, sortParentsFirst, frameAt } from "../components/whiteboard/frame";
+import { nodeAbsPos, sortParentsFirst, frameAt, declampNodes } from "../components/whiteboard/frame";
 import { useApp } from "../context/AppContext";
 import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine, connectedNodePlacement, siblingPlacement, nodeRect, projectToPerimeter, ANCHOR_TO_HANDLE } from "../components/whiteboard/edges";
 import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
@@ -342,11 +342,16 @@ function WhiteboardEditor({ boardId, embedded = false }) {
           snap = { nodes: [], edges: [] };
         }
       }
-      setNodes(snap.nodes || []);
-      setEdges(snap.edges || []);
-      // Stamp our baseline so the first save-tick doesn't round-trip
-      // the snapshot we just loaded.
-      lastSavedRef.current = JSON.stringify(snap);
+      // Strip any legacy extent:"parent" clamp so children dragged in from
+      // older boards/templates aren't trapped in their frame.
+      const loadedNodes = declampNodes(snap.nodes || []);
+      const loadedEdges = snap.edges || [];
+      setNodes(loadedNodes);
+      setEdges(loadedEdges);
+      // Stamp our baseline from the (declamped) state we actually set so the
+      // first save-tick doesn't round-trip — the board re-saves clean on the
+      // next real edit.
+      lastSavedRef.current = JSON.stringify({ nodes: loadedNodes, edges: loadedEdges });
       setLoading(false);
       // Defer fitView to after layout settles.
       setTimeout(() => {
@@ -558,7 +563,9 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         if (n.id !== node.id) return n;
         if (hit && n.parentId !== hit.frame.id) {
           changed = true;
-          return { ...n, parentId: hit.frame.id, extent: "parent", position: { x: abs.x - hit.fp.x, y: abs.y - hit.fp.y } };
+          // Adopt into the frame WITHOUT extent:"parent" — it moves with the
+          // frame but stays free to drag back out.
+          return { ...n, parentId: hit.frame.id, extent: undefined, position: { x: abs.x - hit.fp.x, y: abs.y - hit.fp.y } };
         }
         if (!hit && n.parentId) {
           changed = true;
@@ -683,13 +690,14 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   return (
     <main
       ref={mainRef}
-      // Subtract the nav bar (3.5rem mobile / 4rem desktop) AND the top
-      // safe-area inset. Without the env() term the canvas is ~59px too tall
-      // on Dynamic Island phones, which pushes the top timer ribbon under the
-      // nav and the bottom emote/emoji island below the fold (you'd have to
-      // scroll to reach it). env() resolves to 0 on desktop, so it's a no-op
-      // there.
-      className={`relative w-full overflow-hidden ${embedded ? "h-full" : "h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] sm:h-[calc(100dvh-4rem-env(safe-area-inset-top))]"}`}
+      // Subtract the nav bar (3.5rem mobile / 4rem desktop) AND both safe-area
+      // insets. Without the top env() the canvas is ~59px too tall on Dynamic
+      // Island phones (top timer ribbon hides under the nav, bottom emote
+      // island falls below the fold). The bottom env() keeps the bottom
+      // controls (emote bar, zoom controls) clear of the home-indicator /
+      // gesture area so taps there don't trigger an OS swipe. env() = 0 on
+      // desktop, so it's a no-op there.
+      className={`relative w-full overflow-hidden ${embedded ? "h-full" : "h-[calc(100dvh-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] sm:h-[calc(100dvh-4rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]"}`}
       onPointerMove={onWbPointerMove}
     >
         <EdgeMarkerDefs />
@@ -844,17 +852,22 @@ function WhiteboardEditor({ boardId, embedded = false }) {
               {error}
             </div>
           )}
+          {/* Shared board countdown — stacked in the nav column (below the
+              breadcrumb) so the two never overlap. It used to sit in the
+              centered hero row and collided with the nav on narrow boards. */}
+          <WhiteboardTimer boardId={board.id} dark={dark} />
         </div>
 
-        {/* Top overlay — Weekly Review's signature goal banner (when
-            the template opts in) sitting next to the hero focus-timer
-            ribbon. Both pinned over the canvas; pointer-events:none on
-            the wrapper so clicks pass through except on the chips. */}
-        <div
-          className="absolute left-1/2 -translate-x-1/2 top-3 z-30 flex items-stretch gap-3 max-w-[calc(100%-32px)]"
-          style={{ pointerEvents: "none" }}
-        >
-          {template?.hasGoal && !compact && (
+        {/* Top overlay — Weekly Review's signature goal banner (when the
+            template opts in), pinned top-center over the canvas. The focus
+            timer now lives in the nav column (above), so this row holds the
+            goal banner alone. pointer-events:none on the wrapper so clicks
+            pass through except on the chip itself. */}
+        {template?.hasGoal && !compact && (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 top-3 z-30 flex items-stretch max-w-[calc(100%-32px)]"
+            style={{ pointerEvents: "none" }}
+          >
             <div
               className="flex items-center gap-3 pl-3 pr-4 py-2 rounded-2xl shadow-md min-w-0 max-w-[520px]"
               style={{
@@ -905,9 +918,8 @@ function WhiteboardEditor({ boardId, embedded = false }) {
                 )}
               </div>
             </div>
-          )}
-          <WhiteboardTimer boardId={board.id} dark={dark} />
-        </div>
+          </div>
+        )}
 
         {/* Floating-emote layer scoped to this whiteboard. Same scope
             key on every client → emotes broadcast peer-to-peer. The bar

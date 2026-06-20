@@ -154,7 +154,7 @@ function buildRetro() {
     nodes.push({
       ...stickyNode(`seed-${z.id}`, "Add a card…", (W - 160) / 2, 80, STICKY_COLOR_FOR_ZONE[z.id]),
       parentId: `frame-${z.id}`,
-      extent: "parent",
+      // Soft container — no extent:"parent" clamp, so cards drag out freely.
     });
   });
   return { nodes, edges: [] };

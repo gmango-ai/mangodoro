@@ -543,7 +543,8 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
         id: freshStickyId(),
         type: "sticky",
         parentId: id,
-        extent: "parent",
+        // No extent:"parent" — the note belongs to the frame but stays
+        // free to drag out (soft container).
         position: { x: p.x - fAbs.x - 80, y: p.y - fAbs.y - 80 },
         data: { text: "", color: preferredStickyColor(), author: myName },
         selected: true,

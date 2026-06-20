@@ -1,4 +1,14 @@
 // Helpers for frame containers (xyflow parent/child grouping).
+//
+// Frames are SOFT containers (FigJam/Miro style): a child moves with its
+// frame but can be freely dragged out — membership is re-decided on drop,
+// not locked. We deliberately never set xyflow's `extent: "parent"`, which
+// hard-clamps a child inside its parent's bounds (the "stuck in the
+// container" bug). declampNodes strips it from older snapshots on load.
+export function declampNodes(nodes) {
+  if (!Array.isArray(nodes)) return [];
+  return nodes.map((n) => (n.extent ? { ...n, extent: undefined } : n));
+}
 
 // Absolute flow position of a node, walking up its parent chain.
 export function nodeAbsPos(node, byId) {

@@ -94,6 +94,11 @@ export default function WhiteboardTimer({ boardId, dark }) {
   const remaining = running ? (endsAt - now) / 1000 : paused ? pausedRemaining : lastDuration;
   const finished = running && remaining <= 0;
 
+  // Latest shareable state, read by the channel handler when a late joiner
+  // asks for sync — avoids the stale closure a one-time effect would capture.
+  const stateRef = useRef(null);
+  stateRef.current = { endsAt, pausedRemaining, lastDuration, trackId };
+
   useEffect(() => {
     if (!running) return;
     const t = setInterval(() => setNow(Date.now()), 250);
@@ -137,7 +142,19 @@ export default function WhiteboardTimer({ boardId, dark }) {
     if (!boardId) return;
     const ch = supabase.channel(`wbtimer:${boardId}`, { config: { broadcast: { self: false } } });
     ch.on("broadcast", { event: "timer" }, (msg) => applyState(msg.payload || {}, true));
-    ch.subscribe();
+    // Late-joiner sync. Broadcast is fire-and-forget, so a client that joins
+    // mid-countdown would never see the running timer. On subscribe we ask
+    // for the current state; any client that actually has a running/paused
+    // timer answers with it. Idle clients stay quiet (nothing to share).
+    ch.on("broadcast", { event: "timer-sync-request" }, () => {
+      const s = stateRef.current;
+      if (!s || (s.endsAt == null && s.pausedRemaining == null)) return;
+      try { ch.send({ type: "broadcast", event: "timer", payload: s }); } catch { /* */ }
+    });
+    ch.subscribe((status) => {
+      if (status !== "SUBSCRIBED") return;
+      try { ch.send({ type: "broadcast", event: "timer-sync-request" }); } catch { /* */ }
+    });
     chanRef.current = ch;
     return () => { try { supabase.removeChannel(ch); } catch { /* */ } chanRef.current = null; };
   }, [boardId, applyState]);
