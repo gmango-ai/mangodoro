@@ -58,17 +58,41 @@ private func reloadHomeWidget() {
     WidgetCenter.shared.reloadTimelines(ofKind: "MangodoroHomeWidget")
 }
 
+// Compute the toggled time so a stale transition can degrade to a sensible
+// number rather than 0:00. running → paused (remaining seconds); paused →
+// running (fresh end time).
+private func computeToggledState(_ state: [String: Any]) -> [String: Any] {
+    var next = state
+    let nowMs = Date().timeIntervalSince1970 * 1000
+    if state["isRunning"] as? Bool ?? false {
+        let endsAt = state["endsAtEpochMs"] as? Double ?? nowMs
+        next["isRunning"] = false
+        next["pausedSecondsLeft"] = Int(max(0, (endsAt - nowMs) / 1000))
+    } else {
+        let paused = state["pausedSecondsLeft"] as? Int ?? 0
+        next["isRunning"] = true
+        next["endsAtEpochMs"] = nowMs + Double(paused) * 1000
+        next.removeValue(forKey: "pausedSecondsLeft")
+    }
+    return next
+}
+
 // Mark the toggle as IN PROGRESS in the App Group + home widget BEFORE the
 // network round-trip, so the widget gives instant, honest feedback: a tap on
 // pause flips the home widget to "Paused" / a tap on resume to "Resuming…"
 // right away, then fills in the authoritative time once the server confirms.
 //
-// We deliberately do NOT paint an optimistic *time* here (the old behavior):
-// the local state can be stale (the website may have changed the timer while
-// the app was backgrounded), so a computed time could be wrong and then
-// visibly "revert". A transition label only states intent, never a wrong
-// number; the real time arrives when mirrorServerState writes the server's
-// authoritative state (which has no `transition` key, so it clears this).
+// We deliberately do NOT show an optimistic *time* during the round-trip (the
+// old behavior): the local state can be stale (the website may have changed
+// the timer while the app was backgrounded), so a computed time could be
+// wrong and then visibly "revert". A transition label only states intent; the
+// real time arrives when mirrorServerState writes the server's authoritative
+// state (which has no `transition` key, so it clears this).
+//
+// Safety net: we stamp `transitionAt` so the home widget stops honoring the
+// label after a few seconds. If the round-trip dies before the reconcile
+// clears it (e.g. the extension is suspended mid-flight), the widget falls
+// back to the computed time below instead of being stuck on "Syncing…".
 //
 // Returns the ORIGINAL (pre-tap) state so the dispatch can revert on failure
 // and forward it as the fallback current_state.
@@ -79,14 +103,15 @@ private func applyTransitionToggle() -> [String: Any]? {
           let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     else { return nil }
     let wasRunning = state["isRunning"] as? Bool ?? false
-    let target = !wasRunning
-    var transitional = state
-    transitional["isRunning"] = target
+    // Base = the optimistically-toggled time (the stale-transition fallback);
+    // the live label hides it while the transition is fresh.
+    var transitional = computeToggledState(state)
     transitional["transition"] = wasRunning ? "pausing" : "resuming"
+    transitional["transitionAt"] = Date().timeIntervalSince1970 * 1000
     if let nextData = try? JSONSerialization.data(withJSONObject: transitional),
        let nextJSON = String(data: nextData, encoding: .utf8) {
         defaults.set(nextJSON, forKey: activityStateKey)
-        defaults.set(target, forKey: lastToggleResultRunningKey)
+        defaults.set(transitional["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
         reloadHomeWidget()
     }
     return state

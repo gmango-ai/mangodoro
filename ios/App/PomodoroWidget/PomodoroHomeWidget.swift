@@ -50,6 +50,20 @@ struct PomodoroSnapshot {
     // flight, else nil. The widget shows a transition label instead of a
     // (possibly stale) time until the authoritative state is mirrored back.
     let transition: String?
+    // Epoch ms when `transition` was set. Safety net: we stop honoring a
+    // transition this long after it was stamped so a dead round-trip can't
+    // leave the widget stuck on "Syncing…".
+    let transitionAtMs: Double?
+
+    // Honor the transition label only briefly. Past the TTL (round-trip
+    // presumably died without reconciling), fall through to the underlying
+    // time. A missing stamp is treated as just-now for backward compat.
+    static let transitionTTL: TimeInterval = 8
+    func activeTransition(now: Date = Date()) -> String? {
+        guard let transition else { return nil }
+        let age = now.timeIntervalSince1970 - (transitionAtMs ?? now.timeIntervalSince1970 * 1000) / 1000.0
+        return (age >= 0 && age < Self.transitionTTL) ? transition : nil
+    }
 
     static func read() -> PomodoroSnapshot? {
         let defaults = UserDefaults(suiteName: "group.com.gmango.mangodoro")
@@ -67,7 +81,8 @@ struct PomodoroSnapshot {
             endsAtEpochMs: obj["endsAtEpochMs"] as? Double ?? 0,
             pausedSecondsLeft: obj["pausedSecondsLeft"] as? Int,
             accentColorHex: obj["accentColorHex"] as? String,
-            transition: obj["transition"] as? String
+            transition: obj["transition"] as? String,
+            transitionAtMs: obj["transitionAt"] as? Double
         )
     }
 }
@@ -88,13 +103,21 @@ struct PomodoroSnapshotProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PomodoroHomeEntry>) -> Void) {
         let snapshot = PomodoroSnapshot.read()
-        let entry = PomodoroHomeEntry(date: Date(), snapshot: snapshot)
+        let now = Date()
+        let entry = PomodoroHomeEntry(date: now, snapshot: snapshot)
         let refresh: Date
-        if let s = snapshot, s.isRunning, s.endsAtEpochMs > 0 {
+        if let s = snapshot, s.transition != nil, let atMs = s.transitionAtMs,
+           atMs / 1000.0 + PomodoroSnapshot.transitionTTL > now.timeIntervalSince1970 {
+            // A toggle round-trip is in flight: reload right after the label's
+            // TTL so a stuck "Syncing…" auto-resolves to the underlying time.
+            // (The normal case clears sooner via the intent's explicit
+            // reloadHomeWidget once the server responds; this is the backstop.)
+            refresh = Date(timeIntervalSince1970: atMs / 1000.0 + PomodoroSnapshot.transitionTTL)
+        } else if let s = snapshot, s.isRunning, s.endsAtEpochMs > 0 {
             let endsAt = Date(timeIntervalSince1970: s.endsAtEpochMs / 1000.0)
-            refresh = max(Date().addingTimeInterval(60), endsAt.addingTimeInterval(2))
+            refresh = max(now.addingTimeInterval(60), endsAt.addingTimeInterval(2))
         } else {
-            refresh = Date().addingTimeInterval(60 * 60)
+            refresh = now.addingTimeInterval(60 * 60)
         }
         completion(Timeline(entries: [entry], policy: .after(refresh)))
     }
@@ -125,7 +148,7 @@ struct PomodoroHomeWidgetView: View {
             HStack(spacing: 8) {
                 MangoMark().frame(width: 28, height: 28)
                 Spacer(minLength: 0)
-                statusPill(isRunning: s.isRunning, transition: s.transition)
+                statusPill(isRunning: s.isRunning, transition: s.activeTransition())
             }
             Spacer(minLength: 0)
             if let room = s.room {
@@ -158,7 +181,7 @@ struct PomodoroHomeWidgetView: View {
                     .font(.headline)
                     .foregroundColor(.white)
                     .lineLimit(1)
-                statusPill(isRunning: s.isRunning, transition: s.transition)
+                statusPill(isRunning: s.isRunning, transition: s.activeTransition())
                 Spacer(minLength: 0)
                 if #available(iOS 17.0, *) {
                     HomeControls(isRunning: s.isRunning)
@@ -260,10 +283,11 @@ private struct HomeCountdown: View {
     private static let intervalStart = Date(timeIntervalSince1970: 0)
 
     var body: some View {
-        if let t = snapshot.transition {
+        if let t = snapshot.activeTransition() {
             // Round-trip in flight: show intent, not a (possibly stale) time —
             // "Resuming…" before a resume, "Paused" the instant you pause. The
-            // real time fills in when the server's state is mirrored back.
+            // real time fills in when the server's state is mirrored back (or
+            // the TTL lapses and we fall through to the computed time).
             Text(t == "resuming" ? "Resuming…" : "Paused")
         } else if snapshot.isRunning, snapshot.endsAtEpochMs > 0 {
             let endsAt = Date(timeIntervalSince1970: snapshot.endsAtEpochMs / 1000.0)
