@@ -225,9 +225,9 @@ private struct HomeControls: View {
     var body: some View {
         HStack(spacing: compact ? 8 : 10) {
             ctrl(ToggleTimerIntent(), systemName: isRunning ? "pause.fill" : "play.fill",
-                 size: compact ? 30 : 34, fill: 0.26)
+                 size: compact ? 44 : 56, fill: 0.42)
             ctrl(StopTimerIntent(), systemName: "stop.fill",
-                 size: compact ? 28 : 30, fill: 0.16)
+                 size: compact ? 38 : 46, fill: 0.22)
         }
     }
 
@@ -238,7 +238,7 @@ private struct HomeControls: View {
                 .foregroundColor(.white)
                 .frame(width: size, height: size)
                 .background(Circle().fill(Color.white.opacity(fill)))
-                .padding(7)
+                .padding(10)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
