@@ -17,17 +17,18 @@ const TeamContext = createContext(null);
 
 export function TeamProvider({ session, children }) {
   const [teams, setTeams] = useState([]);
-  // Default org is what the app opens to. If set, it always wins on
-  // initial load — overriding ql_active_team — so a user with a strong
-  // preference doesn't have to re-switch every session. switchTeam
-  // still updates ql_active_team for graceful in-session navigation;
-  // we just don't read it first when a default is configured.
+  // Default org = the "home" org to open to when there's no remembered
+  // selection yet (first load / new device). It must NOT override an
+  // explicit switch: once you switchTeam, ql_active_team is remembered and
+  // wins on the next load, so a reload/relaunch keeps the org you're
+  // actually in. (Previously the default was read FIRST and clobbered the
+  // current selection on every reload — the "wrong org" bug.)
   const [defaultTeamId, setDefaultTeamIdState] = useState(() =>
     localStorage.getItem("ql_default_team") || null
   );
   const [activeTeamId, setActiveTeamId] = useState(() =>
-    localStorage.getItem("ql_default_team") ||
     localStorage.getItem("ql_active_team") ||
+    localStorage.getItem("ql_default_team") ||
     null
   );
   const [teamMembers, setTeamMembers] = useState([]);
@@ -50,9 +51,10 @@ export function TeamProvider({ session, children }) {
   // Read the latest activeTeamId without retriggering loadTeams.
   const activeTeamIdRef = useRef(activeTeamId);
   activeTeamIdRef.current = activeTeamId;
-  // Guards a single retry when a load returns empty but localStorage hints
-  // the user has teams. Reset on every non-empty (real) result.
-  const emptyRetriedRef = useRef(false);
+  // Guards a single retry when a cold/warm-up load comes back WITHOUT the
+  // team we remember being in — whether empty or a partial subset (RLS not
+  // warm yet). Reset once we get a result we trust.
+  const coldRetriedRef = useRef(false);
 
   // ── Load teams ──────────────────────────────────────────────
   // Important: this callback intentionally does NOT depend on activeTeamId.
@@ -80,32 +82,34 @@ export function TeamProvider({ session, children }) {
       .map((m) => (m.teams ? { ...m.teams, role: m.role, isOwner: !!m.is_owner } : null))
       .filter(Boolean);
 
-    // Auth race-guard. On a fresh page refresh the access token sometimes
-    // isn't warm yet — RLS evaluates auth.uid() to null and silently
-    // returns 0 rows. If localStorage hints that we should have teams,
-    // retry once instead of clobbering state. Without this the UI flips
-    // to "no teams yet", drops ql_active_team, and the user has to
-    // navigate away/back to recover (TOKEN_REFRESHED eventually fires in
-    // the background, but only after the empty-state UI is already up).
+    // Auth race-guard. On a fresh refresh / cold load the access token
+    // sometimes isn't warm yet — RLS evaluates auth.uid() to null and returns
+    // 0 rows, or a partial subset, before it settles. If the team we REMEMBER
+    // being in isn't in the result, treat it as a possibly-transient miss and
+    // retry once before trusting it. Without this we'd either flip to "no
+    // teams yet" (empty) or silently switch the user to loaded[0] and
+    // overwrite ql_active_team (partial result) — the "wrong org" bug.
     const current = activeTeamIdRef.current;
-    if (loaded.length === 0 && current && !emptyRetriedRef.current) {
-      emptyRetriedRef.current = true;
+    const currentMissing = current && !loaded.find((t) => t.id === current);
+    if (currentMissing && !coldRetriedRef.current) {
+      coldRetriedRef.current = true;
       setTimeout(() => loadTeams(), 600);
       return;
     }
+    // Past the guard: the remembered team is present, there's no remembered
+    // team, or we already retried once — trust this result now.
+    coldRetriedRef.current = false;
 
     setTeams(loaded);
 
     if (loaded.length === 0) {
-      // Either we already retried once or there was never a cached team —
-      // trust the empty result.
+      // Genuinely no teams (after the retry) — drop the stale pointer.
       if (current) {
         setActiveTeamId(null);
         localStorage.removeItem("ql_active_team");
       }
       return;
     }
-    emptyRetriedRef.current = false;
     // Clean up a stale default-org pointer (e.g. user left that team).
     const storedDefault = localStorage.getItem("ql_default_team");
     if (storedDefault && !loaded.find((t) => t.id === storedDefault)) {
@@ -143,11 +147,13 @@ export function TeamProvider({ session, children }) {
   // co-member rows to team admins. A direct join-to-user_settings returned
   // nothing for regular members, so member names + avatars never showed.
   const loadMembers = useCallback(async () => {
-    if (!activeTeamId) { setTeamMembers([]); return; }
+    const teamId = activeTeamId;
+    if (!teamId) { setTeamMembers([]); return; }
     const { data, error } = await supabase.rpc("get_team_member_profiles", {
-      p_team_id: activeTeamId,
+      p_team_id: teamId,
     });
     if (error) { console.warn("loadMembers:", error.message); return; }
+    if (activeTeamIdRef.current !== teamId) return;
     setTeamMembers(data || []);
   }, [activeTeamId]);
 
@@ -188,17 +194,27 @@ export function TeamProvider({ session, children }) {
 
   // ── Active team pomodoro sessions ──────────────────────────
   const loadActiveTeamSessions = useCallback(async () => {
-    if (!activeTeamId) { setActiveTeamSessions([]); return; }
-    const { data } = await listActiveTeamSessions(activeTeamId);
+    const teamId = activeTeamId;
+    if (!teamId) { setActiveTeamSessions([]); return; }
+    const { data } = await listActiveTeamSessions(teamId);
+    if (activeTeamIdRef.current !== teamId) return;
     setActiveTeamSessions(data || []);
   }, [activeTeamId]);
 
   useEffect(() => { loadActiveTeamSessions(); }, [loadActiveTeamSessions]);
 
   // ── Rooms ──────────────────────────────────────────────────
+  // Guard against a stale write: a slow in-flight fetch for the org we
+  // just switched away from must not land after (and clobber) the new
+  // org's rooms. Without this, switching orgs — or the double team-set
+  // on initial load when loadTeams auto-selects a different team — can
+  // leave the floor plan showing the previous org under the new org's
+  // name until the next refetch.
   const loadRoomsForActiveTeam = useCallback(async () => {
-    if (!activeTeamId) { setRooms([]); return; }
-    const { data } = await listRooms(activeTeamId);
+    const teamId = activeTeamId;
+    if (!teamId) { setRooms([]); return; }
+    const { data } = await listRooms(teamId);
+    if (activeTeamIdRef.current !== teamId) return;
     setRooms(data || []);
   }, [activeTeamId]);
 
@@ -206,8 +222,10 @@ export function TeamProvider({ session, children }) {
 
   // ── Team sounds (shared with all team members) ─────────────
   const loadTeamSoundsForActive = useCallback(async () => {
-    if (!activeTeamId) { setTeamSounds([]); return; }
-    const { data } = await listTeamSounds(activeTeamId);
+    const teamId = activeTeamId;
+    if (!teamId) { setTeamSounds([]); return; }
+    const { data } = await listTeamSounds(teamId);
+    if (activeTeamIdRef.current !== teamId) return;
     setTeamSounds(data || []);
   }, [activeTeamId]);
 
@@ -300,7 +318,8 @@ export function TeamProvider({ session, children }) {
   // replacing the deprecated tag-on-team_member shape. Membership
   // gates room/retro access.
   const loadOrgTeamsForActive = useCallback(async () => {
-    if (!activeTeamId) {
+    const teamId = activeTeamId;
+    if (!teamId) {
       setOrgTeams([]);
       setMyOrgTeamIds(new Set());
       setMyOrgTeamLeadIds(new Set());
@@ -309,10 +328,13 @@ export function TeamProvider({ session, children }) {
       return;
     }
     const [{ data: list }, { data: mine }, { data: allMemberships }] = await Promise.all([
-      listOrgTeams(activeTeamId),
-      userId ? listMyOrgTeams(activeTeamId, userId) : Promise.resolve({ data: [] }),
-      listOrgTeamMembershipsForOrg(activeTeamId),
+      listOrgTeams(teamId),
+      userId ? listMyOrgTeams(teamId, userId) : Promise.resolve({ data: [] }),
+      listOrgTeamMembershipsForOrg(teamId),
     ]);
+    // Bail if the user switched orgs while these were in flight — applying
+    // them now would bleed the previous org's teams into the new one.
+    if (activeTeamIdRef.current !== teamId) return;
     setOrgTeams(list || []);
     setMyOrgTeamIds(new Set((mine || []).map((r) => r.org_team_id)));
     setMyOrgTeamLeadIds(new Set((mine || []).filter((r) => r.role === "lead").map((r) => r.org_team_id)));
