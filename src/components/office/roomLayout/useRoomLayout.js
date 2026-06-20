@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { presetTree, DEFAULT_PRESET } from "./presets";
-import { setRatioAt, sanitize, movePanelInTree } from "./layoutTree";
+import { setRatioAt, sanitize, movePanelInTree, addPanelToTree, addPanelAtTree, removeAt, findPath, panelsIn } from "./layoutTree";
 
 // Per-user, per-room layout. Mirrors how the old view-mode preference was
 // stored (localStorage, not synced) — a "present my layout to everyone"
@@ -47,6 +47,20 @@ export function useRoomLayout(roomId, available) {
   const movePanel = useCallback((dragged, target, zone) => {
     setState((s) => ({ tree: movePanelInTree(s.tree, dragged, target, zone), presetId: "custom" }));
   }, []);
+  const addPanel = useCallback((panel) => {
+    setState((s) => ({ tree: addPanelToTree(s.tree, panel), presetId: "custom" }));
+  }, []);
+  const addPanelAt = useCallback((panel, target, side) => {
+    setState((s) => ({ tree: addPanelAtTree(s.tree, panel, target, side), presetId: "custom" }));
+  }, []);
+  const closePanel = useCallback((panel) => {
+    setState((s) => {
+      if (panelsIn(s.tree).length <= 1) return s; // never close the last tile
+      const path = findPath(s.tree, panel);
+      if (!path) return s;
+      return { tree: removeAt(s.tree, path), presetId: "custom" };
+    });
+  }, []);
 
-  return { tree: state.tree, presetId: state.presetId, applyPreset, reset, setRatio, movePanel };
+  return { tree: state.tree, presetId: state.presetId, applyPreset, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel };
 }

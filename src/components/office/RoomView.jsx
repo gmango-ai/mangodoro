@@ -97,7 +97,7 @@ export default function RoomView({
 
   // Modular panel layout (per-user, per-room). Replaces the old fixed
   // view modes — see ./roomLayout. Panels = video, chat, whiteboard.
-  const { tree, presetId, applyPreset, reset, setRatio, movePanel } = useRoomLayout(room?.id, PANEL_IDS);
+  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel } = useRoomLayout(room?.id, PANEL_IDS);
   const [arranging, setArranging] = useState(false);
 
   if (!room) return null;
@@ -255,6 +255,8 @@ export default function RoomView({
           onRatioChange={setRatio}
           arranging={arranging}
           onMove={movePanel}
+          onAddAt={addPanelAt}
+          onClose={closePanel}
         />
       </div>
     </div>

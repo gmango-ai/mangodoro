@@ -121,6 +121,25 @@ export function swapPanels(node, a, b) {
   return { ...node, a: swapPanels(node.a, a, b), b: swapPanels(node.b, a, b) };
 }
 
+// Add a panel not currently in the tree as a new right-hand column (the
+// user can rearrange/resize after). No-op if it's already shown.
+export function addPanelToTree(tree, panel) {
+  if (!tree) return leaf(panel);
+  if (findPath(tree, panel)) return tree;
+  return split("row", tree, leaf(panel), 0.68);
+}
+
+// Add a hidden panel by splitting a specific target leaf on `side`
+// ("left"/"right"/"top"/"bottom"). Falls back to a root column if the
+// target can't be found. No-op if the panel is already shown.
+export function addPanelAtTree(tree, panel, target, side) {
+  if (!tree) return leaf(panel);
+  if (findPath(tree, panel)) return tree;
+  const tp = findPath(tree, target);
+  if (!tp) return addPanelToTree(tree, panel);
+  return splitLeafAt(tree, tp, panel, side);
+}
+
 // Move `dragged` relative to `target`: "center" swaps the two; an edge
 // ("left"/"right"/"top"/"bottom") pulls the dragged leaf out of its spot
 // (its sibling expands) and re-inserts it splitting the target on that side.
