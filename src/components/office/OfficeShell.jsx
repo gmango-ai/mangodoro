@@ -195,8 +195,13 @@ export default function OfficeShell({
 
   const sidebar = <WidgetsSidebar />;
 
+  // Root height fills exactly below the global nav: subtract the nav bar
+  // (3.5rem mobile / 4rem desktop, matching Nav's h-14 sm:h-16) and the top
+  // safe-area inset. The old flat `100vh - 64px` was ~50px too tall on Dynamic
+  // Island phones, which pushed the room's bottom "add panels" dock off screen.
+  // env() is 0 on desktop.
   return (
-    <div className={`flex h-[calc(100vh-64px)] w-full ${
+    <div className={`flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] sm:h-[calc(100dvh-4rem-env(safe-area-inset-top))] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
       {/* Desktop widgets sidebar.

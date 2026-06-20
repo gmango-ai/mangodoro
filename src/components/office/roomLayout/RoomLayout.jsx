@@ -229,8 +229,10 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
             key={`div:${d.path.join("") || "root"}`}
             role="separator"
             aria-orientation={horiz ? "vertical" : "horizontal"}
-            onPointerDown={(e) => { e.preventDefault(); setDrag({ path: d.path, dir: d.dir, splitRect: d.splitRect }); }}
-            className={`group absolute z-10 flex items-center justify-center rounded-full transition-colors ${
+            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); setDrag({ path: d.path, dir: d.dir, splitRect: d.splitRect }); }}
+            // touch-none: without it a touch-drag on the divider is claimed by
+            // the page as a scroll and the resize never starts on mobile.
+            className={`group absolute z-10 flex items-center justify-center rounded-full transition-colors touch-none ${
               horiz ? "cursor-col-resize" : "cursor-row-resize"
             } ${drag ? "bg-[var(--color-accent)]/20" : "hover:bg-[var(--color-accent)]/12"}`}
             style={{ left: d.rect.x, top: d.rect.y, width: d.rect.w, height: d.rect.h }}
@@ -260,7 +262,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
               <div
                 key={`ov:${l.panel}`}
                 onPointerDown={(e) => startTileDrag(l.panel, e)}
-                className={`absolute flex flex-col items-center justify-center gap-1.5 rounded-xl cursor-grab active:cursor-grabbing select-none ${
+                className={`absolute flex flex-col items-center justify-center gap-1.5 rounded-xl cursor-grab active:cursor-grabbing select-none touch-none ${
                   isMoving ? "ring-2 ring-[var(--color-accent)]" : ""
                 }`}
                 style={{
@@ -353,7 +355,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
                       key={id}
                       type="button"
                       onPointerDown={(e) => startChipDrag(id, e)}
-                      className={`flex items-center gap-1.5 px-2.5 h-8 rounded-full cursor-grab active:cursor-grabbing select-none transition-opacity ${
+                      className={`flex items-center gap-1.5 px-2.5 h-8 rounded-full cursor-grab active:cursor-grabbing select-none touch-none transition-opacity ${
                         dark ? "bg-white/10 text-slate-200 hover:bg-white/15" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                       } ${lifted ? "opacity-40" : ""}`}
                       title={`Add ${p?.title || id}`}
