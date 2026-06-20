@@ -2,6 +2,7 @@ import Foundation
 import ActivityKit
 import AppIntents
 import UserNotifications
+import WidgetKit
 import os
 
 // Tap targets for the buttons on the Live Activity. Each one is a
@@ -47,6 +48,14 @@ private let log = Logger(subsystem: "com.gmango.mangodoro.widget", category: "in
 private func cancelScheduledAlarm() {
     UNUserNotificationCenter.current()
         .removePendingNotificationRequests(withIdentifiers: [pomodoroAlarmIdentifier])
+}
+
+// Refresh the home-screen widget so it reflects the toggle right away.
+// Without this, a lockscreen / Dynamic Island tap updates the App Group
+// state + Live Activity but the home widget keeps rendering the stale
+// (still-running) snapshot until its own timeline policy fires.
+private func reloadHomeWidget() {
+    WidgetCenter.shared.reloadTimelines(ofKind: "MangodoroHomeWidget")
 }
 
 private enum ActivityAction: String {
@@ -184,6 +193,7 @@ struct ToggleTimerIntent: LiveActivityIntent {
                 cancelScheduledAlarm()
             }
             UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
+            reloadHomeWidget()
             log.notice("ToggleTimerIntent ok nowRunning=\(nowRunning)")
         case .failed:
             log.notice("ToggleTimerIntent failed — flags unchanged")
@@ -212,6 +222,7 @@ struct StopTimerIntent: LiveActivityIntent {
                 defaults.set(false, forKey: lastToggleResultRunningKey)
                 defaults.removeObject(forKey: activityStateKey)
             }
+            reloadHomeWidget()
             log.notice("StopTimerIntent ok")
         case .failed:
             log.notice("StopTimerIntent failed — flags unchanged")
