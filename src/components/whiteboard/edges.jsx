@@ -1,8 +1,19 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow } from "@xyflow/react";
-import { Type, Minus, Spline, MoveRight, AlignJustify } from "lucide-react";
+import { Type, Minus, Spline, MoveRight, AlignJustify, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { Pill, ToolDivider, Dropdown, SwatchGrid } from "./toolbarUI";
+import { routeAround, sideNormal } from "./routing";
+
+// Two interior routes are equal if every corner matches (within 0.5px).
+function sameRoute(a, b) {
+  if (!a && !b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs(a[i].x - b[i].x) > 0.5 || Math.abs(a[i].y - b[i].y) > 0.5) return false;
+  }
+  return true;
+}
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
 // follow each edge's stroke colour, so they recolour for free.
@@ -191,6 +202,12 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
         <Dropdown openKey="cap" open={open} setOpen={setOpen} icon={<MoveRight className="w-4 h-4" />}>
           {EDGE_CAPS.map(([l, k]) => opt(endCap === k, () => patchEdge({ markerEnd: capMarker(k, color), data: { ...data, endCap: k } }), l))}
         </Dropdown>
+        <ToolDivider />
+        <button type="button" title="Tidy — auto-route around nodes"
+          onClick={() => patchEdge({ data: { ...data, autoRoute: true, route: undefined } })}
+          className="h-7 px-1.5 rounded-md flex items-center text-white/90 hover:bg-white/10">
+          <Sparkles className="w-4 h-4" />
+        </button>
       </Pill>
     </div>
   );
@@ -259,6 +276,31 @@ const EditableEdge = memo(function EditableEdge({
   const inputRef = useRef(null);
   useEffect(() => { setDraft(data?.label || ""); }, [data?.label]);
   useEffect(() => { if (editing) { inputRef.current?.focus(); inputRef.current?.select(); } }, [editing]);
+
+  // Auto-route around other nodes (obstacle avoidance). Debounced so it
+  // recomputes once a node settles, not every drag frame. Pinned edges
+  // (manually reshaped) and curves are left alone.
+  const autoRoute = data?.autoRoute !== false;
+  useEffect(() => {
+    if (!autoRoute || (data?.routing || "elbow") === "curve") return;
+    const tmr = setTimeout(() => {
+      const obstacles = [];
+      for (const n of getNodes()) {
+        if (n.id === source || n.id === target || n.type === "zone" || n.type === "frame") continue;
+        const r = nodeRect(n);
+        if (r) obstacles.push(r);
+      }
+      if (!obstacles.length) return;
+      const route = routeAround({ x: sX, y: sY }, sideNormal(sPos), { x: tX, y: tY }, sideNormal(tPos), obstacles);
+      setEdges((eds) => eds.map((e) => {
+        if (e.id !== id || e.data?.autoRoute === false) return e;
+        const next = route && route.length ? route : undefined;
+        if (sameRoute(e.data?.route, next)) return e;
+        return { ...e, data: { ...e.data, route: next } };
+      }));
+    }, 90);
+    return () => clearTimeout(tmr);
+  }, [autoRoute, data?.routing, source, target, sX, sY, sPos, tX, tY, tPos, id, getNodes, setEdges]);
 
   const routing = data?.routing || "elbow";
   const curviness = data?.curviness ?? 18;
@@ -347,7 +389,7 @@ const EditableEdge = memo(function EditableEdge({
       if (horiz) { pts[fullIndex].y = p.y; pts[fullIndex + 1].y = p.y; }
       else { pts[fullIndex].x = p.x; pts[fullIndex + 1].x = p.x; }
       setEdges((eds) => eds.map((edge) => (
-        edge.id === id ? { ...edge, data: { ...edge.data, route: pts.slice(1, -1) } } : edge
+        edge.id === id ? { ...edge, data: { ...edge.data, route: pts.slice(1, -1), autoRoute: false } } : edge
       )));
     };
     const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
