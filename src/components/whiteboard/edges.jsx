@@ -1,19 +1,9 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow } from "@xyflow/react";
 import { Type, Minus, Spline, MoveRight, AlignJustify, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { Pill, ToolDivider, Dropdown, SwatchGrid } from "./toolbarUI";
 import { routeAround, sideNormal } from "./routing";
-
-// Two interior routes are equal if every corner matches (within 0.5px).
-function sameRoute(a, b) {
-  if (!a && !b) return true;
-  if (!a || !b || a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (Math.abs(a[i].x - b[i].x) > 0.5 || Math.abs(a[i].y - b[i].y) > 0.5) return false;
-  }
-  return true;
-}
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
 // follow each edge's stroke colour, so they recolour for free.
@@ -277,41 +267,41 @@ const EditableEdge = memo(function EditableEdge({
   useEffect(() => { setDraft(data?.label || ""); }, [data?.label]);
   useEffect(() => { if (editing) { inputRef.current?.focus(); inputRef.current?.select(); } }, [editing]);
 
-  // Auto-route around other nodes (obstacle avoidance). Debounced so it
-  // recomputes once a node settles, not every drag frame. Pinned edges
-  // (manually reshaped) and curves are left alone.
-  const autoRoute = data?.autoRoute !== false;
-  useEffect(() => {
-    if (!autoRoute || (data?.routing || "elbow") === "curve") return;
-    const tmr = setTimeout(() => {
-      const obstacles = [];
-      for (const n of getNodes()) {
-        if (n.id === source || n.id === target || n.type === "zone" || n.type === "frame") continue;
-        const r = nodeRect(n);
-        if (r) obstacles.push(r);
-      }
-      if (!obstacles.length) return;
-      const route = routeAround({ x: sX, y: sY }, sideNormal(sPos), { x: tX, y: tY }, sideNormal(tPos), obstacles);
-      setEdges((eds) => eds.map((e) => {
-        if (e.id !== id || e.data?.autoRoute === false) return e;
-        const next = route && route.length ? route : undefined;
-        if (sameRoute(e.data?.route, next)) return e;
-        return { ...e, data: { ...e.data, route: next } };
-      }));
-    }, 90);
-    return () => clearTimeout(tmr);
-  }, [autoRoute, data?.routing, source, target, sX, sY, sPos, tX, tY, tPos, id, getNodes, setEdges]);
+  // Obstacle-avoiding route, computed LIVE in render so a dragged node's
+  // edges re-flow in real time (no debounce, no snap-after-settle). The A*
+  // is cheap (routing.js) and — thanks to memo() — only edges whose OWN
+  // endpoints move re-render, so per-frame cost is bounded to the dragged
+  // node's edges. Pinned (manually reshaped) edges and curves are skipped.
+  // Nothing is written to data here, so there's no save/sync churn while
+  // dragging; peers recompute the same route from synced node positions.
+  const pinned = data?.autoRoute === false;
+  const obstacleRoute = useMemo(() => {
+    if (pinned || (data?.routing || "elbow") === "curve") return null;
+    const obstacles = [];
+    for (const n of getNodes()) {
+      if (n.id === source || n.id === target || n.type === "zone" || n.type === "frame") continue;
+      const r = nodeRect(n);
+      if (r) obstacles.push(r);
+    }
+    if (!obstacles.length) return null;
+    return routeAround({ x: sX, y: sY }, sideNormal(sPos), { x: tX, y: tY }, sideNormal(tPos), obstacles);
+  }, [pinned, data?.routing, source, target, sX, sY, sPos, tX, tY, tPos, getNodes]);
 
   const routing = data?.routing || "elbow";
   const curviness = data?.curviness ?? 18;
-  const stored = data?.route;
-  const interior = (stored && stored.length)
-    ? stored
-    : autoOrtho(sX, sY, sPos, tX, tY, tPos);
+  // Pinned → the hand-shaped route; auto → the live obstacle route; else the
+  // simple elbow.
+  const interior = (pinned && data?.route?.length)
+    ? data.route
+    : (obstacleRoute && obstacleRoute.length ? obstacleRoute : autoOrtho(sX, sY, sPos, tX, tY, tPos));
   const rawFull = [{ x: sX, y: sY }, ...interior, { x: tX, y: tY }];
   // Elbows are squared off — every segment forced horizontal/vertical, even
   // after a node moves and a stub goes stale. Curves keep their diagonals.
   const full = routing === "curve" ? rawFull : orthogonalize(rawFull);
+  // The polyline currently on screen — used by the segment/delete handlers
+  // so a grabbed handle maps to the route the user actually sees.
+  const fullRef = useRef(full);
+  fullRef.current = full;
   const path = roundedPath(full, routing === "curve" ? Math.min(curviness, 30) : 8);
   const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: (sX + tX) / 2, y: (sY + tY) / 2 };
   // The toolbar always floats above the edge's highest point (smallest y),
@@ -375,13 +365,10 @@ const EditableEdge = memo(function EditableEdge({
   // together, so the route stays orthogonal and the neighbours stretch.
   const dragSeg = useCallback((fullIndex, horiz, e) => {
     e.stopPropagation();
-    // Snapshot the orthogonalized polyline ONCE at drag start. Re-running
-    // orthogonalize on every move could change the point count mid-drag,
-    // drift the segment index, and fold the route back over itself.
-    const interior0 = (data?.route && data.route.length)
-      ? data.route
-      : autoOrtho(sX, sY, sPos, tX, tY, tPos);
-    const base = orthogonalize([{ x: sX, y: sY }, ...interior0, { x: tX, y: tY }]).map((pt) => ({ ...pt }));
+    // Snapshot the polyline currently on screen ONCE at drag start (the live
+    // obstacle route or the pinned one), so the grabbed handle maps to the
+    // right segment and the route can't shift under the drag.
+    const base = fullRef.current.map((pt) => ({ ...pt }));
     if (!base[fullIndex] || !base[fullIndex + 1]) return;
     const onMove = (ev) => {
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
@@ -395,23 +382,21 @@ const EditableEdge = memo(function EditableEdge({
     const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [id, data?.route, sX, sY, sPos, tX, tY, tPos, screenToFlowPosition, setEdges]);
+  }, [id, screenToFlowPosition, setEdges]);
 
   // Double-click a segment handle to delete that section: drop its two
   // corner points and let the route re-square around the gap.
   const deleteSeg = useCallback((fullIndex, e) => {
     e.stopPropagation();
     e.preventDefault();
-    const interior0 = (data?.route && data.route.length)
-      ? data.route
-      : autoOrtho(sX, sY, sPos, tX, tY, tPos);
-    const base = orthogonalize([{ x: sX, y: sY }, ...interior0, { x: tX, y: tY }]);
-    const trimmed = base.filter((_, idx) => idx !== fullIndex && idx !== fullIndex + 1);
+    const trimmed = fullRef.current.filter((_, idx) => idx !== fullIndex && idx !== fullIndex + 1);
     const nextInterior = trimmed.slice(1, -1);
+    // Deleting a section is a manual edit → pin so the auto-router doesn't
+    // immediately restore the removed bend.
     setEdges((eds) => eds.map((edge) => (
-      edge.id === id ? { ...edge, data: { ...edge.data, route: nextInterior.length ? nextInterior : undefined } } : edge
+      edge.id === id ? { ...edge, data: { ...edge.data, route: nextInterior.length ? nextInterior : undefined, autoRoute: false } } : edge
     )));
-  }, [id, data?.route, sX, sY, sPos, tX, tY, tPos, setEdges]);
+  }, [id, setEdges]);
 
   // Drag an endpoint to move it around its node's perimeter OR drop it on
   // another node (or back on the parent) to re-attach this end there.

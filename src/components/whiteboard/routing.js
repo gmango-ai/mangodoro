@@ -84,13 +84,11 @@ export function routeAround(s, sDir, t, tDir, obstacles) {
     }
     return false;
   };
-  const segOpen = (x0, y0, x1, y1) => {
-    const n = 6;
-    for (let k = 0; k <= n; k++) {
-      if (blockedPt(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n)) return false;
-    }
-    return true;
-  };
+  // Neighbours are always ADJACENT grid lines, and grid lines sit on
+  // obstacle borders — so a segment between them is uniformly inside-or-
+  // outside every obstacle. The midpoint check is therefore exact, and ~6x
+  // cheaper than sampling, which is what makes per-frame routing affordable.
+  const segOpen = (x0, y0, x1, y1) => !blockedPt((x0 + x1) / 2, (y0 + y1) / 2);
 
   const N = W * H;
   const id = (ix, iy) => iy * W + ix;
