@@ -200,7 +200,7 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
 // An edge end can be pinned to ANY point around a node's perimeter
 // (data.sourceAnchor / targetAnchor = { side, t }) instead of a fixed
 // handle. We resolve it against the live node rect on every render.
-function nodeRect(node) {
+export function nodeRect(node) {
   if (!node) return null;
   const p = node.internals?.positionAbsolute || node.position || { x: 0, y: 0 };
   const w = node.measured?.width ?? node.width ?? 0;
@@ -208,6 +208,9 @@ function nodeRect(node) {
   if (!w || !h) return null;
   return { x: p.x, y: p.y, w, h };
 }
+// Anchor side → xyflow handle id, used when creating an edge so its
+// fallback handle matches the free anchor.
+export const ANCHOR_TO_HANDLE = { top: "t", right: "r", bottom: "b", left: "l" };
 function anchorPoint(rect, anchor) {
   if (!rect || !anchor) return null;
   const t = Math.max(0, Math.min(1, anchor.t ?? 0.5));
@@ -220,7 +223,7 @@ function anchorPoint(rect, anchor) {
   }
 }
 // Snap a free-dragged point to the nearest side of the node, as { side, t }.
-function projectToPerimeter(rect, px, py) {
+export function projectToPerimeter(rect, px, py) {
   const { x, y, w, h } = rect;
   const dl = Math.abs(px - x), dr = Math.abs(px - (x + w));
   const dt = Math.abs(py - y), db = Math.abs(py - (y + h));
@@ -542,11 +545,36 @@ export function siblingPlacement(srcRect, fromSide, size, gap = 56) {
 // a smooth orthogonal route that follows the cursor, a "+" drop affordance,
 // and — over empty canvas — a faint ghost of the node a drop would create,
 // sized to the parent and placed via the SAME helper as the real drop.
-export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, connectionStatus, fromNode }) {
-  const ok = connectionStatus === "valid"; // hovering a real target handle
-  const accent = ok ? "#22c55e" : "#64748b";
+export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode }) {
+  const { getNodes } = useReactFlow();
   const fp = fromPosition || "right";
-  // New node is "similar to the parent" → same size; ghost reflects that.
+
+  // Is the cursor over an existing node? If so we'll connect to it at the
+  // exact projected point (snap to any side), so preview THAT instead of
+  // the new-node ghost.
+  let over = null;
+  for (const n of getNodes()) {
+    if (n.type === "frame" || n.type === "zone") continue;
+    if (fromNode && n.id === fromNode.id) continue;
+    const r = nodeRect(n);
+    if (r && toX >= r.x && toX <= r.x + r.w && toY >= r.y && toY <= r.y + r.h) { over = r; break; }
+  }
+
+  if (over) {
+    const ap = anchorPoint(over, projectToPerimeter(over, toX, toY));
+    const interior = autoOrtho(fromX, fromY, fp, ap.x, ap.y, ap.pos);
+    const d = roundedPath(orthogonalize([{ x: fromX, y: fromY }, ...interior, { x: ap.x, y: ap.y }]), 12);
+    return (
+      <g>
+        <path fill="none" stroke="#22c55e" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" d={d} />
+        <circle cx={fromX} cy={fromY} r={3.5} fill="#22c55e" />
+        <circle cx={ap.x} cy={ap.y} r={6} fill="rgba(34,197,94,.2)" stroke="#22c55e" strokeWidth={2.5} />
+      </g>
+    );
+  }
+
+  // Over empty canvas → ghost of the node a drop would create + "+" cursor.
+  const accent = "#64748b";
   const sw = fromNode?.measured?.width ?? fromNode?.width ?? 150;
   const sh = fromNode?.measured?.height ?? fromNode?.height ?? 90;
   const center = fromNode?.position
@@ -559,13 +587,11 @@ export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, connectio
     <g>
       <path fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" d={d} />
       <circle cx={fromX} cy={fromY} r={3.5} fill={accent} />
-      {!ok && (
-        <rect x={gx} y={gy} width={sw} height={sh} rx={12}
-          fill="rgba(100,116,139,.06)" stroke={accent} strokeWidth={1.5} strokeDasharray="6 5" opacity={0.6} />
-      )}
+      <rect x={gx} y={gy} width={sw} height={sh} rx={12}
+        fill="rgba(100,116,139,.06)" stroke={accent} strokeWidth={1.5} strokeDasharray="6 5" opacity={0.6} />
       <g transform={`translate(${toX},${toY})`}>
-        <circle r={9} fill={ok ? "rgba(34,197,94,.2)" : "#fff"} stroke={accent} strokeWidth={2.5} />
-        {!ok && <path d="M-4 0 H4 M0 -4 V4" stroke={accent} strokeWidth={2} strokeLinecap="round" />}
+        <circle r={9} fill="#fff" stroke={accent} strokeWidth={2.5} />
+        <path d="M-4 0 H4 M0 -4 V4" stroke={accent} strokeWidth={2} strokeLinecap="round" />
       </g>
     </g>
   );

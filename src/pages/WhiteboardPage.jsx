@@ -26,7 +26,7 @@ import {
 import { NODE_TYPES, SHAPES, ShapeSvg, preferredStickyColor, setPreferredStickyColor, STICKY_PALETTE, stickyHex, markNodeForEdit } from "../components/whiteboard/nodes";
 import { nodeAbsPos, sortParentsFirst, frameAt } from "../components/whiteboard/frame";
 import { useApp } from "../context/AppContext";
-import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine, connectedNodePlacement, siblingPlacement } from "../components/whiteboard/edges";
+import { EDGE_TYPES, EdgeMarkerDefs, ConnectionLine, connectedNodePlacement, siblingPlacement, nodeRect, projectToPerimeter, ANCHOR_TO_HANDLE } from "../components/whiteboard/edges";
 import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
 import { CollabCursors, PresenceStack } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
@@ -384,9 +384,10 @@ function WhiteboardEditor() {
   }, [board?.id, nodes, edges]);
 
   // ── handlers ──
-  const onConnect = useCallback((conn) => {
-    setEdges((eds) => addEdge({ ...conn, ...DEFAULT_EDGE_OPTIONS }, eds));
-  }, [setEdges]);
+  // Connection completion is handled entirely in onConnectEnd (so we can
+  // attach to ANY point on a node, not just its 4 handles). onConnect is a
+  // no-op to avoid a second, handle-snapped edge being created.
+  const onConnect = useCallback(() => {}, []);
 
   const onConnectStart = useCallback((evt, params) => {
     const e = evt && "touches" in evt ? evt.touches[0] : evt;
@@ -409,8 +410,6 @@ function WhiteboardEditor() {
   const onConnectEnd = useCallback((event, connectionState) => {
     const started = connectingRef.current;
     connectingRef.current = null;
-    // Landed on a real handle → onConnect already made the edge.
-    if (connectionState?.isValid) return;
     const srcNode = connectionState?.fromNode;
     const fromNodeId = srcNode?.id ?? started?.nodeId;
     if (!fromNodeId) return;
@@ -424,6 +423,39 @@ function WhiteboardEditor() {
     let pos;
     try { pos = rf.screenToFlowPosition({ x: ev.clientX, y: ev.clientY }); }
     catch { return; }
+
+    // What node did we release over? (skip containers; small margin so a
+    // drop right on the border still counts.)
+    const M2 = 8;
+    const overNode = rf.getNodes().find((n) => {
+      if (n.type === "frame" || n.type === "zone") return false;
+      const r = nodeRect(n);
+      return r && pos.x >= r.x - M2 && pos.x <= r.x + r.w + M2 && pos.y >= r.y - M2 && pos.y <= r.y + r.h + M2;
+    });
+
+    // Released over ANOTHER node → connect to it AT THE DROP POINT (snap to
+    // any side, not just the 4 handles). The source end uses where the pull
+    // began on the source node, so both ends sit where you grabbed/let go.
+    if (overNode && overNode.id !== fromNodeId) {
+      const targetAnchor = projectToPerimeter(nodeRect(overNode), pos.x, pos.y);
+      let sourceAnchor;
+      const sRect = nodeRect(srcNode);
+      if (sRect && started?.sx != null) {
+        try {
+          const sp = rf.screenToFlowPosition({ x: started.sx, y: started.sy });
+          sourceAnchor = projectToPerimeter(sRect, sp.x, sp.y);
+        } catch { /* */ }
+      }
+      setEdges((eds) => addEdge({
+        source: fromNodeId,
+        sourceHandle,
+        target: overNode.id,
+        targetHandle: ANCHOR_TO_HANDLE[targetAnchor.side],
+        data: { ...(sourceAnchor ? { sourceAnchor } : {}), targetAnchor },
+        ...DEFAULT_EDGE_OPTIONS,
+      }, eds));
+      return;
+    }
 
     // New node mirrors the parent (fall back to a default process box).
     const isShapeParent = ["shape", "rect", "ellipse", "diamond"].includes(srcNode?.type);
