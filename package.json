@@ -13,8 +13,12 @@
     "cap:open:android": "cap open android",
     "cap:run:ios": "bun run cap:build && cap open ios",
     "cap:run:android": "bun run cap:build && cap open android",
+    "electron:install": "cd electron && npm install --no-audit --no-fund",
     "electron:sync": "bun run cap:build && cap sync @capacitor-community/electron",
+    "electron:start": "bun run electron:sync && cd electron && npm run electron:start",
+    "electron:pack": "bun run electron:sync && cd electron && npm run electron:pack",
     "electron:dist": "bun run electron:sync && cd electron && npm run electron:make",
+    "electron:release": "node scripts/electron-release.mjs",
     "gen:app-assets": "node scripts/generate-app-assets.mjs && bunx @capacitor/assets generate --ios --android --iconBackgroundColor '#0d9488' --iconBackgroundColorDark '#0d9488' --splashBackgroundColor '#ffffff' --splashBackgroundColorDark '#0f172a'"
   },
   "dependencies": {
