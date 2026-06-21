@@ -47,7 +47,8 @@ jobs:
       - name: Setup Node (for electron-builder + npm in electron/)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Capacitor CLI requires Node >=22.
+          node-version: '22'
 
       - name: Install root dependencies
         run: bun install --frozen-lockfile
