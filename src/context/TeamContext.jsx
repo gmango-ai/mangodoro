@@ -582,7 +582,12 @@ export function TeamProvider({ session, children }) {
   }
 
   // ── Timesheet fetching ─────────────────────────────────────
-  async function fetchMemberEntries(teamId, monthStr) {
+  // useCallback (stable identity): the admin timesheet page lists this in a
+  // fetch effect's deps. As a plain function it was recreated every render, so
+  // the effect re-ran on every render → refetch → setMemberData → re-render →
+  // loop (the page kept reloading and resetting). It only uses `supabase` and
+  // its args, so empty deps are correct.
+  const fetchMemberEntries = useCallback(async (teamId, monthStr) => {
     // monthStr = "YYYY-MM"
     const startDate = `${monthStr}-01`;
     const endMonth = new Date(startDate + "T12:00:00");
@@ -637,7 +642,7 @@ export function TeamProvider({ session, children }) {
       entries: byMember[uid] || [],
       projectMap,
     }));
-  }
+  }, []);
 
   // ── Team export: CSV ───────────────────────────────────────
   async function exportTeamCSV(teamId, monthStr) {
