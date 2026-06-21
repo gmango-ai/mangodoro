@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Smile, X, Plus } from "lucide-react";
 import { supabase } from "../../supabase";
 import { useApp } from "../../context/AppContext";
@@ -32,7 +32,7 @@ import { useTheme } from "../../context/ThemeContext";
 // The bar is render-prop'd via `barPosition` so callers can mount it
 // at the bottom of a video stage, in a whiteboard toolbar, etc.
 
-const EMOTES = [
+export const EMOTES = [
   { key: "like",  glyph: "👍" },
   { key: "love",  glyph: "❤️" },
   { key: "party", glyph: "🎉" },
@@ -68,7 +68,7 @@ function readRecents() {
 // user actually opens it.
 const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
-export default function EmoteOverlay({
+const EmoteOverlay = forwardRef(function EmoteOverlay({
   channelKey,
   // "bottom-center" (default) renders a horizontal bar at the bottom
   // of the relatively-positioned container we live inside.
@@ -83,7 +83,7 @@ export default function EmoteOverlay({
   // display name; callers with a curated name (e.g. the video call's
   // displayName) can pass it explicitly.
   senderName,
-}) {
+}, ref) {
   const vertical = barPosition === "right-center";
   // Defensive: this overlay can be mounted on surfaces that may not sit
   // under the App/Theme providers, and both contexts default to null.
@@ -109,6 +109,9 @@ export default function EmoteOverlay({
   const rafRef = useRef({ running: false, lastT: 0 });
   const channelRef = useRef(null);
   const chargeRef = useRef(null);
+  // External charge subscribers (e.g. the video toolbar's reaction buttons)
+  // so they can mirror the grow/glow without this overlay re-rendering them.
+  const chargeSubsRef = useRef(new Set());
 
   const pushRecent = useCallback((glyph) => {
     setRecents((prev) => {
@@ -427,6 +430,25 @@ export default function EmoteOverlay({
     </Suspense>
   );
 
+  // Push charge updates to any external subscribers.
+  useEffect(() => {
+    chargeSubsRef.current.forEach((cb) => cb(charge));
+  }, [charge]);
+
+  // Let a caller (e.g. the video toolbar's reaction buttons) drive sends —
+  // including the hold-to-charge burst via startEmit — while this overlay
+  // keeps owning the channel, particle fountain, and the global pointerup
+  // that resolves a charge.
+  useImperativeHandle(ref, () => ({
+    sendEmote,
+    startEmit,
+    subscribeCharge: (cb) => {
+      const s = chargeSubsRef.current;
+      s.add(cb);
+      return () => s.delete(cb);
+    },
+  }), [sendEmote, startEmit]);
+
   return (
     <div
       ref={containerRef}
@@ -535,4 +557,6 @@ export default function EmoteOverlay({
       )}
     </div>
   );
-}
+});
+
+export default EmoteOverlay;
