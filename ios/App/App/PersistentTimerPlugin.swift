@@ -30,9 +30,28 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "resume", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "consumePendingToggle", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getDeviceToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addListener", returnType: CAPPluginReturnCallback),
         CAPPluginMethod(name: "removeAllListeners", returnType: CAPPluginReturnPromise)
     ]
+
+    /// APNs environment for this build. Sandbox in DEBUG, production otherwise
+    /// — both the per-activity and per-device token registrations use it so
+    /// the server hits the right APNs host.
+    static var apnsEnvironment: String {
+        #if DEBUG
+        return "sandbox"
+        #else
+        return "production"
+        #endif
+    }
+
+    /// Stable per-vendor device id used to key the device_push_tokens row, so
+    /// re-registration (token rotation) updates the same row instead of piling
+    /// up dead tokens.
+    static var deviceIdentifier: String {
+        UIDevice.current.identifierForVendor?.uuidString ?? ""
+    }
 
     /// Tracks the AsyncSequence subscription to `activity.pushTokenUpdates`.
     /// Cancelled on stop() and replaced each time start() runs so we never
@@ -59,6 +78,21 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             queue: .main
         ) { _ in
             WidgetCenter.shared.reloadTimelines(ofKind: "MangodoroHomeWidget")
+        }
+
+        // Forward the APNs device token (captured in AppDelegate) to JS so it
+        // can register the device for silent home-widget refresh pushes.
+        NotificationCenter.default.addObserver(
+            forName: .mangodoroDeviceTokenReceived,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let token = note.userInfo?["token"] as? String, !token.isEmpty else { return }
+            self?.notifyListeners("deviceTokenReceived", data: [
+                "token": token,
+                "apnsEnv": Self.apnsEnvironment,
+                "deviceId": Self.deviceIdentifier
+            ])
         }
     }
 
@@ -370,6 +404,76 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             "nowRunning": nowRunning,
             "pendingStop": pendingStop
         ])
+    }
+
+    /// Returns the cached APNs device token (set by AppDelegate on
+    /// registration). JS uploads it via the device-register edge function.
+    @objc func getDeviceToken(_ call: CAPPluginCall) {
+        call.resolve([
+            "token": AppDelegate.deviceTokenHex ?? "",
+            "apnsEnv": Self.apnsEnvironment,
+            "deviceId": Self.deviceIdentifier
+        ])
+    }
+
+    /// Applies a state snapshot pushed from the server (silent background
+    /// push) into the App Group so the home-screen widget reflects a change
+    /// made on another device, then reloads the widget timeline. Merges onto
+    /// the last-known state so fields the push omits (e.g. accent) persist.
+    /// Called from AppDelegate's didReceiveRemoteNotification handler.
+    static func applyRemoteWidgetState(_ info: [AnyHashable: Any]) {
+        let defaults = UserDefaults(suiteName: AppGroup.identifier)
+
+        // A reset / stop on another device clears the widget entirely.
+        if (info["ended"] as? Bool) == true {
+            defaults?.removeObject(forKey: AppGroup.activityStateKey)
+            defaults?.set(false, forKey: AppGroup.lastToggleResultRunningKey)
+            reloadHomeWidget()
+            return
+        }
+
+        var state: [String: Any] = {
+            if let json = defaults?.string(forKey: AppGroup.activityStateKey),
+               let data = json.data(using: .utf8),
+               let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+                return obj
+            }
+            return [:]
+        }()
+
+        let isRunning = (info["isRunning"] as? Bool) ?? false
+        state["isRunning"] = isRunning
+        if let endsAtMs = (info["endsAtMs"] as? NSNumber)?.doubleValue {
+            state["endsAtEpochMs"] = endsAtMs
+        }
+        if isRunning {
+            state.removeValue(forKey: "pausedSecondsLeft")
+        } else if let paused = (info["pausedSecondsLeft"] as? NSNumber)?.intValue {
+            state["pausedSecondsLeft"] = paused
+        }
+        if let mode = info["mode"] as? String {
+            state["mode"] = mode
+            state["label"] = labelForMode(mode)
+        }
+        if let isSynced = info["isSynced"] as? Bool {
+            state["isSynced"] = isSynced
+        }
+
+        defaults?.set(isRunning, forKey: AppGroup.lastToggleResultRunningKey)
+        if let data = try? JSONSerialization.data(withJSONObject: state),
+           let json = String(data: data, encoding: .utf8) {
+            defaults?.set(json, forKey: AppGroup.activityStateKey)
+        }
+        reloadHomeWidget()
+    }
+
+    private static func labelForMode(_ mode: String) -> String {
+        switch mode {
+        case "work": return "Focus"
+        case "shortBreak": return "Short break"
+        case "longBreak": return "Long break"
+        default: return "Pomodoro"
+        }
     }
 
     private func stopAll() {

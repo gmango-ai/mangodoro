@@ -1,13 +1,30 @@
 import UIKit
 import Capacitor
 
+extension Notification.Name {
+    /// Posted when APNs hands us the device token, so LiveActivityPlugin can
+    /// forward it to the JS layer (which uploads it via the device-register
+    /// edge function under the user's auth).
+    static let mangodoroDeviceTokenReceived = Notification.Name("mangodoro.deviceTokenReceived")
+}
+
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
 
+    /// Latest APNs device token (hex). Cached so the JS layer can pull it via
+    /// LiveActivity.getDeviceToken() even if it attaches its listener after
+    /// registration has already completed.
+    static var deviceTokenHex: String?
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Register for remote notifications so the server can send SILENT
+        // (content-available) background pushes that refresh the home-screen
+        // widget when the shared pomodoro state changes on another device.
+        // Silent pushes need registration but NOT user authorization — we ask
+        // for no alert/badge/sound permission.
+        application.registerForRemoteNotifications()
         return true
     }
 
@@ -31,6 +48,39 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationWillTerminate(_ application: UIApplication) {
         // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
+    }
+
+    // MARK: - Remote notifications (silent background push → home-widget refresh)
+
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let tokenHex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        AppDelegate.deviceTokenHex = tokenHex
+        NotificationCenter.default.post(
+            name: .mangodoroDeviceTokenReceived,
+            object: nil,
+            userInfo: ["token": tokenHex]
+        )
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // Best-effort: without a token the silent-push widget refresh simply
+        // doesn't run (the widget still self-heals on next app foreground).
+    }
+
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        // Our silent state-refresh push: merge the pushed snapshot into the
+        // App Group and reload the home widget so it reflects the change made
+        // on the other device, without opening the app.
+        guard (userInfo["kind"] as? String) == "pomodoro-state" else {
+            completionHandler(.noData)
+            return
+        }
+        LiveActivityPlugin.applyRemoteWidgetState(userInfo)
+        completionHandler(.newData)
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {

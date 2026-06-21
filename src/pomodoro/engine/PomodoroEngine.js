@@ -693,12 +693,15 @@ export class PomodoroEngine {
     this._refs.endsAtMsRef.current = null;
     const nextSessions = resetStreak ? 0 : sessions;
     if (hasPersistentTimerSurface) stopPersistentTimer();
+    // Switching mode discards the current countdown → clear other devices'
+    // Live Activities too (see resetTimer).
     this._doFlush({
       mode: newMode,
       pending_mode: null,
       remaining_seconds: dur,
       is_running: false,
       sessions: nextSessions,
+      ended: true,
     });
   }
 
@@ -717,7 +720,9 @@ export class PomodoroEngine {
     });
     this._refs.endsAtMsRef.current = null;
     if (hasPersistentTimerSurface) stopPersistentTimer();
-    this._doFlush({ remaining_seconds: dur, is_running: false, pending_mode: null });
+    // `ended: true` → flushToServer pushes an APNs "end" so a reset here also
+    // dismisses the user's Live Activity / widgets on their other devices.
+    this._doFlush({ remaining_seconds: dur, is_running: false, pending_mode: null, ended: true });
   }
 
   applyCustomDuration(minutesStr, persist) {
@@ -749,6 +754,9 @@ export class PomodoroEngine {
       remaining_seconds: secs,
       is_running: false,
       pending_mode: null,
+      // Resets the countdown to a new idle duration → dismiss other devices'
+      // Live Activities (see resetTimer).
+      ended: true,
     };
     if (persist) flushOverride.durations = nextDurations;
     this._doFlush(flushOverride);

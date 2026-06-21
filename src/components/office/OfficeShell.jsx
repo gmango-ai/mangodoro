@@ -227,7 +227,7 @@ export default function OfficeShell({
   // Island phones, which pushed the room's bottom "add panels" dock off screen.
   // env() is 0 on desktop.
   return (
-    <div className={`flex h-[calc(100dvh-3.5rem-var(--top-inset)-env(safe-area-inset-bottom))] sm:h-[calc(100dvh-4rem-var(--top-inset)-env(safe-area-inset-bottom))] w-full ${
+    <div className={`flex h-[calc(100dvh-3.5rem-var(--top-inset)-var(--bottom-inset))] sm:h-[calc(100dvh-4rem-var(--top-inset)-var(--bottom-inset))] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
       {/* Desktop widgets sidebar.

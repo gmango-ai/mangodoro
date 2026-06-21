@@ -7,6 +7,11 @@
      the mobile safe-area inset normally, overridden to the Electron title-bar
      height on the desktop app (which has no safe-area but a 32px drag strip). */
   --top-inset: env(safe-area-inset-top);
+  /* Bottom chrome that full-height pages subtract from 100dvh and scroll
+     pages clear with padding: just the safe-area normally, but grows to
+     include the glassmorphic bottom tab bar on touch devices below lg
+     (see the bottom-nav block lower in this file). */
+  --bottom-inset: env(safe-area-inset-bottom);
   --font-size: 16px;
   --background: #ffffff;
   --foreground: oklch(0.145 0 0);
@@ -311,6 +316,21 @@ html.electron header.sticky [contenteditable="true"] {
 }
 html.electron .no-drag {
   -webkit-app-region: no-drag;
+}
+
+/* Glassmorphic bottom tab bar (BottomNav.jsx). Hidden by default — desktop and
+   wide screens navigate from the top nav. It takes over from the hamburger only
+   on coarse-pointer (touch) devices below xl: there we reveal the bar, hide the
+   top hamburger, and grow --bottom-inset to the bar's height so full-height
+   pages shrink and scroll pages pad to clear it. Narrow-desktop / Electron (fine
+   pointer) keep the hamburger and never see the bar. (Breakpoint matches the
+   xl: nav-visibility classes in Nav.jsx.) */
+.ql-bottom-nav { display: none; }
+@media (max-width: 1279.98px) {
+  html.touch .ql-bottom-nav { display: block; }
+  html.touch .ql-nav-hamburger { display: none; }
+  html.touch { --bottom-inset: calc(4rem + env(safe-area-inset-bottom)); }
+  html.touch body { padding-bottom: var(--bottom-inset); }
 }
 
 /* Popover BrowserWindow. The accent-tinted body bg from the main

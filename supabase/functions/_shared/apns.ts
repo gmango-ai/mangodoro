@@ -131,3 +131,55 @@ export async function sendLiveActivityPush(
     body,
   };
 }
+
+export type SendBackgroundPushArgs = {
+  pushToken: string;
+  // Custom data merged at the top level of the payload (read from `userInfo`
+  // by application(_:didReceiveRemoteNotification:fetchCompletionHandler:)).
+  payload: Record<string, unknown>;
+  apnsEnv?: "production" | "sandbox";
+  // Seconds the push may sit in APNs storage if the device is offline. A
+  // modest window keeps a briefly-offline phone fresh without delivering a
+  // stale snapshot hours later (the widget self-heals on next foreground).
+  expirationSeconds?: number;
+};
+
+// Silent / background push to the APP (NOT a Live Activity): apns-push-type
+// "background" + aps.content-available = 1, low priority (5, required for
+// background pushes). Wakes the app to refresh the App Group + reload the
+// home-screen widget so it never shows stale state after a cross-device
+// change. Topic is the plain bundle id (no .push-type.liveactivity suffix).
+export async function sendBackgroundPush(
+  args: SendBackgroundPushArgs,
+): Promise<SendLiveActivityPushResult> {
+  const bundleId = env("APNS_BUNDLE_ID");
+  const defaultEnv = env("APNS_ENV", "production");
+  const apnsEnv = args.apnsEnv ?? (defaultEnv as "production" | "sandbox");
+  const host = apnsEnv === "sandbox" ? "api.sandbox.push.apple.com" : "api.push.apple.com";
+  const url = `https://${host}/3/device/${args.pushToken}`;
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const aps: Record<string, unknown> = { "content-available": 1 };
+  const body = { aps, ...args.payload };
+
+  const bearer = await getBearer();
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "authorization": `bearer ${bearer}`,
+      "apns-topic": bundleId,
+      "apns-push-type": "background",
+      "apns-priority": "5",
+      "apns-expiration": String(nowSec + (args.expirationSeconds ?? 1800)),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await resp.text();
+  return {
+    ok: resp.ok,
+    status: resp.status,
+    apnsId: resp.headers.get("apns-id"),
+    body: text,
+  };
+}

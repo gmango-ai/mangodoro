@@ -287,7 +287,7 @@ private func dispatchToggleAndReconcile(original: [String: Any]?) async {
         // dispatchActivityAction already mirrored the server state into the
         // App Group; repaint so the widget settles on the authoritative value.
         reloadHomeWidget()
-        log.notice("toggle reconciled nowRunning=\(nowRunning)")
+        log.debug("toggle reconciled nowRunning=\(nowRunning)")
     case .failed:
         // The round-trip never reached the server — snap the optimistic flip
         // back to the pre-tap state so the widget doesn't lie.
@@ -303,7 +303,7 @@ private func dispatchStopAndReconcile(restoreOnFailure original: [String: Any]?)
     case .succeeded, .apnsFailed:
         cancelScheduledAlarm()
         reloadHomeWidget()
-        log.notice("stop reconciled")
+        log.debug("stop reconciled")
     case .failed:
         revertOptimisticStop(original)
         log.notice("stop failed — restored session")
@@ -325,7 +325,7 @@ struct ToggleTimerIntent: LiveActivityIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        log.notice("ToggleTimerIntent fired")
+        log.debug("ToggleTimerIntent fired")
         let original = applyTransitionToggle()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
         await dispatchToggleAndReconcile(original: original)
@@ -341,7 +341,7 @@ struct StopTimerIntent: LiveActivityIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        log.notice("StopTimerIntent fired")
+        log.debug("StopTimerIntent fired")
         let original = applyOptimisticStop()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingStopKey)
         await dispatchStopAndReconcile(restoreOnFailure: original)
@@ -371,7 +371,7 @@ struct HomeToggleTimerIntent: AppIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        log.notice("HomeToggleTimerIntent fired")
+        log.debug("HomeToggleTimerIntent fired")
         let original = applyTransitionToggle()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
         Task.detached(priority: .userInitiated) {
@@ -389,7 +389,7 @@ struct HomeStopTimerIntent: AppIntent {
     static let isDiscoverable: Bool = false
 
     func perform() async throws -> some IntentResult {
-        log.notice("HomeStopTimerIntent fired")
+        log.debug("HomeStopTimerIntent fired")
         let original = applyOptimisticStop()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingStopKey)
         Task.detached(priority: .userInitiated) {

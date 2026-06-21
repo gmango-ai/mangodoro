@@ -17,7 +17,7 @@
 // Response: { ok, pushed }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { sendLiveActivityPush } from "../_shared/apns.ts";
+import { sendLiveActivityPush, sendBackgroundPush } from "../_shared/apns.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -69,10 +69,9 @@ Deno.serve(async (req) => {
     console.error("token lookup failed", lookupError);
     return json(500, { error: "db lookup failed" });
   }
-  if (!rows?.length) return json(200, { ok: true, pushed: 0 });
 
   let pushed = 0;
-  for (const row of rows) {
+  for (const row of rows ?? []) {
     const prev = (row.state ?? {}) as Record<string, unknown>;
     // Merge the new running/timing onto the activity's last-known content so
     // mode / label / accent stay intact.
@@ -99,5 +98,35 @@ Deno.serve(async (req) => {
     await admin.from("pomodoro_activity_tokens").update(updates).eq("activity_id", row.activity_id);
   }
 
-  return json(200, { ok: true, pushed });
+  // Also refresh the home-screen widget on every registered device via a
+  // silent background push. The home widget reads the App Group, which only
+  // the app itself can write — so we wake the app to merge the new state and
+  // reload its timeline. Runs even when the user has no Live Activity (rows
+  // empty) so the home widget never goes stale after a cross-device change.
+  const { data: devices, error: deviceLookupError } = await admin
+    .from("device_push_tokens")
+    .select("push_token, apns_env")
+    .eq("user_id", userId);
+  if (deviceLookupError) console.error("device token lookup failed", deviceLookupError);
+
+  let silentPushed = 0;
+  for (const d of devices ?? []) {
+    const res = await sendBackgroundPush({
+      pushToken: d.push_token as string,
+      apnsEnv: d.apns_env as "production" | "sandbox",
+      payload: {
+        kind: "pomodoro-state",
+        ended,
+        isRunning,
+        endsAtMs: endsAtMs ?? null,
+        pausedSecondsLeft: pausedSecondsLeft ?? null,
+        mode: typeof body.mode === "string" ? body.mode : null,
+        isSynced: body.isSynced === true,
+      },
+    });
+    if (res.ok) silentPushed++;
+    else console.error("background push failed", res.status, res.body);
+  }
+
+  return json(200, { ok: true, pushed, silentPushed });
 });

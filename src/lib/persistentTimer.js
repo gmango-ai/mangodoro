@@ -25,6 +25,12 @@ let lastUploadedKey = null;
 let lastActivityId = null;
 let pendingStateSync = null;
 
+// Device-level APNs token (separate from the per-Live-Activity push token):
+// powers SILENT background pushes that refresh the home-screen widget when
+// the timer is driven from another device. Registered once per session.
+let deviceTokenListenerHandle = null;
+let lastUploadedDeviceKey = null;
+
 function captureActivityId(result) {
   if (result?.activityId) lastActivityId = result.activityId;
 }
@@ -337,6 +343,44 @@ export async function consumePendingTimerToggle() {
   } catch (e) {
     console.warn("[persistentTimer] consumePendingToggle failed", e);
     return { pending: false, nowRunning: false, pendingStop: false };
+  }
+}
+
+async function uploadDeviceToken({ token, deviceId, apnsEnv } = {}) {
+  if (!token || !deviceId) return;
+  const key = `${deviceId}:${token}`;
+  if (key === lastUploadedDeviceKey) return;
+  try {
+    const { error } = await supabase.functions.invoke("device-register", {
+      body: { device_id: deviceId, push_token: token, apns_env: apnsEnv || "production" },
+    });
+    if (error) {
+      console.warn("[persistentTimer] device-register failed", error);
+      return;
+    }
+    lastUploadedDeviceKey = key;
+  } catch (e) {
+    console.warn("[persistentTimer] device-register threw", e);
+  }
+}
+
+// Registers this device for silent background pushes that keep the home-screen
+// widget fresh when the timer changes on another device. Safe to call on every
+// app start once the user is authenticated (no-op off iOS / when unchanged).
+export async function initDeviceWidgetPush() {
+  if (getPlatform() !== "ios") return;
+  try {
+    if (!deviceTokenListenerHandle) {
+      deviceTokenListenerHandle = await IOSLiveActivity.addListener(
+        "deviceTokenReceived",
+        (data) => { uploadDeviceToken(data); }
+      );
+    }
+    // Pull any token APNs already handed us before the listener attached.
+    const current = await IOSLiveActivity.getDeviceToken();
+    if (current?.token) await uploadDeviceToken(current);
+  } catch (e) {
+    console.warn("[persistentTimer] initDeviceWidgetPush failed", e);
   }
 }
 
