@@ -3,11 +3,12 @@
 // overrides for both light and dark themes.
 //
 // Each palette also carries a `break` color used by the pomodoro
-// break mode. Hand-tuned as a split-complementary of the primary
-// accent — distinct enough to read as "different mode" but
-// harmonious. Cool accents get warm breaks (rose/amber), warm
-// accents get cool breaks (teal/emerald). Slate is the exception:
-// it stays in-family with a softer warm slate.
+// break mode. Picked as an ANALOGOUS hue of the primary accent — an
+// adjacent family on the color wheel (~15-35° away), so it stays close
+// enough to feel part of the same theme but distinct enough to read as
+// "different mode". (Previously a split-complementary / opposite hue,
+// which felt out of place.) Examples: teal→green, blue→indigo,
+// violet→fuchsia, amber→orange, slate→sky.
 //
 // The CSS variable names already exist in src/index.css — overriding
 // them at the document root flips every surface that reads them
@@ -28,9 +29,9 @@ export const ACCENTS = [
       "--color-accent-border": "#99f6e4",
       "--color-accent-text": "#134e4a",
       "--color-accent-bright": "#14b8a6",
-      "--color-break": "#e11d48",
-      "--color-break-hover": "#be123c",
-      "--color-break-light": "#fff1f2",
+      "--color-break": "#16a34a",
+      "--color-break-hover": "#15803d",
+      "--color-break-light": "#f0fdf4",
     },
     dark: {
       "--color-accent": "#2dd4bf",
@@ -40,9 +41,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(45, 212, 191, 0.35)",
       "--color-accent-text": "#99f6e4",
       "--color-accent-bright": "#14b8a6",
-      "--color-break": "#fb7185",
-      "--color-break-hover": "#fda4af",
-      "--color-break-light": "rgba(251, 113, 133, 0.15)",
+      "--color-break": "#4ade80",
+      "--color-break-hover": "#86efac",
+      "--color-break-light": "rgba(74, 222, 128, 0.15)",
     },
   },
   {
@@ -57,9 +58,9 @@ export const ACCENTS = [
       "--color-accent-border": "#a5f3fc",
       "--color-accent-text": "#155e75",
       "--color-accent-bright": "#06b6d4",
-      "--color-break": "#f43f5e",
-      "--color-break-hover": "#e11d48",
-      "--color-break-light": "#fff1f2",
+      "--color-break": "#2563eb",
+      "--color-break-hover": "#1d4ed8",
+      "--color-break-light": "#eff6ff",
     },
     dark: {
       "--color-accent": "#22d3ee",
@@ -69,9 +70,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(34, 211, 238, 0.35)",
       "--color-accent-text": "#a5f3fc",
       "--color-accent-bright": "#06b6d4",
-      "--color-break": "#fb7185",
-      "--color-break-hover": "#fda4af",
-      "--color-break-light": "rgba(251, 113, 133, 0.15)",
+      "--color-break": "#60a5fa",
+      "--color-break-hover": "#93c5fd",
+      "--color-break-light": "rgba(96, 165, 250, 0.15)",
     },
   },
   {
@@ -86,9 +87,9 @@ export const ACCENTS = [
       "--color-accent-border": "#bfdbfe",
       "--color-accent-text": "#1e3a8a",
       "--color-accent-bright": "#3b82f6",
-      "--color-break": "#ea580c",
-      "--color-break-hover": "#c2410c",
-      "--color-break-light": "#fff7ed",
+      "--color-break": "#4f46e5",
+      "--color-break-hover": "#4338ca",
+      "--color-break-light": "#eef2ff",
     },
     dark: {
       "--color-accent": "#60a5fa",
@@ -98,9 +99,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(96, 165, 250, 0.35)",
       "--color-accent-text": "#bfdbfe",
       "--color-accent-bright": "#3b82f6",
-      "--color-break": "#fb923c",
-      "--color-break-hover": "#fdba74",
-      "--color-break-light": "rgba(251, 146, 60, 0.15)",
+      "--color-break": "#818cf8",
+      "--color-break-hover": "#a5b4fc",
+      "--color-break-light": "rgba(129, 140, 248, 0.15)",
     },
   },
   {
@@ -115,9 +116,9 @@ export const ACCENTS = [
       "--color-accent-border": "#c7d2fe",
       "--color-accent-text": "#312e81",
       "--color-accent-bright": "#6366f1",
-      "--color-break": "#d97706",
-      "--color-break-hover": "#b45309",
-      "--color-break-light": "#fffbeb",
+      "--color-break": "#7c3aed",
+      "--color-break-hover": "#6d28d9",
+      "--color-break-light": "#f5f3ff",
     },
     dark: {
       "--color-accent": "#818cf8",
@@ -127,9 +128,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(129, 140, 248, 0.35)",
       "--color-accent-text": "#c7d2fe",
       "--color-accent-bright": "#6366f1",
-      "--color-break": "#fbbf24",
-      "--color-break-hover": "#fcd34d",
-      "--color-break-light": "rgba(251, 191, 36, 0.15)",
+      "--color-break": "#a78bfa",
+      "--color-break-hover": "#c4b5fd",
+      "--color-break-light": "rgba(167, 139, 250, 0.15)",
     },
   },
   {
@@ -144,9 +145,9 @@ export const ACCENTS = [
       "--color-accent-border": "#ddd6fe",
       "--color-accent-text": "#4c1d95",
       "--color-accent-bright": "#8b5cf6",
-      "--color-break": "#059669",
-      "--color-break-hover": "#047857",
-      "--color-break-light": "#ecfdf5",
+      "--color-break": "#c026d3",
+      "--color-break-hover": "#a21caf",
+      "--color-break-light": "#fdf4ff",
     },
     dark: {
       "--color-accent": "#a78bfa",
@@ -156,9 +157,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(167, 139, 250, 0.35)",
       "--color-accent-text": "#ddd6fe",
       "--color-accent-bright": "#8b5cf6",
-      "--color-break": "#34d399",
-      "--color-break-hover": "#6ee7b7",
-      "--color-break-light": "rgba(52, 211, 153, 0.15)",
+      "--color-break": "#e879f9",
+      "--color-break-hover": "#f0abfc",
+      "--color-break-light": "rgba(232, 121, 249, 0.15)",
     },
   },
   {
@@ -173,9 +174,9 @@ export const ACCENTS = [
       "--color-accent-border": "#fbcfe8",
       "--color-accent-text": "#831843",
       "--color-accent-bright": "#ec4899",
-      "--color-break": "#0d9488",
-      "--color-break-hover": "#0f766e",
-      "--color-break-light": "#f0fdfa",
+      "--color-break": "#e11d48",
+      "--color-break-hover": "#be123c",
+      "--color-break-light": "#fff1f2",
     },
     dark: {
       "--color-accent": "#f472b6",
@@ -185,9 +186,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(244, 114, 182, 0.35)",
       "--color-accent-text": "#fbcfe8",
       "--color-accent-bright": "#ec4899",
-      "--color-break": "#2dd4bf",
-      "--color-break-hover": "#5eead4",
-      "--color-break-light": "rgba(45, 212, 191, 0.15)",
+      "--color-break": "#fb7185",
+      "--color-break-hover": "#fda4af",
+      "--color-break-light": "rgba(251, 113, 133, 0.15)",
     },
   },
   {
@@ -202,9 +203,9 @@ export const ACCENTS = [
       "--color-accent-border": "#fecdd3",
       "--color-accent-text": "#881337",
       "--color-accent-bright": "#f43f5e",
-      "--color-break": "#0d9488",
-      "--color-break-hover": "#0f766e",
-      "--color-break-light": "#f0fdfa",
+      "--color-break": "#dc2626",
+      "--color-break-hover": "#b91c1c",
+      "--color-break-light": "#fef2f2",
     },
     dark: {
       "--color-accent": "#fb7185",
@@ -214,9 +215,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(251, 113, 133, 0.35)",
       "--color-accent-text": "#fecdd3",
       "--color-accent-bright": "#f43f5e",
-      "--color-break": "#2dd4bf",
-      "--color-break-hover": "#5eead4",
-      "--color-break-light": "rgba(45, 212, 191, 0.15)",
+      "--color-break": "#f87171",
+      "--color-break-hover": "#fca5a5",
+      "--color-break-light": "rgba(248, 113, 113, 0.15)",
     },
   },
   {
@@ -231,9 +232,9 @@ export const ACCENTS = [
       "--color-accent-border": "#fde68a",
       "--color-accent-text": "#78350f",
       "--color-accent-bright": "#f59e0b",
-      "--color-break": "#4f46e5",
-      "--color-break-hover": "#4338ca",
-      "--color-break-light": "#eef2ff",
+      "--color-break": "#ea580c",
+      "--color-break-hover": "#c2410c",
+      "--color-break-light": "#fff7ed",
     },
     dark: {
       "--color-accent": "#fbbf24",
@@ -243,9 +244,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(251, 191, 36, 0.35)",
       "--color-accent-text": "#fde68a",
       "--color-accent-bright": "#f59e0b",
-      "--color-break": "#818cf8",
-      "--color-break-hover": "#a5b4fc",
-      "--color-break-light": "rgba(129, 140, 248, 0.15)",
+      "--color-break": "#fb923c",
+      "--color-break-hover": "#fdba74",
+      "--color-break-light": "rgba(251, 146, 60, 0.15)",
     },
   },
   {
@@ -260,9 +261,9 @@ export const ACCENTS = [
       "--color-accent-border": "#a7f3d0",
       "--color-accent-text": "#064e3b",
       "--color-accent-bright": "#10b981",
-      "--color-break": "#db2777",
-      "--color-break-hover": "#be185d",
-      "--color-break-light": "#fdf2f8",
+      "--color-break": "#0d9488",
+      "--color-break-hover": "#0f766e",
+      "--color-break-light": "#f0fdfa",
     },
     dark: {
       "--color-accent": "#34d399",
@@ -272,9 +273,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(52, 211, 153, 0.35)",
       "--color-accent-text": "#a7f3d0",
       "--color-accent-bright": "#10b981",
-      "--color-break": "#f472b6",
-      "--color-break-hover": "#f9a8d4",
-      "--color-break-light": "rgba(244, 114, 182, 0.15)",
+      "--color-break": "#2dd4bf",
+      "--color-break-hover": "#5eead4",
+      "--color-break-light": "rgba(45, 212, 191, 0.15)",
     },
   },
   {
@@ -289,9 +290,9 @@ export const ACCENTS = [
       "--color-accent-border": "#cbd5e1",
       "--color-accent-text": "#1e293b",
       "--color-accent-bright": "#64748b",
-      "--color-break": "#b45309",
-      "--color-break-hover": "#92400e",
-      "--color-break-light": "#fffbeb",
+      "--color-break": "#0284c7",
+      "--color-break-hover": "#0369a1",
+      "--color-break-light": "#f0f9ff",
     },
     dark: {
       "--color-accent": "#94a3b8",
@@ -301,9 +302,9 @@ export const ACCENTS = [
       "--color-accent-border": "rgba(148, 163, 184, 0.35)",
       "--color-accent-text": "#e2e8f0",
       "--color-accent-bright": "#64748b",
-      "--color-break": "#fbbf24",
-      "--color-break-hover": "#fcd34d",
-      "--color-break-light": "rgba(251, 191, 36, 0.15)",
+      "--color-break": "#38bdf8",
+      "--color-break-hover": "#7dd3fc",
+      "--color-break-light": "rgba(56, 189, 248, 0.15)",
     },
   },
 ];
