@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
+import { useVideoCall } from "../../context/VideoCallContext";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
 import WidgetsSidebar from "./WidgetsSidebar";
 import RoomView from "./RoomView";
 import HallwayView from "./HallwayView";
 import OfficeOverlay from "./OfficeOverlay";
-import { leaveSyncSession } from "../../lib/syncSession";
 
 const LAST_ROOM_KEY = "ql_office_last_room";
 const SIDEBAR_OPEN_KEY = "ql_office_widgets_open";
@@ -90,8 +90,25 @@ export default function OfficeShell({
   // they're "in" it from the system's POV, so showing the hallway is
   // misleading. Fires once per mount via a ref so the user can still
   // click "Hallway" to leave intentionally without being yanked back.
-  const { syncSession } = useSyncSession();
+  const { syncSession, leaveSession } = useSyncSession();
+  const { call, endCall } = useVideoCall();
   const autoOpenedRef = useRef(false);
+
+  // Explicit leave. Connection-aware model: incidental navigation never
+  // leaves a room (you keep heartbeating, so you stay "in" it until your
+  // last tab closes and the sweeper reaps you). Leaving is a deliberate
+  // act — the room header's Leave button and the overlay's "Leave to
+  // hallway" both route here, which removes the user from the session
+  // (across all their tabs) and drops them in the hallway.
+  const handleLeaveRoom = async () => {
+    // Leaving is deliberate — tear the room's video call down too so the
+    // PiP doesn't linger after you've left. (The session-bound teardown
+    // in PersistentVideoCall only fires when a session was tracking the
+    // room; ending here covers the call regardless.)
+    if (call) endCall();
+    await leaveSession();
+    navigate("/office");
+  };
   useEffect(() => {
     if (autoOpenedRef.current) return;
     if (resolvedRoomId) {
@@ -114,15 +131,19 @@ export default function OfficeShell({
     if (resolvedRoomId && activeTeam?.id) rememberRoomFor(activeTeam.id, resolvedRoomId);
   }, [resolvedRoomId, activeTeam?.id]);
 
-  // Auto-bind the user's sync session to the room they're viewing.
+  // Auto-bind the user's sync session to the room they ENTER.
   //
   //   Enter a room  → if an active session exists for it, join. If not,
   //                   start one (private rooms still go through the
   //                   code prompt via onStart).
-  //   Leave a room  → if our current session is tied to the room we
-  //                   just left, leave it. leave_sync_session hard-
-  //                   deletes the row when we're the last participant,
-  //                   so empty rooms auto-end with no extra plumbing.
+  //   Leave a room  → NOT handled here. Connection-aware model: leaving
+  //                   is explicit (handleLeaveRoom) or implicit via
+  //                   staleness — navigating away keeps you heartbeating,
+  //                   so you stay in the room until your last tab closes
+  //                   and the sweeper reaps the empty room. Switching to
+  //                   another room just rebinds the session; the old
+  //                   room's last_seen goes stale and drops off on its
+  //                   own (read-time liveness + sweep).
   //
   // boundRoomRef de-dupes the effect across re-renders triggered by
   // sessionByRoomId / syncSession updates — we only want to act on
@@ -139,17 +160,10 @@ export default function OfficeShell({
     if (inFlightRef.current) return;
 
     const currentSessionRoom = syncSession?.room_id || null;
-    const sessionToLeave =
-      bound && syncSession?.id && currentSessionRoom === bound
-        ? syncSession.id
-        : null;
 
     inFlightRef.current = true;
     (async () => {
       try {
-        if (sessionToLeave) {
-          await leaveSyncSession(sessionToLeave);
-        }
         if (target) {
           // If we're already in this room's session (cross-device
           // rehydrate landed us here), do nothing — we're aligned.
@@ -174,15 +188,46 @@ export default function OfficeShell({
     })();
     // We intentionally depend ONLY on the URL room id. sessionByRoomId
     // and syncSession changes are captured at fire-time via closure;
-    // re-running on every realtime tick would re-trigger leave/join
-    // cycles when nothing actually changed.
+    // re-running on every realtime tick would re-trigger join cycles
+    // when nothing actually changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedRoomId]);
 
   const sidebar = <WidgetsSidebar />;
 
+  // ── HALLWAY ── contained, native app page. No widgets rail and no
+  // full-bleed shell: the hallway sits in the same centered column on
+  // the app's global gradient background as every other page. The rail
+  // + two-pane workspace only appear once you step into a room (below).
+  if (!selectedRoom) {
+    return (
+      <main className="max-w-[1100px] mx-auto px-4 sm:px-6 pt-6 pb-24">
+        <HallwayView
+          activeTeam={activeTeam}
+          rooms={rooms}
+          lockedRooms={lockedRooms}
+          sessionByRoomId={sessionByRoomId}
+          onlineCount={onlineCount}
+          canEdit={canEdit}
+          busy={busy}
+          onEnterRoom={(id) => navigate(`/office/r/${id}`)}
+          onEditOffice={onEditOffice}
+        />
+      </main>
+    );
+  }
+
+  // ── IN A ROOM ── two-pane workspace: the widgets rail (pomodoro,
+  // tasks, …) earns its place here, alongside the room's chat / video /
+  // timer. This is the one surface in the app with a side rail, by design.
+  //
+  // Root height fills exactly below the global nav: subtract the nav bar
+  // (3.5rem mobile / 4rem desktop, matching Nav's h-14 sm:h-16) and the top
+  // safe-area inset. The old flat `100vh - 64px` was ~50px too tall on Dynamic
+  // Island phones, which pushed the room's bottom "add panels" dock off screen.
+  // env() is 0 on desktop.
   return (
-    <div className={`flex h-[calc(100vh-64px)] w-full ${
+    <div className={`flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] sm:h-[calc(100dvh-4rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
       {/* Desktop widgets sidebar.
@@ -232,31 +277,18 @@ export default function OfficeShell({
           </p>
         </div>
 
-        {selectedRoom ? (
-          <RoomView
-            room={selectedRoom}
-            activeSession={activeSession}
-            orgTeams={orgTeams}
-            busy={busy}
-            onJoin={() => onJoin?.(selectedRoom)}
-            onStart={() => onStart?.(selectedRoom)}
-            sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-            onOpenRoomSwitcher={() => setOverlayOpen(true)}
-          />
-        ) : (
-          <HallwayView
-            activeTeam={activeTeam}
-            rooms={rooms}
-            lockedRooms={lockedRooms}
-            sessionByRoomId={sessionByRoomId}
-            onlineCount={onlineCount}
-            canEdit={canEdit}
-            busy={busy}
-            onEnterRoom={(id) => navigate(`/office/r/${id}`)}
-            onEditOffice={onEditOffice}
-          />
-        )}
+        <RoomView
+          room={selectedRoom}
+          activeSession={activeSession}
+          orgTeams={orgTeams}
+          busy={busy}
+          onJoin={() => onJoin?.(selectedRoom)}
+          onStart={() => onStart?.(selectedRoom)}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          onOpenRoomSwitcher={() => setOverlayOpen(true)}
+          onLeaveRoom={handleLeaveRoom}
+        />
       </div>
 
       <OfficeOverlay
@@ -266,6 +298,7 @@ export default function OfficeShell({
         lockedRooms={lockedRooms}
         sessionByRoomId={sessionByRoomId}
         selectedRoomId={resolvedRoomId}
+        onLeaveToHallway={handleLeaveRoom}
       />
     </div>
   );

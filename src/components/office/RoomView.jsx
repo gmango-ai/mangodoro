@@ -1,38 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import {
-  Hash, Briefcase, MessageSquare, Lock, Video,
-  LogIn, Play, Pause, PanelLeftOpen, PanelLeftClose, Rows2, Columns2,
-  ChevronDown, Target,
+  Hash, Briefcase, MessageSquare, Lock,
+  LogIn, LogOut, Play, Pause, PanelLeftOpen, PanelLeftClose, ChevronDown,
 } from "lucide-react";
-import RoomChatPanel from "../RoomChatPanel";
-import RoomVideoStage from "../video/RoomVideoStage";
-import ResizableSplit from "./ResizableSplit";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { openPomodoroSurface } from "../../lib/pomodoroSurface";
-
-// View modes:
-//   chat    — just chat, full pane
-//   stack   — video on top, chat on bottom  (vertical split / Rows2)
-//   side    — video left, chat right        (horizontal split / Columns2)
-//   video   — just video, full pane
-//   retro   — embedded retro board (only available when one is linked)
-const VIEW_MODE_KEY = "ql_room_view_mode";
-const VALID_VIEW_MODES = ["chat", "stack", "side", "video", "retro"];
-
-function loadViewMode() {
-  try {
-    const stored = localStorage.getItem(VIEW_MODE_KEY);
-    if (stored && VALID_VIEW_MODES.includes(stored)) return stored;
-  } catch { /* */ }
-  return "stack";
-}
-function saveViewMode(mode) {
-  try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch { /* */ }
-}
+import RoomLayout from "./roomLayout/RoomLayout";
+import LayoutBar from "./roomLayout/LayoutBar";
+import { useRoomLayout } from "./roomLayout/useRoomLayout";
+import { PANEL_IDS, ROOM_PANELS } from "./roomLayout/panels";
+import { panelsIn } from "./roomLayout/layoutTree";
 
 const KIND_ICON = {
   general: Hash,
@@ -46,52 +27,6 @@ const KIND_LABEL = {
   meeting: "Meeting",
   private: "Private",
 };
-
-function ViewModeControl({ value, onChange, accent, dark, hasRetro }) {
-  // 4-button segmented control. Two "both" options with icons that
-  // hint at the split direction — Rows2 = stacked / Columns2 = side-
-  // by-side — so the choice reads without the label.
-  // Retro becomes a 5th option when a retro is linked to the session.
-  const options = [
-    { key: "chat",  Icon: MessageSquare, label: "Chat" },
-    { key: "stack", Icon: Rows2,         label: "Stacked" },
-    { key: "side",  Icon: Columns2,      label: "Side" },
-    { key: "video", Icon: Video,         label: "Video" },
-    ...(hasRetro ? [{ key: "retro", Icon: Target, label: "Retro" }] : []),
-  ];
-  return (
-    <div
-      className={`inline-flex p-0.5 rounded-full ${
-        dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
-      }`}
-      role="tablist"
-      aria-label="Room view mode"
-    >
-      {options.map((opt) => {
-        const active = value === opt.key;
-        return (
-          <button
-            key={opt.key}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(opt.key)}
-            title={opt.label}
-            className={`inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
-              active
-                ? "text-white shadow-sm"
-                : dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
-            }`}
-            style={active ? { background: accent } : {}}
-          >
-            <opt.Icon className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">{opt.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 // Glanceable pomodoro chip shown in the room header when the user
 // is in this room's session. Click → opens the floating
@@ -154,46 +89,42 @@ function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, current
 
 export default function RoomView({
   room, activeSession, orgTeams, busy, onJoin, onStart,
-  sidebarOpen, onToggleSidebar, onOpenRoomSwitcher,
+  sidebarOpen, onToggleSidebar, onOpenRoomSwitcher, onLeaveRoom,
 }) {
   const { theme } = useTheme();
   const { session } = useApp();
-  const { syncSession: currentSyncSession } = useSyncSession();
+  const { syncSession: currentSyncSession, leaderPresent } = useSyncSession();
   const dark = theme === "dark";
 
-  const [viewMode, setViewModeRaw] = useState(loadViewMode);
-  const setViewMode = (m) => { setViewModeRaw(m); saveViewMode(m); };
-  useEffect(() => { saveViewMode(viewMode); }, [viewMode]);
-
-  // Retro linkage flows through the sync session. The Link / Unlink
-  // controls live in the WidgetsSidebar; here we just react to the
-  // retro_id state.
-  const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
-  const linkedRetroId = inThisRoomSession ? (currentSyncSession.retro_id || null) : null;
-
-  // If a retro was the active view but it just got unlinked
-  // (another leader cleared it, retro deleted, we left the session),
-  // fall back to stack so the body doesn't render an empty iframe.
-  useEffect(() => {
-    if (viewMode === "retro" && !linkedRetroId) setViewModeRaw("stack");
-  }, [viewMode, linkedRetroId]);
-
-  // Auto-switch everyone in the room to the retro view as soon as a
-  // retro becomes linked. We only fire on the null → linked transition
-  // (or a relink to a different retro) so a user who manually flips
-  // back to "stack" / "chat" / "side" / "video" afterwards isn't
-  // dragged back to retro every render. setViewMode (not Raw) writes
-  // through to localStorage, so the choice persists too.
-  const prevRetroRef = useRef(linkedRetroId);
-  useEffect(() => {
-    const prev = prevRetroRef.current;
-    if (linkedRetroId && linkedRetroId !== prev) {
-      setViewMode("retro");
-    }
-    prevRetroRef.current = linkedRetroId;
-  }, [linkedRetroId]);
+  // Modular panel layout (per-user, per-room). Replaces the old fixed
+  // view modes — see ./roomLayout. Panels = video, chat, whiteboard.
+  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
+  const [arranging, setArranging] = useState(false);
 
   if (!room) return null;
+
+  // Quick-toggle data for the header: which panels exist + their icon/title.
+  const activePanels = panelsIn(tree);
+  const quickPanels = PANEL_IDS.map((id) => ({
+    id, title: ROOM_PANELS[id].title, Icon: ROOM_PANELS[id].icon,
+  }));
+
+  // Whiteboard link flows through the sync session (session.whiteboard_id),
+  // mirroring the old retro link. Leader — or any member when the host is
+  // away — may attach one (matches the server's leader fallback).
+  const displayName = session?.user?.user_metadata?.name || session?.user?.email || "Guest";
+  const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
+  const linkedWhiteboardId = inThisRoomSession ? (currentSyncSession.whiteboard_id || null) : null;
+  const canLinkWhiteboard = inThisRoomSession
+    && (currentSyncSession.leader_id === session?.user?.id || !leaderPresent);
+  const panelCtx = {
+    room,
+    userId: session?.user?.id,
+    displayName,
+    dark,
+    whiteboardId: linkedWhiteboardId,
+    canLink: canLinkWhiteboard,
+  };
 
   const Icon = KIND_ICON[room.kind] || Hash;
   const accent = room.color || "#14b8a6";
@@ -262,6 +193,28 @@ export default function RoomView({
             </div>
           </button>
 
+          {/* Leave room — navigates to the hallway, which trips the
+              auto-leave effect in OfficeShell (same path as the
+              overlay's "Leave to hallway"). Kept right next to the
+              name so leaving is a one-click action, not buried in the
+              switcher overlay. */}
+          {onLeaveRoom && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onLeaveRoom}
+              title="Leave room"
+              aria-label="Leave room"
+              className={`h-8 w-8 shrink-0 ${
+                dark
+                  ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
+                  : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+              }`}
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
+          )}
+
           {gatingTeams.length > 0 && (
             <div className="hidden xl:flex flex-wrap items-center gap-1.5">
               {gatingTeams.map((t) => (
@@ -286,92 +239,35 @@ export default function RoomView({
             currentSyncSession={currentSyncSession}
           />
 
-          <ViewModeControl
-            value={viewMode}
-            onChange={setViewMode}
+          <LayoutBar
+            presetId={presetId}
+            onApply={applyPreset}
+            onReset={reset}
             accent={accent}
             dark={dark}
-            hasRetro={!!linkedRetroId}
+            arranging={arranging}
+            onToggleArrange={() => setArranging((v) => !v)}
+            panels={quickPanels}
+            activePanels={activePanels}
+            onTogglePanel={togglePanel}
           />
         </div>
       </header>
 
-      {/* Body. Layout follows viewMode. stack + side render the
-          ResizableSplit between video and chat — drag the handle to
-          adjust, drag past either pane's min by ~60px to snap-close
-          that pane and bounce into a single-pane view mode. */}
+      {/* Body — a modular tiling layout. Pick a preset from the header,
+          drag the dividers to resize. Tiles are absolutely positioned
+          from the layout tree so panels (incl. the live video call) are
+          repositioned, never remounted. */}
       <div className="flex-1 min-h-0 p-4 overflow-hidden">
-        {viewMode === "chat" && (
-          <RoomChatPanel
-            roomId={room.id}
-            userId={session?.user?.id}
-            fillHeight
-          />
-        )}
-        {viewMode === "video" && (
-          <RoomVideoStage
-            roomId={room.id}
-            displayName={session?.user?.user_metadata?.name || session?.user?.email || "Guest"}
-          />
-        )}
-        {(viewMode === "stack" || viewMode === "side") && (
-          <ResizableSplit
-            direction={viewMode === "stack" ? "vertical" : "horizontal"}
-            storageKey={viewMode === "stack" ? "ql_room_split_stack" : "ql_room_split_side"}
-            defaultSplit={0.55}
-            minFirstPx={240}
-            minSecondPx={200}
-            onCollapseFirst={() => setViewMode("chat")}
-            onCollapseSecond={() => setViewMode("video")}
-          >
-            <RoomVideoStage
-              roomId={room.id}
-              displayName={session?.user?.user_metadata?.name || session?.user?.email || "Guest"}
-            />
-            <RoomChatPanel
-              roomId={room.id}
-              userId={session?.user?.id}
-              fillHeight
-            />
-          </ResizableSplit>
-        )}
-        {viewMode === "retro" && linkedRetroId && (
-          // 3-column layout: retro takes most of the screen so everyone
-          // can see what's being typed; the room call shrinks into a
-          // narrow right column (video on top, chat compressed at the
-          // bottom). On narrow screens, the retro stacks above the call.
-          //
-          // MVP: iframe the existing retro page so editing + realtime
-          // work as-is. Same origin → auth cookies pass through. The
-          // proper inline replacement is a follow-up that extracts a
-          // RetroBoard component out of RetroPage's 620-line render.
-          <div className="flex flex-col lg:flex-row gap-3 h-full">
-            <iframe
-              key={linkedRetroId}
-              src={`/retros/${linkedRetroId}?embed=1`}
-              className={`flex-1 min-h-0 min-w-0 rounded-xl border ${
-                dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-white"
-              }`}
-              title="Retro board"
-              allow="clipboard-read; clipboard-write"
-            />
-            <aside className="flex flex-col gap-3 lg:w-72 xl:w-80 shrink-0 min-h-0">
-              <div className="flex-1 min-h-[200px]">
-                <RoomVideoStage
-                  roomId={room.id}
-                  displayName={session?.user?.user_metadata?.name || session?.user?.email || "Guest"}
-                />
-              </div>
-              <div className="h-40 lg:h-48 shrink-0">
-                <RoomChatPanel
-                  roomId={room.id}
-                  userId={session?.user?.id}
-                  fillHeight
-                />
-              </div>
-            </aside>
-          </div>
-        )}
+        <RoomLayout
+          tree={tree}
+          ctx={panelCtx}
+          onRatioChange={setRatio}
+          arranging={arranging}
+          onMove={movePanel}
+          onAddAt={addPanelAt}
+          onClose={closePanel}
+        />
       </div>
     </div>
   );

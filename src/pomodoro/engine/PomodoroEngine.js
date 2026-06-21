@@ -44,6 +44,13 @@ import {
   tryClaimPhaseAlarm,
 } from "../phaseAlarm.js";
 
+// A phase-end alarm must only fire when a RUNNING timer's deadline arrived —
+// never on a manual mode switch, which happens with time still on the clock
+// (or while paused). We treat the previous phase as "expired" when its endsAt
+// is at/just-past now; the grace absorbs clock skew + realtime propagation lag
+// between sync participants so a genuine completion still rings for everyone.
+const PHASE_END_GRACE_MS = 2000;
+
 export class PomodoroEngine {
   constructor(userId) {
     this.userId = userId;
@@ -344,6 +351,7 @@ export class PomodoroEngine {
     if (!snapshot || typeof snapshot !== "object") return;
     const prevMode = this._state.mode;
     const prevPhase = this._phaseFingerprint();
+    const prevEndsAt = this._refs.endsAtMsRef.current;
     this._refs.completionHandledRef.current = null;
     if (snapshot.endsAtMs !== undefined) {
       this._refs.endsAtMsRef.current = snapshot.endsAtMs;
@@ -369,6 +377,9 @@ export class PomodoroEngine {
     if (
       !this._isLeaderRole()
       && prevPhase !== this._phaseFingerprint()
+      // Only a real completion rings — not a manual switch (deadline still in
+      // the future, or paused).
+      && this._phaseExpired(prevEndsAt)
     ) {
       const event = derivePhaseEndEvent(
         prevMode,
@@ -445,11 +456,12 @@ export class PomodoroEngine {
     if (result.action === "skip") return;
 
     const prevMode = this._state.mode;
+    const prevEndsAt = this._refs.endsAtMsRef.current;
     this._applyPatch(result.patch);
     this._mergeRowPreferences(row);
 
     if (this._deps.syncSession?.id && prevPhase !== this._phaseFingerprint()) {
-      this._maybePlaySyncPhaseSound(prevMode, prevPhase);
+      this._maybePlaySyncPhaseSound(prevMode, prevPhase, prevEndsAt);
     }
   }
 
@@ -459,6 +471,14 @@ export class PomodoroEngine {
 
   _completionKey() {
     return `${this._refs.modeRef.current}-${this._refs.sessionsRef.current}-${this._refs.pendingModeRef.current ?? "none"}-${this._refs.endsAtMsRef.current ?? "paused"}`;
+  }
+
+  // True only if the previous phase had a running deadline that has (about to
+  // have) arrived — i.e. a timer that "ran out". A manual mode switch leaves
+  // the deadline in the future, or paused (null), so this returns false and we
+  // stay silent for those.
+  _phaseExpired(prevEndsAtMs) {
+    return prevEndsAtMs != null && prevEndsAtMs <= Date.now() + PHASE_END_GRACE_MS;
   }
 
   async _tryPlayPhaseAlarm(event, alarmKey, { synced = false } = {}) {
@@ -535,8 +555,11 @@ export class PomodoroEngine {
     if (Object.keys(patch).length) this._patchState(patch);
   }
 
-  _maybePlaySyncPhaseSound(prevMode, prevPhase) {
+  _maybePlaySyncPhaseSound(prevMode, prevPhase, prevEndsAt) {
     if (!this._deps.syncSession) return;
+    // Only ring on a real completion — not when the controller manually
+    // switched modes (the previous phase's deadline was still in the future).
+    if (!this._phaseExpired(prevEndsAt)) return;
     const event = derivePhaseEndEvent(
       prevMode,
       this._state.mode,
@@ -743,14 +766,12 @@ export class PomodoroEngine {
   }
 
   requestReset() {
-    const { mode, pendingAction, durations, secondsLeft, isRunning } = this._state;
-    if (!this._refs.canControlRef.current) return;
-    if (pendingAction) return;
-    if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
-      this._setField("pendingAction", { type: "reset" });
-    } else {
-      this.resetTimer();
-    }
+    // No confirmation. Several timer surfaces (office widget, whiteboard
+    // ribbon, PiP) call reset but never render the confirm banner, which
+    // left the timer stuck in a pending state with no way to confirm.
+    // Reset immediately everywhere — pressing the button IS the
+    // confirmation. resetTimer() already guards on canControl.
+    this.resetTimer();
   }
 
   requestApplyCustomDuration(minutesStr, persist) {

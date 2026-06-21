@@ -104,6 +104,14 @@ export default function PomodoroSurface({
   // PiP wiring.
   const [pipMountEl, setPipMountEl] = useState(null);
   const pipWinRef = useRef(null);
+  // A pending confirmation force-shows the floating panel (so it can't be
+  // missed, including when a synced follower receives one). That must not
+  // trap the panel open: let the X dismiss it. Reset once the pending
+  // action resolves so the next one re-surfaces the panel.
+  const [pendingDismissed, setPendingDismissed] = useState(false);
+  useEffect(() => {
+    if (!pendingAction) setPendingDismissed(false);
+  }, [pendingAction]);
   const [pipViewMode, setPipViewMode] = useState(() => {
     try { return localStorage.getItem("ql_pip_view") || "controls"; } catch { return "controls"; }
   });
@@ -146,6 +154,13 @@ export default function PomodoroSurface({
     } catch { /* user dismissed or unsupported */ }
   }
 
+  // Close the floating panel. Also marks the active pending confirmation
+  // (if any) as dismissed so the force-show clause doesn't keep it open.
+  function handleClose() {
+    setPendingDismissed(true);
+    onClose?.();
+  }
+
   const pipSupported = typeof window !== "undefined" && "documentPictureInPicture" in window;
   const controlsLocked = !!pendingAction;
   const userId = session?.user?.id;
@@ -159,8 +174,11 @@ export default function PomodoroSurface({
       }`;
     }
     if (cfg.container === "floating") {
-      return `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[60] sm:w-[26rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
-        !open && !(controlsLocked && !pipMountEl) ? "hidden" : ""
+      // z-[160] keeps this floating panel above the persistent video
+      // call (z-150 in PersistentVideoCall) so the PiP/stage no longer
+      // bleeds over the timer, while staying below ESC-able modals (180+).
+      return `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[160] sm:w-[26rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
+        !open && !(controlsLocked && !pipMountEl && !pendingDismissed) ? "hidden" : ""
       } ${
         dark
           ? "border-[var(--color-border)] bg-[var(--color-surface)]"
@@ -222,7 +240,7 @@ export default function PomodoroSurface({
               {cfg.showClose && (
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   title="Close"
                   className={`w-8 h-8 rounded-full inline-flex items-center justify-center transition-colors ${
                     dark

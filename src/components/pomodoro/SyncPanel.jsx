@@ -51,7 +51,7 @@ export default function SyncPanel({
     const result = await takeControl(syncSession.id);
     if (result?.error) {
       setPendingTakeControl(false);
-      setTakeControlError(result.error.message || "Could not take control");
+      setTakeControlError(result.error.message || "Could not take the lead");
       return;
     }
     setPendingTakeControl(false);
@@ -175,14 +175,14 @@ export default function SyncPanel({
           disabled={controlsLocked && !pendingTakeControl}
           className="w-full text-[11px] font-semibold px-2 py-1.5 rounded-md transition-colors bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
         >
-          Take control of timer
+          Take the lead
         </button>
       )}
       {pendingTakeControl && (
         <ConfirmRow
           dark={dark}
-          prompt="Take control of the timer? Others will follow your start/pause/reset."
-          confirmLabel="Take control"
+          prompt="Take over as session lead? You'll lead the room and control the timer for everyone."
+          confirmLabel="Take the lead"
           confirmTone="primary"
           onConfirm={confirmTakeControl}
           onCancel={() => { setPendingTakeControl(false); setTakeControlError(""); }}

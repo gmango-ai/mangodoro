@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, Target, Plus, Pencil, Trash2, Check, X, Sparkles,
   Heart, AlertTriangle, ArrowRight as ArrowRightIcon, Link as LinkIcon, Lock, Unlock,
+  Eye, EyeOff,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MarkdownText from "../components/MarkdownText";
@@ -21,6 +22,7 @@ import {
   updateRetroCard,
   deleteRetroCard,
   setRetroGoal,
+  setRetroGoalShown,
   formatRetroWeek,
   isRetroCurrentWeek,
   setRetroLive,
@@ -216,11 +218,29 @@ export default function RetroPage() {
   async function handleSaveGoal() {
     if (!retro) return;
     setGoalSaving(true); setError("");
-    const { error: err } = await setRetroGoal(retro.id, goalDraft.trim());
+    const nextGoal = goalDraft.trim();
+    const { error: err } = await setRetroGoal(retro.id, nextGoal);
     setGoalSaving(false);
     if (err) { setError(err.message || "Could not save goal."); return; }
-    setRetro({ ...retro, goal: goalDraft.trim() });
+    // Mirror the server's goal_shown logic: first goal auto-shows,
+    // clearing hides, and editing an existing goal keeps the choice.
+    const wasEmpty = !(retro.goal || "").trim();
+    const nextShown = nextGoal === "" ? false : wasEmpty ? true : retro.goal_shown;
+    setRetro({ ...retro, goal: nextGoal, goal_shown: nextShown });
     setGoalEditing(false);
+  }
+
+  // Admin toggle: show/hide this goal as a current goal in the pomodoro
+  // + office displays. Optimistic, reverting on failure.
+  async function handleToggleGoalShown() {
+    if (!retro) return;
+    const next = !retro.goal_shown;
+    setRetro({ ...retro, goal_shown: next });
+    const { error: err } = await setRetroGoalShown(retro.id, next);
+    if (err) {
+      setRetro({ ...retro, goal_shown: !next });
+      setError(err.message || "Could not update goal visibility.");
+    }
   }
 
   function startEditCard(card) {
@@ -402,27 +422,53 @@ export default function RetroPage() {
                 </div>
               </div>
             ) : (
-              <div className="mt-1 flex items-start gap-3">
-                {retro?.goal ? (
-                  <div className={`flex-1 ${dark ? "text-slate-100" : "text-slate-800"}`}>
-                    <MarkdownText dark={dark}>{retro.goal}</MarkdownText>
-                  </div>
-                ) : (
-                  <p className={`text-sm italic flex-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                    {readOnly ? "No goal was set for this week." : "No goal set for this week yet."}
-                  </p>
-                )}
-                {isAdmin && !readOnly && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => { setGoalDraft(retro?.goal || ""); setGoalEditing(true); }}
-                    className="shrink-0"
+              <>
+                <div className="mt-1 flex items-start gap-3">
+                  {retro?.goal ? (
+                    <div className={`flex-1 ${dark ? "text-slate-100" : "text-slate-800"}`}>
+                      <MarkdownText dark={dark}>{retro.goal}</MarkdownText>
+                    </div>
+                  ) : (
+                    <p className={`text-sm italic flex-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                      {readOnly ? "No goal was set for this week." : "No goal set for this week yet."}
+                    </p>
+                  )}
+                  {isAdmin && !readOnly && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { setGoalDraft(retro?.goal || ""); setGoalEditing(true); }}
+                      className="shrink-0"
+                    >
+                      <Pencil className="w-3.5 h-3.5 mr-1" /> {retro?.goal ? "Edit" : "Set goal"}
+                    </Button>
+                  )}
+                </div>
+                {/* Admin control: pin this goal as a "current goal" shown
+                    in the pomodoro + office. Works on past retros too, so
+                    several goals can be shown at once per team. */}
+                {isAdmin && retro?.goal && (
+                  <button
+                    type="button"
+                    onClick={handleToggleGoalShown}
+                    title={retro.goal_shown
+                      ? "Shown in the pomodoro & office. Click to hide."
+                      : "Show this goal in the pomodoro & office."}
+                    className={`mt-3 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                      retro.goal_shown
+                        ? "border-[var(--color-accent)] text-[var(--color-accent)] bg-[var(--color-accent-light)]"
+                        : dark
+                          ? "border-[var(--color-border)] text-slate-400 hover:text-slate-200"
+                          : "border-slate-200 text-slate-500 hover:text-slate-700"
+                    }`}
                   >
-                    <Pencil className="w-3.5 h-3.5 mr-1" /> {retro?.goal ? "Edit" : "Set goal"}
-                  </Button>
+                    {retro.goal_shown
+                      ? <Eye className="w-3.5 h-3.5" />
+                      : <EyeOff className="w-3.5 h-3.5" />}
+                    {retro.goal_shown ? "Showing as current goal" : "Show as current goal"}
+                  </button>
                 )}
-              </div>
+              </>
             )}
           </div>
         </div>

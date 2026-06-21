@@ -7,113 +7,14 @@ import { supabase } from "../supabase";
 // goal text on the row itself. Keep TEMPLATES in lockstep with the SQL
 // check constraint on whiteboards.template_key.
 
+// Built-in templates were removed in favour of user-saved templates (see
+// whiteboard_templates + the functions below). `blank` stays as the implicit
+// default: a board with no seeded snapshot is just an empty canvas.
 export const TEMPLATES = {
-  blank: {
-    key: "blank",
-    name: "Blank board",
-    desc: "A clean infinite canvas",
-    hasGoal: false,
-    build: () => ({ nodes: [], edges: [] }),
-  },
-
-  weekly_review: {
-    key: "weekly_review",
-    name: "Weekly Review",
-    desc: "Celebrate · Went Well · Improve · Next",
-    hasGoal: true,
-    build: () => buildWeeklyReview(),
-  },
-
-  brainstorm: {
-    key: "brainstorm",
-    name: "Brainstorm",
-    desc: "Diverge freely, then cluster",
-    hasGoal: false,
-    build: () => buildBrainstorm(),
-  },
+  blank: { key: "blank", name: "Blank board", desc: "A clean infinite canvas", build: () => ({ nodes: [], edges: [] }) },
 };
 
 export const TEMPLATE_LIST = Object.values(TEMPLATES);
-
-const STICKY_COLOR_FOR_ZONE = {
-  celebrate: "orange",
-  went_well: "green",
-  to_improve: "yellow",
-  next_week: "blue",
-  // Brainstorm column colors map to the same palette.
-  ideas: "yellow",
-  build_on: "blue",
-  park_it: "slate",
-};
-
-function zoneNode(id, label, icon, tint, bg, border, x, y, w = 380, h = 600) {
-  return {
-    id: `zone-${id}`,
-    type: "zone",
-    position: { x, y },
-    width: w, height: h,
-    data: { label, icon, tint, bg, border },
-    draggable: false,
-    selectable: false,
-    deletable: false,
-    connectable: false,
-    // zIndex via xyflow's zIndex prop puts zones behind every other
-    // node so stickies / shapes float on top visually.
-    zIndex: -1,
-  };
-}
-
-function stickyNode(id, text, x, y, color = "yellow") {
-  return {
-    id, type: "sticky",
-    position: { x, y },
-    data: { text, color },
-  };
-}
-
-function buildWeeklyReview() {
-  const ZONES = [
-    { id: "celebrate",  label: "Celebrate",         icon: "🎉", tint: "#d97706", bg: "#fef3c7", border: "#fcd34d" },
-    { id: "went_well",  label: "What went well",    icon: "👍", tint: "#059669", bg: "#d1fae5", border: "#6ee7b7" },
-    { id: "to_improve", label: "Needs improvement", icon: "🔧", tint: "#b45309", bg: "#fef9c3", border: "#fde047" },
-    { id: "next_week",  label: "Next week",         icon: "🚀", tint: "#1d4ed8", bg: "#dbeafe", border: "#93c5fd" },
-  ];
-  const GAP = 60;
-  const W = 380;
-  const nodes = [];
-  ZONES.forEach((z, i) => {
-    const x = 60 + i * (W + GAP);
-    nodes.push(zoneNode(z.id, z.label, z.icon, z.tint, z.bg, z.border, x, 60, W, 600));
-    // One seed sticky per zone so the user can see the structure
-    // working before they write anything. They delete or write over it.
-    nodes.push(stickyNode(
-      `seed-${z.id}`,
-      "Drop a sticky here…",
-      x + (W - 160) / 2,
-      60 + 100,
-      STICKY_COLOR_FOR_ZONE[z.id],
-    ));
-  });
-  return { nodes, edges: [] };
-}
-
-function buildBrainstorm() {
-  const ZONES = [
-    { id: "ideas",    label: "Ideas",    icon: "💡", tint: "#d97706", bg: "#fef3c7", border: "#fcd34d" },
-    { id: "build_on", label: "Build on", icon: "🧱", tint: "#1d4ed8", bg: "#dbeafe", border: "#93c5fd" },
-    { id: "park_it",  label: "Park it",  icon: "⚓", tint: "#475569", bg: "#f1f5f9", border: "#cbd5e1" },
-  ];
-  const GAP = 60;
-  const W = 480;
-  const nodes = [];
-  ZONES.forEach((z, i) => {
-    const x = 60 + i * (W + GAP);
-    nodes.push(zoneNode(z.id, z.label, z.icon, z.tint, z.bg, z.border, x, 60, W, 620));
-  });
-  // A seed prompt sticky so the empty board reads less broken.
-  nodes.push(stickyNode("seed-prompt", "What's the question?", 60, 700, "yellow"));
-  return { nodes, edges: [] };
-}
 
 // Empty store check — used so we never overwrite a board that has work
 // in it with a fresh template seed.
@@ -127,6 +28,66 @@ export function isEmptySnapshot(snap) {
 export function templateSnapshotFor(templateKey) {
   const tpl = TEMPLATES[templateKey] || TEMPLATES.blank;
   return tpl.build();
+}
+
+// Strip volatile per-session state before persisting a snapshot (as a template
+// or a board seed) so saved templates don't carry selection/drag flags.
+export function cleanSnapshot(snap) {
+  const nodes = (Array.isArray(snap?.nodes) ? snap.nodes : []).map(
+    ({ selected, dragging, resizing, ...rest }) => rest
+  );
+  const edges = (Array.isArray(snap?.edges) ? snap.edges : []).map(
+    ({ selected, ...rest }) => rest
+  );
+  return { nodes, edges };
+}
+
+// ─── User templates (personal / org) ───────────────────────────────
+
+// Personal templates (yours) + org templates for the active team. RLS already
+// scopes visibility; we narrow org rows to the active team.
+export async function listWhiteboardTemplates(teamId) {
+  let q = supabase
+    .from("whiteboard_templates")
+    .select("id, name, scope, owner_id, team_id, created_at")
+    .order("created_at", { ascending: false });
+  q = teamId ? q.or(`scope.eq.personal,team_id.eq.${teamId}`) : q.eq("scope", "personal");
+  const { data, error } = await q;
+  return { data: data || [], error };
+}
+
+export async function fetchTemplateSnapshot(templateId) {
+  if (!templateId) return { data: null, error: null };
+  const { data, error } = await supabase
+    .from("whiteboard_templates")
+    .select("snapshot")
+    .eq("id", templateId)
+    .maybeSingle();
+  return { data: data?.snapshot || null, error };
+}
+
+export async function saveWhiteboardTemplate({ name, scope, ownerId, teamId, snapshot }) {
+  const trimmed = (name || "").trim() || "Untitled template";
+  if (trimmed.length > 80) return { error: { message: "Name too long (max 80 chars)." } };
+  const org = scope === "org";
+  if (org && !teamId) return { error: { message: "Pick a team for an org template." } };
+  const { data, error } = await supabase
+    .from("whiteboard_templates")
+    .insert({
+      name: trimmed,
+      scope: org ? "org" : "personal",
+      owner_id: ownerId,
+      team_id: org ? teamId : null,
+      snapshot: cleanSnapshot(snapshot),
+    })
+    .select()
+    .single();
+  return { data, error };
+}
+
+export async function deleteWhiteboardTemplate(id) {
+  const { error } = await supabase.from("whiteboard_templates").delete().eq("id", id);
+  return { error };
 }
 
 // ─── CRUD ──────────────────────────────────────────────────────────
@@ -153,18 +114,20 @@ export async function fetchWhiteboardById(whiteboardId) {
   return { data, error };
 }
 
-export async function createWhiteboard({ teamId, title, templateKey, createdBy }) {
+export async function createWhiteboard({ teamId, title, createdBy, snapshot }) {
   const trimmedTitle = (title || "").trim() || "Untitled whiteboard";
   if (trimmedTitle.length > 120) return { error: { message: "Title too long (max 120 chars)." } };
-  const tpl = TEMPLATES[templateKey] || TEMPLATES.blank;
+  const row = {
+    team_id: teamId,
+    title: trimmedTitle,
+    template_key: "blank",
+    created_by: createdBy,
+  };
+  // Seed from a saved template's snapshot when one was chosen.
+  if (snapshot && !isEmptySnapshot(snapshot)) row.snapshot = cleanSnapshot(snapshot);
   const { data, error } = await supabase
     .from("whiteboards")
-    .insert({
-      team_id: teamId,
-      title: trimmedTitle,
-      template_key: tpl.key,
-      created_by: createdBy,
-    })
+    .insert(row)
     .select()
     .single();
   return { data, error };

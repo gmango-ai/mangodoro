@@ -124,6 +124,13 @@ begin
   end if;
 end $$;
 
+-- The `departments` text[] tag column on team_members came from a separate
+-- dept-tags PR that isn't part of this migration line. The function below
+-- selects it, so ensure the column exists on a fresh database — a no-op where
+-- it's already present (e.g. environments that ran the dept-tags PR).
+alter table public.team_members
+  add column if not exists departments text[] not null default '{}';
+
 -- Extend get_team_member_profiles to surface each member's sticky_color
 -- so retro cards can render with the author's chosen background tint.
 -- DROP FUNCTION is required: we're changing the RETURNS TABLE shape.

@@ -1,6 +1,7 @@
 import Foundation
 import Capacitor
 import CryptoKit
+import UIKit
 import WidgetKit
 #if canImport(ActivityKit)
 import ActivityKit
@@ -45,6 +46,20 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
 
     public override func load() {
         super.load()
+        // Pre-warm the widget extension when the app backgrounds. Reloading
+        // the timeline launches PomodoroWidgetExtension and loads its binary
+        // — which also contains the tap intents — so the first widget button
+        // tap right after the user leaves the app doesn't pay the extension's
+        // cold-launch cost before it can respond. (Has no effect once the OS
+        // has reaped the extension after a long idle, but covers the common
+        // "just left the app, tapped the widget" path.)
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            WidgetCenter.shared.reloadTimelines(ofKind: "MangodoroHomeWidget")
+        }
     }
 
     /// Persist the timer's running state to the App Group so the widget

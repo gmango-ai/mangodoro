@@ -18,6 +18,8 @@ import {
   setSyncParticipantStatus,
   takeSyncControl,
   findMyActiveSyncSession,
+  heartbeatSyncSession,
+  PRESENCE_GRACE_MS,
 } from "../lib/syncSession";
 import { notifySessionJoined, notifySessionCleared } from "../sync/joinSession";
 
@@ -33,6 +35,7 @@ const METADATA_FIELDS = [
   "team_id",
   "room_id",
   "retro_id",
+  "whiteboard_id",
   "expires_at",
   // Meeting timer — server time + duration; clients compute remaining locally.
   "meeting_timer_started_at",
@@ -323,13 +326,25 @@ export function SyncSessionProvider({ session, children }) {
     channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
         await channel.track({ user_id: userId });
+        // Stamp liveness immediately on connect so the server knows this
+        // tab is present without waiting for the first heartbeat tick.
+        heartbeatSyncSession(sessionId);
       }
     });
 
     const pollId = setInterval(refetch, 15000);
 
+    // Heartbeat. last_seen_at is the server's signal for "who is
+    // actually present right now" — read-time liveness filtering, the
+    // empty-room sweeper, leader reassignment, and video teardown all
+    // key off it. A steady 20s cadence sits comfortably inside the
+    // staleness grace window even if a few beats are dropped (e.g. a
+    // briefly-backgrounded tab whose timers get throttled).
+    const heartbeatId = setInterval(() => heartbeatSyncSession(sessionId), 20000);
+
     return () => {
       clearInterval(pollId);
+      clearInterval(heartbeatId);
       supabase.removeChannel(channel);
     };
   }, [syncSession?.id, syncSession?.join_code, session?.user?.id, settings?.name, clearLocalSession]);
@@ -406,11 +421,27 @@ export function SyncSessionProvider({ session, children }) {
     [syncSession]
   );
 
+  // Is the current leader actually present (fresh heartbeat)? Mirrors the
+  // server's claim_session_lead gate so the UI can offer leader-only
+  // controls (start the meeting timer, attach a retro) to a present
+  // member when the leader has gone away — instead of leaving the room
+  // stuck behind an absent host. Recomputes as participant rows refresh
+  // (heartbeat ~20s, poll 15s), so it tracks the 120s grace closely.
+  const leaderPresent = useMemo(() => {
+    const leaderId = syncSession?.leader_id;
+    if (!leaderId) return false;
+    const row = syncParticipants.find((p) => p.user_id === leaderId);
+    if (!row || row.left_at) return false;
+    const seen = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+    return Date.now() - seen < PRESENCE_GRACE_MS;
+  }, [syncSession?.leader_id, syncParticipants]);
+
   const value = useMemo(
     () => ({
       syncSession,
       syncParticipants,
       presenceMap,
+      leaderPresent,
       joinSession,
       leaveSession,
       endSession,
@@ -423,6 +454,7 @@ export function SyncSessionProvider({ session, children }) {
       syncSession,
       syncParticipants,
       presenceMap,
+      leaderPresent,
       joinSession,
       leaveSession,
       endSession,

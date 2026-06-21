@@ -382,3 +382,29 @@ s3_region = "env(S3_REGION)"
 s3_access_key = "env(S3_ACCESS_KEY)"
 # Configures AWS_SECRET_ACCESS_KEY for S3 bucket
 s3_secret_key = "env(S3_SECRET_KEY)"
+
+# ── Edge Functions ──────────────────────────────────────────────
+# Declared so they auto-deploy to preview branches and so verify_jwt is pinned
+# per function. The widget-facing functions authenticate with a per-activity
+# secret (not a user JWT), so the gateway must NOT verify a JWT for them.
+
+[functions.activity-action]
+verify_jwt = false
+
+[functions.activity-state]
+verify_jwt = false
+
+[functions.activity-push]
+verify_jwt = true
+
+[functions.activity-register]
+verify_jwt = true
+
+[functions.activity-unregister]
+verify_jwt = true
+
+[functions.mint-jaas-jwt]
+verify_jwt = true
+
+[functions.mint-livekit-token]
+verify_jwt = true

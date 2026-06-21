@@ -27,12 +27,16 @@ import WidgetSection from "./WidgetSection";
 // tap on Pause/Mute/Volume counts and unblocks the loop).
 export default function TimerWidget({ dark }) {
   const { session } = useApp();
-  const { syncSession } = useSyncSession();
+  const { syncSession, leaderPresent } = useSyncSession();
   const t = useMeetingTimer();
 
   const userId = session?.user?.id;
   const inSession = !!syncSession;
   const isLeader = inSession && syncSession.leader_id === userId;
+  // When the host is away (no fresh heartbeat) any present member can
+  // drive the timer — mirrors the server's claim_session_lead fallback,
+  // so the controls actually show up instead of the room being stuck.
+  const canLead = inSession && (isLeader || !leaderPresent);
 
   const share = useShareMusic();
   const [shareHintDismissed, setShareHintDismissed] = useState(false);
@@ -118,7 +122,7 @@ export default function TimerWidget({ dark }) {
 
         {/* Leader controls — idle gets the picker; running/paused get
             the transport buttons. */}
-        {inSession && isLeader && idle && (
+        {canLead && idle && (
           <div className="space-y-2">
             <div className="grid grid-cols-3 gap-1">
               {TIMER_DURATION_PRESETS.map((p) => {
@@ -165,7 +169,7 @@ export default function TimerWidget({ dark }) {
           </div>
         )}
 
-        {inSession && isLeader && (running || paused || done) && (
+        {canLead && (running || paused || done) && (
           <div className="flex gap-1.5">
             {running && (
               <Button onClick={pause} disabled={busy} size="sm" variant="outline" className="flex-1">
@@ -183,10 +187,12 @@ export default function TimerWidget({ dark }) {
           </div>
         )}
 
-        {/* Non-leader explanation when idle. */}
-        {inSession && !isLeader && idle && (
+        {/* Shown only when the host is present and it's not us — then the
+            timer is theirs to start. If the host is away, canLead is true
+            and the controls above render instead of this note. */}
+        {inSession && !canLead && idle && (
           <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-            The leader can start a synced timer with music for the whole session.
+            The host can start a synced timer with music for the whole session.
           </p>
         )}
 

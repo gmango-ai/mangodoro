@@ -2,6 +2,7 @@ import Foundation
 import ActivityKit
 import AppIntents
 import UserNotifications
+import WidgetKit
 import os
 
 // Tap targets for the buttons on the Live Activity. Each one is a
@@ -47,6 +48,108 @@ private let log = Logger(subsystem: "com.gmango.mangodoro.widget", category: "in
 private func cancelScheduledAlarm() {
     UNUserNotificationCenter.current()
         .removePendingNotificationRequests(withIdentifiers: [pomodoroAlarmIdentifier])
+}
+
+// Refresh the home-screen widget so it reflects the toggle right away.
+// Without this, a lockscreen / Dynamic Island tap updates the App Group
+// state + Live Activity but the home widget keeps rendering the stale
+// (still-running) snapshot until its own timeline policy fires.
+private func reloadHomeWidget() {
+    WidgetCenter.shared.reloadTimelines(ofKind: "MangodoroHomeWidget")
+}
+
+// Compute the toggled time so a stale transition can degrade to a sensible
+// number rather than 0:00. running → paused (remaining seconds); paused →
+// running (fresh end time).
+private func computeToggledState(_ state: [String: Any]) -> [String: Any] {
+    var next = state
+    let nowMs = Date().timeIntervalSince1970 * 1000
+    if state["isRunning"] as? Bool ?? false {
+        let endsAt = state["endsAtEpochMs"] as? Double ?? nowMs
+        next["isRunning"] = false
+        next["pausedSecondsLeft"] = Int(max(0, (endsAt - nowMs) / 1000))
+    } else {
+        let paused = state["pausedSecondsLeft"] as? Int ?? 0
+        next["isRunning"] = true
+        next["endsAtEpochMs"] = nowMs + Double(paused) * 1000
+        next.removeValue(forKey: "pausedSecondsLeft")
+    }
+    return next
+}
+
+// Mark the toggle as IN PROGRESS in the App Group + home widget BEFORE the
+// network round-trip, so the widget gives instant, honest feedback: a tap on
+// pause flips the home widget to "Paused" / a tap on resume to "Resuming…"
+// right away, then fills in the authoritative time once the server confirms.
+//
+// We deliberately do NOT show an optimistic *time* during the round-trip (the
+// old behavior): the local state can be stale (the website may have changed
+// the timer while the app was backgrounded), so a computed time could be
+// wrong and then visibly "revert". A transition label only states intent; the
+// real time arrives when mirrorServerState writes the server's authoritative
+// state (which has no `transition` key, so it clears this).
+//
+// Safety net: we stamp `transitionAt` so the home widget stops honoring the
+// label after a few seconds. If the round-trip dies before the reconcile
+// clears it (e.g. the extension is suspended mid-flight), the widget falls
+// back to the computed time below instead of being stuck on "Syncing…".
+//
+// Returns the ORIGINAL (pre-tap) state so the dispatch can revert on failure
+// and forward it as the fallback current_state.
+private func applyTransitionToggle() -> [String: Any]? {
+    guard let defaults = UserDefaults(suiteName: appGroupID),
+          let json = defaults.string(forKey: activityStateKey),
+          let data = json.data(using: .utf8),
+          let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return nil }
+    let wasRunning = state["isRunning"] as? Bool ?? false
+    // Base = the optimistically-toggled time (the stale-transition fallback);
+    // the live label hides it while the transition is fresh.
+    var transitional = computeToggledState(state)
+    transitional["transition"] = wasRunning ? "pausing" : "resuming"
+    transitional["transitionAt"] = Date().timeIntervalSince1970 * 1000
+    if let nextData = try? JSONSerialization.data(withJSONObject: transitional),
+       let nextJSON = String(data: nextData, encoding: .utf8) {
+        defaults.set(nextJSON, forKey: activityStateKey)
+        defaults.set(transitional["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
+        reloadHomeWidget()
+    }
+    return state
+}
+
+private func revertOptimisticToggle(_ original: [String: Any]?) {
+    guard let original, let defaults = UserDefaults(suiteName: appGroupID),
+          let data = try? JSONSerialization.data(withJSONObject: original),
+          let json = String(data: data, encoding: .utf8) else { return }
+    defaults.set(json, forKey: activityStateKey)
+    defaults.set(original["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
+    reloadHomeWidget()
+}
+
+// Optimistically clear the activity snapshot so the home widget immediately
+// shows the stopped (empty "Start a session") state before the round-trip
+// confirms. Returns the original snapshot so a failed stop can restore it.
+private func applyOptimisticStop() -> [String: Any]? {
+    guard let defaults = UserDefaults(suiteName: appGroupID) else { return nil }
+    var original: [String: Any]?
+    if let json = defaults.string(forKey: activityStateKey),
+       let data = json.data(using: .utf8),
+       let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        original = state
+    }
+    defaults.set(false, forKey: lastToggleResultRunningKey)
+    defaults.removeObject(forKey: activityStateKey)
+    reloadHomeWidget()
+    return original
+}
+
+private func revertOptimisticStop(_ original: [String: Any]?) {
+    guard let original, let defaults = UserDefaults(suiteName: appGroupID),
+          let data = try? JSONSerialization.data(withJSONObject: original),
+          let json = String(data: data, encoding: .utf8) else { return }
+    defaults.set(json, forKey: activityStateKey)
+    defaults.set(original["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
+    reloadHomeWidget()
 }
 
 private enum ActivityAction: String {
@@ -112,7 +215,7 @@ private func parseDispatchResponse(
 /// POSTs to `<supabaseUrl>/functions/v1/activity-action`. On success
 /// mirrors the server's new_state into the App Group for the next tap.
 @available(iOS 17.0, *)
-private func dispatchActivityAction(_ action: ActivityAction) async -> DispatchResult {
+private func dispatchActivityAction(_ action: ActivityAction, currentState: [String: Any]? = nil) async -> DispatchResult {
     guard let defaults = UserDefaults(suiteName: appGroupID) else {
         log.notice("activity-action: App Group unavailable")
         return .failed
@@ -139,13 +242,15 @@ private func dispatchActivityAction(_ action: ActivityAction) async -> DispatchR
         "secret": secret,
         "action": action.rawValue
     ]
-    // Forward the host's last-known content state if available so the
-    // server uses fresh state instead of whatever it had stored at last
-    // register/action. Covers in-app pause/resume that never round-tripped
-    // through the server.
-    if let stateJSON = defaults.string(forKey: activityStateKey),
-       let stateData = stateJSON.data(using: .utf8),
-       let stateObj = try? JSONSerialization.jsonObject(with: stateData) {
+    // Forward the host's last-known content state so the server toggles from
+    // the right state. Prefer the caller-supplied ORIGINAL state (so an
+    // optimistic local toggle doesn't make the server flip the wrong way);
+    // fall back to the mirrored App Group state.
+    if let currentState {
+        body["current_state"] = currentState
+    } else if let stateJSON = defaults.string(forKey: activityStateKey),
+              let stateData = stateJSON.data(using: .utf8),
+              let stateObj = try? JSONSerialization.jsonObject(with: stateData) {
         body["current_state"] = stateObj
     }
     do {
@@ -165,6 +270,53 @@ private func dispatchActivityAction(_ action: ActivityAction) async -> DispatchR
     }
 }
 
+// MARK: - Shared network + reconcile
+//
+// The optimistic App Group write has already happened by the time these
+// run; here we do the authoritative server round-trip and reconcile the
+// local snapshot to the server's truth (or revert the optimistic change if
+// the round-trip ultimately failed).
+
+@available(iOS 17.0, *)
+private func dispatchToggleAndReconcile(original: [String: Any]?) async {
+    let result = await dispatchActivityAction(.toggle, currentState: original)
+    switch result {
+    case .succeeded(let newState), .apnsFailed(let newState):
+        let nowRunning = newState["isRunning"] as? Bool ?? false
+        if !nowRunning { cancelScheduledAlarm() }
+        // dispatchActivityAction already mirrored the server state into the
+        // App Group; repaint so the widget settles on the authoritative value.
+        reloadHomeWidget()
+        log.notice("toggle reconciled nowRunning=\(nowRunning)")
+    case .failed:
+        // The round-trip never reached the server — snap the optimistic flip
+        // back to the pre-tap state so the widget doesn't lie.
+        revertOptimisticToggle(original)
+        log.notice("toggle failed — reverted optimistic flip")
+    }
+}
+
+@available(iOS 17.0, *)
+private func dispatchStopAndReconcile(restoreOnFailure original: [String: Any]?) async {
+    let result = await dispatchActivityAction(.stop)
+    switch result {
+    case .succeeded, .apnsFailed:
+        cancelScheduledAlarm()
+        reloadHomeWidget()
+        log.notice("stop reconciled")
+    case .failed:
+        revertOptimisticStop(original)
+        log.notice("stop failed — restored session")
+    }
+}
+
+// MARK: - Live Activity buttons (lock screen / Dynamic Island)
+//
+// MUST be LiveActivityIntent so they run in-process for the Live Activity
+// without launching the host app. These AWAIT the round-trip: the
+// lock-screen UI is driven by the edge function's APNs push, so there's no
+// faster local path to wait for anyway.
+
 @available(iOS 17.0, *)
 struct ToggleTimerIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Toggle pomodoro timer"
@@ -174,21 +326,9 @@ struct ToggleTimerIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         log.notice("ToggleTimerIntent fired")
-
-        let result = await dispatchActivityAction(.toggle)
-
-        switch result {
-        case .succeeded(let newState), .apnsFailed(let newState):
-            let nowRunning = newState["isRunning"] as? Bool ?? false
-            if !nowRunning {
-                cancelScheduledAlarm()
-            }
-            UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
-            log.notice("ToggleTimerIntent ok nowRunning=\(nowRunning)")
-        case .failed:
-            log.notice("ToggleTimerIntent failed — flags unchanged")
-        }
-
+        let original = applyTransitionToggle()
+        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
+        await dispatchToggleAndReconcile(original: original)
         return .result()
     }
 }
@@ -202,21 +342,59 @@ struct StopTimerIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         log.notice("StopTimerIntent fired")
-        let result = await dispatchActivityAction(.stop)
+        let original = applyOptimisticStop()
+        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingStopKey)
+        await dispatchStopAndReconcile(restoreOnFailure: original)
+        return .result()
+    }
+}
 
-        switch result {
-        case .succeeded, .apnsFailed:
-            cancelScheduledAlarm()
-            if let defaults = UserDefaults(suiteName: appGroupID) {
-                defaults.set(true, forKey: pendingStopKey)
-                defaults.set(false, forKey: lastToggleResultRunningKey)
-                defaults.removeObject(forKey: activityStateKey)
-            }
-            log.notice("StopTimerIntent ok")
-        case .failed:
-            log.notice("StopTimerIntent failed — flags unchanged")
+// MARK: - Home Screen widget buttons
+//
+// Deliberately PLAIN AppIntents, not LiveActivityIntent (a home-widget
+// button running a LiveActivityIntent gets tagged SessionStartingAction,
+// which makes chronod freeze the widget's reloads for a fixed ~3.8s settle).
+//
+// They also DO NOT await the network: the optimistic App Group write has
+// flipped the snapshot synchronously, so `perform()` returns immediately and
+// the system repaints the widget from the flipped local state without the
+// (cold-on-first-tap) round-trip on the critical path — instant response.
+// The round-trip runs detached and reconciles when it lands; the pending
+// flag is set synchronously so the app still converges on next open even if
+// the detached request is cut short by the extension suspending.
+
+@available(iOS 17.0, *)
+struct HomeToggleTimerIntent: AppIntent {
+    static let title: LocalizedStringResource = "Toggle pomodoro timer"
+    static let description = IntentDescription("Pauses or resumes the running pomodoro timer.")
+    static let openAppWhenRun: Bool = false
+    static let isDiscoverable: Bool = false
+
+    func perform() async throws -> some IntentResult {
+        log.notice("HomeToggleTimerIntent fired")
+        let original = applyTransitionToggle()
+        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
+        Task.detached(priority: .userInitiated) {
+            await dispatchToggleAndReconcile(original: original)
         }
+        return .result()
+    }
+}
 
+@available(iOS 17.0, *)
+struct HomeStopTimerIntent: AppIntent {
+    static let title: LocalizedStringResource = "Stop pomodoro timer"
+    static let description = IntentDescription("Ends the current pomodoro phase and resets the timer.")
+    static let openAppWhenRun: Bool = false
+    static let isDiscoverable: Bool = false
+
+    func perform() async throws -> some IntentResult {
+        log.notice("HomeStopTimerIntent fired")
+        let original = applyOptimisticStop()
+        UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingStopKey)
+        Task.detached(priority: .userInitiated) {
+            await dispatchStopAndReconcile(restoreOnFailure: original)
+        }
         return .result()
     }
 }

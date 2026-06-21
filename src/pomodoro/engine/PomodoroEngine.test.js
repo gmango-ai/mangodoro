@@ -279,6 +279,30 @@ describe("PomodoroEngine phase alarms", () => {
     engine.detach();
   });
 
+  it("does NOT play alarm on a follower MANUAL switch (deadline still in the future)", async () => {
+    const engine = new PomodoroEngine("test-user-id");
+    engine.attach({ forceSlave: true });
+    engine._state.mode = "work";
+    engine._state.sessions = 1;
+    engine._state.pendingMode = null;
+    // Deadline well in the future → the work timer was still running, so a
+    // transition to break is a manual switch, not a completion.
+    engine._refs.endsAtMsRef.current = Date.now() + 600000;
+
+    engine._applyFollowerSnapshot({
+      mode: "shortBreak",
+      sessions: 1,
+      pendingMode: null,
+      isRunning: false,
+      secondsLeft: 300,
+      endsAtMs: null,
+    });
+
+    await Promise.resolve();
+    expect(playCompletionSoundMock).not.toHaveBeenCalled();
+    engine.detach();
+  });
+
   it("dedupes alarm when the same key is claimed twice", async () => {
     const engine = new PomodoroEngine("test-user-id");
     const key = "work-1-none-1000-work";
@@ -317,7 +341,9 @@ describe("PomodoroEngine phase alarms", () => {
     engine._refs.lastAlarmKeyPlayedRef.current = `${prevPhase}-work`;
     engine._state.mode = "shortBreak";
 
-    await engine._maybePlaySyncPhaseSound("work", prevPhase);
+    // Expired deadline so the completion gate passes and we actually reach the
+    // dedup check (which is what this test asserts).
+    await engine._maybePlaySyncPhaseSound("work", prevPhase, Date.now() - 1000);
 
     expect(playCompletionSoundMock).not.toHaveBeenCalled();
   });

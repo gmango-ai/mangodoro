@@ -20,26 +20,38 @@ import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
 import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
 import PWAUpdater from "./components/PWAUpdater";
-import LogPage from "./pages/LogPage";
-import OverviewPage from "./pages/OverviewPage";
-import PlannerPage from "./pages/PlannerPage";
-import TimeTrackerPage from "./pages/TimeTrackerPage";
-import TeamPage from "./pages/TeamPage";
-import TeamTimesheetsPage from "./pages/TeamTimesheetsPage";
-import RetroPage from "./pages/RetroPage";
-import RetrosListPage from "./pages/RetrosListPage";
-import JoinRetroPage from "./pages/JoinRetroPage";
-// Lazy-load the whiteboard surfaces — xyflow + its CSS land in their
-// own chunk so the initial App bundle isn't paying for the canvas
-// until the user actually opens /whiteboards.
+// PomodoroPage is the landing route, so it stays eager — no Suspense flash
+// on cold start. Every other route page is lazy-loaded: the initial bundle
+// is just the app shell + Pomodoro, and each route's code (plus its heavy
+// deps — charts, codemirror, xyflow, the office/video stack) downloads on
+// first visit. /log, /overview, /planner now redirect into /time-tracker,
+// so those page imports are gone.
+import PomodoroPage from "./pages/PomodoroPage";
+const TimeTrackerPage = lazy(() => import("./pages/TimeTrackerPage"));
+const TeamPage = lazy(() => import("./pages/TeamPage"));
+const TeamTimesheetsPage = lazy(() => import("./pages/TeamTimesheetsPage"));
+const RetrosListPage = lazy(() => import("./pages/RetrosListPage"));
+const RetroPage = lazy(() => import("./pages/RetroPage"));
 const WhiteboardsListPage = lazy(() => import("./pages/WhiteboardsListPage"));
 const WhiteboardPage = lazy(() => import("./pages/WhiteboardPage"));
-import PomodoroPage from "./pages/PomodoroPage";
-import OfficePage from "./pages/OfficePage";
-import JoinSyncPage from "./pages/JoinSyncPage";
-import JoinTeamPage from "./pages/JoinTeamPage";
-import SettingsPage from "./pages/SettingsPage";
+const OfficePage = lazy(() => import("./pages/OfficePage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const JoinSyncPage = lazy(() => import("./pages/JoinSyncPage"));
+const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
+const JoinRetroPage = lazy(() => import("./pages/JoinRetroPage"));
 import { applyAccent } from "./lib/accent";
+
+// Shared placeholder shown while a lazy route chunk downloads. Dependency-
+// free CSS spinner so it doesn't itself pull anything into the eager bundle.
+const ROUTE_FALLBACK = (
+  <div className="flex items-center justify-center py-24">
+    <div
+      className="w-6 h-6 rounded-full border-2 border-[var(--color-accent)] border-t-transparent animate-spin"
+      role="status"
+      aria-label="Loading"
+    />
+  </div>
+);
 
 function AppLayout({ session }) {
   const { theme } = useTheme();
@@ -145,7 +157,13 @@ function AppLayout({ session }) {
 
   return (
     <div>
-      <div className="relative min-h-screen w-full overflow-hidden transition-colors duration-300">
+      {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis
+          here makes this div a scroll container, which traps the sticky
+          <header> so it scrolls away and lets content slide under the
+          Dynamic Island. `clip` on the x-axis alone keeps the decorative
+          glows from causing horizontal scroll without establishing a
+          scroll container, so the header stays pinned to the viewport. */}
+      <div className="relative min-h-screen w-full overflow-x-clip transition-colors duration-300">
         {/*
           Animated background glows tinted by the user's accent (and its
           color-theory partner --color-break). We use color-mix() against
@@ -263,6 +281,7 @@ function AppLayout({ session }) {
             />
           )}
           {!isEmbed && <PWAUpdater />}
+          <Suspense fallback={ROUTE_FALLBACK}>
           <Routes>
             <Route path="/" element={<LandingRedirector />} />
             {/* Legacy time-tracker URLs redirect into the unified page */}
@@ -278,22 +297,8 @@ function AppLayout({ session }) {
             <Route path="/retros" element={<RetrosListPage />} />
             <Route path="/retros/:retroId" element={<RetroPage />} />
             <Route path="/whiteboard" element={<Navigate to="/whiteboards" replace />} />
-            <Route
-              path="/whiteboards"
-              element={
-                <Suspense fallback={<div className="px-4 pt-6" />}>
-                  <WhiteboardsListPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/whiteboards/:whiteboardId"
-              element={
-                <Suspense fallback={<div className="px-4 pt-6" />}>
-                  <WhiteboardPage />
-                </Suspense>
-              }
-            />
+            <Route path="/whiteboards" element={<WhiteboardsListPage />} />
+            <Route path="/whiteboards/:whiteboardId" element={<WhiteboardPage />} />
             <Route
               path="/pomodoro"
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
@@ -304,6 +309,7 @@ function AppLayout({ session }) {
             {/* /account merged into /settings → Profile section. */}
             <Route path="/account" element={<Navigate to="/settings" replace />} />
           </Routes>
+          </Suspense>
 
           {/* Persistent Jitsi mount — lives outside <Routes> so the
               call survives page navigation. Renders as a PiP when no
@@ -441,6 +447,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
+        <Suspense fallback={ROUTE_FALLBACK}>
         <Routes>
           <Route path="/pomodoro/join/:code" element={<JoinSyncPage />} />
           <Route path="/team/join/:code" element={<JoinTeamPage />} />
@@ -450,6 +457,7 @@ export default function App() {
             element={session ? <AuthenticatedApp session={session} /> : <AuthPage />}
           />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </ThemeProvider>
   );

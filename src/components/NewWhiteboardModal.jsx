@@ -3,40 +3,34 @@ import { useTheme } from "../context/ThemeContext";
 import { useApp } from "../context/AppContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { X, PenLine, Check, Users, User as UserIcon } from "lucide-react";
 import {
-  X, ScrollText, Lightbulb, PenLine, Check,
-} from "lucide-react";
-import { TEMPLATE_LIST, createWhiteboard } from "../lib/whiteboard";
+  createWhiteboard,
+  listWhiteboardTemplates,
+  fetchTemplateSnapshot,
+} from "../lib/whiteboard";
 
-// Modal for creating a new whiteboard. Pick a template + title, hand
-// off to onCreated with the new row. Bridge to NewRetroModal's UX
-// patterns (title, ESC to close, click outside) so this feels native.
+// Modal for creating a new whiteboard. Start blank, or seed from one of your
+// saved templates (personal or team). ESC / click-outside close.
 
-const TEMPLATE_ICON = {
-  weekly_review: ScrollText,
-  brainstorm: Lightbulb,
-  blank: PenLine,
-};
-
-export default function NewWhiteboardModal({
-  open, onClose, teamId, onCreated,
-}) {
+export default function NewWhiteboardModal({ open, onClose, teamId, onCreated }) {
   const { theme } = useTheme();
   const { session } = useApp();
   const dark = theme === "dark";
 
   const [title, setTitle] = useState("");
-  const [templateKey, setTemplateKey] = useState("weekly_review");
+  const [choice, setChoice] = useState("blank"); // "blank" | template id
+  const [templates, setTemplates] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    setTitle("");
-    setTemplateKey("weekly_review");
-    setBusy(false);
-    setError("");
-  }, [open]);
+    setTitle(""); setChoice("blank"); setBusy(false); setError("");
+    let alive = true;
+    listWhiteboardTemplates(teamId).then(({ data }) => { if (alive) setTemplates(data || []); });
+    return () => { alive = false; };
+  }, [open, teamId]);
 
   if (!open) return null;
 
@@ -44,11 +38,17 @@ export default function NewWhiteboardModal({
     e.preventDefault();
     if (!teamId) { setError("Pick a team first."); return; }
     setBusy(true); setError("");
+    let snapshot = null;
+    if (choice !== "blank") {
+      const { data: snap, error: snapErr } = await fetchTemplateSnapshot(choice);
+      if (snapErr) { setBusy(false); setError(snapErr.message || "Could not load that template."); return; }
+      snapshot = snap;
+    }
     const { data, error: err } = await createWhiteboard({
       teamId,
-      title: title.trim() || defaultTitle(templateKey),
-      templateKey,
+      title: title.trim() || "Whiteboard",
       createdBy: session?.user?.id,
+      snapshot,
     });
     setBusy(false);
     if (err || !data) { setError(err?.message || "Could not create whiteboard."); return; }
@@ -62,6 +62,33 @@ export default function NewWhiteboardModal({
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${
     dark ? "text-slate-400" : "text-slate-500"
   }`;
+
+  function Card({ active, onClick, Icon, name, sub }) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-colors ${
+          active
+            ? "border-[var(--color-accent)] bg-[var(--color-accent-light)]"
+            : dark
+              ? "border-[var(--color-border)] hover:border-[var(--color-accent)]/60"
+              : "border-slate-200 hover:border-[var(--color-accent)]/60"
+        }`}
+      >
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+          active ? "bg-[var(--color-accent)] text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-100 text-slate-600"
+        }`}>
+          <Icon className="w-4 h-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm font-bold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>{name}</p>
+          <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-500"}`}>{sub}</p>
+        </div>
+        {active && <Check className="w-4 h-4 text-[var(--color-accent)] shrink-0" />}
+      </button>
+    );
+  }
 
   return (
     <div
@@ -87,41 +114,23 @@ export default function NewWhiteboardModal({
           New whiteboard
         </h2>
         <p className={`text-xs mb-4 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          Pick a template and give it a name. You can rename it later.
+          Start blank or from one of your saved templates. You can rename it later.
         </p>
 
         <div className="mb-4">
-          <label className={labelCls}>Template</label>
-          <div className="mt-2 grid grid-cols-1 gap-2">
-            {TEMPLATE_LIST.map((tpl) => {
-              const Icon = TEMPLATE_ICON[tpl.key] || PenLine;
-              const selected = templateKey === tpl.key;
-              return (
-                <button
-                  key={tpl.key}
-                  type="button"
-                  onClick={() => setTemplateKey(tpl.key)}
-                  className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-colors ${
-                    selected
-                      ? "border-[var(--color-accent)] bg-[var(--color-accent-light)]"
-                      : dark
-                        ? "border-[var(--color-border)] hover:border-[var(--color-accent)]/60"
-                        : "border-slate-200 hover:border-[var(--color-accent)]/60"
-                  }`}
-                >
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                    selected ? "bg-[var(--color-accent)] text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-100 text-slate-600"
-                  }`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>{tpl.name}</p>
-                    <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-500"}`}>{tpl.desc}</p>
-                  </div>
-                  {selected && <Check className="w-4 h-4 text-[var(--color-accent)] shrink-0" />}
-                </button>
-              );
-            })}
+          <label className={labelCls}>Start from</label>
+          <div className="mt-2 grid grid-cols-1 gap-2 max-h-[260px] overflow-y-auto pr-0.5">
+            <Card active={choice === "blank"} onClick={() => setChoice("blank")} Icon={PenLine} name="Blank board" sub="A clean infinite canvas" />
+            {templates.map((t) => (
+              <Card
+                key={t.id}
+                active={choice === t.id}
+                onClick={() => setChoice(t.id)}
+                Icon={t.scope === "org" ? Users : UserIcon}
+                name={t.name}
+                sub={t.scope === "org" ? "Team template" : "Personal template"}
+              />
+            ))}
           </div>
         </div>
 
@@ -131,7 +140,7 @@ export default function NewWhiteboardModal({
             id="wb-title"
             value={title}
             onChange={(e) => setTitle(e.target.value.slice(0, 120))}
-            placeholder={defaultTitle(templateKey)}
+            placeholder="Whiteboard"
             className="mt-1.5"
           />
         </div>
@@ -155,18 +164,4 @@ export default function NewWhiteboardModal({
       </form>
     </div>
   );
-}
-
-function defaultTitle(templateKey) {
-  switch (templateKey) {
-    case "weekly_review": return weeklyReviewDefault();
-    case "brainstorm":    return "Brainstorm";
-    default:              return "Whiteboard";
-  }
-}
-
-function weeklyReviewDefault() {
-  const today = new Date();
-  const month = today.toLocaleDateString("en-US", { month: "short" });
-  return `Weekly Review · ${month} ${today.getDate()}`;
 }

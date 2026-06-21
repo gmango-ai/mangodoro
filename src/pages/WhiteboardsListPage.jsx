@@ -160,7 +160,8 @@ export default function WhiteboardsListPage() {
 function BoardCard({ board, dark, isAdmin, onArchive, onUnarchive, onDelete }) {
   const tpl = TEMPLATES[board.template_key] || TEMPLATES.blank;
   const Icon = TEMPLATE_ICON[tpl.key] || PenLine;
-  const accent = dark ? TEMPLATE_ACCENT[tpl.key].dark : TEMPLATE_ACCENT[tpl.key].light;
+  const acc = TEMPLATE_ACCENT[tpl.key] || TEMPLATE_ACCENT.blank; // deprecated templates (e.g. retro) → blank
+  const accent = dark ? acc.dark : acc.light;
   const archived = !!board.archived_at;
   const updated = friendly(board.updated_at);
 

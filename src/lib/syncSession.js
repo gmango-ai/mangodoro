@@ -1,5 +1,13 @@
 import { supabase } from "../supabase";
 
+// How long a participant's last_seen_at stays "live" before we treat
+// them as gone. Foreground clients heartbeat every 20s (see
+// SyncSessionContext), so a live tab is never stale; this window only
+// trips for occupants whose tab has been closed/suspended for >2 min.
+// Keep in sync with the `interval '120 seconds'` used server-side in
+// reconcile_room_session / the sweep.
+export const PRESENCE_GRACE_MS = 120_000;
+
 export async function createSyncSession(userId, displayName = "", opts = {}) {
   // Generate a 6-char uppercase alphanumeric join code.
   // Use base32-ish padding so it's always exactly 6 chars (avoiding accidental
@@ -14,34 +22,63 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
   const teamId = opts.teamId ?? null;
   const roomId = opts.roomId ?? null;
   const visibility = opts.visibility ?? (teamId ? "team" : "invite_only");
-  const insertRow = {
-    leader_id: userId,
-    controller_id: userId,
-    join_code: code,
-    team_id: teamId,
-    room_id: roomId,
-    visibility,
-    control_mode: "leader",
-  };
-  if (opts.durations) insertRow.durations = opts.durations;
-  if (opts.autoTransition !== undefined) insertRow.auto_transition = opts.autoTransition;
-  const { data: session, error } = await supabase
-    .from("sync_sessions")
-    .insert(insertRow)
-    .select()
-    .single();
-  if (error) return { error };
 
-  // Add self as participant via the security-definer RPC.
-  // This bypasses participant-insert RLS, which can otherwise silently fail
-  // for the creator (e.g. policy subqueries that depend on already-being-a-participant).
+  let session;
+  if (roomId) {
+    // Room sessions go through an atomic, advisory-locked RPC that does
+    // reconcile + find-or-create in one transaction. This removes the
+    // start-vs-start race on sync_sessions_one_active_per_room: concurrent
+    // starts (or a double-fire) queue on the per-room lock, so the loser
+    // gets back the existing session to JOIN instead of a 23505. The
+    // returned row may therefore be a session someone else just started —
+    // we join it below with ITS join_code, not our generated one.
+    const { data, error } = await supabase.rpc("start_or_join_room_session", {
+      p_room_id: roomId,
+      p_join_code: code,
+      p_team_id: teamId,
+      p_visibility: visibility,
+      p_control_mode: "leader",
+      p_durations: opts.durations ?? null,
+      p_auto_transition: opts.autoTransition ?? null,
+    });
+    if (error) return { error };
+    session = Array.isArray(data) ? data[0] : data;
+    if (!session?.join_code) return { error: { message: "Could not start or join the room session." } };
+  } else {
+    // Non-room (ad-hoc / invite-only) session: no per-room constraint, plain insert.
+    const insertRow = {
+      leader_id: userId,
+      controller_id: userId,
+      join_code: code,
+      team_id: teamId,
+      room_id: null,
+      visibility,
+      control_mode: "leader",
+    };
+    if (opts.durations) insertRow.durations = opts.durations;
+    if (opts.autoTransition !== undefined) insertRow.auto_transition = opts.autoTransition;
+    const { data, error } = await supabase
+      .from("sync_sessions")
+      .insert(insertRow)
+      .select()
+      .single();
+    if (error) return { error };
+    session = data;
+  }
+
+  // Add self as participant via the security-definer RPC (idempotent).
+  // Bypasses participant-insert RLS, which can otherwise silently fail for
+  // the creator. Uses the resolved session's code — for a room start-or-join
+  // that may be the session someone else just created.
   const { error: joinErr } = await supabase.rpc("join_sync_session", {
-    p_join_code: code,
+    p_join_code: session.join_code,
     p_display_name: displayName,
   });
   if (joinErr) {
-    // Best-effort cleanup so we don't leave a session with no participants.
-    await supabase.from("sync_sessions").delete().eq("id", session.id);
+    // Only clean up a session we definitely created ourselves. A room
+    // session left participant-less is a ghost that the next
+    // start_or_join_room_session / sweep reconciles away, so we leave it.
+    if (!roomId) await supabase.from("sync_sessions").delete().eq("id", session.id);
     return { error: joinErr };
   }
 
@@ -105,6 +142,22 @@ export async function linkRetroToSession(sessionId, retroId) {
 }
 export async function unlinkRetroFromSession(sessionId) {
   const { error } = await supabase.rpc("unlink_retro_from_session", {
+    p_session_id: sessionId,
+  });
+  return { error };
+}
+
+// Attach / detach a whiteboard to the active session — same leader-only
+// contract as the retro link (see 20260619160000_sync_session_whiteboard).
+export async function linkWhiteboardToSession(sessionId, whiteboardId) {
+  const { error } = await supabase.rpc("link_whiteboard_to_session", {
+    p_session_id: sessionId,
+    p_whiteboard_id: whiteboardId,
+  });
+  return { error };
+}
+export async function unlinkWhiteboardFromSession(sessionId) {
+  const { error } = await supabase.rpc("unlink_whiteboard_from_session", {
     p_session_id: sessionId,
   });
   return { error };
@@ -188,6 +241,18 @@ export async function fetchSyncParticipants(sessionId) {
   return { data: data || [], error };
 }
 
+// Stamp the caller's liveness for a session. Called on a steady cadence
+// while a session is active so the server can tell who is *actually*
+// present (vs. a ghost row left behind by a closed tab). Read-time
+// liveness filtering and the empty-room sweeper key off last_seen_at.
+// Fire-and-forget: a missed beat is harmless, the next one re-stamps.
+export async function heartbeatSyncSession(sessionId) {
+  const { error } = await supabase.rpc("heartbeat_sync_session", {
+    p_session_id: sessionId,
+  });
+  return { error };
+}
+
 function takeControlErrorMessage(error) {
   const code = error?.code || "";
   const status = error?.status || error?.statusCode;
@@ -259,15 +324,25 @@ export async function listActiveTeamSessions(teamId) {
   const sessionIds = data.map((s) => s.id);
   const { data: parts } = await supabase
     .from("sync_session_participants")
-    .select("session_id, user_id")
+    .select("session_id, user_id, last_seen_at")
     .in("session_id", sessionIds)
     .is("left_at", null);
 
-  // Pull profiles for everyone we'll render (every leader + every participant).
+  // Read-time liveness: only count occupants seen within the grace
+  // window. A participant row with left_at = null but a stale
+  // last_seen_at is a ghost (closed tab), so it must not inflate the
+  // hallway count or keep an abandoned room looking occupied.
+  const liveCutoff = Date.now() - PRESENCE_GRACE_MS;
+  const liveParts = (parts || []).filter((p) => {
+    const seen = p.last_seen_at ? new Date(p.last_seen_at).getTime() : 0;
+    return seen >= liveCutoff;
+  });
+
+  // Pull profiles for everyone we'll render (every leader + every live participant).
   const profileIds = [
     ...new Set([
       ...data.map((s) => s.leader_id),
-      ...(parts || []).map((p) => p.user_id),
+      ...liveParts.map((p) => p.user_id),
     ]),
   ];
   const { data: profiles } = profileIds.length
@@ -278,9 +353,9 @@ export async function listActiveTeamSessions(teamId) {
     : { data: [] };
   const profileMap = new Map((profiles || []).map((r) => [r.user_id, r]));
 
-  // Group participants by session for the avatar stack.
+  // Group live participants by session for the avatar stack.
   const occupantsBySession = new Map();
-  for (const p of (parts || [])) {
+  for (const p of liveParts) {
     const list = occupantsBySession.get(p.session_id) || [];
     const prof = profileMap.get(p.user_id);
     list.push({
@@ -293,13 +368,18 @@ export async function listActiveTeamSessions(teamId) {
   }
 
   return {
-    data: data.map((s) => ({
-      ...s,
-      leader_name: profileMap.get(s.leader_id)?.name || "Team member",
-      leader_avatar: profileMap.get(s.leader_id)?.avatar_url || "",
-      participant_count: (occupantsBySession.get(s.id) || []).length,
-      occupants: occupantsBySession.get(s.id) || [],
-    })),
+    // Drop sessions with no live occupant: they're abandoned ghosts, so
+    // the room should read as empty ("Start a session"), not occupied.
+    // The next start reconciles the ghost away (createSyncSession).
+    data: data
+      .map((s) => ({
+        ...s,
+        leader_name: profileMap.get(s.leader_id)?.name || "Team member",
+        leader_avatar: profileMap.get(s.leader_id)?.avatar_url || "",
+        participant_count: (occupantsBySession.get(s.id) || []).length,
+        occupants: occupantsBySession.get(s.id) || [],
+      }))
+      .filter((s) => s.occupants.length > 0),
     error: null,
   };
 }

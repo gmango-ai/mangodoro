@@ -53,8 +53,15 @@ struct PomodoroLiveActivity: Widget {
                         .foregroundColor(.white)
                         .padding(.trailing, 4)
                 }
-                if #available(iOS 17.0, *) {
-                    DynamicIslandExpandedRegion(.bottom) {
+                DynamicIslandExpandedRegion(.bottom) {
+                    // Interactive controls need iOS 17 (LiveActivityIntent).
+                    // The availability check must live INSIDE the region's
+                    // ViewBuilder — the DynamicIslandExpandedContentBuilder that
+                    // assembles the regions can't take control flow, so an
+                    // `if #available` wrapped around the region fails to compile
+                    // ("Expanded could not be inferred"). On iOS 16 the region is
+                    // simply empty.
+                    if #available(iOS 17.0, *) {
                         HStack(spacing: 12) {
                             ToggleButton(
                                 isRunning: context.state.isRunning,
@@ -131,8 +138,13 @@ private struct PomodoroLockScreenView: View {
                 }
             }
             CountdownText(state: state)
-                .font(.system(size: 38, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundColor(.white)
+                // Keep the timer on a single line: scale down to fit rather
+                // than wrapping, and claim width ahead of the label/buttons.
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .layoutPriority(1)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
@@ -273,6 +285,9 @@ private struct ToggleButton: View {
                     .foregroundColor(.white)
             }
             .frame(width: size, height: size)
+            // Generous invisible hit area so the button is easy to hit
+            // quickly even though the visible circle stays compact.
+            .padding(9)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -293,6 +308,7 @@ private struct StopButton: View {
                     .foregroundColor(.white)
             }
             .frame(width: size, height: size)
+            .padding(9)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -34,6 +34,12 @@ async function bootstrap() {
     );
     return;
   }
+  // Analytics (PostHog) — no-op unless VITE_POSTHOG_KEY is set. Powers
+  // the Jitsi ↔ LiveKit video A/B metrics. Init before render so early
+  // events aren't dropped.
+  const { initAnalytics } = await import("./lib/analytics");
+  initAnalytics();
+
   const { default: App } = await import("./App");
   createRoot(document.getElementById("root")).render(
     <StrictMode>

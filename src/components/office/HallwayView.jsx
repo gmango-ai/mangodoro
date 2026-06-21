@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import OfficeLayoutEditor from "../OfficeLayoutEditor";
+import OfficePresenceBar from "./OfficePresenceBar";
 
 const KIND_ICON = {
   general: Hash,
@@ -108,16 +109,13 @@ export default function HallwayView({
   }, [orgTeams]);
 
   return (
-    <div className="flex flex-col h-full min-h-0 overflow-y-auto">
-      <header className={`px-6 py-4 border-b ${
-        dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-white"
-      }`}>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
+    <div>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <p className={`text-[10px] font-bold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
               {activeTeam?.name || "Office"}
             </p>
-            <h1 className={`text-xl font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
+            <h1 className={`text-2xl font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
               Hallway
             </h1>
             <p className={`text-xs mt-1 inline-flex items-center gap-3 ${dark ? "text-slate-400" : "text-slate-500"}`}>
@@ -173,6 +171,16 @@ export default function HallwayView({
           </div>
         </div>
 
+        {/* Ambient presence — everyone across all rooms in one row, so
+            the hallway reads as inhabited even when people are scattered
+            one-per-room. Click an avatar to walk to their room. */}
+        <OfficePresenceBar
+          sessionByRoomId={sessionByRoomId}
+          rooms={mergedRooms}
+          onEnterRoom={onEnterRoom}
+          dark={dark}
+        />
+
         {/* Search — visible in list mode where it makes sense. Floor
             mode keeps the spatial layout stable rather than filtering
             tiles in/out of position. */}
@@ -206,9 +214,8 @@ export default function HallwayView({
             )}
           </div>
         )}
-      </header>
 
-      <div className="flex-1 p-6">
+      <div className="mt-5">
         {mergedRooms.length === 0 ? (
           <div className={`text-center py-12 rounded-2xl border border-dashed ${
             dark ? "border-[var(--color-border)] text-slate-400" : "border-slate-300 text-slate-500"
@@ -285,11 +292,13 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
             </header>
             <ul className="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {list.map((room) => {
-                const accent = room.color || "#14b8a6";
                 const session = sessionByRoomId?.get(room.id) || null;
                 const occupants = session?.occupants || [];
                 const locked = lockedRoomIds?.has(room.id) || false;
                 const RoomIcon = KIND_ICON[room.kind] || Hash;
+                // Same faint room-color wash as the floor tiles, so the
+                // two hallway views read as the same place.
+                const tint = room.color || "#14b8a6";
                 return (
                   <li key={room.id}>
                     <button
@@ -300,18 +309,16 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                       }}
                       disabled={locked}
                       title={locked ? lockedReasonFor(room) : room.name}
+                      style={{ background: `color-mix(in srgb, ${tint} 10%, var(--color-surface))` }}
                       className={`group w-full text-left rounded-xl border px-3 py-2.5 flex items-center gap-2 transition-colors ${
                         locked ? "opacity-60 cursor-not-allowed" : "hover:border-[var(--color-accent)]"
                       } ${
                         dark
-                          ? "bg-[var(--color-surface)] border-[var(--color-border)]"
-                          : "bg-white border-slate-200"
+                          ? "border-[var(--color-border)]"
+                          : "border-slate-200"
                       }`}
                     >
-                      <span
-                        className="p-1.5 rounded-lg shrink-0"
-                        style={{ background: `${accent}22`, color: accent }}
-                      >
+                      <span className="p-1.5 rounded-lg shrink-0 bg-[var(--color-accent-light)] text-[var(--color-accent)]">
                         <RoomIcon className="w-3.5 h-3.5" />
                       </span>
                       <span className="min-w-0 flex-1">
@@ -333,10 +340,7 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                       {locked ? (
                         <Lock className="w-3 h-3 shrink-0 opacity-60" />
                       ) : occupants.length > 0 ? (
-                        <span
-                          className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0"
-                          style={{ background: accent }}
-                        />
+                        <span className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0 bg-[var(--color-accent)]" />
                       ) : null}
                     </button>
                   </li>

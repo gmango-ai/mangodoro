@@ -137,7 +137,8 @@ export default function ResizableSplit({
         aria-orientation={isVertical ? "horizontal" : "vertical"}
         aria-label={isVertical ? "Resize video / chat split" : "Resize chat / video split"}
         onPointerDown={onPointerDown}
-        className={`group shrink-0 flex items-center justify-center transition-colors ${handleBaseCls} ${
+        // touch-none so a touch-drag resizes instead of scrolling the page.
+        className={`group shrink-0 flex items-center justify-center transition-colors touch-none ${handleBaseCls} ${
           dragging
             ? "bg-[var(--color-accent)]/30"
             : "hover:bg-[var(--color-accent)]/15"

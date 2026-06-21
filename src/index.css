@@ -313,3 +313,59 @@ html.electron-popover.dark body {
 html.electron-popover body::before {
   display: none;
 }
+
+/* ── Whiteboard: connection dots reveal on hover ────────────────────
+ * Dots are hidden AND non-interactive until you hover (or select) the
+ * node, so the body stays easy to grab for MOVING and the dots don't
+ * intercept edge-endpoint drags. On hover they appear and become
+ * grabbable, with a modest invisible hit margin. A high z-index (set in
+ * JS) keeps them above the resizer's edge lines at the midpoints.
+ */
+.react-flow__handle.wb-conn-handle {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.react-flow__node:hover .react-flow__handle.wb-conn-handle,
+.react-flow__node.selected .react-flow__handle.wb-conn-handle {
+  opacity: 1;
+  pointer-events: all;
+}
+.react-flow__handle.wb-conn-handle::after {
+  content: "";
+  position: absolute;
+  inset: -3px; /* ~18px grab target around the 12px dot */
+  border-radius: 9999px;
+}
+/* NodeResizer CORNER handles: bigger + a modest invisible margin. We do
+ * NOT enlarge the side LINES — that corridor used to sit on top of the
+ * connection dots and steal their clicks. Resize from a corner, or from
+ * the edge away from the midpoint. */
+.react-flow__resize-control.handle {
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 3px;
+}
+.react-flow__resize-control.handle::after {
+  content: "";
+  position: absolute;
+  inset: -6px; /* ~24px grab target, small enough not to bleed onto neighbours */
+}
+
+/* Whiteboard sticky note — real-paper feel: a soft drop shadow (set inline)
+ * plus lifted, slightly-curled bottom corners. The pseudo-elements sit behind
+ * the note (z-index:-1 escapes to the node's stacking context) and cast a
+ * shadow under each bottom corner, so the paper looks peeled up off the canvas. */
+.wb-sticky::before,
+.wb-sticky::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  bottom: 12px;
+  width: 46%;
+  height: 24%;
+  box-shadow: 0 14px 13px -7px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.wb-sticky::before { left: 7px; transform: rotate(-3.5deg); }
+.wb-sticky::after { right: 7px; transform: rotate(3.5deg); }

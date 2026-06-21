@@ -4,14 +4,14 @@ const ORDER_KEY = "ql_widget_order";
 
 // Default ordering — most glanceable / most-frequently-needed at the top,
 // occasional / placeholder widgets at the bottom. Pomodoro + Room
-// Members read at-a-glance; Timer + Retro are situational; Tasks is
-// a placeholder.
+// Members read at-a-glance; Whiteboard is situational; Tasks is a
+// placeholder. (Retro is deprecated — replaced by the whiteboard; the
+// countdown timer now lives inside the whiteboard, not as a widget.)
 export const DEFAULT_WIDGET_ORDER = [
   "pomodoro",
   "room-members",
   "goals",
-  "timer",
-  "retro",
+  "whiteboard",
   "tasks",
 ];
 
