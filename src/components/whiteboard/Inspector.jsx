@@ -15,10 +15,10 @@ function ShapeMini({ shape }) {
 }
 
 const FONT_SIZES = [
-  { label: "Small", v: 12 },
-  { label: "Medium", v: 14 },
-  { label: "Large", v: 18 },
-  { label: "X-Large", v: 24 },
+  { label: "Small", v: 14 },
+  { label: "Medium", v: 18 },
+  { label: "Large", v: 26 },
+  { label: "X-Large", v: 44 }, // a deliberate big jump — for headings / frame titles
 ];
 
 // Shape catalogue, shown as a compact grid inside the Shape dropdown.
@@ -42,8 +42,10 @@ function ShapePicker({ value, onPick }) {
   );
 }
 
-// Sticky pastels + a custom-colour well, on the dark panel.
-function StickyPicker({ value, onPick }) {
+// Sticky pastels + a custom-colour well, on the dark panel. `onPick` is the
+// commit (swatch click — applies + closes); `onLive` previews the native
+// colour picker as you drag, without closing the panel.
+function StickyPicker({ value, onPick, onLive }) {
   const v = (value || "").toLowerCase();
   return (
     <div className="grid gap-2.5 p-2.5" style={{ gridTemplateColumns: "repeat(6, 24px)", justifyContent: "center" }}>
@@ -64,7 +66,10 @@ function StickyPicker({ value, onPick }) {
         <input
           type="color"
           value={/^#[0-9a-fA-F]{6}$/.test(value || "") ? value : "#fde68a"}
-          onChange={(e) => onPick(e.target.value)}
+          // Live-preview on the note while dragging; never auto-close the panel
+          // so you can keep adjusting (click a swatch or click away to finish).
+          onInput={(e) => (onLive || onPick)(e.target.value)}
+          onChange={(e) => (onLive || onPick)(e.target.value)}
           style={{ width: 30, height: 30, margin: -3, padding: 0, border: "none", background: "none", cursor: "pointer", opacity: 0 }}
         />
       </label>
@@ -83,7 +88,10 @@ export default function Inspector({ node, patchNodeData }) {
   const isSticky = node.type === "sticky";
   const isShape = ["shape", "rect", "ellipse", "diamond"].includes(node.type);
   const isText = node.type === "text";
-  const curFont = node.data?.fontSize || (isText ? 16 : 13);
+  const isFrame = node.type === "frame";
+  const labelBg = node.data?.labelBg; // frame title background: undefined/"none" | "tint" | hex
+  const labelBgColor = labelBg === "tint" ? (node.data?.fill || "#0ea5e9") : (labelBg && labelBg !== "none" ? labelBg : null);
+  const curFont = node.data?.fontSize || (isText ? 16 : isFrame ? 18 : 13);
   const curFontLabel = (FONT_SIZES.find((f) => f.v === curFont) || {}).label || `${curFont}px`;
   const curShape = node.data?.shape || LEGACY_SHAPE[node.type] || "process";
   const fill = node.data?.fill || "#ffffff";
@@ -118,7 +126,11 @@ export default function Inspector({ node, patchNodeData }) {
             title="Colour"
             icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: stickyColor }} />}
           >
-            <StickyPicker value={stickyColor} onPick={(c) => { patchNodeData({ color: c }); setPreferredStickyColor(c); setOpen(null); }} />
+            <StickyPicker
+              value={stickyColor}
+              onPick={(c) => { patchNodeData({ color: c }); setPreferredStickyColor(c); setOpen(null); }}
+              onLive={(c) => { patchNodeData({ color: c }); setPreferredStickyColor(c); }}
+            />
           </Dropdown>
         ) : !isText ? (
           <Dropdown
@@ -141,6 +153,27 @@ export default function Inspector({ node, patchNodeData }) {
             icon={<span className="w-4 h-4 rounded-full border-2" style={{ borderColor: stroke }} />}
           >
             <SwatchGrid value={stroke} onPick={(c) => { patchNodeData({ stroke: c }); setOpen(null); }} />
+          </Dropdown>
+        )}
+
+        {isFrame && (
+          <Dropdown
+            openKey="labelbg"
+            open={open}
+            setOpen={setOpen}
+            title="Label background"
+            icon={
+              <span
+                className="text-[12px] font-extrabold leading-none flex items-center justify-center w-5 h-4 rounded"
+                style={{ background: labelBgColor || "transparent", color: labelBgColor ? "#fff" : "rgba(255,255,255,.9)", border: labelBgColor ? "none" : "1px dashed rgba(255,255,255,.4)" }}
+              >T</span>
+            }
+          >
+            <div className="p-1" style={{ width: 180 }}>
+              <Opt active={!labelBg || labelBg === "none"} onClick={() => { patchNodeData({ labelBg: "none" }); setOpen(null); }}>Transparent</Opt>
+              <Opt active={labelBg === "tint"} onClick={() => { patchNodeData({ labelBg: "tint" }); setOpen(null); }}>Frame colour</Opt>
+              <SwatchGrid value={labelBg} onPick={(c) => { patchNodeData({ labelBg: c }); setOpen(null); }} />
+            </div>
           </Dropdown>
         )}
 

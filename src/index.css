@@ -351,3 +351,21 @@ html.electron-popover body::before {
   position: absolute;
   inset: -6px; /* ~24px grab target, small enough not to bleed onto neighbours */
 }
+
+/* Whiteboard sticky note — real-paper feel: a soft drop shadow (set inline)
+ * plus lifted, slightly-curled bottom corners. The pseudo-elements sit behind
+ * the note (z-index:-1 escapes to the node's stacking context) and cast a
+ * shadow under each bottom corner, so the paper looks peeled up off the canvas. */
+.wb-sticky::before,
+.wb-sticky::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  bottom: 12px;
+  width: 46%;
+  height: 24%;
+  box-shadow: 0 14px 13px -7px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.wb-sticky::before { left: 7px; transform: rotate(-3.5deg); }
+.wb-sticky::after { right: 7px; transform: rotate(3.5deg); }

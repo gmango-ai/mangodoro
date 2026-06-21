@@ -25,6 +25,10 @@ export function EdgeMarkerDefs() {
 
 const STUB = 22; // min distance an edge travels perpendicular before bending
 
+// Edges only attach to flowchart shapes. Containers and content nodes —
+// frames, zones, sticky notes, goals — are never edge endpoints.
+export const NON_CONNECTABLE = new Set(["frame", "zone", "sticky", "goal"]);
+
 function stubDir(pos) {
   return pos === "left" ? [-1, 0] : pos === "right" ? [1, 0] : pos === "top" ? [0, -1] : [0, 1];
 }
@@ -634,10 +638,10 @@ const EditableEdge = memo(function EditableEdge({
     const endKey = which === "source" ? "source" : "target";
     const onMove = (ev) => {
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
-      // Node under the cursor → the re-attach target (skip containers).
+      // Node under the cursor → the re-attach target (only connectable nodes).
       let hit = null;
       for (const n of getNodes()) {
-        if (n.type === "frame" || n.type === "zone") continue;
+        if (NON_CONNECTABLE.has(n.type)) continue;
         const r = nodeRect(n);
         if (r && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) { hit = n; break; }
       }
@@ -848,10 +852,10 @@ export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode 
   const fp = fromPosition || "right";
   const sRect = nodeRect(fromNode);
 
-  // Cursor over an existing node?
+  // Cursor over an existing (connectable) node?
   let over = null;
   for (const n of getNodes()) {
-    if (n.type === "frame" || n.type === "zone") continue;
+    if (NON_CONNECTABLE.has(n.type)) continue;
     if (fromNode && n.id === fromNode.id) continue;
     const r = nodeRect(n);
     if (r && toX >= r.x && toX <= r.x + r.w && toY >= r.y && toY <= r.y + r.h) { over = r; break; }

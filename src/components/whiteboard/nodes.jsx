@@ -1,5 +1,5 @@
 import { lazy, Suspense, memo, useCallback, useEffect, useRef, useState } from "react";
-import { Handle, Position, NodeResizer, useNodes, useReactFlow } from "@xyflow/react";
+import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
 import { nodeAbsPos, sortParentsFirst } from "./frame";
 import { Target, ChevronDown, Building2, User, Star, X, Plus } from "lucide-react";
 import { useParams } from "react-router-dom";
@@ -33,15 +33,15 @@ function useMyName() {
 
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🔥"];
 
-const AVATAR_COLORS = ["#f97316", "#ef4444", "#8b5cf6", "#0ea5e9", "#22c55e", "#ec4899", "#f59e0b"];
-
 // Selection accent — follows the user's theme accent (var(--color-accent)) so
 // the whole selection treatment (ring, resize handles, shape outline) matches
 // the active theme instead of a fixed orange.
 const SELECT = "var(--color-accent)";
-const SELECT_RING = "color-mix(in srgb, var(--color-accent) 20%, transparent)";
 const SELECT_FILL = "color-mix(in srgb, var(--color-accent) 6%, transparent)";
-const RESIZER = { lineStyle: { borderColor: SELECT }, handleStyle: { background: SELECT, border: "2px solid #fff" } };
+// Selection = a THICKER version of the item's own outline; items without an
+// outline (sticky, text) fall back to the theme accent. Resize handles + guide
+// lines take that same colour.
+const resizer = (color) => ({ lineStyle: { borderColor: color }, handleStyle: { background: color, border: "2px solid #fff" } });
 
 // Readable text colour (near-black / near-white) for a solid background, so
 // labels stay legible on any fill — a white default, a dark-theme surface, or a
@@ -54,15 +54,6 @@ function readableText(bg) {
   if ([r, g, b].some(Number.isNaN)) return "#0f172a";
   const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   return lum > 0.6 ? "#0f172a" : "#f1f5f9";
-}
-function avatarFor(name) {
-  let h = 0; for (const ch of (name || "?")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-function initialsOf(name) {
-  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
 }
 
 // Nodes that should open straight into edit mode (just created via the
@@ -90,8 +81,11 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
   useEffect(() => { setDraft(value || ""); }, [value]);
   useEffect(() => {
     if (editing && textareaRef.current) {
-      textareaRef.current.focus();
-      textareaRef.current.select();
+      const el = textareaRef.current;
+      el.focus();
+      el.select();
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 480)}px`;
     }
   }, [editing]);
 
@@ -121,7 +115,14 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
     <textarea
       ref={textareaRef}
       value={draft}
-      onChange={(e) => setDraft(e.target.value.slice(0, 1000))}
+      rows={1}
+      onChange={(e) => {
+        setDraft(e.target.value.slice(0, 1000));
+        // Auto-grow to content height so the flex parent keeps the text
+        // vertically centred while editing (instead of filling + top-aligning).
+        e.target.style.height = "auto";
+        e.target.style.height = `${Math.min(e.target.scrollHeight, 480)}px`;
+      }}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Escape") { setDraft(value || ""); setEditing(false); }
@@ -129,8 +130,8 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
       }}
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
-      className={`resize-none border-none outline-none bg-transparent ${className || ""}`}
-      style={{ ...style, width: "100%", height: "100%" }}
+      className={`resize-none border-none outline-none bg-transparent overflow-hidden ${className || ""}`}
+      style={{ ...style, width: "100%" }}
     />
   );
 }
@@ -202,91 +203,123 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
   const patch = useNodeDataPatcher(id);
   const { setNodes } = useReactFlow();
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [allOpen, setAllOpen] = useState(false); // "view all reactions" popover
   const bg = stickyHex(data?.color);
+  // Ink contrasts with the note colour (dark on a pastel, light on a deep hue);
+  // the author line is the same ink, dimmed.
+  const ink = readableText(bg);
+  const authorInk = ink === "#0f172a" ? "rgba(40,28,8,.55)" : "rgba(255,255,255,.72)";
   const reactions = data?.reactions || {};
   const react = (emoji) => patch({ reactions: { ...reactions, [emoji]: (reactions[emoji] || 0) + 1 } });
+  // Click a chip to take one back (drops off at zero).
+  const unreact = (emoji) => {
+    const next = { ...reactions, [emoji]: (reactions[emoji] || 0) - 1 };
+    if (next[emoji] <= 0) delete next[emoji];
+    patch({ reactions: next });
+  };
   const shown = Object.entries(reactions).filter(([, c]) => c > 0);
   const author = data?.author || "";
   const stop = (e) => e.stopPropagation();
+  // Small dark reaction pill; at most a few show on the note, the rest live in
+  // a "⋯" popover so the strip never runs off the edge.
+  const chipStyle = { display: "inline-flex", alignItems: "center", gap: 2, background: "#171430", color: "#fff", fontSize: 8, fontWeight: 700, lineHeight: 1, borderRadius: 5, padding: "2px 5px", border: `1.5px solid ${SELECT}`, boxShadow: "0 3px 8px -3px rgba(0,0,0,.5)", cursor: "pointer" };
+  const MAX_CHIPS = 3;
   const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
   return (
     <div
+      className="wb-sticky"
       style={{
-        width: 160, height: 160, padding: 9,
-        background: bg,
-        borderRadius: 8,
+        width: 144, height: 144, position: "relative",
+        background: bg, color: ink,
+        borderRadius: 3,
         boxShadow: selected
-          ? `0 0 0 2px ${SELECT}, 0 16px 32px -12px rgba(120,80,20,.55)`
-          : "0 7px 14px -7px rgba(120,80,20,.5)",
-        display: "flex", flexDirection: "column", gap: 4, color: "#3a2a10",
+          ? `0 0 0 2px ${SELECT}, 0 16px 28px -12px rgba(0,0,0,.45), 0 3px 7px -2px rgba(0,0,0,.22)`
+          : "0 14px 26px -12px rgba(0,0,0,.4), 0 3px 7px -3px rgba(0,0,0,.18)",
+        display: "flex", flexDirection: "column",
+        padding: "16px 16px 12px",
         fontFamily: "inherit",
       }}
     >
-      {/* No connection handles — stickies aren't edge-connectable
-          (edges attach to shapes only). */}
-      {/* Header — avatar + name (left), delete (right). Draggable so you
-          can grab the note by its name area; only the delete button opts
-          out of the drag. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        <span style={{ width: 18, height: 18, borderRadius: 9999, flexShrink: 0, background: avatarFor(author), color: "#fff", fontSize: 8, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {initialsOf(author)}
-        </span>
-        <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.6, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {author || "—"}
-        </span>
-        {selected && (
-          <button type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete" style={{ opacity: 0.45, display: "flex" }}>
-            <X style={{ width: 12, height: 12 }} />
-          </button>
-        )}
-      </div>
-      {/* Body text. */}
-      <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+      {/* No connection handles — stickies aren't edge-connectable. */}
+      {selected && (
+        <button type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete"
+          style={{ position: "absolute", top: 6, right: 6, opacity: 0.4, display: "flex", color: ink }}>
+          <X style={{ width: 13, height: 13 }} />
+        </button>
+      )}
+
+      {/* Centred note text. */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
         <EditableText
           value={data?.text}
           onChange={setText}
           placeholder="Type a note…"
           nodeId={id}
           selected={selected}
-          style={{ fontSize: data?.fontSize ?? 13, lineHeight: 1.3, width: "100%" }}
+          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: "center", color: ink }}
         />
       </div>
-      {/* Reaction chips (click to +1) + a quick-react row & full emoji
-          picker when the note is selected. */}
-      <div className="nodrag nowheel" onPointerDown={stop} style={{ position: "relative", display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap", minHeight: 18 }}>
-        {shown.map(([e, c]) => (
-          <button
-            key={e}
-            type="button"
-            onClick={() => react(e)}
-            title="React again"
-            style={{ fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 2, background: "rgba(255,255,255,.7)", borderRadius: 9999, padding: "1px 6px", cursor: "pointer" }}
-          >
-            {e}{c > 1 && <span style={{ opacity: 0.7 }}>{c}</span>}
-          </button>
-        ))}
-        {selected && (
-          <>
-            {QUICK_REACTIONS.map((e) => (
-              <button key={e} type="button" onClick={() => react(e)} title={`React ${e}`} style={{ fontSize: 13, lineHeight: 1, opacity: 0.55 }}>{e}</button>
+
+      {/* Author, bottom-right. */}
+      {author && (
+        <div style={{ alignSelf: "flex-end", fontSize: 11, fontWeight: 500, color: authorInk, maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {author}
+        </div>
+      )}
+
+      {/* Reactions overhang the bottom edge. The "viewer" (chips) wraps within
+          the note's width so it never flies off; the quick-react bar and the
+          full emoji picker stack BELOW it when the note is selected. Click a
+          chip to take a reaction back. */}
+      <div className="nodrag" onPointerDown={stop}
+        style={{ position: "absolute", left: 10, top: "calc(100% - 14px)", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+        {shown.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {shown.slice(0, MAX_CHIPS).map(([e, c]) => (
+              <button key={e} type="button" onClick={() => unreact(e)} title="Click to remove a reaction" style={chipStyle}>
+                <span style={{ fontSize: 10 }}>{e}</span>
+                <span>+{c}</span>
+              </button>
             ))}
-            <button
-              type="button"
-              onClick={() => setEmojiOpen((v) => !v)}
-              title="More emojis"
-              aria-label="More emojis"
-              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 9999, background: "rgba(255,255,255,.7)", color: "#3a2a10" }}
-            >
-              <Plus style={{ width: 11, height: 11 }} />
-            </button>
+            {shown.length > MAX_CHIPS && (
+              <button type="button" onClick={() => setAllOpen((v) => !v)} title="View all reactions"
+                style={{ ...chipStyle, fontWeight: 800, padding: "2px 6px" }}>⋯</button>
+            )}
+          </div>
+        )}
+        {allOpen && (
+          <>
+            <div className="nodrag" onPointerDown={(e) => { stop(e); setAllOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
+            <div className="nodrag nowheel" onPointerDown={stop}
+              style={{ zIndex: 60, maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2, minWidth: 92, background: "#171430", border: `1.5px solid ${SELECT}`, borderRadius: 9, padding: 5, boxShadow: "0 12px 26px -8px rgba(0,0,0,.6)" }}>
+              {shown.map(([e, c]) => (
+                <button key={e} type="button" onClick={() => unreact(e)} title="Click to remove a reaction"
+                  style={{ display: "flex", alignItems: "center", gap: 6, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 5px", borderRadius: 5, cursor: "pointer" }}>
+                  <span style={{ fontSize: 15 }}>{e}</span>
+                  <span>+{c}</span>
+                  <X style={{ width: 11, height: 11, marginLeft: "auto", opacity: 0.55 }} />
+                </button>
+              ))}
+            </div>
           </>
+        )}
+        {selected && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 1, background: "#171430", borderRadius: 9, padding: "2px 5px", border: "2px solid rgba(255,255,255,.16)", boxShadow: "0 5px 12px -4px rgba(0,0,0,.5)" }}>
+            {QUICK_REACTIONS.map((e) => (
+              <button key={e} type="button" onClick={() => react(e)} title={`React ${e}`} style={{ fontSize: 14, lineHeight: 1, padding: "1px 2px" }}>{e}</button>
+            ))}
+            <button type="button" onClick={() => setEmojiOpen((v) => !v)} title="More emojis" aria-label="More emojis"
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, borderRadius: 9999, color: "#fff" }}>
+              <Plus style={{ width: 12, height: 12 }} />
+            </button>
+          </div>
         )}
         {emojiOpen && (
           <>
             <div className="nodrag" onPointerDown={(e) => { stop(e); setEmojiOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
-            <div className="nodrag nowheel" onPointerDown={stop} style={{ position: "absolute", bottom: 26, left: 0, zIndex: 60, borderRadius: 12, overflow: "hidden", boxShadow: "0 16px 36px -16px rgba(0,0,0,.5)" }}>
+            <div className="nodrag nowheel" onPointerDown={stop} style={{ zIndex: 60, borderRadius: 12, overflow: "hidden", boxShadow: "0 16px 36px -16px rgba(0,0,0,.5)" }}>
               <Suspense fallback={null}>
-                <EmojiPicker onEmojiClick={(d) => { react(d.emoji); setEmojiOpen(false); }} theme="light" width={280} height={340} lazyLoadEmojis skinTonesDisabled previewConfig={{ showPreview: false }} />
+                <EmojiPicker onEmojiClick={(d) => { react(d.emoji); setEmojiOpen(false); }} theme="light" width={232} height={300} lazyLoadEmojis skinTonesDisabled previewConfig={{ showPreview: false }} />
               </Suspense>
             </div>
           </>
@@ -414,14 +447,16 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
   // Default fill follows the theme (a dark surface in dark mode instead of a
   // glaring white box); a user-picked fill is respected. Text auto-contrasts.
   const fill = data?.fill || (theme === "dark" ? "#1e293b" : "#ffffff");
-  const stroke = selected ? SELECT : (data?.stroke || "#0ea5e9");
+  // Outline keeps its own colour; selecting just THICKENS it (no accent swap).
+  const stroke = data?.stroke || "#0ea5e9";
+  const sw = selected ? 4 : 2;
   const textColor = readableText(fill);
   return (
     <div ref={ref} style={{ width: "100%", height: "100%", position: "relative" }}>
       <NodeResizer
         isVisible={selected}
         minWidth={70} minHeight={50}
-        {...RESIZER}
+        {...resizer(stroke)}
       />
       <svg
         width={size.w}
@@ -429,7 +464,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
         viewBox={`0 0 ${size.w} ${size.h}`}
         style={{ position: "absolute", inset: 0, overflow: "visible", display: "block" }}
       >
-        <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={2} />
+        <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={sw} />
       </svg>
       <FourHandles />
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 14px" }}>
@@ -488,13 +523,13 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
       style={{
         width: "100%", height: "100%", display: "flex", flexDirection: "column",
         background: surface, borderRadius: 14,
-        border: `2px solid ${selected ? SELECT : "#f59e0b"}`,
-        boxShadow: selected ? `0 0 0 2px ${SELECT_RING}, 0 12px 28px -14px rgba(0,0,0,.4)` : "0 8px 20px -12px rgba(0,0,0,.3)",
+        border: `${selected ? 4 : 2}px solid #f59e0b`,
+        boxShadow: selected ? "0 12px 28px -14px rgba(0,0,0,.4)" : "0 8px 20px -12px rgba(0,0,0,.3)",
         color: text,
       }}
     >
-      <NodeResizer isVisible={selected} minWidth={200} minHeight={120} {...RESIZER} />
-      <FourHandles />
+      <NodeResizer isVisible={selected} minWidth={200} minHeight={120} {...resizer("#f59e0b")} />
+      {/* No connection handles — goals aren't edge endpoints. */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "linear-gradient(120deg,#f59e0b,#f97316)", color: "#fff", borderRadius: "12px 12px 0 0" }}>
         <Target style={{ width: 14, height: 14 }} />
         <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".12em" }}>GOAL</span>
@@ -514,7 +549,7 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
       <div style={{ flex: 1, padding: 10, minHeight: 0 }}>
         <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }} />
       </div>
-      <div className="nodrag nowheel" style={{ position: "relative", padding: "6px 10px", borderTop: `1px solid ${divider}` }} onPointerDown={(e) => e.stopPropagation()}>
+      <div className="nodrag" style={{ position: "relative", padding: "6px 10px", borderTop: `1px solid ${divider}` }} onPointerDown={(e) => e.stopPropagation()}>
         <button
           type="button"
           onClick={() => setPickerOpen((v) => !v)}
@@ -525,7 +560,7 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
           <ChevronDown style={{ width: 11, height: 11, opacity: 0.6 }} />
         </button>
         {pickerOpen && (
-          <div style={{ position: "absolute", bottom: 34, left: 8, zIndex: 40, width: 196, maxHeight: 220, overflowY: "auto", background: surface, border: `1px solid ${popBorder}`, borderRadius: 12, boxShadow: "0 16px 36px -16px rgba(0,0,0,.45)", padding: 4 }}>
+          <div className="nowheel" style={{ position: "absolute", bottom: 34, left: 8, zIndex: 40, width: 196, maxHeight: 220, overflowY: "auto", background: surface, border: `1px solid ${popBorder}`, borderRadius: 12, boxShadow: "0 16px 36px -16px rgba(0,0,0,.45)", padding: 4 }}>
             {orgTeams.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, color: muted, textTransform: "uppercase", letterSpacing: ".08em", padding: "4px 8px 2px" }}>Departments</div>}
             {orgTeams.map((t) => (
               <button key={t.id} type="button" onClick={() => { patch({ linkType: "department", linkId: t.id, linkName: t.name, linkColor: t.color || "#f59e0b" }); setPickerOpen(false); }}
@@ -566,9 +601,18 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
   const { setNodes, screenToFlowPosition } = useReactFlow();
   const myName = useMyName();
-  const childCount = useNodes().filter((n) => n.parentId === id).length;
-  const tint = data?.tint || "#0ea5e9";
-  const bg = data?.bg || "rgba(14,165,233,.06)";
+  // The frame's colour comes from the inspector's Fill control (data.fill);
+  // `tint` drives the border + floating label, and the faint interior is
+  // derived from it (legacy data.tint/data.bg still honoured).
+  const tint = data?.fill || data?.tint || "#0ea5e9";
+  const bg = data?.bg || `color-mix(in srgb, ${tint} 8%, transparent)`;
+  // Floating label chrome: background is transparent by default, can follow the
+  // frame tint, or be a custom colour (data.labelBg = "none" | "tint" | hex).
+  // Title size follows the inspector's text-size control; it defaults to the
+  // normal (Medium) size and can be bumped to X-Large for a big heading.
+  const labelFill = data?.labelBg === "tint" ? tint : (data?.labelBg && data.labelBg !== "none" ? data.labelBg : null);
+  const labelInk = labelFill ? readableText(labelFill) : tint;
+  const titleSize = data?.fontSize ?? 18;
   const addSticky = (e) => {
     e.stopPropagation();
     const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
@@ -581,7 +625,7 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
         parentId: id,
         // No extent:"parent" — the note belongs to the frame but stays
         // free to drag out (soft container).
-        position: { x: p.x - fAbs.x - 80, y: p.y - fAbs.y - 80 },
+        position: { x: p.x - fAbs.x - 72, y: p.y - fAbs.y - 72 },
         data: { text: "", color: preferredStickyColor(), author: myName },
         selected: true,
       };
@@ -590,16 +634,18 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
     });
   };
   return (
-    <div style={{ width: "100%", height: "100%", borderRadius: 18, border: `2px solid ${selected ? SELECT : tint}`, background: bg, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <NodeResizer isVisible={selected} minWidth={160} minHeight={140} {...RESIZER} />
-      <FourHandles visible={false} />
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px" }}>
-        {data?.icon && <span style={{ fontSize: 18, lineHeight: 1 }}>{data.icon}</span>}
-        <EditableText value={data?.text ?? data?.label} onChange={setText} placeholder="Section title" nodeId={id} selected={selected} style={{ fontSize: 15, fontWeight: 800, color: tint }} />
-        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 800, color: tint, opacity: 0.75, background: "rgba(255,255,255,.6)", borderRadius: 9999, padding: "0 7px", lineHeight: "18px" }}>{childCount}</span>
+    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+      <NodeResizer isVisible={selected} minWidth={160} minHeight={140} {...resizer(tint)} />
+      {/* Label floats just ABOVE the frame's top-left (Lucidchart/Lucidspark
+          style) — outside the clipped box so it's never cut off. */}
+      <div style={{ position: "absolute", left: 2, bottom: "calc(100% + 5px)", display: "inline-flex", alignItems: "center", gap: 6, maxWidth: 560, ...(labelFill ? { background: labelFill, padding: "2px 10px", borderRadius: 8 } : null) }}>
+        {data?.icon && <span style={{ fontSize: titleSize, lineHeight: 1 }}>{data.icon}</span>}
+        <EditableText value={data?.text ?? data?.label} onChange={setText} placeholder="Section title" nodeId={id} selected={selected} style={{ fontSize: titleSize, fontWeight: 800, color: labelInk, whiteSpace: "nowrap" }} />
       </div>
-      {/* Double-click the body to drop a sticky in your preferred colour. */}
-      <div style={{ flex: 1, minHeight: 0 }} onDoubleClick={addSticky} title="Double-click to add a sticky note" />
+      {/* The frame box — bordered, faint fill, clips its contents. No connection
+          handles (frames aren't edge endpoints). Double-click to add a sticky. */}
+      <div style={{ width: "100%", height: "100%", borderRadius: 18, border: `${selected ? 4 : 2}px solid ${tint}`, background: bg, overflow: "hidden" }}
+        onDoubleClick={addSticky} title="Double-click to add a sticky note" />
     </div>
   );
 });

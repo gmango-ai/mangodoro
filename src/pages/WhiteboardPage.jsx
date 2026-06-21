@@ -72,6 +72,7 @@ import {
   snappedAnchor,
   SIDE_POS,
   ANCHOR_TO_HANDLE,
+  NON_CONNECTABLE,
 } from "../components/whiteboard/edges";
 import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
 import {
@@ -95,7 +96,7 @@ const SAVE_DEBOUNCE_MS = 1200;
 // / + Ellipse" buttons. We keep them small so they fit visually inside
 // template zones without overflowing.
 const DEFAULTS = {
-  sticky: { w: 120, h: 120 },
+  sticky: { w: 144, h: 144 },
   text: { w: 220, h: 60 },
   rect: { w: 180, h: 100 },
   ellipse: { w: 180, h: 110 },
@@ -683,7 +684,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       // drop right on the border still counts.)
       const M2 = 8;
       const overNode = rf.getNodes().find((n) => {
-        if (n.type === "frame" || n.type === "zone") return false;
+        if (NON_CONNECTABLE.has(n.type)) return false;
         const r = nodeRect(n);
         return (
           r &&
