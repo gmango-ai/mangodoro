@@ -14,11 +14,18 @@ function ShapeMini({ shape }) {
   );
 }
 
+// A scale of point sizes; a few common ones carry a friendly label.
 const FONT_SIZES = [
-  { label: "Small", v: 14 },
-  { label: "Medium", v: 18 },
-  { label: "Large", v: 26 },
-  { label: "X-Large", v: 44 }, // a deliberate big jump — for headings / frame titles
+  { v: 12 },
+  { v: 14, label: "Small" },
+  { v: 16, label: "Normal" },
+  { v: 20 },
+  { v: 24, label: "Large" },
+  { v: 32 },
+  { v: 48, label: "Heading" },
+  { v: 64 },
+  { v: 72 },
+  { v: 96 },
 ];
 
 // Shape catalogue, shown as a compact grid inside the Shape dropdown.
@@ -91,8 +98,7 @@ export default function Inspector({ node, patchNodeData }) {
   const isFrame = node.type === "frame";
   const labelBg = node.data?.labelBg; // frame title background: undefined/"none" | "tint" | hex
   const labelBgColor = labelBg === "tint" ? (node.data?.fill || "#0ea5e9") : (labelBg && labelBg !== "none" ? labelBg : null);
-  const curFont = node.data?.fontSize || (isText ? 16 : isFrame ? 18 : 13);
-  const curFontLabel = (FONT_SIZES.find((f) => f.v === curFont) || {}).label || `${curFont}px`;
+  const curFont = node.data?.fontSize || (isText ? 16 : isFrame ? 20 : 13);
   const curShape = node.data?.shape || LEGACY_SHAPE[node.type] || "process";
   const fill = node.data?.fill || "#ffffff";
   const stroke = node.data?.stroke || "#0ea5e9";
@@ -184,19 +190,24 @@ export default function Inspector({ node, patchNodeData }) {
           open={open}
           setOpen={setOpen}
           title="Text size"
-          width={120}
+          width={132}
           icon={
             <span className="flex items-center gap-1">
               <span className="text-[13px] font-bold leading-none">Aa</span>
-              <span className="text-[11px] text-white/70">{curFontLabel}</span>
+              <span className="text-[11px] text-white/70">{curFont}px</span>
             </span>
           }
         >
-          {FONT_SIZES.map((f) => (
-            <Opt key={f.v} active={curFont === f.v} onClick={() => { patchNodeData({ fontSize: f.v }); setOpen(null); }}>
-              {f.label}
-            </Opt>
-          ))}
+          <div className="py-1 nowheel" style={{ maxHeight: 240, overflowY: "auto" }}>
+            {FONT_SIZES.map((f) => (
+              <Opt key={f.v} active={curFont === f.v} onClick={() => { patchNodeData({ fontSize: f.v }); setOpen(null); }}>
+                <span className="inline-flex items-baseline gap-2">
+                  <span>{f.v}px</span>
+                  {f.label && <span className="text-white/45 text-[11px]">{f.label}</span>}
+                </span>
+              </Opt>
+            ))}
+          </div>
         </Dropdown>
 
         <ToolDivider />

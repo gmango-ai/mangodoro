@@ -30,6 +30,9 @@ import {
   Trash2,
   ChevronDown,
   Smile,
+  Timer,
+  Map as MapIcon,
+  LayoutTemplate,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -87,6 +90,7 @@ import {
   PresenceStack,
 } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
+import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import WhiteboardTimer from "../components/whiteboard/WhiteboardTimer";
 
@@ -378,7 +382,7 @@ export function WhiteboardBoard({ boardId, embedded = false }) {
 
 function WhiteboardEditor({ boardId, embedded = false }) {
   const { theme } = useTheme();
-  const { isAdmin } = useTeam();
+  const { isAdmin, activeTeamId } = useTeam();
   const navigate = useNavigate();
   const dark = theme === "dark";
 
@@ -417,6 +421,21 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       /* */
     }
   }, [emoteBarOn]);
+
+  // View toggles — hide the countdown timer / minimap (remembered locally).
+  const [showTimer, setShowTimer] = useState(() => {
+    try { return localStorage.getItem("ql_wb_timer") !== "0"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("ql_wb_timer", showTimer ? "1" : "0"); } catch { /* */ }
+  }, [showTimer]);
+  const [showMinimap, setShowMinimap] = useState(() => {
+    try { return localStorage.getItem("ql_wb_minimap") !== "0"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("ql_wb_minimap", showMinimap ? "1" : "0"); } catch { /* */ }
+  }, [showMinimap]);
+  const [saveTplOpen, setSaveTplOpen] = useState(false); // "Save as template" dialog
 
   // Track the board's own size (only when embedded) to toggle compact chrome.
   useEffect(() => {
@@ -980,6 +999,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         "rect",
         "ellipse",
         "diamond",
+        "sticky",
       ].includes(type);
       const node = {
         id: freshId(type),
@@ -1088,6 +1108,14 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     () => nodes.find((n) => n.selected && n.type !== "zone") || null,
     [nodes]
   );
+  // Only show the per-item inspector for a SINGLE selection — a marquee
+  // multi-select shouldn't stack toolbars over the canvas.
+  const singleSelection = useMemo(() => {
+    let c = 0;
+    for (const n of nodes) if (n.selected && n.type !== "zone") { if (++c > 1) return false; }
+    for (const e of edges) if (e.selected) { if (++c > 1) return false; }
+    return c === 1;
+  }, [nodes, edges]);
   const selectedEdge = useMemo(
     () => (selectedNode ? null : edges.find((e) => e.selected) || null),
     [edges, selectedNode]
@@ -1256,7 +1284,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
           />
         )}
         <Controls position="bottom-left" />
-        {!compact && <MiniMap pannable zoomable position="bottom-right" />}
+        {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
 
@@ -1325,12 +1353,15 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         {/* Node inspector (shape/fill/border/text) hovers above the
               selected node, like the edge toolbar. Edges use their own
               floating contextual toolbar (rendered on the edge itself). */}
-        {selectedNode && (
+        {selectedNode && singleSelection && (
           <NodeToolbar
             nodeId={selectedNode.id}
             isVisible
             position={Position.Top}
-            offset={14}
+            // Frames carry a floating label above their top edge — push the
+            // toolbar above THAT (like the edge toolbar clears the line) so it
+            // never overlaps the title.
+            offset={selectedNode.type === "frame" ? (selectedNode.data?.fontSize ?? 20) + 28 : 14}
             align="center"
           >
             <Inspector node={selectedNode} patchNodeData={patchNodeData} />
@@ -1463,7 +1494,54 @@ function WhiteboardEditor({ boardId, embedded = false }) {
               >
                 <Smile className="w-4 h-4" />
               </button>
+              <button
+                type="button"
+                onClick={() => setShowTimer((v) => !v)}
+                title={showTimer ? "Hide timer" : "Show timer"}
+                aria-label={showTimer ? "Hide timer" : "Show timer"}
+                aria-pressed={showTimer}
+                className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+                  showTimer
+                    ? "text-[var(--color-accent)] bg-[var(--color-accent-light)]"
+                    : dark
+                    ? "text-slate-400 hover:bg-white/10"
+                    : "text-slate-500 hover:bg-slate-100"
+                }`}
+              >
+                <Timer className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowMinimap((v) => !v)}
+                title={showMinimap ? "Hide minimap" : "Show minimap"}
+                aria-label={showMinimap ? "Hide minimap" : "Show minimap"}
+                aria-pressed={showMinimap}
+                className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+                  showMinimap
+                    ? "text-[var(--color-accent)] bg-[var(--color-accent-light)]"
+                    : dark
+                    ? "text-slate-400 hover:bg-white/10"
+                    : "text-slate-500 hover:bg-slate-100"
+                }`}
+              >
+                <MapIcon className="w-4 h-4" />
+              </button>
             </>
+          )}
+          {!embedded && (
+            <button
+              type="button"
+              onClick={() => setSaveTplOpen(true)}
+              title="Save as template"
+              aria-label="Save as template"
+              className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+                dark
+                  ? "text-slate-400 hover:bg-white/10"
+                  : "text-slate-500 hover:bg-slate-100"
+              }`}
+            >
+              <LayoutTemplate className="w-4 h-4" />
+            </button>
           )}
           {isAdmin && !embedded && (
             <button
@@ -1493,7 +1571,16 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         {/* Shared board countdown — stacked in the nav column (below the
               breadcrumb) so the two never overlap. It used to sit in the
               centered hero row and collided with the nav on narrow boards. */}
-        <WhiteboardTimer boardId={board.id} dark={dark} />
+        {showTimer && <WhiteboardTimer boardId={board.id} dark={dark} />}
+
+        <SaveTemplateModal
+          open={saveTplOpen}
+          onClose={() => setSaveTplOpen(false)}
+          getSnapshot={() => ({ nodes, edges })}
+          teamId={activeTeamId}
+          ownerId={session?.user?.id}
+          defaultName={board?.title}
+        />
       </div>
 
       {/* Top overlay — Weekly Review's signature goal banner (when the

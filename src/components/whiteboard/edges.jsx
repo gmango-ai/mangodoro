@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow, useStore } from "@xyflow/react";
 import { Type, Minus, Spline, MoveRight, AlignJustify, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { Pill, ToolDivider, Dropdown, SwatchGrid } from "./toolbarUI";
@@ -440,6 +440,15 @@ const EditableEdge = memo(function EditableEdge({
   const tPos = ta ? ta.pos : targetPosition;
   const [editing, setEditing] = useState(false);
   const [hovered, setHovered] = useState(false);
+  // True only when EXACTLY one element (this edge) is selected — so a marquee
+  // multi-select doesn't stack a toolbar + handles on every caught edge.
+  const sole = useStore((s) => {
+    let n = 0;
+    for (const nd of s.nodes) if (nd.selected) { if (++n > 1) return false; }
+    for (const ed of s.edges) if (ed.selected) { if (++n > 1) return false; }
+    return n === 1;
+  });
+  const soleSelected = selected && sole;
   const [dragEnd, setDragEnd] = useState(null); // free cursor pos while re-aiming an endpoint
   const [snapHint, setSnapHint] = useState(null); // { rect, side, t, snapped } target node's snap points while re-aiming
   const [draft, setDraft] = useState(data?.label || "");
@@ -707,7 +716,7 @@ const EditableEdge = memo(function EditableEdge({
         onPointerEnter={enterHover}
         onPointerLeave={leaveHover} />
       <EdgeLabelRenderer>
-        {selected && (
+        {soleSelected && (
           <EdgeToolbar x={topPt.x} y={topPt.y} style={style} data={data} patchEdge={patchEdge} onEditLabel={() => setEditing(true)} />
         )}
 
@@ -730,7 +739,7 @@ const EditableEdge = memo(function EditableEdge({
           </div>
         )}
 
-        {selected && segHandles.map((h) => (
+        {soleSelected && segHandles.map((h) => (
           <div key={`seg-${h.i}`} className="nodrag nopan"
             onPointerDown={(e) => dragSeg(h.i, h.horiz, e)}
             onDoubleClick={(e) => deleteSeg(h.i, e)}
@@ -752,7 +761,7 @@ const EditableEdge = memo(function EditableEdge({
             NOT reveal the node's dots. Drag to slide the end anywhere around
             the perimeter, or drop on another node to re-attach. This moves
             the EXISTING edge (never spawns a new one). */}
-        {(selected || hovered) && [
+        {(soleSelected || hovered) && [
           { which: "source", x: sX, y: sY },
           { which: "target", x: tX, y: tY },
         ].map((ep) => (

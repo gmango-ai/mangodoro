@@ -204,6 +204,22 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
   const { setNodes } = useReactFlow();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [allOpen, setAllOpen] = useState(false); // "view all reactions" popover
+  // Legacy notes were created without an explicit size; give them one (square,
+  // from their measured box) so the resizer has real dimensions to work from.
+  useEffect(() => {
+    setNodes((nds) => {
+      let changed = false;
+      const next = nds.map((n) => {
+        if (n.id === id && (n.width == null || n.height == null)) {
+          changed = true;
+          const s = n.measured?.width || 144;
+          return { ...n, width: s, height: s };
+        }
+        return n;
+      });
+      return changed ? next : nds;
+    });
+  }, [id, setNodes]);
   const bg = stickyHex(data?.color);
   // Ink contrasts with the note colour (dark on a pastel, light on a deep hue);
   // the author line is the same ink, dimmed.
@@ -229,7 +245,9 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
     <div
       className="wb-sticky"
       style={{
-        width: 144, height: 144, position: "relative",
+        // Fills the node box so it resizes (size normalised on mount below);
+        // small floor only guards the first frame before that runs.
+        width: "100%", height: "100%", minWidth: 96, minHeight: 96, position: "relative",
         background: bg, color: ink,
         borderRadius: 3,
         boxShadow: selected
@@ -240,7 +258,8 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         fontFamily: "inherit",
       }}
     >
-      {/* No connection handles — stickies aren't edge-connectable. */}
+      {/* Resizable but square (keepAspectRatio); no connection handles. */}
+      <NodeResizer isVisible={selected} minWidth={120} minHeight={120} keepAspectRatio {...resizer(SELECT)} />
       {selected && (
         <button type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete"
           style={{ position: "absolute", top: 6, right: 6, opacity: 0.4, display: "flex", color: ink }}>
@@ -612,7 +631,7 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
   // normal (Medium) size and can be bumped to X-Large for a big heading.
   const labelFill = data?.labelBg === "tint" ? tint : (data?.labelBg && data.labelBg !== "none" ? data.labelBg : null);
   const labelInk = labelFill ? readableText(labelFill) : tint;
-  const titleSize = data?.fontSize ?? 18;
+  const titleSize = data?.fontSize ?? 20;
   const addSticky = (e) => {
     e.stopPropagation();
     const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
@@ -626,6 +645,7 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
         // No extent:"parent" — the note belongs to the frame but stays
         // free to drag out (soft container).
         position: { x: p.x - fAbs.x - 72, y: p.y - fAbs.y - 72 },
+        width: 144, height: 144, // explicit size → resizable
         data: { text: "", color: preferredStickyColor(), author: myName },
         selected: true,
       };
@@ -638,9 +658,9 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
       <NodeResizer isVisible={selected} minWidth={160} minHeight={140} {...resizer(tint)} />
       {/* Label floats just ABOVE the frame's top-left (Lucidchart/Lucidspark
           style) — outside the clipped box so it's never cut off. */}
-      <div style={{ position: "absolute", left: 2, bottom: "calc(100% + 5px)", display: "inline-flex", alignItems: "center", gap: 6, maxWidth: 560, ...(labelFill ? { background: labelFill, padding: "2px 10px", borderRadius: 8 } : null) }}>
+      <div style={{ position: "absolute", left: 2, bottom: "calc(100% + 5px)", display: "inline-flex", alignItems: "center", gap: 6, maxWidth: 360, ...(labelFill ? { background: labelFill, padding: "2px 10px", borderRadius: 8 } : null) }}>
         {data?.icon && <span style={{ fontSize: titleSize, lineHeight: 1 }}>{data.icon}</span>}
-        <EditableText value={data?.text ?? data?.label} onChange={setText} placeholder="Section title" nodeId={id} selected={selected} style={{ fontSize: titleSize, fontWeight: 800, color: labelInk, whiteSpace: "nowrap" }} />
+        <EditableText value={data?.text ?? data?.label} onChange={setText} placeholder="Section title" nodeId={id} selected={selected} style={{ fontSize: titleSize, fontWeight: 800, color: labelInk, lineHeight: 1.15, overflowWrap: "anywhere" }} />
       </div>
       {/* The frame box — bordered, faint fill, clips its contents. No connection
           handles (frames aren't edge endpoints). Double-click to add a sticky. */}
