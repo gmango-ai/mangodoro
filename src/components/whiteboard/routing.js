@@ -8,10 +8,12 @@
 // (excluding the source & target), or null when it can't find a path (the
 // caller then falls back to the naive elbow route).
 
-const STUB = 22;     // perpendicular exit distance from a node
-const MARGIN = 16;   // clearance kept around every obstacle
-const BEND = 18;     // extra cost per 90° turn (favours fewer bends)
-const MAX_LINES = 90; // grid bail-out — keep routing snappy on huge boards
+const STUB = 22;            // perpendicular exit distance from a node
+export const MARGIN = 16;   // default HARD clearance — the line may never enter
+const BEND = 36;     // extra cost per 90° turn (strongly favours fewer bends)
+const BUFFER = 18;   // SOFT keep-out band beyond the hard margin
+const BUFFER_COST = 1.6; // extra cost per unit travelled inside that band
+const MAX_LINES = 120; // grid bail-out — keep routing snappy on huge boards
 
 // Outward normal for an anchor side ("top"/"right"/"bottom"/"left").
 export function sideNormal(pos) {
@@ -57,15 +59,21 @@ function simplify(pts) {
 
 // s,t: {x,y} anchor points. sDir,tDir: outward normals. obstacles: rects
 // {x,y,w,h} (NOT including the source/target nodes).
-export function routeAround(s, sDir, t, tDir, obstacles) {
+export function routeAround(s, sDir, t, tDir, obstacles, margin = MARGIN) {
   const s1 = { x: s.x + sDir.x * STUB, y: s.y + sDir.y * STUB };
   const t1 = { x: t.x + tDir.x * STUB, y: t.y + tDir.y * STUB };
 
+  // Channels run along BOTH the hard margin and the soft buffer edge, so the
+  // router has a "nice clearance" lane (buffer) to prefer and a "squeeze past"
+  // lane (margin) to fall back on.
+  const buffer = margin + BUFFER;
   const xset = new Set([s1.x, t1.x]);
   const yset = new Set([s1.y, t1.y]);
   for (const o of obstacles) {
-    xset.add(o.x - MARGIN); xset.add(o.x + o.w + MARGIN);
-    yset.add(o.y - MARGIN); yset.add(o.y + o.h + MARGIN);
+    xset.add(o.x - margin); xset.add(o.x + o.w + margin);
+    yset.add(o.y - margin); yset.add(o.y + o.h + margin);
+    xset.add(o.x - buffer); xset.add(o.x + o.w + buffer);
+    yset.add(o.y - buffer); yset.add(o.y + o.h + buffer);
   }
   const X = [...xset].sort((a, b) => a - b);
   const Y = [...yset].sort((a, b) => a - b);
@@ -79,8 +87,8 @@ export function routeAround(s, sDir, t, tDir, obstacles) {
 
   const blockedPt = (px, py) => {
     for (const o of obstacles) {
-      if (px > o.x - MARGIN + 0.5 && px < o.x + o.w + MARGIN - 0.5 &&
-          py > o.y - MARGIN + 0.5 && py < o.y + o.h + MARGIN - 0.5) return true;
+      if (px > o.x - margin + 0.5 && px < o.x + o.w + margin - 0.5 &&
+          py > o.y - margin + 0.5 && py < o.y + o.h + margin - 0.5) return true;
     }
     return false;
   };
@@ -89,6 +97,16 @@ export function routeAround(s, sDir, t, tDir, obstacles) {
   // outside every obstacle. The midpoint check is therefore exact, and ~6x
   // cheaper than sampling, which is what makes per-frame routing affordable.
   const segOpen = (x0, y0, x1, y1) => !blockedPt((x0 + x1) / 2, (y0 + y1) / 2);
+  // Soft buffer: a midpoint within `buffer` of any obstacle (but outside the
+  // hard margin, so still open) costs extra — the A* will bow away from nodes
+  // and only squeeze into the band when a detour would cost more.
+  const inBuffer = (px, py) => {
+    for (const o of obstacles) {
+      if (px > o.x - buffer + 0.5 && px < o.x + o.w + buffer - 0.5 &&
+          py > o.y - buffer + 0.5 && py < o.y + o.h + buffer - 0.5) return true;
+    }
+    return false;
+  };
 
   const N = W * H;
   const id = (ix, iy) => iy * W + ix;
@@ -117,7 +135,9 @@ export function routeAround(s, sDir, t, tDir, obstacles) {
       if (!segOpen(x0, y0, x1, y1)) continue;
       const moveDir = niy === ciy ? 1 : 2;
       const bend = dir[cur] && dir[cur] !== moveDir ? BEND : 0;
-      const tentative = g[cur] + Math.abs(x1 - x0) + Math.abs(y1 - y0) + bend;
+      const len = Math.abs(x1 - x0) + Math.abs(y1 - y0);
+      const soft = inBuffer((x0 + x1) / 2, (y0 + y1) / 2) ? len * BUFFER_COST : 0;
+      const tentative = g[cur] + len + bend + soft;
       if (tentative < g[nid]) {
         g[nid] = tentative;
         came[nid] = cur;

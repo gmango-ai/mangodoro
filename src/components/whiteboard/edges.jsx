@@ -3,7 +3,8 @@ import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow } from "@xyflow/r
 import { Type, Minus, Spline, MoveRight, AlignJustify, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { Pill, ToolDivider, Dropdown, SwatchGrid } from "./toolbarUI";
-import { routeAround, sideNormal } from "./routing";
+import { routeAround, sideNormal, MARGIN } from "./routing";
+import { snapToGrid } from "./snapping";
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
 // follow each edge's stroke colour, so they recolour for free.
@@ -63,6 +64,75 @@ function orthogonalize(points) {
     out.push(b);
   }
   return out;
+}
+
+// Re-base a hand-shaped route relative to its endpoints. The bends are stored
+// in ABSOLUTE coords (data.route) alongside the endpoints they were drawn
+// against (data.routeFrame). Each render we remap every bend so the shape moves
+// with the nodes instead of freezing in space.
+//
+// We TRANSLATE, never scale: each bend shifts by a CONVEX blend of how the two
+// endpoints moved — bends early in the path follow the source, late ones the
+// target. Weight is INDEX-based (0..1), not spatial, so a bend that sits
+// OUTSIDE the endpoints' span (a loop or a wrap) still moves WITH the nodes and
+// never inverts or extrapolates — scaling did exactly that and was the bug.
+// Then we re-lock orthogonality: any segment axis-aligned in the ORIGINAL route
+// stays axis-aligned, so the per-bend blend can't shear a straight run into a
+// staircase. Legacy routes (no frame) pass through unchanged.
+function rebaseRoute(route, frame, S, T) {
+  if (!frame || !route?.length) return route;
+  const dSx = S.x - frame.sx, dSy = S.y - frame.sy; // how the source endpoint moved
+  const dTx = T.x - frame.tx, dTy = T.y - frame.ty; // how the target endpoint moved
+  const n = route.length;
+  const out = route.map((p, i) => {
+    const w = n > 1 ? i / (n - 1) : 0.5;
+    return { x: p.x + dSx * (1 - w) + dTx * w, y: p.y + dSy * (1 - w) + dTy * w };
+  });
+  // Propagate each shared coordinate OUTWARD from the ends, so the end bends —
+  // which anchor the perpendicular stubs — keep their endpoint-relative spot.
+  const mid = Math.floor((n - 1) / 2);
+  for (let i = 0; i < mid; i++) {                    // first half ← source side
+    if (Math.abs(route[i].x - route[i + 1].x) < 0.5) out[i + 1].x = out[i].x;
+    if (Math.abs(route[i].y - route[i + 1].y) < 0.5) out[i + 1].y = out[i].y;
+  }
+  for (let i = n - 2; i >= mid; i--) {               // second half ← target side
+    if (Math.abs(route[i].x - route[i + 1].x) < 0.5) out[i].x = out[i + 1].x;
+    if (Math.abs(route[i].y - route[i + 1].y) < 0.5) out[i].y = out[i + 1].y;
+  }
+  return out;
+}
+
+// Buffer zone: guarantee the segment touching each endpoint runs PERPENDICULAR
+// to that node's side for at least `buf` before the line may turn — so the
+// arrow always points straight into the node and never skims along its edge.
+// Idempotent: a route that already exits cleanly (autoOrtho / obstacle routes)
+// is left untouched; only one that would leave/enter parallel (e.g. a bend
+// dragged alongside the node, or a re-based route) gets a stub inserted.
+function enforceStubs(pts, sPos, tPos, buf = STUB) {
+  if (!pts || pts.length < 2) return pts;
+  let out = pts.map((p) => ({ ...p }));
+  out = stubLead(out, sPos, buf);
+  out.reverse();
+  out = stubLead(out, tPos, buf);
+  out.reverse();
+  return out;
+}
+
+// Ensure out[0]→out[1] leaves out[0] along the side's outward normal for ≥ buf,
+// inserting an orthogonal stub (+ jog) when it doesn't.
+function stubLead(out, side, buf) {
+  if (out.length < 2) return out;
+  const n = sideNormal(side);
+  const A = out[0], B = out[1];
+  const horiz = n.x !== 0;                                  // stub runs along x
+  const onNormal = horiz ? Math.abs(B.y - A.y) < 0.5 : Math.abs(B.x - A.x) < 0.5;
+  const farEnough = horiz ? (B.x - A.x) * n.x >= buf - 0.5 : (B.y - A.y) * n.y >= buf - 0.5;
+  if (onNormal && farEnough) return out;                    // already a clean perpendicular stub
+  const stub = { x: A.x + n.x * buf, y: A.y + n.y * buf };  // forced perpendicular point
+  const jog = horiz ? { x: stub.x, y: B.y } : { x: B.x, y: stub.y };
+  const insert = [stub];
+  if (Math.abs(jog.x - stub.x) > 0.5 || Math.abs(jog.y - stub.y) > 0.5) insert.push(jog);
+  return [A, ...insert, ...out.slice(1)];
 }
 
 // Rounded polyline through points — small r = sharp elbow, large = smooth.
@@ -194,7 +264,7 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
         </Dropdown>
         <ToolDivider />
         <button type="button" title="Tidy — auto-route around nodes"
-          onClick={() => patchEdge({ data: { ...data, autoRoute: true, route: undefined } })}
+          onClick={() => patchEdge({ data: { ...data, autoRoute: true, route: undefined, routeFrame: undefined } })}
           className="h-7 px-1.5 rounded-md flex items-center text-white/90 hover:bg-white/10">
           <Sparkles className="w-4 h-4" />
         </button>
@@ -229,6 +299,42 @@ function anchorPoint(rect, anchor) {
     default: return null;
   }
 }
+// Auto ("floating") anchor: the perimeter point of `rect` facing `toward`
+// (the other node's centre) + its side. So an edge leaves from the side
+// pointing at its partner and re-picks live as nodes move; the A* route then
+// steers the line around any nodes in between. (React Flow floating-edge math.)
+function floatingAnchor(rect, toward) {
+  const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+  const dx = toward.x - cx, dy = toward.y - cy;
+  // Pick the side facing the other node, then attach at that side's CENTRE.
+  // Auto edges snap to side midpoints (clean, FigJam-like); only a manual
+  // endpoint drag (explicit anchor) overrides this to sit elsewhere on a side.
+  const horizontal = Math.abs(dx) * rect.h >= Math.abs(dy) * rect.w;
+  if (horizontal) {
+    return dx >= 0
+      ? { x: rect.x + rect.w, y: cy, pos: "right" }
+      : { x: rect.x, y: cy, pos: "left" };
+  }
+  return dy >= 0
+    ? { x: cx, y: rect.y + rect.h, pos: "bottom" }
+    : { x: cx, y: rect.y, pos: "top" };
+}
+
+// Pick BOTH floating sides together for the fewest corners: nodes that share
+// an x- or y-range connect straight (top/bottom or left/right); diagonal nodes
+// form a single-corner L — source exits on the dominant axis, target enters on
+// the other — instead of the 2-corner Z you get choosing each side alone.
+export function floatingPair(sRect, tRect) {
+  const dx = (tRect.x + tRect.w / 2) - (sRect.x + sRect.w / 2);
+  const dy = (tRect.y + tRect.h / 2) - (sRect.y + sRect.h / 2);
+  const overlapX = Math.min(sRect.x + sRect.w, tRect.x + tRect.w) - Math.max(sRect.x, tRect.x) > 1;
+  const overlapY = Math.min(sRect.y + sRect.h, tRect.y + tRect.h) - Math.max(sRect.y, tRect.y) > 1;
+  if (overlapX && !overlapY) return { sSide: dy > 0 ? "bottom" : "top", tSide: dy > 0 ? "top" : "bottom" };
+  if (overlapY && !overlapX) return { sSide: dx > 0 ? "right" : "left", tSide: dx > 0 ? "left" : "right" };
+  if (Math.abs(dx) >= Math.abs(dy)) return { sSide: dx > 0 ? "right" : "left", tSide: dy > 0 ? "top" : "bottom" };
+  return { sSide: dy > 0 ? "bottom" : "top", tSide: dx > 0 ? "left" : "right" };
+}
+
 // Snap a free-dragged point to the nearest side of the node, as { side, t }.
 export function projectToPerimeter(rect, px, py) {
   const { x, y, w, h } = rect;
@@ -243,6 +349,44 @@ export function projectToPerimeter(rect, px, py) {
   return { side: "right", t: ty };
 }
 
+// Loose snap for a hand-dragged endpoint: pull its position along the side
+// toward the tidy points — corners, quarters, midpoint — when within ~12 flow
+// px (as a fraction of the side length), else leave it free.
+const ANCHOR_TS = [0, 0.25, 0.5, 0.75, 1];
+function snapAnchorT(t, sideLen) {
+  const thresh = 12 / Math.max(1, sideLen);
+  let best = t, bestD = thresh, snapped = false;
+  for (const s of ANCHOR_TS) {
+    const d = Math.abs(t - s);
+    if (d < bestD) { bestD = d; best = s; snapped = true; }
+  }
+  return { t: best, snapped };
+}
+
+// When ONE end is pinned to a side, the OTHER (floating) end takes the side of
+// `floatRect` that FACES the pinned end along the dominant axis. It always
+// enters from its NEAR side, so the route never wraps around to the far side —
+// the source keeps the side you pinned, the far end just receives it cleanly.
+// (`pinnedSide` is kept in the signature for callers but isn't needed: the
+// facing side depends only on where the two nodes sit.)
+export function complementSide(pinnedSide, pinnedRect, floatRect) {
+  const dx = (floatRect.x + floatRect.w / 2) - (pinnedRect.x + pinnedRect.w / 2);
+  const dy = (floatRect.y + floatRect.h / 2) - (pinnedRect.y + pinnedRect.h / 2);
+  if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? "left" : "right";
+  return dy > 0 ? "top" : "bottom";
+}
+
+// projectToPerimeter + loose corner/quarter/mid snap, flagged `auto` when it
+// actually snapped. Shared by hand-dragged endpoints and new connections so
+// they snap the same way.
+export function snappedAnchor(rect, px, py) {
+  if (!rect) return null;
+  const a = projectToPerimeter(rect, px, py);
+  const sideLen = a.side === "top" || a.side === "bottom" ? rect.w : rect.h;
+  const snap = snapAnchorT(a.t, sideLen);
+  return { side: a.side, t: snap.t, auto: snap.snapped };
+}
+
 // Editable edge: an orthogonal route whose straight segments you drag
 // (rectangle handles) to reshape — FigJam-style. Double-click anywhere on
 // the line to drop a label there. Endpoints can be dragged to any spot
@@ -254,15 +398,52 @@ const EditableEdge = memo(function EditableEdge({
 }) {
   const { setEdges, screenToFlowPosition, getNode, getNodes } = useReactFlow();
 
-  // Resolve free perimeter anchors against the live node rects; fall back
-  // to xyflow's handle-based endpoints when no anchor is set.
-  const sa = anchorPoint(nodeRect(source ? getNode(source) : null), data?.sourceAnchor);
-  const ta = anchorPoint(nodeRect(target ? getNode(target) : null), data?.targetAnchor);
-  const sX = sa ? sa.x : sourceX, sY = sa ? sa.y : sourceY, sPos = sa ? sa.pos : sourcePosition;
-  const tX = ta ? ta.x : targetX, tY = ta ? ta.y : targetY, tPos = ta ? ta.pos : targetPosition;
+  // Endpoint resolution, recomputed live from the node rects so a dragged
+  // node's edges re-anchor in real time:
+  //   1. a user-dragged anchor (data.sourceAnchor/targetAnchor) wins — fixed.
+  //   2. otherwise FLOAT to the side facing the other node's centre, so the
+  //      edge always leaves from the near side and re-picks as nodes move.
+  //   3. xyflow's connected handle only as a fallback before nodes measure.
+  const sRect = nodeRect(source ? getNode(source) : null);
+  const tRect = nodeRect(target ? getNode(target) : null);
+  const sCenter = sRect && { x: sRect.x + sRect.w / 2, y: sRect.y + sRect.h / 2 };
+  const tCenter = tRect && { x: tRect.x + tRect.w / 2, y: tRect.y + tRect.h / 2 };
+  // Decide each end's SIDE — the balance of "smart" and "what you asked for":
+  //  • A PINNED anchor (data.sourceAnchor/targetAnchor — you pulled the edge
+  //    from that side, or dragged the endpoint onto it) is honoured EXACTLY,
+  //    on ANY side incl. the far/away side, so you can wrap an edge around to
+  //    the OPPOSITE ends of two nodes. It never auto-flips.
+  //  • A FLOATING end (no anchor) picks the cleanest side facing its partner,
+  //    re-aiming as nodes move (auto-repair of away-facing wraps). Both
+  //    floating → joint pick for the fewest corners; one pinned → the floating
+  //    end faces the pinned one (complementSide), so it receives the edge on
+  //    its near side without wrapping.
+  const sAnc = data?.sourceAnchor, tAnc = data?.targetAnchor;
+  let sSide = sAnc?.side ?? null, tSide = tAnc?.side ?? null;
+  if (sRect && tRect) {
+    if (!sAnc && !tAnc) { const p = floatingPair(sRect, tRect); sSide = p.sSide; tSide = p.tSide; }
+    else if (!sAnc) sSide = complementSide(tSide, tRect, sRect);
+    else if (!tAnc) tSide = complementSide(sSide, sRect, tRect);
+  } else {
+    if (!sSide && sRect && tCenter) sSide = floatingAnchor(sRect, tCenter).pos;
+    if (!tSide && tRect && sCenter) tSide = floatingAnchor(tRect, sCenter).pos;
+  }
+  const sa = sRect && sSide ? anchorPoint(sRect, { side: sSide, t: sAnc?.t ?? 0.5 }) : null;
+  const ta = tRect && tSide ? anchorPoint(tRect, { side: tSide, t: tAnc?.t ?? 0.5 }) : null;
+  let sX = sa ? sa.x : sourceX, sY = sa ? sa.y : sourceY;
+  let tX = ta ? ta.x : targetX, tY = ta ? ta.y : targetY;
+  const sPos = sa ? sa.pos : sourcePosition;
+  const tPos = ta ? ta.pos : targetPosition;
   const [editing, setEditing] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [dragEnd, setDragEnd] = useState(null); // free cursor pos while re-aiming an endpoint
+  const [snapHint, setSnapHint] = useState(null); // { rect, side, t, snapped } target node's snap points while re-aiming
   const [draft, setDraft] = useState(data?.label || "");
+  // While re-aiming an endpoint over empty space, that end follows the cursor
+  // (rubber-band) so it stays visible and you can drop it on another node —
+  // instead of snapping back onto the source node's nearest side.
+  if (dragEnd?.which === "source") { sX = dragEnd.x; sY = dragEnd.y; }
+  if (dragEnd?.which === "target") { tX = dragEnd.x; tY = dragEnd.y; }
   const inputRef = useRef(null);
   useEffect(() => { setDraft(data?.label || ""); }, [data?.label]);
   useEffect(() => { if (editing) { inputRef.current?.focus(); inputRef.current?.select(); } }, [editing]);
@@ -271,37 +452,77 @@ const EditableEdge = memo(function EditableEdge({
   // edges re-flow in real time (no debounce, no snap-after-settle). The A*
   // is cheap (routing.js) and — thanks to memo() — only edges whose OWN
   // endpoints move re-render, so per-frame cost is bounded to the dragged
-  // node's edges. Pinned (manually reshaped) edges and curves are skipped.
+  // node's edges. Only pinned (manually reshaped) edges skip it — every auto
+  // style (elbow, curve, smooth) routes around obstacles; curves just render
+  // the same waypoints with a larger corner radius.
   // Nothing is written to data here, so there's no save/sync churn while
   // dragging; peers recompute the same route from synced node positions.
-  const pinned = data?.autoRoute === false;
+  // A hand-shaped route (autoRoute:false) is honoured only while the edge still
+  // leaves the SAME sides it did when you shaped it — captured in routeFrame.
+  // If a (floating) endpoint has since re-aimed to another side because its
+  // node crossed over, the shape no longer fits how the edge now meets the node
+  // → we drop back to auto-routing. Pinned endpoints never change side, so
+  // their shapes are always kept. Legacy routes (no frame) stay pinned as before.
+  const frame = data?.routeFrame;
+  const sidesKept = !frame || (frame.sPos === sPos && frame.tPos === tPos);
+  const manual = data?.autoRoute === false && data?.route?.length > 0 && sidesKept;
   const obstacleRoute = useMemo(() => {
-    if (pinned || (data?.routing || "elbow") === "curve") return null;
-    const obstacles = [];
-    for (const n of getNodes()) {
-      if (n.id === source || n.id === target || n.type === "zone" || n.type === "frame") continue;
-      const r = nodeRect(n);
-      if (r) obstacles.push(r);
+    if (manual) return null;
+    // Does either end leave from a side pointing AWAY from its partner? Then
+    // the line has to wrap around its OWN node, so we must run the router even
+    // with no other obstacles — otherwise the naive elbow draws a line
+    // straight THROUGH the nodes. This is what makes opposite-ends connections
+    // (outer side → outer side) route cleanly up and over.
+    const sR = nodeRect(getNode(source)), tR = nodeRect(getNode(target));
+    let wraps = false;
+    if (sR && tR) {
+      const sC = { x: sR.x + sR.w / 2, y: sR.y + sR.h / 2 };
+      const tC = { x: tR.x + tR.w / 2, y: tR.y + tR.h / 2 };
+      const sn = sideNormal(sPos), tn = sideNormal(tPos);
+      const sAway = sn.x * (tC.x - sX) + sn.y * (tC.y - sY) < -1;
+      const tAway = tn.x * (sC.x - tX) + tn.y * (sC.y - tY) < -1;
+      wraps = sAway || tAway;
     }
-    if (!obstacles.length) return null;
-    return routeAround({ x: sX, y: sY }, sideNormal(sPos), { x: tX, y: tY }, sideNormal(tPos), obstacles);
-  }, [pinned, data?.routing, source, target, sX, sY, sPos, tX, tY, tPos, getNodes]);
+    // Collect OTHER nodes only. If there's nothing else in the way AND neither
+    // end wraps, skip A* and fall back to the simple elbow — fewest corners.
+    const others = [];
+    for (const n of getNodes()) {
+      if (n.type === "zone" || n.type === "frame" || n.id === source || n.id === target) continue;
+      const r = nodeRect(n);
+      if (r) others.push(r);
+    }
+    if (!others.length && !wraps) return null;
+    // Route → A*. Add our own source/target so the line bends around them
+    // rather than cutting across (the 22px stub > 16px margin keeps the
+    // start/goal valid). Curves get extra clearance for their bow.
+    const obstacles = others;
+    for (const nid of [source, target]) { const r = nodeRect(getNode(nid)); if (r) obstacles.push(r); }
+    const isCurve = (data?.routing || "elbow") === "curve";
+    const margin = isCurve ? MARGIN + Math.min(data?.curviness ?? 18, 30) : MARGIN;
+    return routeAround({ x: sX, y: sY }, sideNormal(sPos), { x: tX, y: tY }, sideNormal(tPos), obstacles, margin);
+  }, [manual, data?.routing, data?.curviness, source, target, sX, sY, sPos, tX, tY, tPos, getNode, getNodes]);
 
   const routing = data?.routing || "elbow";
   const curviness = data?.curviness ?? 18;
-  // Pinned → the hand-shaped route; auto → the live obstacle route; else the
-  // simple elbow.
-  const interior = (pinned && data?.route?.length)
-    ? data.route
+  // Manual → the hand-shaped route, RE-BASED relative to the current endpoints
+  // so it keeps its shape as nodes move; auto → the live obstacle route; else
+  // the simple elbow.
+  const interior = manual
+    ? rebaseRoute(data.route, frame, { x: sX, y: sY }, { x: tX, y: tY })
     : (obstacleRoute && obstacleRoute.length ? obstacleRoute : autoOrtho(sX, sY, sPos, tX, tY, tPos));
   const rawFull = [{ x: sX, y: sY }, ...interior, { x: tX, y: tY }];
   // Elbows are squared off — every segment forced horizontal/vertical, even
-  // after a node moves and a stub goes stale. Curves keep their diagonals.
-  const full = routing === "curve" ? rawFull : orthogonalize(rawFull);
+  // after a node moves and a stub goes stale — then we enforce the perpendicular
+  // buffer zone at both ends so the arrow always points into the node. Curves
+  // keep their diagonals.
+  const full = routing === "curve" ? rawFull : enforceStubs(orthogonalize(rawFull), sPos, tPos);
   // The polyline currently on screen — used by the segment/delete handlers
   // so a grabbed handle maps to the route the user actually sees.
   const fullRef = useRef(full);
   fullRef.current = full;
+  // Live endpoint frame, captured when a route is pinned so it can be re-based.
+  const endRef = useRef();
+  endRef.current = { sx: sX, sy: sY, tx: tX, ty: tY, sPos, tPos };
   const path = roundedPath(full, routing === "curve" ? Math.min(curviness, 30) : 8);
   const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: (sX + tX) / 2, y: (sY + tY) / 2 };
   // The toolbar always floats above the edge's highest point (smallest y),
@@ -370,13 +591,18 @@ const EditableEdge = memo(function EditableEdge({
     // right segment and the route can't shift under the drag.
     const base = fullRef.current.map((pt) => ({ ...pt }));
     if (!base[fullIndex] || !base[fullIndex + 1]) return;
+    // Snapshot the endpoint frame so the saved bends can be RE-BASED relative
+    // to the nodes (keeps the shape as they move).
+    const e0 = endRef.current;
+    const routeFrame = { sx: e0.sx, sy: e0.sy, tx: e0.tx, ty: e0.ty, sPos: e0.sPos, tPos: e0.tPos };
     const onMove = (ev) => {
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
       const pts = base.map((pt) => ({ ...pt }));
-      if (horiz) { pts[fullIndex].y = p.y; pts[fullIndex + 1].y = p.y; }
-      else { pts[fullIndex].x = p.x; pts[fullIndex + 1].x = p.x; }
+      // Snap the dragged bend to the grid so edge corners line up with nodes.
+      if (horiz) { const y = snapToGrid(p.y); pts[fullIndex].y = y; pts[fullIndex + 1].y = y; }
+      else { const x = snapToGrid(p.x); pts[fullIndex].x = x; pts[fullIndex + 1].x = x; }
       setEdges((eds) => eds.map((edge) => (
-        edge.id === id ? { ...edge, data: { ...edge.data, route: pts.slice(1, -1), autoRoute: false } } : edge
+        edge.id === id ? { ...edge, data: { ...edge.data, route: pts.slice(1, -1), routeFrame, autoRoute: false } } : edge
       )));
     };
     const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
@@ -391,10 +617,12 @@ const EditableEdge = memo(function EditableEdge({
     e.preventDefault();
     const trimmed = fullRef.current.filter((_, idx) => idx !== fullIndex && idx !== fullIndex + 1);
     const nextInterior = trimmed.slice(1, -1);
+    const e0 = endRef.current;
+    const routeFrame = { sx: e0.sx, sy: e0.sy, tx: e0.tx, ty: e0.ty, sPos: e0.sPos, tPos: e0.tPos };
     // Deleting a section is a manual edit → pin so the auto-router doesn't
     // immediately restore the removed bend.
     setEdges((eds) => eds.map((edge) => (
-      edge.id === id ? { ...edge, data: { ...edge.data, route: nextInterior.length ? nextInterior : undefined, autoRoute: false } } : edge
+      edge.id === id ? { ...edge, data: { ...edge.data, route: nextInterior.length ? nextInterior : undefined, ...(nextInterior.length ? { routeFrame } : { routeFrame: undefined }), autoRoute: false } } : edge
     )));
   }, [id, setEdges]);
 
@@ -413,22 +641,30 @@ const EditableEdge = memo(function EditableEdge({
         const r = nodeRect(n);
         if (r && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) { hit = n; break; }
       }
-      const overId = hit ? hit.id : (which === "source" ? source : target);
-      const rect = nodeRect(hit || getNode(overId));
-      if (!rect) return;
-      const anchor = projectToPerimeter(rect, p.x, p.y);
-      // Clear custom bends so the route re-squares cleanly from the new end.
+      if (!hit) {
+        // Over empty space → let the end float at the cursor (visible, re-
+        // aimable). Don't touch the attachment yet; releasing here keeps it.
+        setDragEnd({ which, x: p.x, y: p.y });
+        setSnapHint(null);
+        return;
+      }
+      // Over a node → attach there, loosely snapped to the side's tidy points
+      // (a snapped/centred end is flagged `auto` so it re-floats as nodes move).
+      setDragEnd(null);
+      const hitRect = nodeRect(hit);
+      const anchor = snappedAnchor(hitRect, p.x, p.y);
+      setSnapHint({ rect: hitRect, side: anchor.side, t: anchor.t, snapped: anchor.auto });
       setEdges((eds) => eds.map((edge) => {
         if (edge.id !== id) return edge;
-        const next = { ...edge, data: { ...edge.data, [key]: anchor, route: undefined } };
-        if (hit && edge[endKey] !== hit.id) next[endKey] = hit.id; // re-attach
+        const next = { ...edge, data: { ...edge.data, [key]: anchor, route: undefined, routeFrame: undefined } };
+        if (edge[endKey] !== hit.id) next[endKey] = hit.id; // re-attach
         return next;
       }));
     };
-    const onUp = () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    const onUp = () => { setDragEnd(null); setSnapHint(null); window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [id, source, target, getNode, getNodes, screenToFlowPosition, setEdges]);
+  }, [id, getNodes, screenToFlowPosition, setEdges]);
 
   const onEdgeDblClick = useCallback((e) => {
     e.stopPropagation();
@@ -530,6 +766,26 @@ const EditableEdge = memo(function EditableEdge({
               cursor: "grab", boxShadow: "0 1px 4px rgba(0,0,0,.4)",
             }} />
         ))}
+
+        {/* Snap-point hints on the node you're re-aiming an endpoint at —
+            corners, quarters, midpoint of the facing side; the active one is
+            filled so you can see exactly where it'll land. */}
+        {snapHint && [0, 0.25, 0.5, 0.75, 1].map((t) => {
+          const dp = anchorPoint(snapHint.rect, { side: snapHint.side, t });
+          if (!dp) return null;
+          const active = snapHint.snapped && Math.abs(t - snapHint.t) < 0.01;
+          return (
+            <div key={`snap-${t}`} className="nodrag nopan" style={{
+              position: "absolute",
+              transform: `translate(-50%,-50%) translate(${dp.x}px,${dp.y}px)`,
+              pointerEvents: "none", zIndex: 8,
+              width: active ? 12 : 8, height: active ? 12 : 8, borderRadius: 9999,
+              background: active ? color : "#fff",
+              border: `2px solid ${color}`,
+              boxShadow: "0 1px 3px rgba(0,0,0,.35)",
+            }} />
+          );
+        })}
       </EdgeLabelRenderer>
     </>
   );
@@ -572,13 +828,27 @@ export function siblingPlacement(srcRect, fromSide, size, gap = 56) {
 // a smooth orthogonal route that follows the cursor, a "+" drop affordance,
 // and — over empty canvas — a faint ghost of the node a drop would create,
 // sized to the parent and placed via the SAME helper as the real drop.
+// Every tidy attach point around a node's perimeter (corners, quarters,
+// midpoints), de-duped — drawn as the options while you aim a connection at it.
+function perimeterSnapPoints(rect) {
+  const seen = new Set(); const out = [];
+  for (const side of ["top", "right", "bottom", "left"]) {
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      const p = anchorPoint(rect, { side, t });
+      const key = `${Math.round(p.x)},${Math.round(p.y)}`;
+      if (seen.has(key)) continue; seen.add(key);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
 export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode }) {
   const { getNodes } = useReactFlow();
   const fp = fromPosition || "right";
+  const sRect = nodeRect(fromNode);
 
-  // Is the cursor over an existing node? If so we'll connect to it at the
-  // exact projected point (snap to any side), so preview that instead of
-  // the new-node ghost.
+  // Cursor over an existing node?
   let over = null;
   for (const n of getNodes()) {
     if (n.type === "frame" || n.type === "zone") continue;
@@ -588,35 +858,49 @@ export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode 
   }
 
   if (over) {
-    const ap = anchorPoint(over, projectToPerimeter(over, toX, toY));
-    const interior = autoOrtho(fromX, fromY, fp, ap.x, ap.y, ap.pos);
-    const d = roundedPath(orthogonalize([{ x: fromX, y: fromY }, ...interior, { x: ap.x, y: ap.y }]), 12);
+    // Connecting to an existing node: the source leaves from the side you
+    // pulled from; the target attaches at the perimeter point NEAREST the
+    // cursor. Show ALL the snap-point options so you can pick where it lands —
+    // the nearest one is highlighted and is where the drop will attach.
+    const sp = sRect ? anchorPoint(sRect, { side: fp, t: 0.5 }) : { x: fromX, y: fromY, pos: fp };
+    const tp = anchorPoint(over, snappedAnchor(over, toX, toY));
+    const interior = autoOrtho(sp.x, sp.y, sp.pos, tp.x, tp.y, tp.pos);
+    const d = roundedPath(orthogonalize([{ x: sp.x, y: sp.y }, ...interior, { x: tp.x, y: tp.y }]), 12);
     return (
       <g>
         <path fill="none" stroke="#22c55e" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" d={d} />
-        <circle cx={fromX} cy={fromY} r={3.5} fill="#22c55e" />
-        <circle cx={ap.x} cy={ap.y} r={6} fill="rgba(34,197,94,.2)" stroke="#22c55e" strokeWidth={2.5} />
+        <circle cx={sp.x} cy={sp.y} r={3.5} fill="#22c55e" />
+        {perimeterSnapPoints(over).map((p, i) => {
+          const active = Math.abs(p.x - tp.x) < 0.5 && Math.abs(p.y - tp.y) < 0.5;
+          return <circle key={i} cx={p.x} cy={p.y} r={active ? 5.5 : 3}
+            fill={active ? "#22c55e" : "#fff"} stroke="#22c55e" strokeWidth={active ? 2.5 : 1.75} />;
+        })}
       </g>
     );
   }
 
-  // Over empty canvas → ghost of the node a drop would create + "+" cursor.
+  // Over empty canvas → ghost of the node a drop would create. A drop here PINS
+  // the source to the side you pulled from and lets the ghost float facing it,
+  // so preview exactly that against a grid-snapped ghost.
   const accent = "#64748b";
   const sw = fromNode?.measured?.width ?? fromNode?.width ?? 150;
   const sh = fromNode?.measured?.height ?? fromNode?.height ?? 90;
-  const center = fromNode?.position
-    ? { x: fromNode.position.x + sw / 2, y: fromNode.position.y + sh / 2 }
-    : { x: fromX, y: fromY };
-  const { x: gx, y: gy, side } = connectedNodePlacement(center, toX, toY, { w: sw, h: sh });
-  const interior = autoOrtho(fromX, fromY, fp, toX, toY, SIDE_POS[side]);
-  const d = roundedPath(orthogonalize([{ x: fromX, y: fromY }, ...interior, { x: toX, y: toY }]), 12);
+  const center = sRect ? { x: sRect.x + sw / 2, y: sRect.y + sh / 2 } : { x: fromX, y: fromY };
+  const place = connectedNodePlacement(center, toX, toY, { w: sw, h: sh });
+  const gx = snapToGrid(place.x), gy = snapToGrid(place.y);
+  const ghostRect = { x: gx, y: gy, w: sw, h: sh };
+  const sp = sRect ? anchorPoint(sRect, { side: fp, t: 0.5 }) : { x: fromX, y: fromY, pos: fp };
+  const tSide = sRect ? complementSide(fp, sRect, ghostRect) : SIDE_POS[place.side];
+  const tp = anchorPoint(ghostRect, { side: tSide, t: 0.5 });
+  const interior = autoOrtho(sp.x, sp.y, sp.pos, tp.x, tp.y, tp.pos);
+  const d = roundedPath(orthogonalize([{ x: sp.x, y: sp.y }, ...interior, { x: tp.x, y: tp.y }]), 12);
   return (
     <g>
       <path fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" d={d} />
-      <circle cx={fromX} cy={fromY} r={3.5} fill={accent} />
+      <circle cx={sp.x} cy={sp.y} r={3.5} fill={accent} />
       <rect x={gx} y={gy} width={sw} height={sh} rx={12}
         fill="rgba(100,116,139,.06)" stroke={accent} strokeWidth={1.5} strokeDasharray="6 5" opacity={0.6} />
-      <g transform={`translate(${toX},${toY})`}>
+      <g transform={`translate(${tp.x},${tp.y})`}>
         <circle r={9} fill="#fff" stroke={accent} strokeWidth={2.5} />
         <path d="M-4 0 H4 M0 -4 V4" stroke={accent} strokeWidth={2} strokeLinecap="round" />
       </g>
