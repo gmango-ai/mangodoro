@@ -65,7 +65,13 @@ jobs:
       - name: Build web app + sync Capacitor electron platform
         env:
           CAPACITOR_BUILD: '1'
-        run: bun run cap:build
+        run: |
+          bun run cap:build
+          # cap:build's `cap sync` covers ios/android/web but NOT the community
+          # electron platform — sync it explicitly so electron/app (gitignored,
+          # empty on a fresh checkout) gets the fresh web build + updated electron
+          # plugins before electron-builder packages `app/**/*`.
+          npx cap sync @capacitor-community/electron
 
       - name: Build + publish Electron DMG
         working-directory: electron
