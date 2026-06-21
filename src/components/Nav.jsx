@@ -10,6 +10,8 @@ import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
 import RunningTimerPill from "./RunningTimerPill";
+import BottomNav from "./BottomNav";
+import MoreSheet from "./MoreSheet";
 
 const PRESENCE_DOT_COLOR = {
   active: "bg-emerald-500",
@@ -28,10 +30,14 @@ export default function Nav({ onOpenPomodoro }) {
   const darkMode = theme === "dark";
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Bottom sheet behind the mobile bottom-nav "More" tab (separate from the
+  // narrow-desktop hamburger drawer above).
+  const [moreOpen, setMoreOpen] = useState(false);
 
-  // Close sidebar on route change
+  // Close any open nav surface on route change
   useEffect(() => {
     setSidebarOpen(false);
+    setMoreOpen(false);
   }, [location.pathname]);
 
   // Close on Escape
@@ -79,6 +85,7 @@ export default function Nav({ onOpenPomodoro }) {
 
   function signOut() {
     setSidebarOpen(false);
+    setMoreOpen(false);
     supabase.auth.signOut();
   }
 
@@ -92,6 +99,15 @@ export default function Nav({ onOpenPomodoro }) {
         }`}
         style={{
           paddingTop: "env(safe-area-inset-top)",
+          // Electron: this header is the window-drag handle
+          // (html.electron header.sticky → -webkit-app-region: drag). When the
+          // mobile drawer opens it overlays the header, but a CSS-transformed
+          // drawer can't carve out a no-drag hole (Chromium ignores app-region
+          // under transforms), so the drag region would eat the drawer's close
+          // button. Drop the drag region while the drawer is open — you can't
+          // drag the window with the menu open anyway. Inline beats the CSS
+          // rule; in the browser this property is simply ignored.
+          WebkitAppRegion: sidebarOpen ? "no-drag" : undefined,
           ...(darkMode
             ? { boxShadow: "0 4px 24px color-mix(in srgb, var(--color-accent) 12%, transparent)" }
             : {}),
@@ -108,13 +124,13 @@ export default function Nav({ onOpenPomodoro }) {
           </div>
         )}
 
-        <div className="max-w-4xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3">
+        <div className="max-w-4xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center gap-3">
           {/* Mobile: hamburger */}
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
-            className={`lg:hidden p-2 -ml-2 rounded-lg ${
+            className={`ql-nav-hamburger xl:hidden p-2 -ml-2 rounded-lg ${
               darkMode ? "text-slate-300 hover:bg-[var(--color-surface-raised)]" : "text-slate-600 hover:bg-slate-100"
             }`}
           >
@@ -141,8 +157,10 @@ export default function Nav({ onOpenPomodoro }) {
             </span>
           </NavLink>
 
-          {/* Desktop: full nav + actions */}
-          <div className="hidden lg:flex items-center gap-3">
+          {/* Desktop: full nav + actions. ml-auto pins it to the right so the
+              brand stays left next to the hamburger below the breakpoint (no
+              stranded, far-right wordmark). */}
+          <div className="hidden xl:flex items-center gap-3 ml-auto">
             <nav className="flex items-center gap-1">
               <NavLink to="/pomodoro" className={desktopNavLink}>
                 Pomodoro
@@ -182,13 +200,13 @@ export default function Nav({ onOpenPomodoro }) {
       {/* Mobile sidebar overlay + drawer */}
       {sidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm"
+          className="xl:hidden fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
       )}
       <aside
-        className={`lg:hidden fixed top-0 left-0 z-[90] h-full w-72 max-w-[85vw] transform transition-transform duration-200 ease-out flex flex-col ${
+        className={`xl:hidden fixed top-0 left-0 z-[90] h-full w-72 max-w-[85vw] transform transition-transform duration-200 ease-out flex flex-col ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${
           darkMode
@@ -316,14 +334,36 @@ export default function Nav({ onOpenPomodoro }) {
         </div>
       </aside>
 
+      {/* Touch / small-screen bottom tab bar — replaces the hamburger on
+          coarse-pointer devices below xl (gated in index.css). "More" opens a
+          bottom sheet (thumb-friendly) rather than the side drawer. */}
+      <BottomNav
+        dark={darkMode}
+        hasTeamSessions={hasTeamSessions}
+        onMore={() => setMoreOpen(true)}
+      />
+      <MoreSheet
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        dark={darkMode}
+        settings={settings}
+        onToggleTheme={toggleTheme}
+        onOpenPomodoro={onOpenPomodoro}
+        onSignOut={signOut}
+        session={session}
+      />
+
       {exportMsg ? (
         <div
           role="status"
-          className={`fixed bottom-5 left-1/2 z-[100] max-w-[min(92vw,28rem)] -translate-x-1/2 rounded-lg border px-4 py-2.5 text-sm shadow-lg ${
+          className={`fixed left-1/2 z-[100] max-w-[min(92vw,28rem)] -translate-x-1/2 rounded-lg border px-4 py-2.5 text-sm shadow-lg ${
             darkMode
               ? "border-slate-600 bg-[var(--color-surface-raised)] text-slate-100 shadow-black/40"
               : "border-slate-200 bg-white text-slate-900 shadow-slate-900/10"
           }`}
+          // Sit above the bottom tab bar when it's present (--bottom-inset
+          // collapses to the safe-area only on non-touch / desktop).
+          style={{ bottom: "calc(1.25rem + var(--bottom-inset))" }}
         >
           {exportMsg}
         </div>
@@ -367,7 +407,7 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
     : `${itemBase} text-red-600 hover:bg-red-50`;
 
   return (
-    <div ref={ref} className="hidden lg:block relative">
+    <div ref={ref} className="hidden xl:block relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

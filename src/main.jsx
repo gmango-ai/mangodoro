@@ -11,6 +11,14 @@ if (typeof window !== "undefined" && window.__electronTimer) {
   document.documentElement.classList.add("electron");
 }
 
+// Tag coarse-pointer (touch) devices so the glassmorphic bottom tab bar can
+// replace the hamburger below `lg` there — while narrow desktop / Electron
+// windows (fine pointer) keep the top hamburger. Static at load is fine: a
+// device doesn't switch between touch and mouse mid-session in practice.
+if (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches) {
+  document.documentElement.classList.add("touch");
+}
+
 // Hard split between the main app and the menubar popover. The popover
 // BrowserWindow loads `?ui=popover`; we render an entirely different
 // React tree there (no router, no Nav, no FAB) so electron-serve's

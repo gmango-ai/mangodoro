@@ -1232,7 +1232,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       className={`relative w-full overflow-hidden ${
         embedded
           ? "h-full"
-          : "h-[calc(100dvh-3.5rem-var(--top-inset)-env(safe-area-inset-bottom))] sm:h-[calc(100dvh-4rem-var(--top-inset)-env(safe-area-inset-bottom))]"
+          : "h-[calc(100dvh-3.5rem-var(--top-inset)-var(--bottom-inset))] sm:h-[calc(100dvh-4rem-var(--top-inset)-var(--bottom-inset))]"
       }`}
       onPointerMove={onWbPointerMove}
     >
