@@ -6,6 +6,7 @@ import { SyncSessionProvider } from "../context/SyncSessionContext";
 import { PomodoroProvider } from "../pomodoro/PomodoroContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import QuickActionsPopover from "./QuickActionsPopover";
+import ErrorBoundary from "../components/ErrorBoundary";
 
 /**
  * Top-level entry for the Electron menubar popover BrowserWindow.
@@ -48,16 +49,18 @@ export default function PopoverEntry() {
     );
   }
   return (
-    <ThemeProvider>
-      <AppProvider session={session}>
-        <TeamProvider session={session}>
-          <SyncSessionProvider session={session}>
-            <PomodoroProvider userId={session.user.id}>
-              <QuickActionsPopover />
-            </PomodoroProvider>
-          </SyncSessionProvider>
-        </TeamProvider>
-      </AppProvider>
-    </ThemeProvider>
+    <ErrorBoundary label="popover">
+      <ThemeProvider>
+        <AppProvider session={session}>
+          <TeamProvider session={session}>
+            <SyncSessionProvider session={session}>
+              <PomodoroProvider userId={session.user.id}>
+                <QuickActionsPopover />
+              </PomodoroProvider>
+            </SyncSessionProvider>
+          </TeamProvider>
+        </AppProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
