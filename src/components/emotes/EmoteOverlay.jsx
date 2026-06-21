@@ -1,8 +1,10 @@
-import { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Smile, X, Plus } from "lucide-react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Smile, X } from "lucide-react";
 import { supabase } from "../../supabase";
 import { useApp } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
+import { GLYPH } from "./presets";
+import EmoteBar from "./EmoteBar";
 
 // EmoteOverlay — Google-Meet-style floating-reaction layer that any
 // surface (whiteboard, video call, eventually rooms) can mount.
@@ -32,17 +34,6 @@ import { useTheme } from "../../context/ThemeContext";
 // The bar is render-prop'd via `barPosition` so callers can mount it
 // at the bottom of a video stage, in a whiteboard toolbar, etc.
 
-export const EMOTES = [
-  { key: "like",  glyph: "👍" },
-  { key: "love",  glyph: "❤️" },
-  { key: "party", glyph: "🎉" },
-  { key: "fire",  glyph: "🔥" },
-  { key: "clap",  glyph: "👏" },
-  { key: "smile", glyph: "😊" },
-];
-const GLYPH = Object.fromEntries(EMOTES.map((e) => [e.key, e.glyph]));
-const PRESET_GLYPHS = new Set(EMOTES.map((e) => e.glyph));
-
 // Charge mechanic: a quick tap sends one; holding charges up and, on
 // release, bursts a fountain whose size scales with how long it charged.
 const CLICK_MS = 180;        // below this, a press counts as a single tap
@@ -63,10 +54,6 @@ function readRecents() {
     return [];
   }
 }
-
-// The full emoji picker is heavy — code-split it so it only loads when a
-// user actually opens it.
-const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
 const EmoteOverlay = forwardRef(function EmoteOverlay({
   channelKey,
@@ -99,7 +86,6 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
   // reactions out) so it fits even the small PiP. The whiteboard bar
   // stays always-open.
   const [barOpen, setBarOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [recents, setRecents] = useState(readRecents);
   // While a button is held past the click threshold, `charge` drives the
   // button's grow/glow indicator: { glyph, level (0..1) } or null.
@@ -109,13 +95,21 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
   const rafRef = useRef({ running: false, lastT: 0 });
   const channelRef = useRef(null);
   const chargeRef = useRef(null);
-  // External charge subscribers (e.g. the video toolbar's reaction buttons)
-  // so they can mirror the grow/glow without this overlay re-rendering them.
+  // External subscribers (e.g. the video toolbar's reaction bar) so it can
+  // mirror the charge glow + recents list without this overlay re-rendering
+  // it. recentsRef holds the latest list for immediate delivery on subscribe.
   const chargeSubsRef = useRef(new Set());
+  const recentsSubsRef = useRef(new Set());
+  const recentsRef = useRef([]);
+  recentsRef.current = recents;
 
+  // Recents are ordered by FIRST use and stay put — re-using an emoji does
+  // NOT bump it to the front (which made the bar reshuffle under you). A new
+  // emoji is prepended once; the queue caps at 16, dropping the oldest.
   const pushRecent = useCallback((glyph) => {
     setRecents((prev) => {
-      const next = [glyph, ...prev.filter((g) => g !== glyph)].slice(0, 16);
+      if (prev.includes(glyph)) return prev;
+      const next = [glyph, ...prev].slice(0, 16);
       try { localStorage.setItem(RECENTS_KEY, JSON.stringify(next)); } catch { /* */ }
       return next;
     });
@@ -376,78 +370,40 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
     }, 50);
   }, [vertical, sendBurst, pushRecent]);
 
-  // Picker selection — always a single emote (no charge).
+  // Picker selection — always a single emote (no charge). EmoteBar owns the
+  // picker open/close; this just sends + records.
   const pickEmote = useCallback((glyph) => {
     sendEmote(glyph, 0.5);
     pushRecent(glyph);
-    setPickerOpen(false);
   }, [sendEmote, pushRecent]);
 
-  // Grow + amber glow on the button currently being charged.
-  function chargeStyleFor(glyph) {
-    if (charge?.glyph !== glyph) return undefined;
-    const l = charge.level;
-    return {
-      transform: `scale(${1 + 0.45 * l})`,
-      boxShadow: `0 0 ${10 + 28 * l}px rgba(250,204,21,${0.4 + 0.5 * l})`,
-      transition: "transform 60ms linear, box-shadow 60ms linear",
-      position: "relative",
-      zIndex: 1,
-    };
-  }
-
-  // Quick row: the six presets, then recently-used emojis that aren't
-  // already presets (capped so the bar stays compact).
-  const quick = [
-    ...EMOTES.map((e) => ({ glyph: e.glyph, key: e.key, label: e.key })),
-    ...recents
-      .filter((g) => !PRESET_GLYPHS.has(g))
-      .slice(0, 6)
-      .map((g) => ({ glyph: g, key: undefined, label: g })),
-  ];
-
-  const picker = pickerOpen && (
-    <Suspense fallback={null}>
-      <div
-        className="absolute pointer-events-auto rounded-xl overflow-hidden"
-        style={{
-          boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
-          ...(vertical
-            ? { right: 48, bottom: 8 }
-            : { left: "50%", transform: "translateX(-50%)", bottom: 64 }),
-        }}
-      >
-        <EmojiPicker
-          onEmojiClick={(d) => pickEmote(d.emoji)}
-          theme={dark ? "dark" : "light"}
-          width={300}
-          height={380}
-          lazyLoadEmojis
-          skinTonesDisabled
-          previewConfig={{ showPreview: false }}
-        />
-      </div>
-    </Suspense>
-  );
-
-  // Push charge updates to any external subscribers.
+  // Push charge + recents updates to any external subscribers.
   useEffect(() => {
     chargeSubsRef.current.forEach((cb) => cb(charge));
   }, [charge]);
+  useEffect(() => {
+    recentsSubsRef.current.forEach((cb) => cb(recents));
+  }, [recents]);
 
-  // Let a caller (e.g. the video toolbar's reaction buttons) drive sends —
-  // including the hold-to-charge burst via startEmit — while this overlay
-  // keeps owning the channel, particle fountain, and the global pointerup
-  // that resolves a charge.
+  // Let a caller (e.g. the video toolbar's <EmoteBar>) render the shared bar
+  // and drive sends — including the hold-to-charge burst via startEmit —
+  // while this overlay keeps owning the channel, particle fountain, recents,
+  // and the global pointerup that resolves a charge.
   useImperativeHandle(ref, () => ({
-    sendEmote,
-    startEmit,
+    start: startEmit,
+    pick: pickEmote,
     subscribeCharge: (cb) => {
       const s = chargeSubsRef.current;
       s.add(cb);
       return () => s.delete(cb);
     },
-  }), [sendEmote, startEmit]);
+    subscribeRecents: (cb) => {
+      const s = recentsSubsRef.current;
+      s.add(cb);
+      cb(recentsRef.current); // deliver current immediately
+      return () => s.delete(cb);
+    },
+  }), [startEmit, pickEmote]);
 
   return (
     <div
@@ -455,56 +411,25 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
       className="absolute inset-0 pointer-events-none"
       style={{ zIndex: 60, overflow: "hidden" }}
     >
-      {/* Click-away backdrop for the picker. */}
-      {pickerOpen && barPosition !== "hidden" && enabled && (
-        <div
-          className="absolute inset-0 pointer-events-auto"
-          onPointerDown={() => setPickerOpen(false)}
-        />
-      )}
-
       {barPosition !== "hidden" && enabled && vertical && (
         // Video overlay: a compact toggle pinned to the bottom-right
         // corner so it fits even the small PiP. Tap to pop the reactions
         // out upward as a vertical column; tap again to tuck them away.
         <div className="absolute right-2 bottom-2 flex flex-col items-center gap-1 pointer-events-auto">
-          {picker}
           {barOpen && (
-            <div
-              // select-none + touch-callout:none so long-pressing an emote
-              // (to charge a burst) doesn't select the glyph as text or pop
-              // the iOS callout menu.
-              className="flex flex-col items-center gap-0.5 p-1 rounded-full select-none [-webkit-touch-callout:none]"
-              style={{ background: "#0f172a", boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)" }}
-            >
-              {quick.map((emo) => (
-                <button
-                  key={emo.glyph}
-                  type="button"
-                  onPointerDown={(e) => startEmit(emo.glyph, e, emo.key)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/15"
-                  title={`${emo.label} — tap, hold for a burst, keep holding for a stream`}
-                  aria-label={`Send ${emo.label} emote`}
-                  style={{ fontSize: 18, ...chargeStyleFor(emo.glyph) }}
-                >
-                  <span>{emo.glyph}</span>
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setPickerOpen((v) => !v)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white/80 hover:text-white hover:bg-white/15"
-                title="More emojis"
-                aria-label="Pick any emoji"
-                aria-expanded={pickerOpen}
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
+            <EmoteBar
+              orientation="column"
+              btn={32}
+              recents={recents}
+              charge={charge}
+              onEmit={startEmit}
+              onPick={pickEmote}
+              dark={dark}
+            />
           )}
           <button
             type="button"
-            onClick={() => { setBarOpen((v) => !v); setPickerOpen(false); }}
+            onClick={() => setBarOpen((v) => !v)}
             className="w-9 h-9 rounded-full flex items-center justify-center text-white/90 hover:text-white shrink-0"
             style={{ background: "#0f172a", boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)" }}
             title={barOpen ? "Hide reactions" : "Send a reaction"}
@@ -518,41 +443,16 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
 
       {barPosition !== "hidden" && enabled && !vertical && (
         // Whiteboard: always-visible horizontal bar (plenty of room).
-        <div className="absolute left-1/2 bottom-3 -translate-x-1/2 flex flex-col items-center pointer-events-none">
-          {picker}
-          <div
-            // select-none + touch-callout:none so long-pressing an emote
-            // doesn't select the glyph as text or pop the iOS callout menu.
-            className="flex items-center gap-0.5 p-1.5 rounded-full pointer-events-auto select-none [-webkit-touch-callout:none]"
-            style={{
-              background: "#0f172a",
-              boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
-            }}
-          >
-            {quick.map((emo) => (
-              <button
-                key={emo.glyph}
-                type="button"
-                onPointerDown={(e) => startEmit(emo.glyph, e, emo.key)}
-                className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/15 transition-transform"
-                title={`${emo.label} — tap once, or hold to charge a fountain`}
-                aria-label={`Send ${emo.label} emote`}
-                style={{ fontSize: 22, ...chargeStyleFor(emo.glyph) }}
-              >
-                <span>{emo.glyph}</span>
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setPickerOpen((v) => !v)}
-              className="w-10 h-10 rounded-full flex items-center justify-center text-white/80 hover:text-white hover:bg-white/15"
-              title="More emojis"
-              aria-label="Pick any emoji"
-              aria-expanded={pickerOpen}
-            >
-              <Plus className="w-5 h-5" />
-            </button>
-          </div>
+        <div className="absolute left-1/2 bottom-3 -translate-x-1/2 pointer-events-auto">
+          <EmoteBar
+            orientation="row"
+            btn={40}
+            recents={recents}
+            charge={charge}
+            onEmit={startEmit}
+            onPick={pickEmote}
+            dark={dark}
+          />
         </div>
       )}
     </div>

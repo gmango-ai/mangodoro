@@ -15,7 +15,7 @@ import { Track } from "livekit-client";
 import "@livekit/components-styles";
 import { Eye, Video, Smile, PhoneOff } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
-import { EMOTES } from "../emotes/EmoteOverlay";
+import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 
 // LiveKit provider — the A/B counterpart to <JitsiCall>.
@@ -59,40 +59,30 @@ function PublishController({ publish, choices }) {
 // on the off-center smiley button — so it stays put regardless of how many
 // controls flank it.
 function CallControlBar({ publish, tight, emote }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
   const [reactionsOpen, setReactionsOpen] = useState(false);
+  // Mirror the overlay's charge + recents so the shared <EmoteBar> shows the
+  // same glow and custom emojis here without re-rendering the whole call.
   const [charge, setCharge] = useState(null);
-  // Mirror the overlay's charge state so a held button grows/glows here too.
+  const [recents, setRecents] = useState([]);
   useEffect(() => emote?.subscribeCharge?.(setCharge), [emote]);
-  const chargeStyleFor = (glyph) => {
-    if (charge?.glyph !== glyph) return undefined;
-    const l = charge.level;
-    return {
-      transform: `scale(${1 + 0.45 * l})`,
-      boxShadow: `0 0 ${10 + 28 * l}px rgba(250,204,21,${0.4 + 0.5 * l})`,
-      transition: "transform 60ms linear, box-shadow 60ms linear",
-      position: "relative",
-      zIndex: 1,
-    };
-  };
+  useEffect(() => emote?.subscribeRecents?.(setRecents), [emote]);
   return (
     <div className="relative flex items-center justify-center flex-wrap gap-1.5 px-2 py-2">
       {reactionsOpen && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setReactionsOpen(false)} />
-          <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 p-1 rounded-full bg-slate-900/95 backdrop-blur-sm shadow-xl select-none [-webkit-touch-callout:none]">
-            {EMOTES.map((e) => (
-              <button
-                key={e.key}
-                type="button"
-                onPointerDown={(ev) => emote?.start?.(e.glyph, ev, e.key)}
-                title={`${e.key} — tap, or hold for a burst`}
-                aria-label={`Send ${e.key}`}
-                className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/15 touch-none"
-                style={{ fontSize: 20, ...chargeStyleFor(e.glyph) }}
-              >
-                <span>{e.glyph}</span>
-              </button>
-            ))}
+          <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20">
+            <EmoteBar
+              orientation="row"
+              btn={36}
+              recents={recents}
+              charge={charge}
+              onEmit={emote?.start}
+              onPick={emote?.pick}
+              dark={dark}
+            />
           </div>
         </>
       )}

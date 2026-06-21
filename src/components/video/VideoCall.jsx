@@ -38,8 +38,10 @@ export default function VideoCall({ roomId, displayName, compact, publish, choic
   const emoteApiRef = useRef(null);
   if (!emoteApiRef.current) {
     emoteApiRef.current = {
-      start: (glyph, ev, key) => emoteRef.current?.startEmit?.(glyph, ev, key),
+      start: (glyph, ev, key) => emoteRef.current?.start?.(glyph, ev, key),
+      pick: (glyph) => emoteRef.current?.pick?.(glyph),
       subscribeCharge: (cb) => emoteRef.current?.subscribeCharge?.(cb) ?? (() => {}),
+      subscribeRecents: (cb) => emoteRef.current?.subscribeRecents?.(cb) ?? (() => {}),
     };
   }
 
