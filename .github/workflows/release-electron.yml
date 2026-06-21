@@ -33,8 +33,11 @@ jobs:
             if [ -z "$VERSION" ]; then
               echo "::error::version input is required for manual runs"; exit 1
             fi
-            TAG="electron-v${VERSION}"
+            TAG="electron-v${VERSION#v}"
           fi
+          # Tolerate a leading "v" in the input (e.g. "v1.0.5") so we don't get
+          # an "electron-vv…" tag or a non-semver version stamped into the build.
+          VERSION="${VERSION#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Building electron release ${TAG}"
@@ -74,15 +77,15 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Setup Node (for electron-builder + npm in electron/)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           # Capacitor CLI requires Node >=22.
           node-version: '22'
@@ -109,7 +112,7 @@ jobs:
         run: bun run electron:dist
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.os }}
           path: ${{ matrix.artifacts }}
@@ -122,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: dist-*
@@ -132,11 +135,13 @@ jobs:
         run: ls -R artifacts || true
 
       - name: Create / update Draft Release with artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
-          name: Electron ${{ needs.version.outputs.tag }}
-          draft: true
+          name: Mangodoro v${{ needs.version.outputs.version }}
+          # Publish straight away so the installers are downloadable from the
+          # Releases page. Flip to `draft: true` if you want a review gate.
+          draft: false
           prerelease: false
           generate_release_notes: true
           fail_on_unmatched_files: false
