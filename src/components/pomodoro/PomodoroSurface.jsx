@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, ExternalLink, Users } from "lucide-react";
+import { X, ExternalLink, Users, ChevronDown } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
@@ -72,10 +72,13 @@ const VARIANT_CONFIG = {
   popover: {
     clockSize: "sm", controlsSize: "sm",
     container: "chromeless",
-    showTeamHeader: true, headerInteractive: true,
-    showPopout: true, showClose: false,
+    // The menubar popover stays minimal: no org identity / pop-out button,
+    // and everything from the sound picker down collapses behind a toggle so
+    // the default view is just the timer.
+    showTeamHeader: false, headerInteractive: false,
+    showPopout: false, showClose: false,
     showSound: true, participantsMax: 3,
-    showGoals: true,
+    showGoals: true, collapsibleExtras: true,
   },
 };
 
@@ -100,6 +103,10 @@ export default function PomodoroSurface({
   const { goals: weekGoals } = useWeekGoals();
 
   useTimerTitleAndBadge();
+
+  // Collapsed-by-default "extras" section (sound, status, goals, actions) for
+  // variants with collapsibleExtras (the menubar popover).
+  const [extrasOpen, setExtrasOpen] = useState(false);
 
   // PiP wiring.
   const [pipMountEl, setPipMountEl] = useState(null);
@@ -177,7 +184,7 @@ export default function PomodoroSurface({
       // z-[160] keeps this floating panel above the persistent video
       // call (z-150 in PersistentVideoCall) so the PiP/stage no longer
       // bleeds over the timer, while staying below ESC-able modals (180+).
-      return `fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[160] sm:w-[26rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
+      return `fixed bottom-[calc(0.75rem+var(--bottom-inset))] right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[160] sm:w-[26rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
         !open && !(controlsLocked && !pipMountEl && !pendingDismissed) ? "hidden" : ""
       } ${
         dark
@@ -200,6 +207,46 @@ export default function PomodoroSurface({
   const timeColor = isBreakDisplay ? "text-[var(--color-break)]" : "text-[var(--color-accent)]";
   const showAlternateBreak = !pendingMode && (mode === "shortBreak" || mode === "longBreak");
   const alternateBreakLabel = mode === "shortBreak" ? "Take long break instead" : "Take short break instead";
+
+  // Everything below the timer: sound picker, status setter, participants,
+  // week goals, and the synced session action bar. Rendered inline for most
+  // variants; tucked behind a collapsible toggle for collapsibleExtras ones.
+  const extras = (
+    <>
+      {/* Sound dropdown (variant-gated) */}
+      {cfg.showSound && <SoundDropdown />}
+
+      {/* My status (always renders — works in and out of sync).
+          currentTaskHint surfaces the "Use current task" button inside the
+          editor when the user is clocked into something. */}
+      <StatusSetter currentTaskHint={currentTaskHint} />
+
+      {/* Participants */}
+      <ParticipantCards max={cfg.participantsMax} />
+
+      {/* Week goals — small banner showing the goals set in last week's
+          retro that define this week's focus. Hidden when no goal was set. */}
+      {cfg.showGoals && weekGoals.length > 0 && (
+        <div
+          className={`rounded-xl border p-3 ${
+            dark
+              ? "bg-[var(--color-surface-raised)]/40 border-[var(--color-border)]"
+              : "bg-slate-50 border-slate-200"
+          }`}
+        >
+          <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${
+            dark ? "text-slate-500" : "text-slate-400"
+          }`}>
+            Goals this week
+          </p>
+          <GoalsList goals={weekGoals} dark={dark} compact />
+        </div>
+      )}
+
+      {/* Bottom action bar (synced only) */}
+      <ActionButtonsBar />
+    </>
+  );
 
   return (
     <>
@@ -289,42 +336,29 @@ export default function PomodoroSurface({
           {/* Sync code (synced only) */}
           <SyncCodeRow />
 
-          {/* Sound dropdown (variant-gated) */}
-          {cfg.showSound && <SoundDropdown />}
-
-          {/* My status (always renders — works in and out of sync).
-              currentTaskHint surfaces the "Use current task" button
-              inside the editor when the user is clocked into
-              something — propagates from /pomodoro and the floating
-              overlay through to here. */}
-          <StatusSetter currentTaskHint={currentTaskHint} />
-
-          {/* Participants */}
-          <ParticipantCards max={cfg.participantsMax} />
-
-          {/* Week goals — small banner showing the goals set in last
-              week's retro that define this week's focus. Hidden when
-              no goal was set (there's no useful action to surface
-              here; setting next week's goal happens in the retro). */}
-          {cfg.showGoals && weekGoals.length > 0 && (
-            <div
-              className={`rounded-xl border p-3 ${
-                dark
-                  ? "bg-[var(--color-surface-raised)]/40 border-[var(--color-border)]"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${
-                dark ? "text-slate-500" : "text-slate-400"
-              }`}>
-                Goals this week
-              </p>
-              <GoalsList goals={weekGoals} dark={dark} compact />
+          {/* Sound, status, participants, goals + session actions. On the
+              popover these collapse behind a toggle so the default view is
+              just the timer; other variants render them inline. */}
+          {cfg.collapsibleExtras ? (
+            <div className={`border-t pt-1 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+              <button
+                type="button"
+                onClick={() => setExtrasOpen((o) => !o)}
+                aria-expanded={extrasOpen}
+                className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  dark
+                    ? "text-slate-400 hover:text-slate-200 hover:bg-[var(--color-surface-raised)]"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                {extrasOpen ? "Hide options" : "More options"}
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${extrasOpen ? "rotate-180" : ""}`} />
+              </button>
+              {extrasOpen && <div className="space-y-4 pt-2">{extras}</div>}
             </div>
+          ) : (
+            extras
           )}
-
-          {/* Bottom action bar (synced only) */}
-          <ActionButtonsBar />
         </div>
       </div>
 
