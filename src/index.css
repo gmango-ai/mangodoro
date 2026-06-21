@@ -285,24 +285,26 @@
  * with `.no-drag`.
  */
 html.electron {
-  /* No safe-area on desktop; the 32px title-bar drag strip is the top inset.
-     Full-height pages subtract var(--top-inset), so this keeps the body padding
-     and the page-height calc in lockstep (no more 32px overflow / scroll). */
-  --top-inset: 32px;
+  /* No title-bar gap and no safe-area on desktop: the sticky nav sits flush at
+     the top and doubles as the draggable title bar (below). So there's nothing
+     to reserve — pages get the full height. */
+  --top-inset: 0px;
 }
-html.electron body {
-  padding-top: var(--top-inset);
-}
-html.electron body::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 32px;
-  z-index: 50;
+/* The top nav IS the macOS title bar: draggable, with room on the left for the
+   traffic-light controls. Interactive controls opt back out so they stay
+   clickable. (Replaces the old 32px body padding + fixed drag strip, which left
+   an empty gap above the nav and matching scroll slack at the bottom.) */
+html.electron header.sticky {
   -webkit-app-region: drag;
-  pointer-events: auto;
+  padding-left: 72px;
+}
+html.electron header.sticky a,
+html.electron header.sticky button,
+html.electron header.sticky input,
+html.electron header.sticky select,
+html.electron header.sticky [role="button"],
+html.electron header.sticky [contenteditable="true"] {
+  -webkit-app-region: no-drag;
 }
 html.electron .no-drag {
   -webkit-app-region: no-drag;
