@@ -5,13 +5,19 @@ import { remoteUpdatedAtMs } from "./derive.js";
 // Best-effort: push the new running state to the activity-push edge function
 // so the user's Live Activities on OTHER devices update via APNs even when
 // that device's app is backgrounded (fixes "paused on the browser but the
-// phone's Live Activity didn't update until I opened the app"). Fire-and-
+// phone's Live Activity didn't update until I opened the app"). When `ended`
+// is set, the function sends an APNs "end" push instead — this is how a reset
+// on web/desktop dismisses the phone's lingering Live Activity. Fire-and-
 // forget — never blocks or fails the flush; no-ops server-side if the user
 // has no registered Live Activity.
-function pushCrossDeviceLiveActivity({ isRunning, endsAtMs, pausedSecondsLeft }) {
+function pushCrossDeviceLiveActivity({ isRunning, endsAtMs, pausedSecondsLeft, ended = false, mode, isSynced = false }) {
   try {
     supabase.functions
-      .invoke("activity-push", { body: { isRunning, endsAtMs: endsAtMs ?? undefined, pausedSecondsLeft } })
+      .invoke("activity-push", {
+        // mode / isSynced let the silent home-widget push carry enough to
+        // render even when the user has no Live Activity to merge onto.
+        body: { ended, isRunning, endsAtMs: endsAtMs ?? undefined, pausedSecondsLeft, mode, isSynced },
+      })
       .catch(() => { /* best-effort */ });
   } catch { /* best-effort */ }
 }
@@ -28,6 +34,11 @@ export async function flushToServer({
   if (!userId) return null;
   const base = latestRef.current;
   suppressRemoteUntilRef.current = Date.now() + 450;
+
+  // Reset / mode-switch / custom-duration set this so the cross-device push
+  // dismisses other devices' Live Activities instead of just pausing them.
+  // It's a push-only signal — never written to the DB payload below.
+  const clearActivity = override.ended === true;
 
   const canWriteSync = syncSession && syncSession.controller_id === userId;
   if (canWriteSync) {
@@ -61,9 +72,12 @@ export async function flushToServer({
     const writeMs = remoteUpdatedAtMs(data);
     if (writeMs != null) lastLocalWriteAtMsRef.current = writeMs;
     pushCrossDeviceLiveActivity({
+      ended: clearActivity,
       isRunning: payload.is_running,
       endsAtMs: data?.ends_at ? new Date(data.ends_at).getTime() : null,
       pausedSecondsLeft: payload.remaining_seconds,
+      mode: payload.mode,
+      isSynced: true,
     });
     return data;
   }
@@ -99,9 +113,12 @@ export async function flushToServer({
     const writeMs = remoteUpdatedAtMs(data);
     if (writeMs != null) lastLocalWriteAtMsRef.current = writeMs;
     pushCrossDeviceLiveActivity({
+      ended: clearActivity,
       isRunning: payload.is_running,
       endsAtMs: data?.ends_at ? new Date(data.ends_at).getTime() : null,
       pausedSecondsLeft: payload.remaining_seconds,
+      mode: payload.mode,
+      isSynced: false,
     });
     return data;
   }

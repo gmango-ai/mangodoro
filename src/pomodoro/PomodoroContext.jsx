@@ -11,6 +11,7 @@ import { useTeam } from "../context/TeamContext";
 import { USER_SOUND_PREFIX, TEAM_SOUND_PREFIX } from "../lib/pomodoroSound";
 import { getEngine, destroyEngine } from "./engine/createEngine.js";
 import { isElectronPopover } from "./engine/electronTimerBridge.js";
+import { initDeviceWidgetPush } from "../lib/persistentTimer.js";
 
 const PomodoroContext = createContext(null);
 
@@ -32,6 +33,13 @@ export function PomodoroProvider({ userId, children, forceSlave = false }) {
   }, [appCtx?.settings?.customSounds, teamCtx?.teamSounds]);
 
   const engine = useMemo(() => (userId ? getEngine(userId) : null), [userId]);
+
+  // Once authenticated, register this device's APNs token so the server can
+  // keep the home-screen widget fresh via silent pushes (iOS-only, idempotent).
+  useEffect(() => {
+    if (!userId) return;
+    initDeviceWidgetPush();
+  }, [userId]);
 
   useEffect(() => {
     if (!engine) return;

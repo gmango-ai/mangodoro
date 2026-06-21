@@ -403,6 +403,9 @@ verify_jwt = true
 [functions.activity-unregister]
 verify_jwt = true
 
+[functions.device-register]
+verify_jwt = true
+
 [functions.mint-jaas-jwt]
 verify_jwt = true
 
