@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { Magnet } from "lucide-react";
 import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex } from "./nodes";
 import { Pill, ToolDivider, Dropdown, SwatchGrid, Opt } from "./toolbarUI";
+import { nodeSnaps } from "./snapping";
 
 const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
 
@@ -88,6 +90,7 @@ export default function Inspector({ node, patchNodeData }) {
   const stroke = node.data?.stroke || "#0ea5e9";
   const stickyColor = stickyHex(node.data?.color);
   const hasPre = isShape || isSticky || !isText; // any control before the text size
+  const snapping = nodeSnaps(node); // grid + alignment snapping for this item
 
   const stop = (e) => e.stopPropagation();
 
@@ -162,6 +165,20 @@ export default function Inspector({ node, patchNodeData }) {
             </Opt>
           ))}
         </Dropdown>
+
+        <ToolDivider />
+        {/* Per-item snapping toggle (grid + alignment). Stickies default off. */}
+        <button
+          type="button"
+          title={snapping ? "Snapping on — click to free this item" : "Snapping off — click to enable"}
+          aria-pressed={snapping}
+          onClick={() => patchNodeData({ snap: !snapping })}
+          className={`h-7 px-1.5 rounded-md flex items-center transition-colors ${
+            snapping ? "text-[var(--color-accent)] bg-white/10" : "text-white/50 hover:bg-white/10"
+          }`}
+        >
+          <Magnet className="w-4 h-4" />
+        </button>
       </Pill>
     </div>
   );

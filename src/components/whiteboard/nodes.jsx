@@ -33,6 +33,14 @@ function useMyName() {
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🔥"];
 
 const AVATAR_COLORS = ["#f97316", "#ef4444", "#8b5cf6", "#0ea5e9", "#22c55e", "#ec4899", "#f59e0b"];
+
+// Selection accent — follows the user's theme accent (var(--color-accent)) so
+// the whole selection treatment (ring, resize handles, shape outline) matches
+// the active theme instead of a fixed orange.
+const SELECT = "var(--color-accent)";
+const SELECT_RING = "color-mix(in srgb, var(--color-accent) 20%, transparent)";
+const SELECT_FILL = "color-mix(in srgb, var(--color-accent) 6%, transparent)";
+const RESIZER = { lineStyle: { borderColor: SELECT }, handleStyle: { background: SELECT, border: "2px solid #fff" } };
 function avatarFor(name) {
   let h = 0; for (const ch of (name || "?")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
@@ -194,7 +202,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         background: bg,
         borderRadius: 8,
         boxShadow: selected
-          ? "0 0 0 2px #f97316, 0 16px 32px -12px rgba(120,80,20,.55)"
+          ? `0 0 0 2px ${SELECT}, 0 16px 32px -12px rgba(120,80,20,.55)`
           : "0 7px 14px -7px rgba(120,80,20,.5)",
         display: "flex", flexDirection: "column", gap: 4, color: "#3a2a10",
         fontFamily: "inherit",
@@ -282,9 +290,9 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
     <div
       style={{
         minWidth: 180, padding: "8px 12px",
-        background: selected ? "rgba(249,115,22,.06)" : "transparent",
+        background: selected ? SELECT_FILL : "transparent",
         borderRadius: 8,
-        boxShadow: selected ? "0 0 0 2px #f97316" : "none",
+        boxShadow: selected ? `0 0 0 2px ${SELECT}` : "none",
         color: "var(--color-text)",
       }}
     >
@@ -326,7 +334,9 @@ const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" }
 // SVG children for a shape drawn within w×h (stroke inset by sw so it's
 // never clipped). Used both by the node and the toolbar/inspector previews.
 export function ShapeSvg({ shape, w, h, fill, stroke, sw = 2 }) {
-  const p = { fill, stroke, strokeWidth: sw, strokeLinejoin: "round" };
+  // fill/stroke go through `style` (not attributes) so a CSS var like the
+  // theme accent — var(--color-accent) — resolves; attributes don't parse var().
+  const p = { strokeWidth: sw, strokeLinejoin: "round", style: { fill, stroke } };
   const x0 = sw / 2, y0 = sw / 2, x1 = w - sw / 2, y1 = h - sw / 2, cx = w / 2, cy = h / 2;
   switch (shape) {
     case "ellipse":
@@ -387,14 +397,13 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
   const [ref, size] = useNodeSize({ w: 180, h: 100 });
   const shape = data?.shape || LEGACY_SHAPE[type] || "process";
   const fill = data?.fill || "#fff";
-  const stroke = selected ? "#f97316" : (data?.stroke || "#0ea5e9");
+  const stroke = selected ? SELECT : (data?.stroke || "#0ea5e9");
   return (
     <div ref={ref} style={{ width: "100%", height: "100%", position: "relative" }}>
       <NodeResizer
         isVisible={selected}
         minWidth={70} minHeight={50}
-        lineStyle={{ borderColor: "#f97316" }}
-        handleStyle={{ background: "#f97316", border: "2px solid #fff" }}
+        {...RESIZER}
       />
       <svg
         width={size.w}
@@ -452,12 +461,12 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
       style={{
         width: "100%", height: "100%", display: "flex", flexDirection: "column",
         background: "#fff", borderRadius: 14,
-        border: `2px solid ${selected ? "#f97316" : "#f59e0b"}`,
-        boxShadow: selected ? "0 0 0 2px #f9731633, 0 12px 28px -14px rgba(0,0,0,.4)" : "0 8px 20px -12px rgba(0,0,0,.3)",
+        border: `2px solid ${selected ? SELECT : "#f59e0b"}`,
+        boxShadow: selected ? `0 0 0 2px ${SELECT_RING}, 0 12px 28px -14px rgba(0,0,0,.4)` : "0 8px 20px -12px rgba(0,0,0,.3)",
         color: "#0f172a",
       }}
     >
-      <NodeResizer isVisible={selected} minWidth={200} minHeight={120} lineStyle={{ borderColor: "#f97316" }} handleStyle={{ background: "#f97316", border: "2px solid #fff" }} />
+      <NodeResizer isVisible={selected} minWidth={200} minHeight={120} {...RESIZER} />
       <FourHandles />
       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "linear-gradient(120deg,#f59e0b,#f97316)", color: "#fff", borderRadius: "12px 12px 0 0" }}>
         <Target style={{ width: 14, height: 14 }} />
@@ -554,8 +563,8 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
     });
   };
   return (
-    <div style={{ width: "100%", height: "100%", borderRadius: 18, border: `2px solid ${selected ? "#f97316" : tint}`, background: bg, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <NodeResizer isVisible={selected} minWidth={160} minHeight={140} lineStyle={{ borderColor: "#f97316" }} handleStyle={{ background: "#f97316", border: "2px solid #fff" }} />
+    <div style={{ width: "100%", height: "100%", borderRadius: 18, border: `2px solid ${selected ? SELECT : tint}`, background: bg, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <NodeResizer isVisible={selected} minWidth={160} minHeight={140} {...RESIZER} />
       <FourHandles visible={false} />
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px" }}>
         {data?.icon && <span style={{ fontSize: 18, lineHeight: 1 }}>{data.icon}</span>}
