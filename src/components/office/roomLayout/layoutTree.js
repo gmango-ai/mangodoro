@@ -153,3 +153,68 @@ export function movePanelInTree(tree, dragged, target, zone) {
   if (!tp) return tree;
   return splitLeafAt(without, tp, dragged, zone);
 }
+
+// ── Hide/show position memory ────────────────────────────────
+// Toggling a panel off then on should put it back where it was. We capture
+// its spot on remove (placementOf) and rebuild it on re-add (restorePlacement);
+// if the spot is gone the caller falls back to a default side.
+
+// The node at `path` (array of "a"/"b"), or null.
+export function nodeAtPath(node, path) {
+  let n = node;
+  for (const step of path) {
+    if (!n || n.t !== "split") return null;
+    n = n[step];
+  }
+  return n;
+}
+
+// Path to the first node (leaf or split) satisfying `pred`, pre-order.
+export function findNodePath(node, pred, path = []) {
+  if (!node) return null;
+  if (pred(node)) return path;
+  if (node.t !== "split") return null;
+  return findNodePath(node.a, pred, [...path, "a"]) || findNodePath(node.b, pred, [...path, "b"]);
+}
+
+// Immutably replace the node at `path` with `next`.
+export function replaceAtPath(node, path, next) {
+  if (!path.length) return next;
+  const [head, ...rest] = path;
+  return { ...node, [head]: replaceAtPath(node[head], rest, next) };
+}
+
+function sameSet(a, b) {
+  if (a.length !== b.length) return false;
+  const s = new Set(b);
+  for (const x of a) if (!s.has(x)) return false;
+  return true;
+}
+
+// Capture where `panel` sits: which side of its parent split it was on, the
+// split direction + ratio, and the panel ids in its sibling subtree (used to
+// re-find that sibling on restore). Null if it's the lone root panel.
+export function placementOf(tree, panel) {
+  const path = findPath(tree, panel);
+  if (!path || path.length === 0) return null;
+  const side = path[path.length - 1];
+  const parent = nodeAtPath(tree, path.slice(0, -1));
+  if (!parent || parent.t !== "split") return null;
+  const sibling = parent[side === "a" ? "b" : "a"];
+  return { side, dir: parent.dir, ratio: parent.ratio, siblingPanels: panelsIn(sibling) };
+}
+
+// Re-insert `panel` at a remembered `placement` by wrapping its old sibling
+// subtree back in the same split. Returns the new tree, or null if the
+// sibling no longer exists (caller then uses a default side).
+export function restorePlacement(tree, panel, placement) {
+  if (!tree || !placement || findPath(tree, panel)) return null;
+  const path = findNodePath(tree, (n) => sameSet(panelsIn(n), placement.siblingPanels));
+  if (!path) return null;
+  const sib = nodeAtPath(tree, path);
+  const nl = leaf(panel);
+  const wrapped = placement.side === "a"
+    ? split(placement.dir, nl, sib, placement.ratio)
+    : split(placement.dir, sib, nl, placement.ratio);
+  return replaceAtPath(tree, path, wrapped);
+}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { presetTree, DEFAULT_PRESET } from "./presets";
-import { leaf, split, setRatioAt, sanitize, movePanelInTree, addPanelToTree, addPanelAtTree, removeAt, findPath, panelsIn } from "./layoutTree";
+import { leaf, split, setRatioAt, sanitize, movePanelInTree, addPanelToTree, addPanelAtTree, removeAt, findPath, panelsIn, placementOf, restorePlacement } from "./layoutTree";
 
 // Where a quick-added panel prefers to enter, given what's already shown.
 // Whiteboard is the big canvas (left, larger share); chat hugs the right;
@@ -38,10 +38,12 @@ function load(roomId, available) {
     if (raw) {
       const parsed = JSON.parse(raw);
       const tree = sanitize(parsed.tree, available);
-      if (tree) return { tree, presetId: parsed.presetId || "custom" };
+      // `placements` remembers where each panel sat last so a hide → show
+      // returns it to that spot.
+      if (tree) return { tree, presetId: parsed.presetId || "custom", placements: parsed.placements || {} };
     }
   } catch { /* */ }
-  return { tree: presetTree(DEFAULT_PRESET), presetId: DEFAULT_PRESET };
+  return { tree: presetTree(DEFAULT_PRESET), presetId: DEFAULT_PRESET, placements: {} };
 }
 
 export function useRoomLayout(roomId, available) {
@@ -64,30 +66,38 @@ export function useRoomLayout(roomId, available) {
     } catch { /* */ }
   }, [roomId, state]);
 
-  const applyPreset = useCallback((id) => setState({ tree: presetTree(id), presetId: id }), []);
-  const reset = useCallback(() => setState({ tree: presetTree(DEFAULT_PRESET), presetId: DEFAULT_PRESET }), []);
+  // Remember a panel's current spot before it leaves the tree, so toggling
+  // it back on can restore that position.
+  const remember = (s, panel) => {
+    const placement = placementOf(s.tree, panel);
+    return placement ? { ...s.placements, [panel]: placement } : s.placements;
+  };
+
+  const applyPreset = useCallback((id) => setState((s) => ({ ...s, tree: presetTree(id), presetId: id })), []);
+  const reset = useCallback(() => setState((s) => ({ ...s, tree: presetTree(DEFAULT_PRESET), presetId: DEFAULT_PRESET })), []);
   const setRatio = useCallback((path, ratio) => {
-    setState((s) => ({ tree: setRatioAt(s.tree, path, ratio), presetId: "custom" }));
+    setState((s) => ({ ...s, tree: setRatioAt(s.tree, path, ratio), presetId: "custom" }));
   }, []);
   const movePanel = useCallback((dragged, target, zone) => {
-    setState((s) => ({ tree: movePanelInTree(s.tree, dragged, target, zone), presetId: "custom" }));
+    setState((s) => ({ ...s, tree: movePanelInTree(s.tree, dragged, target, zone), presetId: "custom" }));
   }, []);
   const addPanel = useCallback((panel) => {
-    setState((s) => ({ tree: addPanelToTree(s.tree, panel), presetId: "custom" }));
+    setState((s) => ({ ...s, tree: addPanelToTree(s.tree, panel), presetId: "custom" }));
   }, []);
   const addPanelAt = useCallback((panel, target, side) => {
-    setState((s) => ({ tree: addPanelAtTree(s.tree, panel, target, side), presetId: "custom" }));
+    setState((s) => ({ ...s, tree: addPanelAtTree(s.tree, panel, target, side), presetId: "custom" }));
   }, []);
   const closePanel = useCallback((panel) => {
     setState((s) => {
       if (panelsIn(s.tree).length <= 1) return s; // never close the last tile
       const path = findPath(s.tree, panel);
       if (!path) return s;
-      return { tree: removeAt(s.tree, path), presetId: "custom" };
+      return { ...s, tree: removeAt(s.tree, path), presetId: "custom", placements: remember(s, panel) };
     });
   }, []);
   // One-click add/remove of a panel from the room header — no Arrange mode.
-  // Adds it (as a new column) when absent; removes it when present.
+  // Hiding remembers where it was; showing returns it there, falling back to
+  // a smart default side if that spot no longer exists.
   const togglePanel = useCallback((panelId) => {
     setState((s) => {
       const ids = panelsIn(s.tree);
@@ -95,10 +105,12 @@ export function useRoomLayout(roomId, available) {
         if (ids.length <= 1) return s; // keep at least one panel
         const path = findPath(s.tree, panelId);
         if (!path) return s;
-        return { tree: removeAt(s.tree, path), presetId: "custom" };
+        return { ...s, tree: removeAt(s.tree, path), presetId: "custom", placements: remember(s, panelId) };
       }
+      const restored = restorePlacement(s.tree, panelId, s.placements?.[panelId]);
+      if (restored) return { ...s, tree: restored, presetId: "custom" };
       const { side, frac } = defaultEntry(panelId, ids);
-      return { tree: placeBySide(s.tree, panelId, side, frac), presetId: "custom" };
+      return { ...s, tree: placeBySide(s.tree, panelId, side, frac), presetId: "custom" };
     });
   }, []);
 
