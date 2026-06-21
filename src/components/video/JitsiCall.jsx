@@ -72,9 +72,14 @@ export default function JitsiCall({ roomId, displayName, onJoined, onLeft, onErr
         // TimerWidget's "Share music" button).
         registerJitsiApi(api);
 
-        const log = (evt) => (data) =>
-          // eslint-disable-next-line no-console
-          console.info(`[Jitsi] ${evt}`, data ?? "");
+        // Dev-only event tracing — stripped from production builds so the
+        // console isn't flooded on every join / leave / data-channel event.
+        const log = (evt) => (data) => {
+          if (import.meta.env.DEV) {
+            // eslint-disable-next-line no-console
+            console.info(`[Jitsi] ${evt}`, data ?? "");
+          }
+        };
         api.addListener("readyToClose", log("readyToClose"));
         api.addListener("errorOccurred", (data) => {
           log("errorOccurred")(data);

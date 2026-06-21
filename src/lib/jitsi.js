@@ -123,7 +123,7 @@ export function loadJitsiExternalApi() {
 // One-time dev log so we can tell at a glance which provider the
 // browser session is using. Helpful when debugging "why does the
 // embed look different?" — common answer: env var typo / restart.
-if (typeof window !== "undefined" && !window.__mangodoroJitsiLogged) {
+if (import.meta.env.DEV && typeof window !== "undefined" && !window.__mangodoroJitsiLogged) {
   window.__mangodoroJitsiLogged = true;
   // eslint-disable-next-line no-console
   console.info(`[jitsi] provider=${VIDEO_PROVIDER}  domain=${JITSI_DOMAIN}${HAS_JAAS ? ` appId=${APP_ID}` : ""}`);
