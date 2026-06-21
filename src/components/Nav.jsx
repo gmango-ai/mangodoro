@@ -99,15 +99,6 @@ export default function Nav({ onOpenPomodoro }) {
         }`}
         style={{
           paddingTop: "env(safe-area-inset-top)",
-          // Electron: this header is the window-drag handle
-          // (html.electron header.sticky → -webkit-app-region: drag). When the
-          // mobile drawer opens it overlays the header, but a CSS-transformed
-          // drawer can't carve out a no-drag hole (Chromium ignores app-region
-          // under transforms), so the drag region would eat the drawer's close
-          // button. Drop the drag region while the drawer is open — you can't
-          // drag the window with the menu open anyway. Inline beats the CSS
-          // rule; in the browser this property is simply ignored.
-          WebkitAppRegion: sidebarOpen ? "no-drag" : undefined,
           ...(darkMode
             ? { boxShadow: "0 4px 24px color-mix(in srgb, var(--color-accent) 12%, transparent)" }
             : {}),
@@ -206,16 +197,24 @@ export default function Nav({ onOpenPomodoro }) {
         />
       )}
       <aside
-        className={`xl:hidden fixed top-0 left-0 z-[90] h-full w-72 max-w-[85vw] transform transition-transform duration-200 ease-out flex flex-col ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        className={`no-drag xl:hidden fixed top-0 z-[90] h-full w-72 max-w-[85vw] transition-[left] duration-200 ease-out flex flex-col ${
+          sidebarOpen ? "left-0" : "-left-72"
         } ${
           darkMode
             ? "border-r bg-[var(--color-surface)] border-[var(--color-border)]"
             : "bg-white border-r border-slate-200"
         }`}
+        // Slide in via `left`, not a CSS transform: this drawer overlays the
+        // Electron window-drag header, and the `no-drag` above carves the
+        // drawer's footprint out of that drag region so the close button (and
+        // the rest of the drawer) stay clickable. Chromium ignores app-region
+        // inside transforms, so we animate `left` instead — that keeps no-drag
+        // honored AND leaves the header draggable everywhere the drawer doesn't
+        // cover, even while it's open.
+        //
         // The drawer is pinned to the very top/bottom of the screen, so its
-        // first/last rows would otherwise sit under the Dynamic Island and
-        // the home indicator. Inset its content by the safe areas (the drawer
+        // first/last rows would otherwise sit under the Dynamic Island and the
+        // home indicator. Inset its content by the safe areas (the drawer
         // background still fills behind them).
         style={{
           // Clear the mobile notch AND the Electron title-bar / traffic lights
