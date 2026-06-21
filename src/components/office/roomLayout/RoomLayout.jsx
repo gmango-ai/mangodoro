@@ -1,9 +1,26 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, GripVertical } from "lucide-react";
 import { useTheme } from "../../../context/ThemeContext";
 import { ROOM_PANELS } from "./panels";
 import { computeLayout, MIN_PX } from "./layoutTree";
+
+// Smallest comfortable size for a node: a leaf uses its panel-type `min`
+// (panels.jsx); a split uses the larger of its children so the bigger panel
+// still fits. Lets the resize clamp give whiteboard/video more room than chat.
+function nodeMin(node) {
+  if (!node) return MIN_PX;
+  if (node.t === "leaf") return ROOM_PANELS[node.panel]?.min || MIN_PX;
+  return Math.max(nodeMin(node.a), nodeMin(node.b));
+}
+function nodeAt(node, path) {
+  let n = node;
+  for (const step of path) {
+    if (!n || n.t !== "split") return null;
+    n = n[step];
+  }
+  return n;
+}
 
 const TILE_TRANSITION = "left .22s cubic-bezier(.4,0,.2,1), top .22s cubic-bezier(.4,0,.2,1), width .22s cubic-bezier(.4,0,.2,1), height .22s cubic-bezier(.4,0,.2,1)";
 
@@ -123,8 +140,11 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
       const total = horiz ? splitRect.w : splitRect.h;
       if (total <= 0) return;
       const local = horiz ? e.clientX - c.left - splitRect.x : e.clientY - c.top - splitRect.y;
-      const minR = MIN_PX / total;
-      const ratio = Math.max(minR, Math.min(1 - minR, local / total));
+      // Per-side minimums: child `a` and child `b` each keep their own floor
+      // (a whiteboard side can't be squeezed as small as a chat side).
+      const minRa = (drag.minA ?? MIN_PX) / total;
+      const minRb = (drag.minB ?? MIN_PX) / total;
+      const ratio = Math.max(minRa, Math.min(1 - minRb, local / total));
       onRatioChange(path, ratio);
     };
     const onUp = () => setDrag(null);
@@ -241,7 +261,12 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
                 side (≈28px zone). touch-none so a touch-drag resizes instead of
                 the page scrolling. */}
             <div
-              onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture?.(e.pointerId); setDrag({ path: d.path, dir: d.dir, splitRect: d.splitRect }); }}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+                const node = nodeAt(tree, d.path);
+                setDrag({ path: d.path, dir: d.dir, splitRect: d.splitRect, minA: nodeMin(node?.a), minB: nodeMin(node?.b) });
+              }}
               className={`absolute touch-none ${horiz ? "-inset-x-2 inset-y-0 cursor-col-resize" : "-inset-y-2 inset-x-0 cursor-row-resize"}`}
             />
             <div
@@ -375,6 +400,68 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
               </>
             )}
           </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Quick-move layer (OUTSIDE Arrange) — a small grab handle per tile and
+          a live drop hint, portalled above the video so a panel can be grabbed
+          and dropped even over the call. Arrange keeps the richer overlay
+          (toolbox / add / remove). */}
+      {!arranging && rect.w > 0 && createPortal(
+        <div
+          className="fixed z-[100]"
+          style={{ top: rect.top, left: rect.left, width: rect.w, height: rect.h, pointerEvents: "none" }}
+        >
+          {leaves.length > 1 && leaves.map((l) => {
+            const panel = ROOM_PANELS[l.panel];
+            const isMoving = moving?.panel === l.panel;
+            return (
+              <button
+                key={`grip:${l.panel}`}
+                type="button"
+                onPointerDown={(e) => startTileDrag(l.panel, e)}
+                title={`Move ${panel?.title || l.panel}`}
+                aria-label={`Move ${panel?.title || l.panel}`}
+                className={`absolute w-7 h-7 rounded-full inline-flex items-center justify-center cursor-grab active:cursor-grabbing touch-none transition-opacity ${
+                  dark ? "bg-slate-900/70 text-slate-200 hover:bg-slate-900/95" : "bg-white/85 text-slate-600 hover:bg-white"
+                } ${isMoving ? "opacity-100 ring-2 ring-[var(--color-accent)]" : "opacity-60 hover:opacity-100"}`}
+                style={{ left: l.rect.x + 6, top: l.rect.y + 6, pointerEvents: "auto" }}
+              >
+                <GripVertical className="w-4 h-4" />
+              </button>
+            );
+          })}
+
+          {moving && dropTarget && (() => {
+            const full = drop.zone === "center";
+            const r = full ? dropTarget.rect : zoneRect(dropTarget.rect, drop.zone);
+            const label = drop.zone === "center" ? "Swap" : `Move ${drop.zone}`;
+            return (
+              <div
+                className="absolute rounded-xl border-2 flex items-center justify-center"
+                style={{
+                  left: r.x, top: r.y, width: r.w, height: r.h,
+                  background: "color-mix(in srgb, var(--color-accent) 20%, transparent)",
+                  borderColor: "var(--color-accent)", pointerEvents: "none",
+                }}
+              >
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider text-white" style={{ background: "var(--color-accent)" }}>
+                  {label}
+                </span>
+              </div>
+            );
+          })()}
+
+          {moving && pointer && (
+            <div
+              className="absolute flex items-center gap-1.5 px-2.5 py-1 rounded-full shadow-lg text-[11px] font-semibold text-white"
+              style={{ left: pointer.x + 12, top: pointer.y + 12, background: "var(--color-accent)", pointerEvents: "none" }}
+            >
+              {(() => { const Icon = ROOM_PANELS[moving.panel]?.icon; return Icon ? <Icon className="w-3.5 h-3.5" /> : null; })()}
+              {ROOM_PANELS[moving.panel]?.title || moving.panel}
+            </div>
+          )}
         </div>,
         document.body,
       )}

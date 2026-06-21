@@ -12,7 +12,8 @@ import { openPomodoroSurface } from "../../lib/pomodoroSurface";
 import RoomLayout from "./roomLayout/RoomLayout";
 import LayoutBar from "./roomLayout/LayoutBar";
 import { useRoomLayout } from "./roomLayout/useRoomLayout";
-import { PANEL_IDS } from "./roomLayout/panels";
+import { PANEL_IDS, ROOM_PANELS } from "./roomLayout/panels";
+import { panelsIn } from "./roomLayout/layoutTree";
 
 const KIND_ICON = {
   general: Hash,
@@ -97,10 +98,16 @@ export default function RoomView({
 
   // Modular panel layout (per-user, per-room). Replaces the old fixed
   // view modes — see ./roomLayout. Panels = video, chat, whiteboard.
-  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel } = useRoomLayout(room?.id, PANEL_IDS);
+  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
   const [arranging, setArranging] = useState(false);
 
   if (!room) return null;
+
+  // Quick-toggle data for the header: which panels exist + their icon/title.
+  const activePanels = panelsIn(tree);
+  const quickPanels = PANEL_IDS.map((id) => ({
+    id, title: ROOM_PANELS[id].title, Icon: ROOM_PANELS[id].icon,
+  }));
 
   // Whiteboard link flows through the sync session (session.whiteboard_id),
   // mirroring the old retro link. Leader — or any member when the host is
@@ -240,6 +247,9 @@ export default function RoomView({
             dark={dark}
             arranging={arranging}
             onToggleArrange={() => setArranging((v) => !v)}
+            panels={quickPanels}
+            activePanels={activePanels}
+            onTogglePanel={togglePanel}
           />
         </div>
       </header>

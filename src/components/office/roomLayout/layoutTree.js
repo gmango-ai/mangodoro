@@ -13,7 +13,8 @@
 // panels without ever remounting them (so the video iframe never reloads).
 
 export const GAP = 12;     // gutter between panes; the divider lives in it
-export const MIN_PX = 160; // a pane never resizes below this
+export const MIN_PX = 220; // a pane never resizes below this — keeps the
+                           // video grid + control bar usable at any size
 
 export function leaf(panel) { return { t: "leaf", panel }; }
 export function split(dir, a, b, ratio = 0.5) { return { t: "split", dir, a, b, ratio }; }

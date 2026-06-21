@@ -195,13 +195,39 @@ export default function OfficeShell({
 
   const sidebar = <WidgetsSidebar />;
 
+  // ── HALLWAY ── contained, native app page. No widgets rail and no
+  // full-bleed shell: the hallway sits in the same centered column on
+  // the app's global gradient background as every other page. The rail
+  // + two-pane workspace only appear once you step into a room (below).
+  if (!selectedRoom) {
+    return (
+      <main className="max-w-[1100px] mx-auto px-4 sm:px-6 pt-6 pb-24">
+        <HallwayView
+          activeTeam={activeTeam}
+          rooms={rooms}
+          lockedRooms={lockedRooms}
+          sessionByRoomId={sessionByRoomId}
+          onlineCount={onlineCount}
+          canEdit={canEdit}
+          busy={busy}
+          onEnterRoom={(id) => navigate(`/office/r/${id}`)}
+          onEditOffice={onEditOffice}
+        />
+      </main>
+    );
+  }
+
+  // ── IN A ROOM ── two-pane workspace: the widgets rail (pomodoro,
+  // tasks, …) earns its place here, alongside the room's chat / video /
+  // timer. This is the one surface in the app with a side rail, by design.
+  //
   // Root height fills exactly below the global nav: subtract the nav bar
   // (3.5rem mobile / 4rem desktop, matching Nav's h-14 sm:h-16) and the top
   // safe-area inset. The old flat `100vh - 64px` was ~50px too tall on Dynamic
   // Island phones, which pushed the room's bottom "add panels" dock off screen.
   // env() is 0 on desktop.
   return (
-    <div className={`flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] sm:h-[calc(100dvh-4rem-env(safe-area-inset-top))] w-full ${
+    <div className={`flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] sm:h-[calc(100dvh-4rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
       {/* Desktop widgets sidebar.
@@ -251,32 +277,18 @@ export default function OfficeShell({
           </p>
         </div>
 
-        {selectedRoom ? (
-          <RoomView
-            room={selectedRoom}
-            activeSession={activeSession}
-            orgTeams={orgTeams}
-            busy={busy}
-            onJoin={() => onJoin?.(selectedRoom)}
-            onStart={() => onStart?.(selectedRoom)}
-            sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-            onOpenRoomSwitcher={() => setOverlayOpen(true)}
-            onLeaveRoom={handleLeaveRoom}
-          />
-        ) : (
-          <HallwayView
-            activeTeam={activeTeam}
-            rooms={rooms}
-            lockedRooms={lockedRooms}
-            sessionByRoomId={sessionByRoomId}
-            onlineCount={onlineCount}
-            canEdit={canEdit}
-            busy={busy}
-            onEnterRoom={(id) => navigate(`/office/r/${id}`)}
-            onEditOffice={onEditOffice}
-          />
-        )}
+        <RoomView
+          room={selectedRoom}
+          activeSession={activeSession}
+          orgTeams={orgTeams}
+          busy={busy}
+          onJoin={() => onJoin?.(selectedRoom)}
+          onStart={() => onStart?.(selectedRoom)}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          onOpenRoomSwitcher={() => setOverlayOpen(true)}
+          onLeaveRoom={handleLeaveRoom}
+        />
       </div>
 
       <OfficeOverlay

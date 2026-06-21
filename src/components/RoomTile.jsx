@@ -1,30 +1,13 @@
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
 import UserAvatar from "./UserAvatar";
+import { presenceDot, presenceRing } from "../lib/presence";
 import { Briefcase, MessageSquare, Lock, Crown, Hash, Star } from "lucide-react";
-
-// Map a participant's presence_state to the dot fill used in the
-// compact tile. Falls back to neutral for unknown values.
-const PRESENCE_DOT = {
-  active: "bg-emerald-500",
-  available: "bg-sky-500",
-  heads_down: "bg-violet-500",
-  in_meeting: "bg-rose-500",
-  away: "bg-amber-500",
-};
 
 const KIND_ICON = {
   department: Briefcase,
   meeting: MessageSquare,
   private: Lock,
-};
-
-const PRESENCE_RING = {
-  active: "ring-emerald-500",
-  available: "ring-sky-500",
-  heads_down: "ring-violet-500",
-  in_meeting: "ring-rose-500",
-  away: "ring-amber-500",
 };
 
 const KIND_LABEL = {
@@ -61,7 +44,7 @@ function pickSize(w, h) {
 // Lead users (in any org_team) get a small violet star marker; team
 // names are surfaced in the tooltip for quick "who is this?" scans.
 function OccupantAvatar({ occupant, isLeader, userTeams, size = 28 }) {
-  const ring = PRESENCE_RING[occupant.presence_state] || PRESENCE_RING.active;
+  const ring = presenceRing(occupant.presence_state);
   const isLead = (userTeams || []).some((t) => t.role === "lead");
   const teamNames = (userTeams || []).map((t) => t.name).join(" · ");
   const title = teamNames ? `${occupant.name} — ${teamNames}` : occupant.name;
@@ -97,9 +80,13 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
 
   const isOccupied = !!activeSession;
   const isPulsing = vibe === "active" && isOccupied && activeSession?.is_running;
-  // Room accent color. Falls back to the previous default so older rows
-  // without a color stored still render correctly.
+
+  // Per-room identity, dialed way down: a faint wash of the room's color
+  // over the neutral surface so each room reads as "its own" — without the
+  // saturated stripes/borders that made the floor feel off-brand. Mixed
+  // into --color-surface so it adapts to light/dark automatically.
   const accent = room.color || "#14b8a6";
+  const tintStyle = { background: `color-mix(in srgb, ${accent} 10%, var(--color-surface))` };
 
   // Sort occupants so the leader shows first in the stack.
   const occupants = (activeSession?.occupants || []).slice().sort((a, b) => {
@@ -168,19 +155,10 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
         className={`relative flex flex-col items-center justify-center rounded-2xl border p-2 transition-all h-full w-full text-center overflow-hidden ${tone} ${pulse} ${lockedClass} ${
           locked ? "" : "hover:border-[var(--color-accent)]"
         }`}
+        style={tintStyle}
       >
         {LockBadge}
-        {/* Accent stripe on the top edge — same idea as Huly's tile
-            accent. Subtle enough not to overwhelm. */}
-        <span
-          className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl"
-          style={{ background: accent }}
-          aria-hidden
-        />
-        <div
-          className="p-1.5 rounded-lg mb-1"
-          style={{ background: `${accent}22`, color: accent }}
-        >
+        <div className="p-1.5 rounded-lg mb-1 bg-[var(--color-accent-light)] text-[var(--color-accent)]">
           <Icon className="w-3.5 h-3.5" />
         </div>
         <p
@@ -197,7 +175,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
             {occupants.slice(0, 6).map((o) => (
               <span
                 key={o.user_id}
-                className={`w-1.5 h-1.5 rounded-full ${PRESENCE_DOT[o.presence_state] || "bg-emerald-500"}`}
+                className={`w-1.5 h-1.5 rounded-full ${presenceDot(o.presence_state)}`}
                 title={o.name}
               />
             ))}
@@ -233,16 +211,9 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
       className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full overflow-hidden ${tone} ${pulse} ${lockedClass} ${
         locked ? "" : "hover:border-[var(--color-accent)]"
       }`}
+      style={tintStyle}
     >
       {LockBadge}
-      {/* Accent stripe along the top edge — the primary color
-          identification cue. Kept thin so it doesn't fight tile
-          content. */}
-      <span
-        className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl"
-        style={{ background: accent }}
-        aria-hidden
-      />
       {/* Top row — name + small status indicator. */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -258,7 +229,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
           <p className={`text-[10px] mt-0.5 inline-flex items-center gap-1 ${
             dark ? "text-slate-500" : "text-slate-400"
           }`}>
-            <Icon className="w-2.5 h-2.5 opacity-90" style={{ color: accent }} />
+            <Icon className="w-2.5 h-2.5 opacity-90 text-[var(--color-accent)]" />
             {KIND_LABEL[room.kind]}
             {room.kind === "private" && (
               <span className={`uppercase tracking-wider font-bold ${
