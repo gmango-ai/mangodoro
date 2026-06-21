@@ -5,6 +5,7 @@ import { Target, ChevronDown, Building2, User, Star, X, Plus } from "lucide-reac
 import { useParams } from "react-router-dom";
 import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
+import { useTheme } from "../../context/ThemeContext";
 import { setGoal, clearGoal } from "../../lib/goals";
 
 // Full emoji picker for sticky reactions — lazy so its chunk only loads
@@ -41,6 +42,19 @@ const SELECT = "var(--color-accent)";
 const SELECT_RING = "color-mix(in srgb, var(--color-accent) 20%, transparent)";
 const SELECT_FILL = "color-mix(in srgb, var(--color-accent) 6%, transparent)";
 const RESIZER = { lineStyle: { borderColor: SELECT }, handleStyle: { background: SELECT, border: "2px solid #fff" } };
+
+// Readable text colour (near-black / near-white) for a solid background, so
+// labels stay legible on any fill — a white default, a dark-theme surface, or a
+// user-picked swatch. Non-hex inputs fall back to dark text.
+function readableText(bg) {
+  if (typeof bg !== "string" || bg[0] !== "#") return "#0f172a";
+  let h = bg.slice(1);
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  if ([r, g, b].some(Number.isNaN)) return "#0f172a";
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? "#0f172a" : "#f1f5f9";
+}
 function avatarFor(name) {
   let h = 0; for (const ch of (name || "?")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
@@ -394,10 +408,14 @@ function useNodeSize(initial) {
 
 export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
   const setText = useNodeTextUpdater(id);
+  const { theme } = useTheme();
   const [ref, size] = useNodeSize({ w: 180, h: 100 });
   const shape = data?.shape || LEGACY_SHAPE[type] || "process";
-  const fill = data?.fill || "#fff";
+  // Default fill follows the theme (a dark surface in dark mode instead of a
+  // glaring white box); a user-picked fill is respected. Text auto-contrasts.
+  const fill = data?.fill || (theme === "dark" ? "#1e293b" : "#ffffff");
   const stroke = selected ? SELECT : (data?.stroke || "#0ea5e9");
+  const textColor = readableText(fill);
   return (
     <div ref={ref} style={{ width: "100%", height: "100%", position: "relative" }}>
       <NodeResizer
@@ -421,7 +439,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
           placeholder=""
           nodeId={id}
           selected={selected}
-          style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center", color: "#0f172a" }}
+          style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center", color: textColor }}
         />
       </div>
     </div>
@@ -433,6 +451,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
 export const GoalNode = memo(function GoalNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
   const patch = useNodeDataPatcher(id);
+  const { theme } = useTheme();
   const { orgTeams = [], teamMembers = [], activeTeamId } = useTeam() || {};
   const { whiteboardId } = useParams();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -440,6 +459,14 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
   const linkColor = data?.linkColor || "#f59e0b";
   const goalActive = !!data?.goalActive;
   const canSet = linked && (data?.text || "").trim();
+  // Theme-aware surfaces so the goal card reads in dark mode (the amber header
+  // banner + accent border stay; only the body/card chrome flips).
+  const dark = theme === "dark";
+  const surface = dark ? "#1e293b" : "#ffffff";
+  const text = dark ? "#e2e8f0" : "#0f172a";
+  const muted = dark ? "#94a3b8" : "#64748b";
+  const divider = dark ? "rgba(255,255,255,.10)" : "rgba(0,0,0,.07)";
+  const popBorder = dark ? "rgba(255,255,255,.14)" : "#e2e8f0";
 
   async function toggleSetAsGoal() {
     if (!activeTeamId || !linked) return;
@@ -460,10 +487,10 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
     <div
       style={{
         width: "100%", height: "100%", display: "flex", flexDirection: "column",
-        background: "#fff", borderRadius: 14,
+        background: surface, borderRadius: 14,
         border: `2px solid ${selected ? SELECT : "#f59e0b"}`,
         boxShadow: selected ? `0 0 0 2px ${SELECT_RING}, 0 12px 28px -14px rgba(0,0,0,.4)` : "0 8px 20px -12px rgba(0,0,0,.3)",
-        color: "#0f172a",
+        color: text,
       }}
     >
       <NodeResizer isVisible={selected} minWidth={200} minHeight={120} {...RESIZER} />
@@ -487,31 +514,31 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
       <div style={{ flex: 1, padding: 10, minHeight: 0 }}>
         <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }} />
       </div>
-      <div className="nodrag nowheel" style={{ position: "relative", padding: "6px 10px", borderTop: "1px solid rgba(0,0,0,.07)" }} onPointerDown={(e) => e.stopPropagation()}>
+      <div className="nodrag nowheel" style={{ position: "relative", padding: "6px 10px", borderTop: `1px solid ${divider}` }} onPointerDown={(e) => e.stopPropagation()}>
         <button
           type="button"
           onClick={() => setPickerOpen((v) => !v)}
-          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: linked ? "#fff" : "#64748b", background: linked ? linkColor : "transparent", padding: linked ? "2px 8px" : 0, borderRadius: 9999 }}
+          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: linked ? "#fff" : muted, background: linked ? linkColor : "transparent", padding: linked ? "2px 8px" : 0, borderRadius: 9999 }}
         >
           {data?.linkType === "user" ? <User style={{ width: 12, height: 12 }} /> : <Building2 style={{ width: 12, height: 12 }} />}
           {linked ? data.linkName : "Link to a team or person"}
           <ChevronDown style={{ width: 11, height: 11, opacity: 0.6 }} />
         </button>
         {pickerOpen && (
-          <div style={{ position: "absolute", bottom: 34, left: 8, zIndex: 40, width: 196, maxHeight: 220, overflowY: "auto", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 16px 36px -16px rgba(0,0,0,.45)", padding: 4 }}>
-            {orgTeams.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".08em", padding: "4px 8px 2px" }}>Departments</div>}
+          <div style={{ position: "absolute", bottom: 34, left: 8, zIndex: 40, width: 196, maxHeight: 220, overflowY: "auto", background: surface, border: `1px solid ${popBorder}`, borderRadius: 12, boxShadow: "0 16px 36px -16px rgba(0,0,0,.45)", padding: 4 }}>
+            {orgTeams.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, color: muted, textTransform: "uppercase", letterSpacing: ".08em", padding: "4px 8px 2px" }}>Departments</div>}
             {orgTeams.map((t) => (
               <button key={t.id} type="button" onClick={() => { patch({ linkType: "department", linkId: t.id, linkName: t.name, linkColor: t.color || "#f59e0b" }); setPickerOpen(false); }}
-                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "4px 8px", borderRadius: 8, fontSize: 12, color: "#0f172a" }}>
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "4px 8px", borderRadius: 8, fontSize: 12, color: text }}>
                 <span style={{ width: 8, height: 8, borderRadius: 9999, background: t.color || "#94a3b8", flexShrink: 0 }} />
                 {t.name}
               </button>
             ))}
-            {teamMembers.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".08em", padding: "6px 8px 2px" }}>People</div>}
+            {teamMembers.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, color: muted, textTransform: "uppercase", letterSpacing: ".08em", padding: "6px 8px 2px" }}>People</div>}
             {teamMembers.map((m) => (
               <button key={m.user_id} type="button" onClick={() => { patch({ linkType: "user", linkId: m.user_id, linkName: m.name || "Member", linkColor: "#64748b" }); setPickerOpen(false); }}
-                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "4px 8px", borderRadius: 8, fontSize: 12, color: "#0f172a" }}>
-                <User style={{ width: 12, height: 12, color: "#94a3b8" }} />
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "4px 8px", borderRadius: 8, fontSize: 12, color: text }}>
+                <User style={{ width: 12, height: 12, color: muted }} />
                 {m.name || "Member"}
               </button>
             ))}
