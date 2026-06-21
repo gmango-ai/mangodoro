@@ -1,6 +1,6 @@
 // Create + push an `electron-v<version>` tag, which triggers the
-// "Release Electron" GitHub Action (builds the macOS DMG and drafts a
-// GitHub Release with the artifacts).
+// "Release Electron" GitHub Action (builds the macOS .dmg, Windows installer
+// .exe, and Linux .AppImage, then drafts a GitHub Release with the artifacts).
 //
 // Usage:
 //   bun run electron:release 1.0.5
@@ -37,5 +37,5 @@ const branch = sh("git rev-parse --abbrev-ref HEAD");
 console.log(`Releasing ${tag} from ${branch}…`);
 sh(`git tag ${tag}`);
 sh(`git push origin ${tag}`);
-console.log(`✓ Pushed ${tag}. The "Release Electron" workflow is building the DMG;`);
-console.log(`  a DRAFT release will appear under Releases. Watch it with:  gh run watch`);
+console.log(`✓ Pushed ${tag}. The "Release Electron" workflow is building macOS / Windows / Linux;`);
+console.log(`  a DRAFT release with all artifacts will appear under Releases. Watch it with:  gh run watch`);

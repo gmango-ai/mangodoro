@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { supabase } from "../supabase";
 import { AppProvider } from "../context/AppContext";
 import { TeamProvider } from "../context/TeamContext";
@@ -6,6 +7,7 @@ import { SyncSessionProvider } from "../context/SyncSessionContext";
 import { PomodoroProvider } from "../pomodoro/PomodoroContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import QuickActionsPopover from "./QuickActionsPopover";
+import ErrorBoundary from "../components/ErrorBoundary";
 
 /**
  * Top-level entry for the Electron menubar popover BrowserWindow.
@@ -48,16 +50,23 @@ export default function PopoverEntry() {
     );
   }
   return (
-    <ThemeProvider>
-      <AppProvider session={session}>
-        <TeamProvider session={session}>
-          <SyncSessionProvider session={session}>
-            <PomodoroProvider userId={session.user.id}>
-              <QuickActionsPopover />
-            </PomodoroProvider>
-          </SyncSessionProvider>
-        </TeamProvider>
-      </AppProvider>
-    </ThemeProvider>
+    <ErrorBoundary label="popover">
+      {/* In-memory Router (not Browser) so shared components that use <Link> /
+          useNavigate (e.g. GoalsList) have a Router context — without reading
+          the electron-serve URL, which is why the popover avoided a real router. */}
+      <MemoryRouter>
+      <ThemeProvider>
+        <AppProvider session={session}>
+          <TeamProvider session={session}>
+            <SyncSessionProvider session={session}>
+              <PomodoroProvider userId={session.user.id}>
+                <QuickActionsPopover />
+              </PomodoroProvider>
+            </SyncSessionProvider>
+          </TeamProvider>
+        </AppProvider>
+      </ThemeProvider>
+      </MemoryRouter>
+    </ErrorBoundary>
   );
 }

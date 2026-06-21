@@ -114,7 +114,7 @@ export default function Nav({ onOpenPomodoro }) {
             type="button"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
-            className={`sm:hidden p-2 -ml-2 rounded-lg ${
+            className={`lg:hidden p-2 -ml-2 rounded-lg ${
               darkMode ? "text-slate-300 hover:bg-[var(--color-surface-raised)]" : "text-slate-600 hover:bg-slate-100"
             }`}
           >
@@ -142,7 +142,7 @@ export default function Nav({ onOpenPomodoro }) {
           </NavLink>
 
           {/* Desktop: full nav + actions */}
-          <div className="hidden sm:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-3">
             <nav className="flex items-center gap-1">
               <NavLink to="/pomodoro" className={desktopNavLink}>
                 Pomodoro
@@ -182,13 +182,13 @@ export default function Nav({ onOpenPomodoro }) {
       {/* Mobile sidebar overlay + drawer */}
       {sidebarOpen && (
         <div
-          className="sm:hidden fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm"
+          className="lg:hidden fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
       )}
       <aside
-        className={`sm:hidden fixed top-0 left-0 z-[90] h-full w-72 max-w-[85vw] transform transition-transform duration-200 ease-out flex flex-col ${
+        className={`lg:hidden fixed top-0 left-0 z-[90] h-full w-72 max-w-[85vw] transform transition-transform duration-200 ease-out flex flex-col ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${
           darkMode
@@ -200,7 +200,9 @@ export default function Nav({ onOpenPomodoro }) {
         // the home indicator. Inset its content by the safe areas (the drawer
         // background still fills behind them).
         style={{
-          paddingTop: "env(safe-area-inset-top)",
+          // Clear the mobile notch AND the Electron title-bar / traffic lights
+          // (the drawer is pinned to top:0; --titlebar-inset is 0 except in Electron).
+          paddingTop: "calc(env(safe-area-inset-top) + var(--titlebar-inset, 0px))",
           paddingBottom: "env(safe-area-inset-bottom)",
         }}
         aria-hidden={!sidebarOpen}
@@ -365,7 +367,7 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
     : `${itemBase} text-red-600 hover:bg-red-50`;
 
   return (
-    <div ref={ref} className="hidden sm:block relative">
+    <div ref={ref} className="hidden lg:block relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

@@ -3,6 +3,10 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Height of the top chrome that full-height pages must subtract from 100dvh:
+     the mobile safe-area inset normally, overridden to the Electron title-bar
+     height on the desktop app (which has no safe-area but a 32px drag strip). */
+  --top-inset: env(safe-area-inset-top);
   --font-size: 16px;
   --background: #ffffff;
   --foreground: oklch(0.145 0 0);
@@ -280,19 +284,30 @@
  * extend up into the title-bar zone in compact layouts) should opt out
  * with `.no-drag`.
  */
-html.electron body {
-  padding-top: 32px;
+html.electron {
+  /* No title-bar gap and no safe-area on desktop: the sticky nav sits flush at
+     the top and doubles as the draggable title bar (below). So there's nothing
+     to reserve — pages get the full height. */
+  --top-inset: 0px;
+  /* Clearance for the macOS traffic lights, used by fixed top-left overlays
+     (e.g. the open nav drawer) so they don't sit under the window controls. */
+  --titlebar-inset: 30px;
 }
-html.electron body::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 32px;
-  z-index: 50;
+/* The top nav IS the macOS title bar: draggable, with room on the left for the
+   traffic-light controls. Interactive controls opt back out so they stay
+   clickable. (Replaces the old 32px body padding + fixed drag strip, which left
+   an empty gap above the nav and matching scroll slack at the bottom.) */
+html.electron header.sticky {
   -webkit-app-region: drag;
-  pointer-events: auto;
+  padding-left: 72px;
+}
+html.electron header.sticky a,
+html.electron header.sticky button,
+html.electron header.sticky input,
+html.electron header.sticky select,
+html.electron header.sticky [role="button"],
+html.electron header.sticky [contenteditable="true"] {
+  -webkit-app-region: no-drag;
 }
 html.electron .no-drag {
   -webkit-app-region: no-drag;

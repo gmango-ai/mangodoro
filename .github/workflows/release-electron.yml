@@ -15,15 +15,15 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
-    runs-on: macos-latest
-    timeout-minutes: 30
+  # Resolve the version/tag once so every build + the release agree.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Derive version
-        id: version
+        id: v
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             VERSION="${GITHUB_REF#refs/tags/electron-v}"
@@ -39,6 +39,43 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Building electron release ${TAG}"
 
+  # Build the desktop app on each OS. electron-builder targets the current
+  # platform automatically: macOS → .dmg, Windows → .exe (nsis), Linux →
+  # .AppImage (see electron/electron-builder.config.json).
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifacts: |
+              electron/dist/*.dmg
+              electron/dist/*.dmg.blockmap
+              electron/dist/latest-mac.yml
+          - os: windows-latest
+            artifacts: |
+              electron/dist/*.exe
+              electron/dist/*.exe.blockmap
+              electron/dist/latest.yml
+          # Pinned to 22.04: the project's electron-builder (23.6) builds
+          # AppImage more reliably there than on 24.04 runners.
+          - os: ubuntu-22.04
+            artifacts: |
+              electron/dist/*.AppImage
+              electron/dist/*.AppImage.blockmap
+              electron/dist/latest-linux.yml
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    # bash on every OS (Git Bash on Windows) so the POSIX-y build scripts and
+    # version stamping behave identically across runners.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
@@ -47,7 +84,8 @@ jobs:
       - name: Setup Node (for electron-builder + npm in electron/)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Capacitor CLI requires Node >=22.
+          node-version: '22'
 
       - name: Install root dependencies
         run: bun install --frozen-lockfile
@@ -57,31 +95,51 @@ jobs:
 
       - name: Stamp electron version
         run: |
-          node -e "const fs=require('fs');const p=require('./electron/package.json');p.version='${{ steps.version.outputs.version }}';fs.writeFileSync('./electron/package.json',JSON.stringify(p,null,2)+'\n');"
+          node -e "const fs=require('fs');const p=require('./electron/package.json');p.version='${{ needs.version.outputs.version }}';fs.writeFileSync('./electron/package.json',JSON.stringify(p,null,2)+'\n');"
           echo "electron/package.json now at $(node -p "require('./electron/package.json').version")"
 
-      # One root command does it all: build web app → sync the electron platform
-      # → tsc/electron-rebuild → electron-builder DMG. (electron:dist =
-      # electron:sync && electron:make.)
-      - name: Build Electron DMG (from root)
+      # One root command builds the web app → syncs the electron platform →
+      # tsc/electron-rebuild → electron-builder (current OS target). No publish
+      # here; the release job collects everything and drafts one release.
+      - name: Build Electron app (from root)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Skip notarization unless Apple creds are present. electron-builder
-          # falls back to an unsigned DMG, which is fine for internal testers.
+          # Skip macOS notarization unless Apple creds are present —
+          # electron-builder falls back to an unsigned build (fine for testers).
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: bun run electron:dist
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: ignore
+          retention-days: 5
+
+  # Collect every platform's artifacts into a single draft GitHub Release.
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: dist-*
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -R artifacts || true
 
       - name: Create / update Draft Release with artifacts
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Electron ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: Electron ${{ needs.version.outputs.tag }}
           draft: true
           prerelease: false
           generate_release_notes: true
-          files: |
-            electron/dist/*.dmg
-            electron/dist/*.dmg.blockmap
-            electron/dist/latest-mac.yml
+          fail_on_unmatched_files: false
+          files: artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
