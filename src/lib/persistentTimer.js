@@ -25,11 +25,15 @@ let lastUploadedKey = null;
 let lastActivityId = null;
 let pendingStateSync = null;
 
-// Device-level APNs token (separate from the per-Live-Activity push token):
-// powers SILENT background pushes that refresh the home-screen widget when
-// the timer is driven from another device. Registered once per session.
+// Device-level registration (separate from the per-Live-Activity push token):
+// the APNs device token (silent home-widget refresh), the push-to-start token
+// (server-created Live Activities), and the per-user widget secret hash (auth
+// for the home-widget Start button). Registered once per session; re-uploaded
+// when a token arrives async.
 let deviceTokenListenerHandle = null;
+let pushToStartTokenListenerHandle = null;
 let lastUploadedDeviceKey = null;
+let deviceRegUserId = null;
 
 function captureActivityId(result) {
   if (result?.activityId) lastActivityId = result.activityId;
@@ -346,14 +350,18 @@ export async function consumePendingTimerToggle() {
   }
 }
 
-async function uploadDeviceToken({ token, deviceId, apnsEnv } = {}) {
-  if (!token || !deviceId) return;
-  const key = `${deviceId}:${token}`;
+// Upload whatever device-level registration fields are currently available
+// (tokens arrive async, so this may be partial — device-register merges).
+async function uploadDeviceRegistration(reg) {
+  if (!reg?.deviceId) return;
+  const body = { device_id: reg.deviceId, apns_env: reg.apnsEnv || "production" };
+  if (reg.pushToken) body.push_token = reg.pushToken;
+  if (reg.ptsToken) body.pts_token = reg.ptsToken;
+  if (reg.secretHash) body.widget_secret_hash = reg.secretHash;
+  const key = JSON.stringify(body);
   if (key === lastUploadedDeviceKey) return;
   try {
-    const { error } = await supabase.functions.invoke("device-register", {
-      body: { device_id: deviceId, push_token: token, apns_env: apnsEnv || "production" },
-    });
+    const { error } = await supabase.functions.invoke("device-register", { body });
     if (error) {
       console.warn("[persistentTimer] device-register failed", error);
       return;
@@ -364,21 +372,40 @@ async function uploadDeviceToken({ token, deviceId, apnsEnv } = {}) {
   }
 }
 
-// Registers this device for silent background pushes that keep the home-screen
-// widget fresh when the timer changes on another device. Safe to call on every
-// app start once the user is authenticated (no-op off iOS / when unchanged).
-export async function initDeviceWidgetPush() {
+// Pull the current registration snapshot from native (ensures the per-user
+// widget secret exists + stores the user id in the App Group) and upload it.
+async function registerDevice() {
+  try {
+    const reg = await IOSLiveActivity.getWidgetRegistration(
+      deviceRegUserId ? { userId: deviceRegUserId } : {}
+    );
+    await uploadDeviceRegistration(reg);
+  } catch (e) {
+    console.warn("[persistentTimer] getWidgetRegistration failed", e);
+  }
+}
+
+// Registers this device for: silent home-widget refresh pushes, push-to-start
+// Live Activities, and the home-widget Start button (per-user widget secret).
+// Safe to call on every app start once authenticated (no-op off iOS). Re-uploads
+// when the APNs / push-to-start tokens arrive async.
+export async function initDeviceWidgetPush(userId) {
   if (getPlatform() !== "ios") return;
+  if (userId) deviceRegUserId = userId;
   try {
     if (!deviceTokenListenerHandle) {
       deviceTokenListenerHandle = await IOSLiveActivity.addListener(
         "deviceTokenReceived",
-        (data) => { uploadDeviceToken(data); }
+        () => { registerDevice(); }
       );
     }
-    // Pull any token APNs already handed us before the listener attached.
-    const current = await IOSLiveActivity.getDeviceToken();
-    if (current?.token) await uploadDeviceToken(current);
+    if (!pushToStartTokenListenerHandle) {
+      pushToStartTokenListenerHandle = await IOSLiveActivity.addListener(
+        "pushToStartTokenReceived",
+        () => { registerDevice(); }
+      );
+    }
+    await registerDevice();
   } catch (e) {
     console.warn("[persistentTimer] initDeviceWidgetPush failed", e);
   }

@@ -34,11 +34,11 @@ export function PomodoroProvider({ userId, children, forceSlave = false }) {
 
   const engine = useMemo(() => (userId ? getEngine(userId) : null), [userId]);
 
-  // Once authenticated, register this device's APNs token so the server can
-  // keep the home-screen widget fresh via silent pushes (iOS-only, idempotent).
+  // Once authenticated, register this device for silent widget refresh,
+  // push-to-start, and the home-widget Start button (iOS-only, idempotent).
   useEffect(() => {
     if (!userId) return;
-    initDeviceWidgetPush();
+    initDeviceWidgetPush(userId);
   }, [userId]);
 
   useEffect(() => {

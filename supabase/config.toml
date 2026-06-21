@@ -406,6 +406,11 @@ verify_jwt = true
 [functions.device-register]
 verify_jwt = true
 
+# Auth is the per-user widget secret (in the body), not a JWT — same as
+# activity-action.
+[functions.widget-start]
+verify_jwt = false
+
 [functions.mint-jaas-jwt]
 verify_jwt = true
 

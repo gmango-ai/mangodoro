@@ -283,10 +283,25 @@ struct PomodoroHomeWidgetView: View {
         }
     }
 
+    @ViewBuilder
     private var emptyView: some View {
-        // No active session. ActivityKit requires Live Activities to be
-        // started from the foreground app, so tapping opens the app (the
-        // widget's default tap target) where a session can be started.
+        // No active session. On iOS 17+ the Start button kicks off a personal
+        // timer in-place via HomeStartTimerIntent (→ widget-start), no app
+        // launch. On older iOS the tile is passive and tapping opens the app
+        // (the widget's default tap target).
+        if #available(iOS 17.0, *) {
+            Button(intent: HomeStartTimerIntent()) {
+                emptyContent
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            emptyContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var emptyContent: some View {
         VStack(spacing: 8) {
             ZStack {
                 Circle().fill(Color.white.opacity(0.22)).frame(width: 46, height: 46)

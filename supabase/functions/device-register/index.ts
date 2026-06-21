@@ -1,14 +1,17 @@
-// device-register: the iOS host app calls this when it gets (or rotates) its
-// APNs device token, so the server can send SILENT background pushes that
-// refresh the home-screen widget when the shared pomodoro state changes on
-// another device. Distinct from activity-register (per-Live-Activity tokens).
+// device-register: the iOS host app calls this when it gets (or rotates) any of
+// its device-level tokens, so the server can drive that device while the app is
+// backgrounded. Distinct from activity-register (per-Live-Activity tokens).
+//   - push_token        : APNs device token → silent home-widget refresh pushes
+//   - pts_token         : ActivityKit push-to-start token → create Live Activity
+//   - widget_secret_hash: SHA256 of the per-user widget secret → auth for the
+//                         widget-start "Start" tap
 //
-// Auth: user JWT (Authorization: Bearer <jwt>) — RLS enforces ownership, but
-// we write with the service role after resolving the user (matches the
-// activity-* functions).
+// Auth: user JWT (Authorization: Bearer <jwt>) — RLS enforces ownership, but we
+// write with the service role after resolving the user (matches activity-*).
 //
-// Body: { device_id: string, push_token: string, apns_env?: "production"|"sandbox" }
-// Upserts one row per (user_id, device_id).
+// Body: { device_id, push_token?, pts_token?, widget_secret_hash?, apns_env? }
+// Merges the provided fields into one row per (user_id, device_id) — fields can
+// arrive in separate calls (APNs token is async, the secret is minted on init).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -49,22 +52,39 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return json(400, { error: "invalid json" }); }
 
   const deviceId = String(body.device_id ?? "").trim();
-  const pushToken = String(body.push_token ?? "").trim().toLowerCase();
   if (!deviceId) return json(400, { error: "missing device_id" });
-  if (!/^[0-9a-f]{8,}$/.test(pushToken)) {
-    return json(400, { error: "push_token must be lowercase hex" });
+
+  // Only the columns actually provided are written, so partial calls (token
+  // before secret, etc.) merge instead of clobbering. device_id + apns_env are
+  // always set so the row exists with a known environment.
+  const row: Record<string, unknown> = {
+    user_id: userId,
+    device_id: deviceId,
+    apns_env: body.apns_env === "sandbox" ? "sandbox" : "production",
+  };
+
+  const pushToken = String(body.push_token ?? "").trim().toLowerCase();
+  if (pushToken) {
+    if (!/^[0-9a-f]{8,}$/.test(pushToken)) return json(400, { error: "push_token must be lowercase hex" });
+    row.push_token = pushToken;
   }
-  const apnsEnv = body.apns_env === "sandbox" ? "sandbox" : "production";
+  const ptsToken = String(body.pts_token ?? "").trim().toLowerCase();
+  if (ptsToken) {
+    if (!/^[0-9a-f]{8,}$/.test(ptsToken)) return json(400, { error: "pts_token must be lowercase hex" });
+    row.pts_token = ptsToken;
+  }
+  const widgetSecretHash = String(body.widget_secret_hash ?? "").trim().toLowerCase();
+  if (widgetSecretHash) {
+    if (!/^[0-9a-f]{64}$/.test(widgetSecretHash)) return json(400, { error: "widget_secret_hash must be 64-char hex" });
+    row.widget_secret_hash = widgetSecretHash;
+  }
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
   });
   const { error: upsertError } = await admin
     .from("device_push_tokens")
-    .upsert(
-      { user_id: userId, device_id: deviceId, push_token: pushToken, apns_env: apnsEnv },
-      { onConflict: "user_id,device_id" },
-    );
+    .upsert(row, { onConflict: "user_id,device_id" });
   if (upsertError) {
     console.error("device token upsert failed", upsertError);
     return json(500, { error: "db upsert failed" });

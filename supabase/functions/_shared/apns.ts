@@ -132,6 +132,61 @@ export async function sendLiveActivityPush(
   };
 }
 
+export type SendLiveActivityStartPushArgs = {
+  // The push-to-START token (Activity.pushToStartTokenUpdates), NOT a per-
+  // activity push token. Lets the server CREATE a Live Activity remotely.
+  pushToken: string;
+  attributesType: string; // e.g. "PomodoroActivityAttributes"
+  attributes: Record<string, unknown>; // the ActivityAttributes payload
+  contentState: LiveActivityContentState;
+  apnsEnv?: "production" | "sandbox";
+  staleDate?: number; // unix seconds
+};
+
+// Push-to-start (iOS 17.2+): creates a Live Activity on the device even with
+// the app backgrounded. Same topic/push-type as a Live Activity update, but
+// event "start" plus the attributes-type + attributes so the OS can
+// instantiate the activity.
+export async function sendLiveActivityStartPush(
+  args: SendLiveActivityStartPushArgs,
+): Promise<SendLiveActivityPushResult> {
+  const bundleId = env("APNS_BUNDLE_ID");
+  const defaultEnv = env("APNS_ENV", "production");
+  const apnsEnv = args.apnsEnv ?? (defaultEnv as "production" | "sandbox");
+  const host = apnsEnv === "sandbox" ? "api.sandbox.push.apple.com" : "api.push.apple.com";
+  const url = `https://${host}/3/device/${args.pushToken}`;
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const aps: Record<string, unknown> = {
+    timestamp: nowSec,
+    event: "start",
+    "content-state": args.contentState,
+    "attributes-type": args.attributesType,
+    "attributes": args.attributes,
+  };
+  if (args.staleDate !== undefined) aps["stale-date"] = args.staleDate;
+
+  const bearer = await getBearer();
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "authorization": `bearer ${bearer}`,
+      "apns-topic": `${bundleId}.push-type.liveactivity`,
+      "apns-push-type": "liveactivity",
+      "apns-priority": "10",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ aps }),
+  });
+  const body = await resp.text();
+  return {
+    ok: resp.ok,
+    status: resp.status,
+    apnsId: resp.headers.get("apns-id"),
+    body,
+  };
+}
+
 export type SendBackgroundPushArgs = {
   pushToken: string;
   // Custom data merged at the top level of the payload (read from `userInfo`
