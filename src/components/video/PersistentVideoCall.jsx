@@ -41,7 +41,7 @@ function pipRect() {
 }
 
 export default function PersistentVideoCall() {
-  const { call, endCall, stageEl } = useVideoCall();
+  const { call, startCall, endCall, updateCall, stageEl } = useVideoCall();
   const { syncSession } = useSyncSession();
   const navigate = useNavigate();
   const containerRef = useRef(null);
@@ -56,15 +56,24 @@ export default function PersistentVideoCall() {
   // down too. Closing a tab is handled separately by VideoCall's
   // pagehide dispose; the persistent PiP still survives plain in-app
   // navigation while the session is alive.
+  // Carry-over: when you move from one room to another while in a call, the
+  // call FOLLOWS you into the new room (re-joins it) rather than ending —
+  // this is the only "auto-join" path. Leaving to the hallway (curRoom null)
+  // still tears the call down. A fresh entry from the hallway with no active
+  // call shows the pre-join card instead (see RoomVideoStage).
   const prevSessionRoomRef = useRef(syncSession?.room_id || null);
   useEffect(() => {
     const prevRoom = prevSessionRoomRef.current;
     const curRoom = syncSession?.room_id || null;
     prevSessionRoomRef.current = curRoom;
     if (call && prevRoom && curRoom !== prevRoom && call.roomId === prevRoom) {
-      endCall();
+      if (curRoom) {
+        startCall(curRoom, call.displayName, { mode: call.mode, choices: call.choices });
+      } else {
+        endCall();
+      }
     }
-  }, [syncSession?.room_id, call, endCall]);
+  }, [syncSession?.room_id, call, startCall, endCall]);
 
   // Sync rect to stageEl (or PiP) every time stageEl changes, the
   // stage resizes, or the window resizes. ResizeObserver on the stage
@@ -113,8 +122,11 @@ export default function PersistentVideoCall() {
         left: rect.left,
         width: rect.width,
         height: rect.height,
-        // z above body content but below ESC-able modals (z-[180]+).
-        zIndex: 150,
+        // Stage mode sits just above the room tiles but BELOW in-room chrome
+        // (menus, dropdowns, modals) so the call never traps a control behind
+        // it. PiP is a deliberate floating window, so it rides higher (still
+        // under ESC-able modals at z-[180]+).
+        zIndex: inPiP ? 120 : 20,
         transition: inPiP ? "top 0.18s ease, left 0.18s ease" : "none",
       }}
       className={inPiP ? "rounded-xl shadow-2xl overflow-hidden bg-slate-900 border border-slate-700" : ""}
@@ -125,6 +137,10 @@ export default function PersistentVideoCall() {
         key={call.roomId}
         roomId={call.roomId}
         displayName={call.displayName}
+        compact={inPiP}
+        publish={call.mode !== "spectate"}
+        choices={call.choices}
+        onJoinIn={() => updateCall({ mode: "join" })}
         onLeft={() => endCall()}
       />
 

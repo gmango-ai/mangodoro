@@ -24,9 +24,18 @@ export function VideoCallProvider({ children }) {
   const [call, setCall] = useState(null);
   const [stageEl, setStageElRaw] = useState(null);
 
-  const startCall = useCallback((roomId, displayName) => {
+  // opts.mode: "join" (publish camera/mic) | "spectate" (subscribe-only —
+  // see/hear everyone without publishing). opts.choices: device prefs from
+  // the pre-join card ({ videoEnabled, audioEnabled, videoDeviceId,
+  // audioDeviceId }).
+  const startCall = useCallback((roomId, displayName, opts = {}) => {
     if (!roomId) return;
-    setCall({ roomId, displayName: displayName || "" });
+    setCall({
+      roomId,
+      displayName: displayName || "",
+      mode: opts.mode || "join",
+      choices: opts.choices || null,
+    });
   }, []);
 
   const endCall = useCallback(() => {
@@ -34,13 +43,19 @@ export function VideoCallProvider({ children }) {
     setStageElRaw(null);
   }, []);
 
+  // Patch the live call without re-creating it — used to flip a spectator
+  // into a publisher ("Join in") without changing the room/identity.
+  const updateCall = useCallback((partial) => {
+    setCall((c) => (c ? { ...c, ...partial } : c));
+  }, []);
+
   // Stable identity for the setter so RoomVideoStage's useEffect
   // doesn't re-fire on every parent render.
   const setStageEl = useCallback((el) => setStageElRaw(el), []);
 
   const value = useMemo(
-    () => ({ call, stageEl, startCall, endCall, setStageEl }),
-    [call, stageEl, startCall, endCall, setStageEl],
+    () => ({ call, stageEl, startCall, endCall, updateCall, setStageEl }),
+    [call, stageEl, startCall, endCall, updateCall, setStageEl],
   );
 
   return (

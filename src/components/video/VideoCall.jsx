@@ -1,167 +1,93 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
-import { useApp } from "../../context/AppContext";
-import { JITSI_DOMAIN, fetchVideoCallToken, loadJitsiExternalApi, roomNameForRoom } from "../../lib/jitsi";
-import { registerJitsiApi, unregisterJitsiApi } from "../../lib/jitsiBridge";
+import { resolveVideoProvider, VIDEO } from "../../lib/videoProvider";
+import { track, isMobileClient } from "../../lib/analytics";
+import JitsiCall from "./JitsiCall";
+import LiveKitCall from "./LiveKitCall";
 import EmoteOverlay from "../emotes/EmoteOverlay";
 
-// Embeds a JitsiMeetExternalAPI iframe into the surrounding div.
-// Mounts the iframe on the first render, calls `onJoined` /
-// `onLeft` so the parent can update its presence state, and cleans
-// up `api.dispose()` on unmount so the iframe doesn't keep the
-// camera + mic active after navigating away.
+// Provider dispatcher for a single room's call.
 //
-// Both audio and video start unmuted by default — this is the
-// "feel like you're in the office" mode the team picked. Each user
-// can mute / unmute via Jitsi's own toolbar inside the iframe.
+// Resolves which provider this room is assigned (Jitsi or LiveKit — see
+// videoProvider.js for the per-room A/B split), renders the matching
+// provider component, and owns the cross-provider concerns:
+//   • the shared "couldn't load the call" error UI
+//   • the EmoteOverlay (reactions float over either provider)
+//   • PostHog instrumentation — attempt / connected / failed / ended,
+//     tagged with provider + platform + duration, which is the whole
+//     point of running the experiment.
 //
-// roomId          — the Mangodoro room id; used to derive a stable,
-//                   per-room Jitsi room name.
-// displayName     — what other participants see in the call.
+// roomId          — the Mangodoro room id (stable for this component's
+//                   life; PersistentVideoCall keys us by roomId).
+// displayName     — what other participants see.
 // onJoined/onLeft — fired when the local participant joins / leaves.
-export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
+export default function VideoCall({ roomId, displayName, compact, publish, choices, onJoinIn, onJoined, onLeft }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const { session } = useApp();
-  const containerRef = useRef(null);
-  const apiRef = useRef(null);
   const [error, setError] = useState(null);
 
+  const provider = useMemo(() => resolveVideoProvider(roomId), [roomId]);
+
+  // Analytics lifecycle — refs so we don't re-render on timing bookkeeping.
+  const attemptAtRef = useRef(0);
+  const connectedAtRef = useRef(0);
+  // The emote overlay owns the reaction channel + particle fountain; the
+  // LiveKit toolbar's reaction buttons drive it through this stable API
+  // (start = tap-or-hold-to-charge-burst; subscribeCharge = glow updates).
+  const emoteRef = useRef(null);
+  const emoteApiRef = useRef(null);
+  if (!emoteApiRef.current) {
+    emoteApiRef.current = {
+      start: (glyph, ev, key) => emoteRef.current?.startEmit?.(glyph, ev, key),
+      subscribeCharge: (cb) => emoteRef.current?.subscribeCharge?.(cb) ?? (() => {}),
+    };
+  }
+
   useEffect(() => {
-    if (!roomId || !containerRef.current) return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const Ctor = await loadJitsiExternalApi();
-        if (cancelled || !containerRef.current) return;
-
-        // Public meet.jit.si returns null. JaaS path mints via the
-        // `mint-jaas-jwt` Supabase edge function (cached per-tab).
-        const jwt = await fetchVideoCallToken(
-          roomNameForRoom(roomId),
-          session?.user?.id,
-          displayName,
-        );
-
-        const opts = {
-          roomName: roomNameForRoom(roomId),
-          parentNode: containerRef.current,
-          width: "100%",
-          height: "100%",
-          userInfo: {
-            displayName: displayName || "Mangodoro guest",
-            email: session?.user?.email || undefined,
-          },
-          configOverwrite: {
-            startWithAudioMuted: false,
-            startWithVideoMuted: false,
-            disableModeratorIndicator: true,
-            prejoinPageEnabled: false,
-            // Hide the Jitsi welcome/branding inside the embed —
-            // we own the chrome around it.
-            hideConferenceSubject: true,
-            hideConferenceTimer: false,
-            disableProfile: true,
-          },
-          interfaceConfigOverwrite: {
-            DEFAULT_BACKGROUND: dark ? "#0f172a" : "#f8fafc",
-            SHOW_JITSI_WATERMARK: false,
-            SHOW_BRAND_WATERMARK: false,
-            TOOLBAR_BUTTONS: [
-              "microphone", "camera", "desktop", "fullscreen",
-              "fodeviceselection", "hangup", "chat", "raisehand",
-              "videoquality", "filmstrip", "settings", "tileview",
-            ],
-          },
-          ...(jwt ? { jwt } : {}),
-        };
-
-        const api = new Ctor(JITSI_DOMAIN, opts);
-        apiRef.current = api;
-        // Publish the api to module-level subscribers (e.g. the
-        // TimerWidget's "Share music" button). Unregister happens in
-        // the cleanup below so a brief gap during HMR reload doesn't
-        // leave a stale reference live.
-        registerJitsiApi(api);
-
-        // Log every Jitsi lifecycle event we care about so we can
-        // see in the console why the embed isn't reaching "joined"
-        // when something goes sideways. Cheap to keep; surfacing
-        // these helped diagnose JaaS bootstrap issues.
-        const log = (evt) => (data) =>
-          // eslint-disable-next-line no-console
-          console.info(`[Jitsi] ${evt}`, data ?? "");
-        api.addListener("readyToClose", log("readyToClose"));
-        api.addListener("errorOccurred", (data) => {
-          log("errorOccurred")(data);
-          if (!cancelled && data) {
-            const err = data.error;
-            setError(
-              data.message ||
-              (typeof err === "string" ? err : err?.message) ||
-              err?.name ||
-              data.type ||
-              "Jitsi error"
-            );
-          }
-        });
-        api.addListener("participantJoined", log("participantJoined"));
-        api.addListener("participantLeft", log("participantLeft"));
-        api.addListener("knockingParticipant", log("knockingParticipant"));
-        api.addListener("dataChannelOpened", log("dataChannelOpened"));
-
-        // "We got past auth and into the conference." We let the Jitsi
-        // iframe show its own connecting state rather than overlaying our
-        // own — our overlay used to linger over an already-live feed.
-        api.addListener("videoConferenceJoined", (data) => {
-          log("videoConferenceJoined")(data);
-          if (!cancelled) onJoined?.();
-        });
-        api.addListener("videoConferenceLeft", (data) => {
-          log("videoConferenceLeft")(data);
-          if (!cancelled) onLeft?.();
-        });
-      } catch (e) {
-        if (!cancelled) {
-          setError(e?.message || "Could not load the video call");
-        }
-      }
-    })();
+    if (!roomId) return;
+    const isMobile = isMobileClient();
+    attemptAtRef.current = Date.now();
+    connectedAtRef.current = 0;
+    setError(null);
+    track("video_call_attempt", { provider, room_id: roomId, is_mobile: isMobile });
 
     return () => {
-      cancelled = true;
-      unregisterJitsiApi();
-      try { apiRef.current?.dispose(); } catch { /* */ }
-      apiRef.current = null;
+      // Only count a "session" if we actually connected.
+      if (connectedAtRef.current) {
+        track("video_call_ended", {
+          provider,
+          room_id: roomId,
+          is_mobile: isMobile,
+          duration_s: Math.round((Date.now() - connectedAtRef.current) / 1000),
+        });
+      }
     };
-    // We deliberately don't re-init when displayName changes —
-    // disposing + re-creating the iframe would drop the user from the
-    // call. Display name updates flow through api.executeCommand
-    // ("displayName", ...) below.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId]);
+  }, [roomId, provider]);
 
-  // Best-effort teardown on tab close. The unmount cleanup above does
-  // not reliably run when a tab/window is closed, so a closed tab could
-  // otherwise keep the media bridge connected until the server times the
-  // peer out. pagehide is the most dependable unload signal (fires on
-  // mobile + bfcache where beforeunload often doesn't).
-  useEffect(() => {
-    const onPageHide = () => {
-      try { apiRef.current?.dispose(); } catch { /* */ }
-      apiRef.current = null;
-    };
-    window.addEventListener("pagehide", onPageHide);
-    return () => window.removeEventListener("pagehide", onPageHide);
-  }, []);
-
-  // Propagate display-name changes without tearing down the iframe.
-  useEffect(() => {
-    if (apiRef.current && displayName) {
-      try { apiRef.current.executeCommand("displayName", displayName); } catch { /* */ }
+  const handleJoined = () => {
+    if (!connectedAtRef.current) {
+      connectedAtRef.current = Date.now();
+      track("video_call_connected", {
+        provider,
+        room_id: roomId,
+        is_mobile: isMobileClient(),
+        ms_to_connect: attemptAtRef.current ? Date.now() - attemptAtRef.current : null,
+      });
     }
-  }, [displayName]);
+    onJoined?.();
+  };
+
+  const handleError = (message) => {
+    setError(message);
+    track("video_call_failed", {
+      provider,
+      room_id: roomId,
+      is_mobile: isMobileClient(),
+      error: message,
+    });
+  };
+
+  const ProviderCall = provider === VIDEO.LIVEKIT ? LiveKitCall : JitsiCall;
 
   return (
     <div className="relative w-full h-full">
@@ -176,20 +102,27 @@ export default function VideoCall({ roomId, displayName, onJoined, onLeft }) {
         </div>
       ) : (
         <>
-          <div
-            ref={containerRef}
-            className="w-full h-full rounded-xl overflow-hidden"
-            aria-label="Video call"
+          <ProviderCall
+            roomId={roomId}
+            displayName={displayName}
+            compact={compact}
+            publish={publish}
+            choices={choices}
+            onJoinIn={onJoinIn}
+            emote={emoteApiRef.current}
+            onJoined={handleJoined}
+            onLeft={onLeft}
+            onError={handleError}
           />
-          {/* Floating emoji-reaction bar + particles. Scope by roomId
-              so everyone in the same room (regardless of which Jitsi
-              tile they're staring at) sees each other's emotes drift
-              up over the video. Pinned to the right edge so the bar
-              clears Jitsi's own bottom control toolbar. */}
+          {/* Reaction particles, scoped by roomId so everyone sees each
+              other's emotes over the video. On LiveKit the trigger lives in
+              the call toolbar (barPosition hidden); Jitsi keeps the floating
+              bar since we can't inject into its iframe toolbar. */}
           {roomId && (
             <EmoteOverlay
+              ref={emoteRef}
               channelKey={`room:${roomId}`}
-              barPosition="right-center"
+              barPosition={provider === VIDEO.LIVEKIT ? "hidden" : "right-center"}
               senderName={displayName}
             />
           )}
