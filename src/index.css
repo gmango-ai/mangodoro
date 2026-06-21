@@ -289,6 +289,9 @@ html.electron {
      the top and doubles as the draggable title bar (below). So there's nothing
      to reserve — pages get the full height. */
   --top-inset: 0px;
+  /* Clearance for the macOS traffic lights, used by fixed top-left overlays
+     (e.g. the open nav drawer) so they don't sit under the window controls. */
+  --titlebar-inset: 30px;
 }
 /* The top nav IS the macOS title bar: draggable, with room on the left for the
    traffic-light controls. Interactive controls opt back out so they stay
