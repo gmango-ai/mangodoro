@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { supabase } from "../supabase";
 import { AppProvider } from "../context/AppContext";
 import { TeamProvider } from "../context/TeamContext";
@@ -50,6 +51,10 @@ export default function PopoverEntry() {
   }
   return (
     <ErrorBoundary label="popover">
+      {/* In-memory Router (not Browser) so shared components that use <Link> /
+          useNavigate (e.g. GoalsList) have a Router context — without reading
+          the electron-serve URL, which is why the popover avoided a real router. */}
+      <MemoryRouter>
       <ThemeProvider>
         <AppProvider session={session}>
           <TeamProvider session={session}>
@@ -61,6 +66,7 @@ export default function PopoverEntry() {
           </TeamProvider>
         </AppProvider>
       </ThemeProvider>
+      </MemoryRouter>
     </ErrorBoundary>
   );
 }
