@@ -1,6 +1,9 @@
 import { Users, Crown } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
+import { sortParticipants } from "../../lib/participantSort";
+import { useParticipantSort } from "../../hooks/useParticipantSort";
+import ParticipantSortPicker from "../pomodoro/ParticipantSortPicker";
 import UserAvatar from "../UserAvatar";
 import WidgetSection from "./WidgetSection";
 
@@ -31,14 +34,25 @@ const PRESENCE_DOT = {
 export default function RoomMembersWidget({ dark }) {
   const { session } = useApp();
   const { syncSession, syncParticipants, presenceMap } = useSyncSession();
+  const [sortMode] = useParticipantSort();
 
   const userId = session?.user?.id;
   const inSession = !!syncSession;
   const participants = (syncParticipants || []).filter((p) => !p.left_at);
 
+  // Stable display order (leader/you pinned, rest by the chosen sort).
+  const ordered = sortParticipants(participants, {
+    mode: sortMode,
+    userId,
+    leaderId: syncSession?.leader_id,
+  });
+
   const count = participants.length;
   const titleAction = inSession && count > 0 ? (
-    <span className="text-[10px] font-bold tabular-nums">{count}</span>
+    <span className="flex items-center gap-1.5">
+      {count > 1 && <ParticipantSortPicker iconOnly />}
+      <span className="text-[10px] font-bold tabular-nums">{count}</span>
+    </span>
   ) : null;
 
   return (
@@ -59,16 +73,7 @@ export default function RoomMembersWidget({ dark }) {
         </p>
       ) : (
         <ul className="space-y-1.5">
-          {participants
-            .slice()
-            .sort((a, b) => {
-              // Leader first, then self, then by join time.
-              const al = a.user_id === syncSession.leader_id ? -3 : 0;
-              const bl = b.user_id === syncSession.leader_id ? -3 : 0;
-              const am = a.user_id === userId ? -1 : 0;
-              const bm = b.user_id === userId ? -1 : 0;
-              return (al + am) - (bl + bm);
-            })
+          {ordered
             .map((p) => {
               const isLeader = p.user_id === syncSession.leader_id;
               const isMe = p.user_id === userId;

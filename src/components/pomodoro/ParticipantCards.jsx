@@ -3,6 +3,9 @@ import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
+import { sortParticipants } from "../../lib/participantSort";
+import { useParticipantSort } from "../../hooks/useParticipantSort";
+import ParticipantSortPicker from "./ParticipantSortPicker";
 
 const PRESENCE_DOT = {
   active:     { light: "bg-emerald-500", dark: "bg-emerald-400" },
@@ -93,6 +96,7 @@ export default function ParticipantCards({ max = 5 }) {
   const { session } = useApp();
   const { syncSession, syncParticipants } = useSyncSession();
   const { isSynced } = usePomodoro();
+  const [sortMode] = useParticipantSort();
 
   if (!isSynced || !syncSession) return null;
 
@@ -101,13 +105,12 @@ export default function ParticipantCards({ max = 5 }) {
 
   const userId = session?.user?.id;
 
-  // Show "you" first, then the leader, then everyone else.
-  const sorted = participants.slice().sort((a, b) => {
-    if (a.user_id === userId) return -1;
-    if (b.user_id === userId) return 1;
-    if (a.user_id === syncSession.leader_id) return -1;
-    if (b.user_id === syncSession.leader_id) return 1;
-    return 0;
+  // "You" first, the leader second, then everyone else by the chosen sort —
+  // stable across refetches (see lib/participantSort).
+  const sorted = sortParticipants(participants, {
+    mode: sortMode,
+    userId,
+    leaderId: syncSession.leader_id,
   });
 
   const visible = sorted.slice(0, max);
@@ -122,6 +125,7 @@ export default function ParticipantCards({ max = 5 }) {
         <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold bg-[var(--color-accent-light)] text-[var(--color-accent)]">
           {participants.length}
         </span>
+        {participants.length > 1 && <ParticipantSortPicker className="ml-auto" />}
       </div>
       <ul className={`divide-y ${dark ? "divide-[var(--color-border)]" : "divide-slate-100"}`}>
         {visible.map((p) => (
