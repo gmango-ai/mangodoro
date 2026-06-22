@@ -434,13 +434,20 @@ struct StopTimerIntent: LiveActivityIntent {
 // button running a LiveActivityIntent gets tagged SessionStartingAction,
 // which makes chronod freeze the widget's reloads for a fixed ~3.8s settle).
 //
-// They also DO NOT await the network: the optimistic App Group write has
-// flipped the snapshot synchronously, so `perform()` returns immediately and
-// the system repaints the widget from the flipped local state without the
-// (cold-on-first-tap) round-trip on the critical path — instant response.
-// The round-trip runs detached and reconciles when it lands; the pending
-// flag is set synchronously so the app still converges on next open even if
-// the detached request is cut short by the extension suspending.
+// They AWAIT the round-trip (like the Live Activity buttons). An earlier
+// version fired it in a detached Task and returned immediately for an
+// "instant" optimistic flip — but the widget-extension process is suspended
+// the moment `perform()` returns, which routinely KILLED the request before
+// it reached the server. The visible fallout matched the bug reports: taps
+// that silently did nothing / reverted, and a widget stuck on the
+// "Pausing…/Resuming…" transition label because its reconcile (which clears
+// that label by mirroring the authoritative state) never ran. Awaiting keeps
+// the extension alive until the request lands; WidgetKit then repaints once
+// with the authoritative state when `perform()` returns. The optimistic
+// transition write still happens first (instant cross-surface feedback + the
+// pending flag the app reconciles on next open if the OS cuts `perform()`
+// short). Awaiting is safe here precisely because these are plain AppIntents,
+// not LiveActivityIntents — no SessionStartingAction tag, no chronod freeze.
 
 @available(iOS 17.0, *)
 struct HomeToggleTimerIntent: AppIntent {
@@ -453,9 +460,7 @@ struct HomeToggleTimerIntent: AppIntent {
         log.debug("HomeToggleTimerIntent fired")
         let original = applyTransitionToggle()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
-        Task.detached(priority: .userInitiated) {
-            await dispatchToggleAndReconcile(original: original)
-        }
+        await dispatchToggleAndReconcile(original: original)
         return .result()
     }
 }
@@ -471,9 +476,7 @@ struct HomeStopTimerIntent: AppIntent {
         log.debug("HomeStopTimerIntent fired")
         let original = applyOptimisticStop()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingStopKey)
-        Task.detached(priority: .userInitiated) {
-            await dispatchStopAndReconcile(restoreOnFailure: original)
-        }
+        await dispatchStopAndReconcile(restoreOnFailure: original)
         return .result()
     }
 }
@@ -492,10 +495,8 @@ struct HomeStartTimerIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         log.debug("HomeStartTimerIntent fired")
         applyOptimisticStart()
-        Task.detached(priority: .userInitiated) {
-            let ok = await dispatchWidgetStart()
-            if !ok { revertOptimisticStart() }
-        }
+        let ok = await dispatchWidgetStart()
+        if !ok { revertOptimisticStart() }
         return .result()
     }
 }

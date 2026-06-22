@@ -202,8 +202,19 @@ struct PomodoroSnapshotProvider: TimelineProvider {
             // TTL so a stuck "Syncing…" auto-resolves to the underlying time.
             refresh = Date(timeIntervalSince1970: atMs / 1000.0 + PomodoroSnapshot.transitionTTL)
         } else if let s = snapshot, s.isRunning, s.endsAtEpochMs > 0 {
+            // The countdown itself ticks via Text(timerInterval:) without
+            // reloads, so a reload only matters to catch a STATE change made on
+            // another device (pause / resume / reset). The real-time path for
+            // that is the silent background push — but iOS throttles and drops
+            // those (worst when the app is backgrounded), which left the widget
+            // stuck on a stale phase until it ended. So also re-pull the
+            // authoritative state periodically (≤ ~20 min) as a self-heal,
+            // capped well within WidgetKit's ~40-70/day reload budget: at most
+            // one extra reload per work phase.
             let endsAt = Date(timeIntervalSince1970: s.endsAtEpochMs / 1000.0)
-            refresh = max(now.addingTimeInterval(60), endsAt.addingTimeInterval(2))
+            let phaseEnd = endsAt.addingTimeInterval(2)
+            let periodicHeal = now.addingTimeInterval(20 * 60)
+            refresh = max(now.addingTimeInterval(60), min(phaseEnd, periodicHeal))
         } else {
             refresh = now.addingTimeInterval(60 * 60)
         }
