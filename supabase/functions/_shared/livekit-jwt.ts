@@ -74,3 +74,40 @@ export async function signLiveKitToken(input: LiveKitSignInput): Promise<{
   );
   return { token: `${signingInput}.${b64url(sig)}`, exp };
 }
+
+// Signs a short-lived ADMIN token (roomAdmin grant) for calling the LiveKit
+// server API (RoomService: RemoveParticipant / MutePublishedTrack). Never given
+// to a browser — only used server-side in the moderation edge function. Not a
+// join token: roomJoin is false, so it can't be used to enter the room.
+export async function signLiveKitAdminToken(input: {
+  apiKey: string;
+  apiSecret: string;
+  room: string;
+  ttlSeconds?: number;
+}): Promise<{ token: string; exp: number }> {
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + (input.ttlSeconds ?? 5 * 60);
+
+  const header = { alg: "HS256", typ: "JWT" };
+  const payload = {
+    exp,
+    iss: input.apiKey,
+    nbf: now - 10,
+    sub: "mangodoro-moderator",
+    video: {
+      room: input.room,
+      roomAdmin: true,
+      roomJoin: false,
+    },
+  };
+
+  const headerB64 = b64url(JSON.stringify(header));
+  const payloadB64 = b64url(JSON.stringify(payload));
+  const signingInput = `${headerB64}.${payloadB64}`;
+
+  const key = await importSigningKey(input.apiSecret);
+  const sig = new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signingInput)),
+  );
+  return { token: `${signingInput}.${b64url(sig)}`, exp };
+}

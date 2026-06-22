@@ -19,10 +19,12 @@ import {
 } from "@livekit/components-react";
 import { Track, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, MicOff, UserX, X } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
+import { useSyncSession } from "../../context/SyncSessionContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
+import { kickFromCall, muteParticipantTrack } from "../../lib/livekitModerate";
 
 // LiveKit's client logs at "info" by default, which floods the console with
 // per-connection play-by-play (signal connecting, connection state changes,
@@ -404,6 +406,7 @@ function CallControlBar({
   layoutMode, onToggleLayout,
   bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
+  peopleOpen, onTogglePeople,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -462,6 +465,17 @@ function CallControlBar({
         {layoutMode === "speaker" ? <LayoutGrid className="w-5 h-5" /> : <SquareUser className="w-5 h-5" />}
       </button>
 
+      {/* People / moderation roster. */}
+      <button
+        type="button"
+        className="lk-button"
+        onClick={onTogglePeople}
+        aria-pressed={peopleOpen}
+        title="People in this call"
+      >
+        <Users className="w-5 h-5" />
+      </button>
+
       <button
         type="button"
         className="lk-button"
@@ -504,12 +518,115 @@ function SpectatorList({ spectators }) {
   );
 }
 
+// Host moderation roster: lists everyone in the call. The session leader gets
+// mute / remove actions per participant (the action is enforced server-side by
+// the livekit-moderate edge function; this UI gate is just for affordance).
+function PeoplePanel({ roomId, onClose }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
+  const participants = useParticipants();
+  const { localParticipant } = useLocalParticipant();
+  const { syncSession } = useSyncSession();
+  const myId = localParticipant?.identity;
+  const leaderId = syncSession?.leader_id || null;
+  const isHost = !!leaderId && leaderId === myId;
+  const [busy, setBusy] = useState(null);
+  const [confirmKick, setConfirmKick] = useState(null);
+
+  const doKick = async (id) => {
+    setBusy(id);
+    const { error } = await kickFromCall(roomId, id);
+    setBusy(null);
+    setConfirmKick(null);
+    if (error) console.warn("kick:", error.message);
+  };
+  const doMute = async (p) => {
+    const micPub = p.getTrackPublication?.(Track.Source.Microphone);
+    if (!micPub?.trackSid) return;
+    setBusy(p.identity);
+    const { error } = await muteParticipantTrack(roomId, p.identity, micPub.trackSid);
+    setBusy(null);
+    if (error) console.warn("mute:", error.message);
+  };
+
+  return (
+    <div
+      className={`absolute top-2 left-2 z-20 w-64 max-h-[85%] overflow-auto rounded-lg backdrop-blur-sm p-2 shadow-xl text-[12px] ${
+        dark ? "bg-slate-900/95 text-slate-100" : "bg-slate-900/90 text-white"
+      }`}
+    >
+      <div className="flex items-center justify-between px-1 pb-1.5">
+        <span className="font-semibold">In this call · {participants.length}</span>
+        <button type="button" onClick={onClose} aria-label="Close" className="p-0.5 rounded hover:bg-white/10">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <ul className="space-y-0.5">
+        {participants.map((p) => {
+          const isSelf = p.identity === myId;
+          const isLeader = p.identity === leaderId;
+          const isSpectator = p.attributes?.role === "spectator";
+          const micPub = p.getTrackPublication?.(Track.Source.Microphone);
+          const micOn = !!micPub && !micPub.isMuted;
+          return (
+            <li key={p.identity} className="flex items-center gap-1.5 px-1 py-1 rounded hover:bg-white/5">
+              <span className="flex-1 min-w-0 truncate">
+                {p.name || p.identity}
+                {isSelf && <span className="opacity-60"> (you)</span>}
+                {isLeader && <span className="text-amber-300"> ★</span>}
+                {isSpectator && <span className="opacity-50"> · watching</span>}
+              </span>
+              {isHost && !isSelf && (
+                <span className="flex items-center gap-0.5 shrink-0">
+                  {micOn && (
+                    <button
+                      type="button"
+                      title="Mute mic"
+                      disabled={busy === p.identity}
+                      onClick={() => doMute(p)}
+                      className="p-1 rounded hover:bg-white/15 disabled:opacity-40"
+                    >
+                      <MicOff className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {confirmKick === p.identity ? (
+                    <button
+                      type="button"
+                      disabled={busy === p.identity}
+                      onClick={() => doKick(p.identity)}
+                      className="px-1.5 py-0.5 rounded bg-red-500/80 hover:bg-red-500 text-[10px] font-semibold disabled:opacity-40"
+                    >
+                      Remove?
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      title="Remove from call"
+                      onClick={() => setConfirmKick(p.identity)}
+                      className="p-1 rounded text-red-300 hover:bg-red-500/20"
+                    >
+                      <UserX className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {!isHost && (
+        <p className="px-1 pt-1.5 text-[10px] opacity-50">Only the session leader can mute or remove.</p>
+      )}
+    </div>
+  );
+}
+
 // The video stage. Renders a grid, or a focus layout (one big tile + a
 // carousel filmstrip) when a tile is pinned, someone is screen-sharing, or
 // speaker view is on. Clicking a tile's focus button pins it (LiveKit's
 // LayoutContextProvider wires that into ParticipantTile for free); speaker
 // view auto-focuses whoever is talking when nothing is manually pinned.
-function Stage({ compact, publish, onJoinIn, layoutMode }) {
+function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onClosePeople }) {
   const tracks = useTracks(
     [
       { source: Track.Source.Camera, withPlaceholder: true },
@@ -565,6 +682,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode }) {
       )}
 
       <SpectatorList spectators={spectators} />
+      {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}
 
       {/* Spectator → publisher. Rendered ON the overlay (the app's stage
           placeholder underneath is covered by this call). */}
@@ -585,11 +703,12 @@ function Stage({ compact, publish, onJoinIn, layoutMode }) {
   );
 }
 
-function ConferenceLayout({ compact, publish, onJoinIn, emote }) {
+function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
   const rootRef = useRef(null);
   const [tight, setTight] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(false);
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
@@ -626,7 +745,15 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote }) {
     <div ref={rootRef} className="flex flex-col w-full h-full">
       <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
       <LayoutContextProvider>
-        <Stage compact={compact} publish={publish} onJoinIn={onJoinIn} layoutMode={layoutMode} />
+        <Stage
+          compact={compact}
+          publish={publish}
+          onJoinIn={onJoinIn}
+          layoutMode={layoutMode}
+          roomId={roomId}
+          peopleOpen={peopleOpen}
+          onClosePeople={() => setPeopleOpen(false)}
+        />
       </LayoutContextProvider>
       {!compact && (
         <div className="shrink-0">
@@ -642,6 +769,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote }) {
             onUploadBg={onUploadBg}
             noiseEnabled={noiseEnabled}
             onToggleNoise={() => setNoiseEnabled((v) => !v)}
+            peopleOpen={peopleOpen}
+            onTogglePeople={() => setPeopleOpen((v) => !v)}
           />
         </div>
       )}
@@ -711,7 +840,7 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         onError={(e) => onError?.(e?.message || "LiveKit connection error")}
       >
         <PublishController publish={publish} choices={choices} />
-        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} />
+        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} />
         {/* Required for participants to be audible. */}
         <RoomAudioRenderer />
       </LiveKitRoom>
