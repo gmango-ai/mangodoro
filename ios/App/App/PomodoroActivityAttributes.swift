@@ -25,6 +25,15 @@ public struct PomodoroActivityAttributes: ActivityAttributes {
         // system tint if absent. Reflects the user's accent setting from
         // the main app, passed through on every start/update.
         public var accentColorHex: String?
+        // Break-phase color (the app's `--color-break`, analogous to the
+        // accent). The widget shows this instead of `accentColorHex` when
+        // `mode != "work"`. Optional; falls back to `accentColorHex`.
+        public var breakColorHex: String?
+        // Total length of the CURRENT phase in seconds (e.g. 1500 for a
+        // 25-min focus). The Airy ring needs this to compute how full it
+        // is. Optional; the widget falls back to per-mode defaults
+        // (work 1500 / shortBreak 300 / longBreak 900) when absent.
+        public var phaseDurationSeconds: Double?
 
         public init(
             endsAtEpochMs: Double,
@@ -33,7 +42,9 @@ public struct PomodoroActivityAttributes: ActivityAttributes {
             label: String,
             isSynced: Bool,
             isRunning: Bool,
-            accentColorHex: String? = nil
+            accentColorHex: String? = nil,
+            breakColorHex: String? = nil,
+            phaseDurationSeconds: Double? = nil
         ) {
             self.endsAtEpochMs = endsAtEpochMs
             self.pausedSecondsLeft = pausedSecondsLeft
@@ -42,6 +53,8 @@ public struct PomodoroActivityAttributes: ActivityAttributes {
             self.isSynced = isSynced
             self.isRunning = isRunning
             self.accentColorHex = accentColorHex
+            self.breakColorHex = breakColorHex
+            self.phaseDurationSeconds = phaseDurationSeconds
         }
     }
 

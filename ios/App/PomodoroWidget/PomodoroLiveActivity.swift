@@ -3,41 +3,47 @@ import AppIntents
 import WidgetKit
 import SwiftUI
 
-/// Lockscreen + Dynamic Island UI for the pomodoro Live Activity.
+/// Lockscreen + Dynamic Island UI for the pomodoro Live Activity — "Airy"
+/// design (see AiryWidgetKit.swift for the shared tokens/components).
 ///
 /// Theming:
-///   • Lockscreen — no explicit background tint, so iOS renders the
-///     platter with the same vibrant translucent material as system
-///     notifications. Text uses `.primary` / `.secondary` so it adapts
-///     to wallpaper brightness.
-///   • Dynamic Island — the cutout is always dark; content stays
-///     explicit `.white` for legibility.
-///   • Brand mark — a saturated accent-colored circle with the white
-///     Mangodoro silhouette overlaid (the same mark the splashscreen
-///     uses). Provides the only intentional color in the lockscreen
-///     so the activity reads as Mangodoro without overwhelming.
+///   • Lockscreen — no explicit background tint, so iOS renders the platter
+///     in its vibrant translucent material (adapts to wallpaper light/dark).
+///     Text uses `.primary` / `.secondary`; the only intentional color is the
+///     phase accent on the ring, the countdown, and the primary button.
+///   • Dynamic Island — the cutout is always dark, so content is white with
+///     the accent ring/time carrying the color.
 ///
-/// Lock-screen pause/play/stop buttons require iOS 17+ (LiveActivityIntent).
+/// The hero is the rounded-square `AiryRing` that drains with time left; the
+/// numeral keeps ticking via `Text(timerInterval:)`.
+///
+/// Lock-screen pause/stop buttons require iOS 17+ (LiveActivityIntent).
 @available(iOS 16.1, *)
 struct PomodoroLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: PomodoroActivityAttributes.self) { context in
             PomodoroLockScreenView(state: context.state)
-                // Lighter translucent variant: the accent color washed at
-                // ~70% opacity so the wallpaper shows through and the
-                // activity sits in the same visual register as the
-                // translucent system notification platters below it.
-                // Keep white foreground because iOS dims wallpapers on
-                // the lockscreen enough that white text still reads.
-                .activityBackgroundTint((Color(hex: context.state.accentColorHex) ?? .teal).opacity(0.7))
-                .activitySystemActionForegroundColor(.white)
+                // No background tint: keep the neutral system platter so the
+                // Airy white/dark card reads correctly against any wallpaper
+                // and `.primary`/`.secondary` text stays legible.
+                .activitySystemActionForegroundColor(accentColor(context.state))
         } dynamicIsland: { context in
-            DynamicIsland {
+            let accent = accentColor(context.state)
+            return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    HStack(spacing: 10) {
-                        MangoMark(tint: accentColor(context.state))
-                            .frame(width: 38, height: 38)
-                        VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 11) {
+                        AiryRing(
+                            fraction: ringFraction(context.state),
+                            accent: accent,
+                            track: Color.white.opacity(0.16),
+                            size: 40,
+                            lineWidth: 5
+                        ) {
+                            Text("\(minsLeft(context.state))m")
+                                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                .foregroundColor(.white)
+                        }
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(context.state.label)
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundColor(.white)
@@ -49,59 +55,84 @@ struct PomodoroLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     CountdownText(state: context.state)
-                        .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundColor(.white)
+                        .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundColor(accent)
                         .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     // Interactive controls need iOS 17 (LiveActivityIntent).
                     // The availability check must live INSIDE the region's
-                    // ViewBuilder — the DynamicIslandExpandedContentBuilder that
-                    // assembles the regions can't take control flow, so an
-                    // `if #available` wrapped around the region fails to compile
-                    // ("Expanded could not be inferred"). On iOS 16 the region is
-                    // simply empty.
+                    // ViewBuilder — the content builder that assembles the
+                    // regions can't take control flow.
                     if #available(iOS 17.0, *) {
-                        HStack(spacing: 12) {
-                            ToggleButton(
+                        HStack(spacing: 8) {
+                            AiryPrimaryButton(
+                                intent: ToggleTimerIntent(),
                                 isRunning: context.state.isRunning,
-                                tint: accentColor(context.state),
-                                size: 44
+                                accent: accent,
+                                height: 40
                             )
-                            StopButton(tint: accentColor(context.state), size: 36)
+                            AirySecondaryButton(
+                                intent: StopTimerIntent(),
+                                systemName: "stop.fill",
+                                bg: Color.white.opacity(0.14),
+                                fg: .white,
+                                size: 40
+                            )
                         }
-                        .frame(maxWidth: .infinity)
+                        .padding(.top, 4)
                     }
                 }
             } compactLeading: {
-                MangoMark(tint: accentColor(context.state))
+                Image(systemName: "timer")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(accent)
             } compactTrailing: {
                 CountdownText(state: context.state)
-                    .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundColor(.white)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundColor(accent)
                     .frame(maxWidth: 52)
             } minimal: {
-                MangoMark(tint: accentColor(context.state))
+                Image(systemName: "timer")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(accent)
             }
-            .keylineTint(accentColor(context.state))
+            .keylineTint(accent)
         }
     }
 
     @ViewBuilder
     private func statusLabel(for state: PomodoroActivityAttributes.State, onDark: Bool) -> some View {
+        let color: Color = onDark ? .white.opacity(0.7) : .secondary
         if !state.isRunning {
-            Text("Paused")
-                .font(.caption2)
-                .foregroundColor(onDark ? .white.opacity(0.7) : .secondary)
+            Text("Paused").font(.caption2).foregroundColor(color)
         } else if state.isSynced {
-            Text("Sync session")
-                .font(.caption2)
-                .foregroundColor(onDark ? .white.opacity(0.7) : .secondary)
+            Text("Sync session").font(.caption2).foregroundColor(color)
+        } else {
+            Text("Focus timer").font(.caption2).foregroundColor(color)
         }
     }
 
     private func accentColor(_ state: PomodoroActivityAttributes.State) -> Color {
-        Color(hex: state.accentColorHex) ?? .teal
+        airyPhaseAccent(mode: state.mode, accentHex: state.accentColorHex, breakHex: state.breakColorHex)
+    }
+
+    private func ringFraction(_ state: PomodoroActivityAttributes.State) -> Double {
+        airyRingFraction(
+            isRunning: state.isRunning,
+            endsAtEpochMs: state.endsAtEpochMs,
+            pausedSecondsLeft: state.pausedSecondsLeft,
+            phaseDurationSeconds: state.phaseDurationSeconds,
+            mode: state.mode
+        )
+    }
+
+    private func minsLeft(_ state: PomodoroActivityAttributes.State) -> Int {
+        airyMinsLeft(
+            isRunning: state.isRunning,
+            endsAtEpochMs: state.endsAtEpochMs,
+            pausedSecondsLeft: state.pausedSecondsLeft
+        )
     }
 }
 
@@ -110,48 +141,86 @@ private struct PomodoroLockScreenView: View {
     let state: PomodoroActivityAttributes.State
 
     var body: some View {
-        HStack(spacing: 14) {
-            // On the accent-tinted platter the glyph background blends
-            // with the platter itself, so we render the logo on a
-            // softly translucent white circle to keep it crisp.
-            MangoMark(style: .onAccent)
-                .frame(width: 56, height: 56)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(state.label)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.white)
+        VStack(spacing: 12) {
+            HStack(spacing: 14) {
+                AiryRing(
+                    fraction: fraction,
+                    accent: accent,
+                    track: Color.primary.opacity(0.12),
+                    size: 54,
+                    lineWidth: 6
+                ) {
+                    Text("\(mins)m")
+                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                        .foregroundColor(.primary)
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(state.label)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Circle().fill(accent).frame(width: 6, height: 6)
+                        subtitle
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .layoutPriority(1)
+                Spacer(minLength: 8)
+                CountdownText(state: state)
+                    .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundColor(accent)
                     .lineLimit(1)
-                subtitle
-                    .font(.caption2)
-                    .foregroundColor(.white.opacity(0.78))
-                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    // Cap the width: the running countdown is a Text(timerInterval:)
+                    // anchored at epoch 0 (for tick stability), which otherwise
+                    // reserves a huge intrinsic width and starves the label.
+                    .frame(maxWidth: 96, alignment: .trailing)
             }
-            Spacer(minLength: 8)
             if #available(iOS 17.0, *) {
-                HStack(spacing: 10) {
-                    ToggleButton(
+                HStack(spacing: 9) {
+                    AiryPrimaryButton(
+                        intent: ToggleTimerIntent(),
                         isRunning: state.isRunning,
-                        tint: accentColor,
-                        size: 44
+                        accent: accent,
+                        height: 42
                     )
-                    StopButton(tint: accentColor, size: 36)
+                    AirySecondaryButton(
+                        intent: StopTimerIntent(),
+                        systemName: "stop.fill",
+                        bg: Color.primary.opacity(0.08),
+                        fg: .primary,
+                        size: 42
+                    )
                 }
             }
-            CountdownText(state: state)
-                .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundColor(.white)
-                // Keep the timer on a single line: scale down to fit rather
-                // than wrapping, and claim width ahead of the label/buttons.
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-                .layoutPriority(1)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
     }
 
-    private var accentColor: Color {
-        Color(hex: state.accentColorHex) ?? .teal
+    private var accent: Color {
+        airyPhaseAccent(mode: state.mode, accentHex: state.accentColorHex, breakHex: state.breakColorHex)
+    }
+
+    private var fraction: Double {
+        airyRingFraction(
+            isRunning: state.isRunning,
+            endsAtEpochMs: state.endsAtEpochMs,
+            pausedSecondsLeft: state.pausedSecondsLeft,
+            phaseDurationSeconds: state.phaseDurationSeconds,
+            mode: state.mode
+        )
+    }
+
+    private var mins: Int {
+        airyMinsLeft(
+            isRunning: state.isRunning,
+            endsAtEpochMs: state.endsAtEpochMs,
+            pausedSecondsLeft: state.pausedSecondsLeft
+        )
     }
 
     @ViewBuilder
@@ -161,7 +230,7 @@ private struct PomodoroLockScreenView: View {
         } else if state.isSynced {
             Text("Sync session")
         } else {
-            Text("Tap to open")
+            Text("Focus timer")
         }
     }
 }
@@ -196,144 +265,12 @@ private struct CountdownText: View {
         // down and rebuild the OS-driven timer view, which is what
         // produced the "seconds skip / speed up" artifact. Pause↔resume
         // still flips the id because isRunning changes.
-        .id(state.isRunning
-            ? "running"
-            : "paused-\(state.pausedSecondsLeft ?? -1)")
+        .id(state.isRunning ? "running" : "paused-\(state.pausedSecondsLeft ?? -1)")
     }
 
     private func formatMMSS(_ totalSec: Int) -> String {
         let m = max(0, totalSec) / 60
         let s = max(0, totalSec) % 60
         return "\(m):\(String(format: "%02d", s))"
-    }
-}
-
-/// Brand mark: white Mangodoro silhouette inside a circle. Two styles:
-///   • `.onAccent` — translucent white circle, used on the lockscreen
-///     where the activity platter is already painted in the accent
-///     color, so the glyph background is white-on-tint.
-///   • `.tinted(Color)` — solid accent fill, used on the Dynamic
-///     Island and minimal presentations where the surrounding cutout
-///     is always dark, so the glyph carries the only color.
-@available(iOS 16.1, *)
-private struct MangoMark: View {
-    enum Style {
-        case onAccent
-        case tinted(Color)
-    }
-    let style: Style
-
-    init(style: Style = .onAccent) { self.style = style }
-    init(tint: Color) { self.style = .tinted(tint) }
-
-    var body: some View {
-        ZStack {
-            // On the accent-tinted platter the logo carries itself —
-            // dropping the translucent circle lets it fill the whole
-            // frame and the white silhouette has high contrast against
-            // the saturated background.
-            if case .tinted(let tint) = style {
-                Circle().fill(tint)
-            }
-            if let appIcon = UIImage(named: "WidgetAppIcon") {
-                Image(uiImage: appIcon)
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundColor(.white)
-                    // Tighter padding so the mark fills the frame.
-                    // .tinted needs a touch of inset so the silhouette
-                    // doesn't kiss the circle's edge; .onAccent has no
-                    // circle so we can let it run edge-to-edge.
-                    .padding(paddingForStyle)
-            } else {
-                Image(systemName: "timer")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white)
-            }
-        }
-    }
-
-    private var paddingForStyle: CGFloat {
-        switch style {
-        case .onAccent: return 0
-        case .tinted: return 4
-        }
-    }
-}
-
-@available(iOS 17.0, *)
-private struct ToggleButton: View {
-    let isRunning: Bool
-    let tint: Color
-    let size: CGFloat
-
-    var body: some View {
-        if isRunning {
-            button(systemName: "pause.fill").id("pause")
-        } else {
-            button(systemName: "play.fill").id("play")
-        }
-    }
-
-    private func button(systemName: String) -> some View {
-        Button(intent: ToggleTimerIntent()) {
-            ZStack {
-                Circle().fill(tint)
-                Image(systemName: systemName)
-                    .font(.system(size: size * 0.46, weight: .bold))
-                    .foregroundColor(.white)
-            }
-            .frame(width: size, height: size)
-            // Generous invisible hit area so the button is easy to hit
-            // quickly even though the visible circle stays compact.
-            .padding(9)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-@available(iOS 17.0, *)
-private struct StopButton: View {
-    let tint: Color
-    let size: CGFloat
-
-    var body: some View {
-        Button(intent: StopTimerIntent()) {
-            ZStack {
-                Circle().fill(tint)
-                Image(systemName: "stop.fill")
-                    .font(.system(size: size * 0.46, weight: .bold))
-                    .foregroundColor(.white)
-            }
-            .frame(width: size, height: size)
-            .padding(9)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-extension Color {
-    init?(hex: String?) {
-        guard var raw = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
-        if raw.hasPrefix("#") { raw.removeFirst() }
-        guard raw.count == 6 || raw.count == 8 else { return nil }
-        var value: UInt64 = 0
-        guard Scanner(string: raw).scanHexInt64(&value) else { return nil }
-        let r, g, b, a: Double
-        if raw.count == 6 {
-            r = Double((value >> 16) & 0xFF) / 255.0
-            g = Double((value >> 8) & 0xFF) / 255.0
-            b = Double(value & 0xFF) / 255.0
-            a = 1.0
-        } else {
-            r = Double((value >> 24) & 0xFF) / 255.0
-            g = Double((value >> 16) & 0xFF) / 255.0
-            b = Double((value >> 8) & 0xFF) / 255.0
-            a = Double(value & 0xFF) / 255.0
-        }
-        self = Color(red: r, green: g, blue: b, opacity: a)
     }
 }

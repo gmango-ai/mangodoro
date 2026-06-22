@@ -167,6 +167,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         let label = call.getString("label") ?? "Pomodoro"
         let isSynced = call.getBool("isSynced") ?? false
         let accentColorHex = call.getString("accentColorHex")
+        let breakColorHex = call.getString("breakColorHex")
+        let phaseDurationSeconds = call.getDouble("phaseDurationSeconds")
         let isRunning = call.getBool("isRunning") ?? true
         let pausedSecondsLeft = call.getInt("pausedSecondsLeft")
 
@@ -196,7 +198,9 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             label: label,
             isSynced: isSynced,
             isRunning: isRunning,
-            accentColorHex: accentColorHex
+            accentColorHex: accentColorHex,
+            breakColorHex: breakColorHex,
+            phaseDurationSeconds: phaseDurationSeconds
         )
         Self.mirrorContentState(state)
 
@@ -265,6 +269,12 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         state.pausedSecondsLeft = pausedSecondsLeft
         if let accentColorHex = call.getString("accentColorHex") {
             state.accentColorHex = accentColorHex
+        }
+        if let breakColorHex = call.getString("breakColorHex") {
+            state.breakColorHex = breakColorHex
+        }
+        if let phaseDurationSeconds = call.getDouble("phaseDurationSeconds") {
+            state.phaseDurationSeconds = phaseDurationSeconds
         }
         Self.mirrorContentState(state)
         Task {
@@ -403,6 +413,12 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         if let accentColorHex = state.accentColorHex {
             payload["accentColorHex"] = accentColorHex
+        }
+        if let breakColorHex = state.breakColorHex {
+            payload["breakColorHex"] = breakColorHex
+        }
+        if let phaseDurationSeconds = state.phaseDurationSeconds {
+            payload["phaseDurationSeconds"] = phaseDurationSeconds
         }
         return payload
     }

@@ -1247,15 +1247,19 @@ export class PomodoroEngine {
 
     if (hasPersistentTimerSurface) {
       const phaseMode = pendingMode || mode;
+      // The Airy widget ring needs the full phase length to know how full it
+      // is (work/shortBreak/longBreak each differ, and durations are custom).
+      const durationSeconds = this._state.durations?.[phaseMode];
       if (isRunning) {
         const endsAt =
           this._refs.endsAtMsRef.current || Date.now() + secondsLeft * 1000;
-        startPersistentTimer({ endsAtMs: endsAt, mode: phaseMode, isSynced });
+        startPersistentTimer({ endsAtMs: endsAt, mode: phaseMode, isSynced, durationSeconds });
       } else {
         pausePersistentTimer({
           pausedSecondsLeft: secondsLeft,
           mode: phaseMode,
           isSynced,
+          durationSeconds,
         });
       }
     }

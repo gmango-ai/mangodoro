@@ -47,6 +47,8 @@ function buildActivityState({
   isRunning,
   pausedSecondsLeft,
   accentColorHex,
+  breakColorHex,
+  phaseDurationSeconds,
 }) {
   const state = {
     endsAtEpochMs: endsAtMs,
@@ -60,6 +62,15 @@ function buildActivityState({
   }
   if (accentColorHex) {
     state.accentColorHex = accentColorHex;
+  }
+  // Break-phase color + current phase length drive the Airy widget ring and
+  // its per-phase accent. Optional — the widget falls back to the accent and
+  // per-mode default durations when absent.
+  if (breakColorHex) {
+    state.breakColorHex = breakColorHex;
+  }
+  if (phaseDurationSeconds != null && phaseDurationSeconds > 0) {
+    state.phaseDurationSeconds = Math.round(phaseDurationSeconds);
   }
   return state;
 }
@@ -159,25 +170,34 @@ function modeLabel(mode) {
 // so we just pick it up from the computed style. Returns a hex string
 // or null.
 function currentAccentHex() {
+  return cssVarHex("--color-accent");
+}
+
+// The break-phase color (analogous to the accent), used by the Airy widget
+// ring/accent during shortBreak/longBreak. Same source/strategy as the accent.
+function currentBreakHex() {
+  return cssVarHex("--color-break");
+}
+
+// Reads a CSS custom property off the document root and returns it only if
+// it's a plain "#rrggbb" hex — for other forms (rgb(), oklch(), etc.) bail
+// rather than feed garbage to the native parser (it falls back to its tint).
+function cssVarHex(name) {
   if (typeof document === "undefined") return null;
   try {
-    const raw = getComputedStyle(document.documentElement)
-      .getPropertyValue("--color-accent")
-      .trim();
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     if (!raw) return null;
-    // Accept "#rrggbb" directly; for other forms (rgb(), oklch(), etc.)
-    // bail rather than feed garbage to the native parser — the activity
-    // will fall back to its default tint.
     return raw.startsWith("#") ? raw : null;
   } catch {
     return null;
   }
 }
 
-export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
+export async function startPersistentTimer({ endsAtMs, mode, isSynced, durationSeconds }) {
   if (!endsAtMs || endsAtMs <= Date.now()) return;
   const label = modeLabel(mode);
   const accentColorHex = currentAccentHex();
+  const breakColorHex = currentBreakHex();
   const platform = getPlatform();
   try {
     if (platform === "ios") {
@@ -189,6 +209,8 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
         isSynced: !!isSynced,
         isRunning: true,
         accentColorHex,
+        breakColorHex,
+        phaseDurationSeconds: durationSeconds,
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
       });
@@ -201,6 +223,8 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
           isSynced,
           isRunning: true,
           accentColorHex,
+          breakColorHex,
+          phaseDurationSeconds: durationSeconds,
         })
       );
     } else if (platform === "android") {
@@ -220,10 +244,11 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
 
 // Used when the phase changes mid-run. Cheaper than stop+start because
 // the surface stays visible without flicker.
-export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
+export async function updatePersistentTimer({ endsAtMs, mode, isSynced, durationSeconds }) {
   if (!endsAtMs || endsAtMs <= Date.now()) return;
   const label = modeLabel(mode);
   const accentColorHex = currentAccentHex();
+  const breakColorHex = currentBreakHex();
   const platform = getPlatform();
   try {
     if (platform === "ios") {
@@ -235,6 +260,8 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
         isSynced: !!isSynced,
         isRunning: true,
         accentColorHex,
+        breakColorHex,
+        phaseDurationSeconds: durationSeconds,
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
       });
@@ -247,6 +274,8 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
           isSynced,
           isRunning: true,
           accentColorHex,
+          breakColorHex,
+          phaseDurationSeconds: durationSeconds,
         })
       );
     } else if (platform === "android") {
@@ -268,9 +297,10 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
 // surface. iOS-only for now — Android's ongoing notification still
 // clears on pause until we add a foreground service; Electron's tray
 // clears too.
-export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }) {
+export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced, durationSeconds }) {
   const label = modeLabel(mode);
   const accentColorHex = currentAccentHex();
+  const breakColorHex = currentBreakHex();
   const platform = getPlatform();
   const pausedSec = Math.max(0, Math.round(pausedSecondsLeft || 0));
   try {
@@ -281,6 +311,8 @@ export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }
         label,
         isSynced: !!isSynced,
         accentColorHex,
+        breakColorHex,
+        phaseDurationSeconds: durationSeconds,
       });
       captureActivityId(result);
       await syncActivityState(
@@ -292,6 +324,8 @@ export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }
           isRunning: false,
           pausedSecondsLeft: pausedSec,
           accentColorHex,
+          breakColorHex,
+          phaseDurationSeconds: durationSeconds,
         })
       );
     } else if (platform === "android") {
@@ -307,9 +341,9 @@ export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }
 // Resume from a paused state. Computes a fresh endsAtMs from the
 // remaining seconds at the moment of resume so the widget's
 // Text(timerInterval:) picks up exactly where it left off.
-export async function resumePersistentTimer({ pausedSecondsLeft, mode, isSynced }) {
+export async function resumePersistentTimer({ pausedSecondsLeft, mode, isSynced, durationSeconds }) {
   const endsAtMs = Date.now() + Math.max(0, Math.round(pausedSecondsLeft || 0)) * 1000;
-  await startPersistentTimer({ endsAtMs, mode, isSynced });
+  await startPersistentTimer({ endsAtMs, mode, isSynced, durationSeconds });
 }
 
 export async function stopPersistentTimer() {

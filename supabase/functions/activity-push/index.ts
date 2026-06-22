@@ -84,6 +84,10 @@ Deno.serve(async (req) => {
       isSynced: (prev.isSynced as boolean) ?? true,
       isRunning,
       accentColorHex: (prev.accentColorHex as string | null) ?? null,
+      // Airy ring/accent — preserved from the registered token state so a
+      // web-initiated pause/resume keeps the break color + ring duration.
+      breakColorHex: (prev.breakColorHex as string | null) ?? null,
+      phaseDurationSeconds: (prev.phaseDurationSeconds as number | null) ?? null,
     };
     const res = await sendLiveActivityPush({
       pushToken: row.push_token as string,

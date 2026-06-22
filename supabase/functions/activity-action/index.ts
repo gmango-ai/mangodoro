@@ -67,6 +67,10 @@ type ContentState = {
   isSynced?: boolean;
   isRunning?: boolean;
   accentColorHex?: string | null;
+  // Airy widget ring/accent. Preserved across toggles via computeNext's
+  // spread; forwarded to the LA below so the ring fill + break color survive.
+  breakColorHex?: string | null;
+  phaseDurationSeconds?: number | null;
 };
 
 function computeNext(action: "toggle" | "stop", current: ContentState): ContentState {
@@ -214,19 +218,39 @@ Deno.serve(async (req) => {
       ? Math.max(0, Math.floor(((current.endsAtEpochMs ?? Date.now()) - Date.now()) / 1000))
       : (current.pausedSecondsLeft ?? 0);
     const dbRemaining = dbIsRunning ? (current.pausedSecondsLeft ?? 0) : remainingAtPause;
-    const { data: updated, error: writeError } = await admin
-      .from(dbSource.table)
-      .update({ is_running: dbIsRunning, remaining_seconds: Math.max(0, dbRemaining) })
-      .eq(dbSource.table === "sync_sessions" ? "id" : "user_id", dbSource.id)
-      .select("ends_at")
-      .maybeSingle();
-    if (writeError) {
-      console.error(`${dbSource.table} write failed`, writeError);
-      return json(500, { error: "db write failed" });
+    let newEndsAt: string | null = null;
+    if (dbSource.table === "sync_sessions") {
+      // sync_sessions has a before-update guard that rejects any write whose
+      // auth.uid() isn't the leader/controller. We write as the service role
+      // (auth.uid() = null), so a plain .update() 500s. Go through the trusted
+      // RPC, which sets the sync.internal_update flag the same way
+      // take_sync_control does, then writes only the timer fields.
+      const { data, error: writeError } = await admin.rpc("sync_session_set_timer", {
+        p_session_id: dbSource.id,
+        p_is_running: dbIsRunning,
+        p_remaining_seconds: Math.max(0, dbRemaining),
+      });
+      if (writeError) {
+        console.error("sync_session_set_timer failed", writeError);
+        return json(500, { error: "db write failed" });
+      }
+      newEndsAt = (data as string | null) ?? null;
+    } else {
+      const { data: updated, error: writeError } = await admin
+        .from("user_pomodoro_state")
+        .update({ is_running: dbIsRunning, remaining_seconds: Math.max(0, dbRemaining) })
+        .eq("user_id", dbSource.id)
+        .select("ends_at")
+        .maybeSingle();
+      if (writeError) {
+        console.error("user_pomodoro_state write failed", writeError);
+        return json(500, { error: "db write failed" });
+      }
+      newEndsAt = (updated?.ends_at as string | null) ?? null;
     }
     // Use the trigger-computed ends_at so the Live Activity matches the DB
     // exactly (no drift between the lockscreen countdown and the website).
-    if (updated?.ends_at) next.endsAtEpochMs = new Date(updated.ends_at as string).getTime();
+    if (newEndsAt) next.endsAtEpochMs = new Date(newEndsAt).getTime();
   }
 
   const event: "update" | "end" = action === "stop" ? "end" : "update";
@@ -243,6 +267,8 @@ Deno.serve(async (req) => {
       isSynced: next.isSynced ?? false,
       isRunning: next.isRunning ?? false,
       accentColorHex: next.accentColorHex ?? null,
+      breakColorHex: next.breakColorHex ?? null,
+      phaseDurationSeconds: next.phaseDurationSeconds ?? null,
     },
   });
   if (!apnsResult.ok) {
