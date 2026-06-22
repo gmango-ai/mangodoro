@@ -5,31 +5,71 @@ import {
   GridLayout,
   ParticipantTile,
   TrackToggle,
-  MediaDeviceMenu,
   DisconnectButton,
+  LayoutContextProvider,
+  FocusLayoutContainer,
+  FocusLayout,
+  CarouselLayout,
+  usePinnedTracks,
+  useSpeakingParticipants,
+  useMediaDeviceSelect,
   useTracks,
   useParticipants,
   useLocalParticipant,
 } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Aperture, Waves, ChevronDown, Check } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 
 // LiveKit provider — the A/B counterpart to <JitsiCall>.
 //
-// We compose LiveKit's primitives (GridLayout + ParticipantTile +
-// RoomAudioRenderer + ControlBar) rather than the all-in-one
-// <VideoConference> so the call matches the app and adapts to context:
-//   • compact (PiP) → just the grid, no control bar (the app frames PiP).
+// We compose LiveKit's primitives (Grid/Focus/Carousel layouts +
+// ParticipantTile + RoomAudioRenderer + a custom ControlBar) rather than the
+// all-in-one <VideoConference> so the call matches the app and adapts to
+// context:
+//   • compact (PiP) → just the stage, no control bar (the app frames PiP).
 //   • publish=false (spectate) → connect subscribe-only: you see/hear
 //     everyone without publishing your own camera/mic.
 //
 // We always connect subscribe-only and then enable camera/mic via the
 // local-participant API (PublishController) so spectate ↔ join can flip
 // live without reconnecting.
+
+// Per-device preferences for the local self-view processors + layout. Kept in
+// localStorage so they persist across calls and apply even in PiP (which has
+// no control bar to toggle them).
+const PREF = { blur: "ql_lk_blur", noise: "ql_lk_noise", layout: "ql_lk_layout" };
+function loadPref(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v;
+  } catch {
+    return fallback;
+  }
+}
+function savePref(key, val) {
+  try {
+    localStorage.setItem(key, val);
+  } catch {
+    /* ignore */
+  }
+}
+
+function refKey(t) {
+  return t ? `${t.participant?.identity || ""}:${t.source}` : "";
+}
+
+// The background-blur (MediaPipe) and Krisp packages bundle several MB of
+// WASM/model glue. Load them on demand — only when a call actually enables the
+// effect — so they never weigh down the eager app bundle. Cached after first
+// load. (stopProcessor() is a track method, so DISABLING needs no package.)
+let _blurModPromise;
+let _krispModPromise;
+const loadBlurMod = () => (_blurModPromise ||= import("@livekit/track-processors"));
+const loadKrispMod = () => (_krispModPromise ||= import("@livekit/krisp-noise-filter"));
 
 function PublishController({ publish, choices }) {
   const { localParticipant } = useLocalParticipant();
@@ -50,15 +90,154 @@ function PublishController({ publish, choices }) {
   return null;
 }
 
-// Custom control bar (replaces LiveKit's <ControlBar>) so reactions can sit
-// between device selection and Leave, and so it collapses to icon-only when
-// the tile is narrow — keeping a small video usable rather than forcing a
-// large minimum size.
+// Applies the self-view processors to the LOCAL tracks: background blur on the
+// camera (@livekit/track-processors) and Krisp noise cancellation on the mic
+// (@livekit/krisp-noise-filter — a LiveKit Cloud feature). Re-runs when the
+// toggle flips or the underlying track republishes (mute/unmute, device swap).
+function EffectsController({ blurEnabled, noiseEnabled }) {
+  const { cameraTrack, microphoneTrack } = useLocalParticipant();
+
+  useEffect(() => {
+    const t = cameraTrack?.track;
+    if (!t || t.kind !== "video") return undefined;
+    let active = true;
+    (async () => {
+      try {
+        if (blurEnabled) {
+          const { BackgroundBlur, supportsBackgroundProcessors } = await loadBlurMod();
+          if (active && supportsBackgroundProcessors()) await t.setProcessor(BackgroundBlur(10));
+        } else {
+          await t.stopProcessor();
+        }
+      } catch {
+        /* unsupported device/browser — leave the raw track */
+      }
+    })();
+    return () => { active = false; };
+  }, [blurEnabled, cameraTrack]);
+
+  useEffect(() => {
+    const t = microphoneTrack?.track;
+    if (!t || t.kind !== "audio") return undefined;
+    let active = true;
+    (async () => {
+      try {
+        if (noiseEnabled) {
+          const { KrispNoiseFilter, isKrispNoiseFilterSupported } = await loadKrispMod();
+          if (active && isKrispNoiseFilterSupported()) await t.setProcessor(KrispNoiseFilter());
+        } else {
+          await t.stopProcessor();
+        }
+      } catch {
+        /* unsupported (e.g. not LiveKit Cloud) — leave the raw track */
+      }
+    })();
+    return () => { active = false; };
+  }, [noiseEnabled, microphoneTrack]);
+
+  return null;
+}
+
+// A settings row inside a device menu — a labelled on/off toggle (e.g. blur,
+// noise cancellation) that lives alongside the device list.
+function SettingRow({ icon: Icon, label, active, onClick }) {
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={active}
+      onClick={onClick}
+      className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10"
+    >
+      <Icon className="w-3.5 h-3.5 opacity-80 shrink-0" />
+      <span className="flex-1 truncate">{label}</span>
+      <span className={`text-[10px] font-bold uppercase tracking-wide ${active ? "text-[var(--lk-accent-bg,#22d3ee)]" : "opacity-50"}`}>
+        {active ? "On" : "Off"}
+      </span>
+    </button>
+  );
+}
+
+// Per-track settings dropdown: the device picker (mic / camera) PLUS that
+// track's processing settings as extra rows below it. Replaces LiveKit's
+// <MediaDeviceMenu> so all audio settings (mic + noise cancellation) live
+// under the mic, and all video settings (camera + blur) under the camera.
+function DeviceSettingsMenu({ kind, label, children }) {
+  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind });
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        className="lk-button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`${label} settings`}
+        title={`${label} settings`}
+      >
+        <ChevronDown className="w-4 h-4" />
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-56 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1.5 shadow-xl text-[12px]">
+          <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
+          <div className="max-h-44 overflow-auto">
+            {devices.length === 0 ? (
+              <div className="px-2.5 py-1.5 opacity-60">No devices found</div>
+            ) : (
+              devices.map((d) => {
+                const selected = d.deviceId === activeDeviceId;
+                return (
+                  <button
+                    key={d.deviceId}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    onClick={() => { setActiveMediaDevice(d.deviceId); setOpen(false); }}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10"
+                  >
+                    <span className="flex-1 truncate">{d.label || "Unnamed device"}</span>
+                    {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+          {children && <div className="mt-1 pt-1 border-t border-white/10">{children}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Custom control bar (replaces LiveKit's <ControlBar>) so reactions + the
+// layout toggle sit where we want and it collapses to icon-only when the tile
+// is narrow — keeping a small video usable rather than forcing a large minimum
+// size. Per-track processing (blur, noise cancellation) lives in each device
+// menu, not as separate buttons.
 //
 // The reactions popup (Google-Meet style) is centered on the bar FRAME, not
 // on the off-center smiley button — so it stays put regardless of how many
 // controls flank it.
-function CallControlBar({ publish, tight, emote }) {
+function CallControlBar({
+  publish, tight, emote,
+  layoutMode, onToggleLayout,
+  blurEnabled, onToggleBlur,
+  noiseEnabled, onToggleNoise,
+}) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [reactionsOpen, setReactionsOpen] = useState(false);
@@ -68,6 +247,7 @@ function CallControlBar({ publish, tight, emote }) {
   const [recents, setRecents] = useState([]);
   useEffect(() => emote?.subscribeCharge?.(setCharge), [emote]);
   useEffect(() => emote?.subscribeRecents?.(setRecents), [emote]);
+
   return (
     <div className="relative flex items-center justify-center flex-wrap gap-1.5 px-2 py-2">
       {reactionsOpen && (
@@ -90,12 +270,31 @@ function CallControlBar({ publish, tight, emote }) {
       {publish && (
         <>
           <TrackToggle source={Track.Source.Microphone} />
-          {!tight && <MediaDeviceMenu kind="audioinput" />}
+          {!tight && (
+            <DeviceSettingsMenu kind="audioinput" label="Microphone">
+              <SettingRow icon={Waves} label="Noise cancellation" active={noiseEnabled} onClick={onToggleNoise} />
+            </DeviceSettingsMenu>
+          )}
           <TrackToggle source={Track.Source.Camera} />
-          {!tight && <MediaDeviceMenu kind="videoinput" />}
+          {!tight && (
+            <DeviceSettingsMenu kind="videoinput" label="Camera">
+              <SettingRow icon={Aperture} label="Blur background" active={blurEnabled} onClick={onToggleBlur} />
+            </DeviceSettingsMenu>
+          )}
           <TrackToggle source={Track.Source.ScreenShare} />
         </>
       )}
+
+      {/* Layout toggle (viewing — available whether or not you publish). */}
+      <button
+        type="button"
+        className="lk-button"
+        onClick={onToggleLayout}
+        title={layoutMode === "speaker" ? "Switch to grid view" : "Switch to speaker view"}
+      >
+        {layoutMode === "speaker" ? <LayoutGrid className="w-5 h-5" /> : <SquareUser className="w-5 h-5" />}
+      </button>
+
       <button
         type="button"
         className="lk-button"
@@ -112,7 +311,7 @@ function CallControlBar({ publish, tight, emote }) {
 }
 
 // A small toggleable "N watching" pill → expandable name list, shown over
-// the grid so spectators take a line of text, not a whole tile.
+// the stage so spectators take a line of text, not a whole tile.
 function SpectatorList({ spectators }) {
   const [open, setOpen] = useState(false);
   if (!spectators.length) return null;
@@ -138,6 +337,87 @@ function SpectatorList({ spectators }) {
   );
 }
 
+// The video stage. Renders a grid, or a focus layout (one big tile + a
+// carousel filmstrip) when a tile is pinned, someone is screen-sharing, or
+// speaker view is on. Clicking a tile's focus button pins it (LiveKit's
+// LayoutContextProvider wires that into ParticipantTile for free); speaker
+// view auto-focuses whoever is talking when nothing is manually pinned.
+function Stage({ compact, publish, onJoinIn, layoutMode }) {
+  const tracks = useTracks(
+    [
+      { source: Track.Source.Camera, withPlaceholder: true },
+      { source: Track.Source.ScreenShare, withPlaceholder: false },
+    ],
+    { onlySubscribed: false },
+  );
+  const participants = useParticipants();
+  const speaking = useSpeakingParticipants();
+  const pinned = usePinnedTracks();
+
+  // Keep the last active speaker so speaker view doesn't fall back to the grid
+  // during a silence between turns.
+  const [stickySpeaker, setStickySpeaker] = useState(null);
+  const topSpeaker = speaking?.[0]?.identity;
+  useEffect(() => {
+    if (topSpeaker) setStickySpeaker(topSpeaker);
+  }, [topSpeaker]);
+
+  // Spectators are listed by name; publishers (even camera-off) get a tile.
+  const spectators = participants.filter((p) => p.attributes?.role === "spectator" && !p.isLocal);
+  const shown = tracks.filter((t) => {
+    const p = t.participant;
+    if (!p) return true;
+    if (p.attributes?.role === "spectator") return false; // listed, not tiled
+    if (!publish && p.isLocal) return false; // don't show your own empty tile
+    return true;
+  });
+
+  const screenTrack = shown.find((t) => t.source === Track.Source.ScreenShare);
+  const speakerTrack =
+    layoutMode === "speaker" && stickySpeaker
+      ? shown.find((t) => t.participant?.identity === stickySpeaker && t.source === Track.Source.Camera)
+      : null;
+  // Manual pin wins, then an active screen share, then the active speaker.
+  const focusTrack = (pinned && pinned[0]) || screenTrack || speakerTrack || null;
+  const focusKey = refKey(focusTrack);
+  const carousel = focusTrack ? shown.filter((t) => refKey(t) !== focusKey) : shown;
+
+  return (
+    <div className="relative flex-1 min-h-0">
+      {focusTrack ? (
+        <FocusLayoutContainer style={{ height: "100%" }}>
+          <CarouselLayout tracks={carousel}>
+            <ParticipantTile />
+          </CarouselLayout>
+          <FocusLayout trackRef={focusTrack} />
+        </FocusLayoutContainer>
+      ) : (
+        <GridLayout tracks={shown} style={{ height: "100%" }}>
+          <ParticipantTile />
+        </GridLayout>
+      )}
+
+      <SpectatorList spectators={spectators} />
+
+      {/* Spectator → publisher. Rendered ON the overlay (the app's stage
+          placeholder underneath is covered by this call). */}
+      {!publish && !compact && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
+          <button
+            type="button"
+            onClick={() => onJoinIn?.()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-[12px] font-semibold shadow-lg"
+          >
+            <Eye className="w-3.5 h-3.5 opacity-90" /> Watching
+            <span className="opacity-60">·</span>
+            <Video className="w-3.5 h-3.5" /> Join in
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ConferenceLayout({ compact, publish, onJoinIn, emote }) {
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
@@ -153,51 +433,34 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote }) {
     return () => ro.disconnect();
   }, []);
 
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false },
-    ],
-    { onlySubscribed: false },
-  );
-  const participants = useParticipants();
-  // Spectators are listed by name; publishers (even camera-off) get a tile.
-  const spectators = participants.filter((p) => p.attributes?.role === "spectator" && !p.isLocal);
+  const [layoutMode, setLayoutMode] = useState(() => loadPref(PREF.layout, "grid"));
+  const [blurEnabled, setBlurEnabled] = useState(() => loadPref(PREF.blur, "0") === "1");
+  // Noise cancellation defaults ON (the whole point), where supported.
+  const [noiseEnabled, setNoiseEnabled] = useState(() => loadPref(PREF.noise, "1") === "1");
 
-  const shown = tracks.filter((t) => {
-    const p = t.participant;
-    if (!p) return true;
-    if (p.attributes?.role === "spectator") return false; // listed, not tiled
-    if (!publish && p.isLocal) return false; // don't show your own empty tile
-    return true;
-  });
+  useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
+  useEffect(() => savePref(PREF.blur, blurEnabled ? "1" : "0"), [blurEnabled]);
+  useEffect(() => savePref(PREF.noise, noiseEnabled ? "1" : "0"), [noiseEnabled]);
 
   return (
     <div ref={rootRef} className="flex flex-col w-full h-full">
-      <div className="relative flex-1 min-h-0">
-        <GridLayout tracks={shown} style={{ height: "100%" }}>
-          <ParticipantTile />
-        </GridLayout>
-        <SpectatorList spectators={spectators} />
-        {/* Spectator → publisher. Rendered ON the overlay (the app's stage
-            placeholder underneath is covered by this call). */}
-        {!publish && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
-            <button
-              type="button"
-              onClick={() => onJoinIn?.()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-[12px] font-semibold shadow-lg"
-            >
-              <Eye className="w-3.5 h-3.5 opacity-90" /> Watching
-              <span className="opacity-60">·</span>
-              <Video className="w-3.5 h-3.5" /> Join in
-            </button>
-          </div>
-        )}
-      </div>
+      <EffectsController blurEnabled={blurEnabled} noiseEnabled={noiseEnabled} />
+      <LayoutContextProvider>
+        <Stage compact={compact} publish={publish} onJoinIn={onJoinIn} layoutMode={layoutMode} />
+      </LayoutContextProvider>
       {!compact && (
         <div className="shrink-0">
-          <CallControlBar publish={publish} tight={tight} emote={emote} />
+          <CallControlBar
+            publish={publish}
+            tight={tight}
+            emote={emote}
+            layoutMode={layoutMode}
+            onToggleLayout={() => setLayoutMode((m) => (m === "speaker" ? "grid" : "speaker"))}
+            blurEnabled={blurEnabled}
+            onToggleBlur={() => setBlurEnabled((v) => !v)}
+            noiseEnabled={noiseEnabled}
+            onToggleNoise={() => setNoiseEnabled((v) => !v)}
+          />
         </div>
       )}
     </div>
