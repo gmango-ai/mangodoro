@@ -139,6 +139,24 @@ jobs:
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: Mangodoro v${{ needs.version.outputs.version }}
+          # Prepended above the auto-generated changelog so downloaders see the
+          # unsigned-app workaround right where they grab the installer.
+          body: |
+            ## Install
+
+            **macOS** — the build is unsigned, so on first launch macOS may say
+            *"Mangodoro is damaged"* or *"developer cannot be verified."* It isn't
+            damaged. Drag it to **Applications**, then run once in Terminal:
+
+            ```bash
+            xattr -dr com.apple.quarantine /Applications/Mangodoro.app
+            ```
+
+            **Windows** — on the SmartScreen warning, click **More info → Run anyway**.
+
+            Full instructions (incl. Linux): [docs/desktop-install.md](https://github.com/gmango-ai/mangodoro/blob/main/docs/desktop-install.md)
+
+            ---
           # Publish straight away so the installers are downloadable from the
           # Releases page. Flip to `draft: true` if you want a review gate.
           draft: false
