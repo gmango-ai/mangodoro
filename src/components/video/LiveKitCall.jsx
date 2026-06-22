@@ -17,12 +17,21 @@ import {
   useParticipants,
   useLocalParticipant,
 } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { Track, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
 import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
+
+// LiveKit's client logs at "info" by default, which floods the console with
+// per-connection play-by-play (signal connecting, connection state changes,
+// track publish/unpublish, "already connected to room") — and doubles it under
+// React StrictMode in dev, which mounts/unmounts effects twice. It also warns
+// on the benign connect→leave→connect churn StrictMode causes ("could not
+// createOffer with closed peer connection"). Drop it to "error" so only real
+// failures surface. Module-level so it runs once, before any room connects.
+setLogLevel("error");
 
 // LiveKit provider — the A/B counterpart to <JitsiCall>.
 //
@@ -62,13 +71,11 @@ function refKey(t) {
   return t ? `${t.participant?.identity || ""}:${t.source}` : "";
 }
 
-// The background-blur (MediaPipe) and Krisp packages bundle several MB of
-// WASM/model glue. Load them on demand — only when a call actually enables the
-// effect — so they never weigh down the eager app bundle. Cached after first
-// load. (stopProcessor() is a track method, so DISABLING needs no package.)
-let _blurModPromise;
+// Krisp bundles several MB of WASM; load it on demand — only when a call enables
+// noise cancellation — so it never weighs down the eager app bundle. (The camera
+// background pipeline lazy-loads its own MediaPipe deps in refinedBackground.js.)
+// stopProcessor() is a track method, so DISABLING needs no package.
 let _krispModPromise;
-const loadBlurMod = () => (_blurModPromise ||= import("@livekit/track-processors"));
 const loadKrispMod = () => (_krispModPromise ||= import("@livekit/krisp-noise-filter"));
 
 // Built-in virtual backgrounds — rendered as gradients on a canvas so we ship
@@ -129,6 +136,18 @@ function fileToScaledDataUrl(file, maxW = 1280) {
   });
 }
 
+// Map a bg descriptor ("blur:<r>" | "image:<id|custom>") to the refined
+// processor's options. Returns null for an unresolved image (e.g. no custom yet).
+function bgToOptions(bg, customBg) {
+  if (bg.startsWith("blur:")) return { mode: "blur", blurRadius: parseInt(bg.slice(5), 10) || 10 };
+  if (bg.startsWith("image:")) {
+    const key = bg.slice(6);
+    const url = key === "custom" ? customBg : bgPresetUrl(key);
+    return url ? { mode: "image", imageUrl: url } : null;
+  }
+  return null;
+}
+
 function PublishController({ publish, choices }) {
   const { localParticipant } = useLocalParticipant();
   useEffect(() => {
@@ -148,12 +167,15 @@ function PublishController({ publish, choices }) {
   return null;
 }
 
-// Applies the self-view processors to the LOCAL tracks: background blur on the
-// camera (@livekit/track-processors) and Krisp noise cancellation on the mic
-// (@livekit/krisp-noise-filter — a LiveKit Cloud feature). Re-runs when the
-// toggle flips or the underlying track republishes (mute/unmute, device swap).
+// Applies the self-view processors to the LOCAL tracks: our refined background
+// pipeline on the camera (refinedBackground.js — MediaPipe + WebGL edge refine)
+// and Krisp noise cancellation on the mic (@livekit/krisp-noise-filter, a
+// LiveKit Cloud feature). Re-runs when settings change or the underlying track
+// republishes (mute/unmute, device swap).
 function EffectsController({ bg, customBg, noiseEnabled }) {
   const { cameraTrack, microphoneTrack } = useLocalParticipant();
+  const procRef = useRef(null);
+  const appliedToRef = useRef(null);
 
   useEffect(() => {
     const t = cameraTrack?.track;
@@ -162,25 +184,28 @@ function EffectsController({ bg, customBg, noiseEnabled }) {
     (async () => {
       try {
         if (!bg || bg === "none") {
-          await t.stopProcessor();
+          if (appliedToRef.current === t) await t.stopProcessor();
+          procRef.current = null;
+          appliedToRef.current = null;
           return;
         }
-        // bg descriptor: "blur:<radius>" or "image:<presetId|custom>".
-        const mod = await loadBlurMod();
-        if (!active || !mod.supportsBackgroundProcessors()) return;
-        let proc = null;
-        if (bg.startsWith("blur:")) {
-          proc = mod.BackgroundBlur(parseInt(bg.slice(5), 10) || 10);
-        } else if (bg.startsWith("image:")) {
-          const key = bg.slice(6);
-          const url = key === "custom" ? customBg : bgPresetUrl(key);
-          if (url) proc = mod.VirtualBackground(url);
-        }
+        const opts = bgToOptions(bg, customBg);
+        if (!opts) return;
+        const { createRefinedBackgroundProcessor } = await import("./refinedBackground");
         if (!active) return;
-        if (proc) await t.setProcessor(proc);
-        else await t.stopProcessor();
+        // Update the running processor in place when only params changed; build
+        // a fresh one (which spins up MediaPipe + WebGL) only on first apply or
+        // when the camera track itself changed.
+        if (procRef.current && appliedToRef.current === t) {
+          procRef.current.updateOptions(opts);
+        } else {
+          const proc = createRefinedBackgroundProcessor(opts);
+          procRef.current = proc;
+          appliedToRef.current = t;
+          await t.setProcessor(proc);
+        }
       } catch {
-        /* unsupported device/browser — leave the raw track */
+        /* unsupported / failed — leave the raw camera so the call still works */
       }
     })();
     return () => { active = false; };

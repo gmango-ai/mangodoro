@@ -108,6 +108,11 @@ export default defineConfig({
           // workbox.globIgnores); they're multi-MB and not an offline feature.
           if (id.includes("@livekit/krisp-noise-filter")) return "lk-krisp";
           if (id.includes("@livekit/track-processors") || id.includes("@mediapipe")) return "lk-blur";
+          // livekit-client + components are a heavy, eagerly-loaded vendor lib
+          // (App.jsx statically mounts the call). Keep them in their own chunk
+          // so app-code changes don't bust the cached vendor bundle. (Checked
+          // after the lk-* rules above so those win for the processor packages.)
+          if (id.includes("livekit-client") || id.includes("@livekit/")) return "livekit";
           // Keep the whole React ecosystem in one chunk (single instance).
           if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return "react-vendor";
           if (id.includes("@supabase")) return "supabase";
