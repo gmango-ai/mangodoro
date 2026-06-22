@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import ConfirmRow from "../ConfirmRow";
+import { usePomodoro } from "../../pomodoro/PomodoroContext";
+import TimerClock from "./TimerClock";
+import TimerControls from "./TimerControls";
+import ModePicker from "./ModePicker";
+import SessionDots from "./SessionDots";
+import ParticipantCards from "./ParticipantCards";
 import AlarmStopBanner from "./AlarmStopBanner";
 
 /**
@@ -41,21 +47,20 @@ export function ReconnectingPill({ status, dark, className = "" }) {
   );
 }
 
+// Document-Picture-in-Picture window sizes per view. The popout resizes
+// itself to these as the user flips views (see PomodoroSurface).
+//   timer    — just the clock, glanceable
+//   controls — clock + play/reset + mode tabs
+//   full     — everything + the session roster (wider for names)
 export const PIP_VIEW_SIZES = {
-  timer: { w: 260, h: 180 },
-  controls: { w: 260, h: 200 },
-  full: { w: 360, h: 520 },
+  timer: { w: 260, h: 190 },
+  controls: { w: 260, h: 280 },
+  full: { w: 360, h: 540 },
 };
 
-export const PIP_CONFIRM_EXTRA_H = 56;
-
-const PIP_PRESENCE = {
-  active: { label: "Active", light: "bg-emerald-500", dark: "bg-emerald-400" },
-  available: { label: "Available", light: "bg-sky-500", dark: "bg-sky-400" },
-  heads_down: { label: "Heads-down", light: "bg-violet-500", dark: "bg-violet-400" },
-  in_meeting: { label: "In a meeting", light: "bg-rose-500", dark: "bg-rose-400" },
-  away: { label: "Away", light: "bg-amber-500", dark: "bg-amber-400" },
-};
+// No extra height reserved for a confirm prompt: the popout, like before,
+// defers controller confirmations (reset / mode switch) to the main window.
+export const PIP_CONFIRM_EXTRA_H = 0;
 
 export function cloneDocStyles(targetDoc) {
   document.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
@@ -67,42 +72,27 @@ export function cloneDocStyles(targetDoc) {
   });
 }
 
-function PipAvatar({ participant, dark, isLeader }) {
-  const url = participant.avatar_url;
-  const initial = (participant.display_name || "?")[0].toUpperCase();
-  return (
-    <div
-      className={`relative rounded-full overflow-hidden border shrink-0 ${
-        isLeader
-          ? "border-[var(--color-accent)]"
-          : dark
-            ? "border-[var(--color-border)]"
-            : "border-slate-300"
-      }`}
-      style={{ width: 28, height: 28 }}
-    >
-      {url ? (
-        <img src={url} alt="" className="w-full h-full object-cover" />
-      ) : (
-        <span
-          className={`flex items-center justify-center w-full h-full text-[11px] font-bold ${
-            isLeader
-              ? "bg-[var(--color-accent-light-hover)] text-[var(--color-accent)]"
-              : dark
-                ? "bg-[var(--color-surface-raised)] text-slate-400"
-                : "bg-slate-100 text-slate-500"
-          }`}
-        >
-          {initial}
-        </span>
-      )}
-    </div>
-  );
+// applyAccent writes the accent/break palette as inline custom properties on
+// the main <html> (root.style.setProperty), which cloneDocStyles can't pick up
+// (it only clones <style>/<link>). Mirror those onto the PiP document's root so
+// the popout renders the user's actual accent — not the stylesheet default.
+// Re-run on theme change since the palette differs between light and dark.
+export function copyRootCustomProps(targetDoc) {
+  const src = document.documentElement.style;
+  const dst = targetDoc?.documentElement?.style;
+  if (!dst) return;
+  for (let i = 0; i < src.length; i++) {
+    const prop = src[i];
+    if (prop.startsWith("--")) {
+      dst.setProperty(prop, src.getPropertyValue(prop), src.getPropertyPriority(prop));
+    }
+  }
 }
 
 // Outbound-action confirmation only. The previous "Use updated timer"
 // remote-conflict prompt was removed in the server-authoritative
 // migration (phase 1) — incoming remote rows are now applied silently.
+// Kept here because PendingActionBanner imports it.
 export function PomodoroConfirmPrompts({
   dark,
   pendingAction,
@@ -127,48 +117,28 @@ export function PomodoroConfirmPrompts({
   );
 }
 
-export function PipFace({
-  mins,
-  secs,
-  modeLabel,
-  dark,
-  timeColor,
-  startBtnCls,
-  startLabel,
-  timeSizeClass = "text-5xl",
-  isRunning,
-  onToggleRun,
-  onReset,
-  canControl,
-  controlsLocked,
-  isInTransition,
-  onSkipTransition,
-  showAlternateBreak,
-  alternateBreakLabel,
-  onSwitchAlternateBreak,
-  confirmProps,
-  realtimeStatus,
-  viewMode,
-  onViewModeChange,
-  syncSession,
-  syncParticipants,
-  presenceMap,
-  currentUserId,
-  onTransferLeader,
-  onKickParticipant,
-}) {
-  const segBtn = (active) =>
-    `flex-1 flex items-center justify-center gap-1 text-[10px] font-semibold px-1.5 py-1 rounded-md transition-colors ${
-      active
-        ? dark
-          ? "bg-[var(--color-accent)] text-white shadow"
-          : "bg-[var(--color-accent)] text-white shadow"
-        : dark
-          ? "text-slate-300 hover:bg-[var(--color-surface-raised)]"
-          : "text-slate-600 hover:bg-slate-100"
-    }`;
-
+// Document-PiP face. Rebuilt on the shared modular timer components
+// (TimerClock / TimerControls / ModePicker / SessionDots / ParticipantCards)
+// so the popout matches the rest of the app and renders every timer state —
+// focus, break, running, paused, resuming, mid-transition, follower-locked —
+// exactly like the main surface, for free.
+//
+// Three views, switched by the segmented pill at the top:
+//   timer    → big clock only
+//   controls → clock + play/reset + Focus/Short/Long tabs
+//   full     → all of the above + the live session roster
+export function PipFace({ dark, viewMode, onViewModeChange }) {
+  const { realtimeStatus } = usePomodoro();
   const compact = viewMode !== "full";
+
+  const segBtn = (active) =>
+    `flex-1 px-2 py-1 rounded-full text-[11px] font-semibold transition-all ${
+      active
+        ? "bg-[var(--color-accent)] text-white shadow-sm"
+        : dark
+          ? "text-slate-400 hover:text-slate-200"
+          : "text-slate-500 hover:text-slate-700"
+    }`;
 
   return (
     <div
@@ -176,17 +146,16 @@ export function PipFace({
         dark ? "bg-[var(--color-surface)] text-slate-100" : "bg-white text-slate-800"
       }`}
     >
+      {/* View switcher — app-style segmented pill (mirrors ModePicker) */}
       <div
-        className={`shrink-0 flex gap-0.5 p-0.5 m-1 rounded-md ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}
+        className={`shrink-0 m-2 inline-flex p-1 rounded-full ${
+          dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
+        }`}
       >
         <button type="button" onClick={() => onViewModeChange("timer")} className={segBtn(viewMode === "timer")}>
           Time
         </button>
-        <button
-          type="button"
-          onClick={() => onViewModeChange("controls")}
-          className={segBtn(viewMode === "controls")}
-        >
+        <button type="button" onClick={() => onViewModeChange("controls")} className={segBtn(viewMode === "controls")}>
           Controls
         </button>
         <button type="button" onClick={() => onViewModeChange("full")} className={segBtn(viewMode === "full")}>
@@ -194,163 +163,41 @@ export function PipFace({
         </button>
       </div>
 
+      {/* Clock — modular TimerClock carries the mode colour + state label.
+          Centered for the popout (the surface left-aligns it in its grid). */}
       <div
-        className={`flex flex-col items-center justify-center gap-0.5 px-2 min-h-0 ${
-          compact ? "flex-1" : "shrink-0 py-2"
+        className={`flex flex-col items-center justify-center gap-1.5 px-3 ${
+          compact ? "flex-1" : "shrink-0 py-3"
         }`}
       >
-        <span
-          className={`${timeSizeClass} font-bold ${timeColor}`}
-          style={{
-            fontFamily: 'var(--font-display), "Parkinsans", ui-sans-serif, system-ui, sans-serif',
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-            letterSpacing: "0.02em",
-          }}
-        >
-          {mins}:{secs}
-        </span>
-        <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{modeLabel}</span>
-        <ReconnectingPill status={realtimeStatus} dark={dark} className="mt-0.5" />
+        <div className="flex flex-col items-center">
+          <TimerClock size={viewMode === "timer" ? "md" : "sm"} slot="numbers" />
+          <TimerClock size="sm" slot="label" />
+        </div>
+        <SessionDots align="center" />
+        <ReconnectingPill status={realtimeStatus} dark={dark} />
         <div className="w-full max-w-[220px]">
           <AlarmStopBanner />
         </div>
       </div>
 
-      {controlsLocked && confirmProps && (
-        <PomodoroConfirmPrompts {...confirmProps} className="shrink-0 px-2 pb-1" />
-      )}
-
+      {/* Playback + mode switch — modular controls handle every state,
+          including the follower lock and mid-transition "start now". */}
       {viewMode !== "timer" && (
-        <div className="shrink-0 flex flex-col items-center gap-0.5 pb-1 px-2">
-          {isInTransition ? (
-            <button
-              type="button"
-              onClick={onSkipTransition}
-              disabled={!canControl || controlsLocked}
-              className={`px-4 py-1 rounded-full text-[10px] font-bold text-white shadow-md ${
-                !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
-              } ${startBtnCls}`}
-            >
-              Start now
-            </button>
-          ) : (
-            <div className="flex items-center justify-center gap-1.5">
-              <button
-                type="button"
-                onClick={onReset}
-                disabled={!canControl || controlsLocked || isInTransition}
-                title="Reset"
-                className={`p-1 rounded-full ${
-                  !canControl || controlsLocked ? "opacity-30 cursor-default" : ""
-                } ${dark ? "text-slate-400 hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:bg-slate-100"}`}
-                aria-label="Reset"
-              >
-                ↺
-              </button>
-              <button
-                type="button"
-                onClick={onToggleRun}
-                disabled={!canControl || controlsLocked || isInTransition}
-                className={`px-4 py-1 rounded-full text-[10px] font-bold text-white shadow-md ${
-                  !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
-                } ${startBtnCls}`}
-              >
-                {startLabel}
-              </button>
-            </div>
-          )}
-          {showAlternateBreak && !isInTransition && (
-            <button
-              type="button"
-              onClick={onSwitchAlternateBreak}
-              disabled={!canControl || controlsLocked}
-              className={`text-[10px] font-semibold py-0.5 text-[var(--color-break)] hover:text-[var(--color-break-hover)] ${
-                !canControl || controlsLocked ? "opacity-40 cursor-default" : ""
-              }`}
-            >
-              {alternateBreakLabel}
-            </button>
-          )}
+        <div className="shrink-0 flex flex-col items-center gap-3 px-3 pb-3">
+          <TimerControls size="sm" />
+          <ModePicker />
         </div>
       )}
 
-      {viewMode === "full" && syncSession && syncParticipants?.length > 0 && (
+      {/* Session roster — the same ParticipantCards list the surface uses. */}
+      {viewMode === "full" && (
         <div
-          className={`flex-1 min-h-0 border-t px-2 py-2 overflow-y-auto ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}
+          className={`flex-1 min-h-0 border-t px-3 py-2.5 overflow-y-auto ${
+            dark ? "border-[var(--color-border)]" : "border-slate-200"
+          }`}
         >
-          <ul className="space-y-1">
-            {syncParticipants.map((p) => {
-              const isLeader = p.user_id === syncSession.leader_id;
-              const isSelf = p.user_id === currentUserId;
-              const isOnline = presenceMap?.[p.user_id] ?? false;
-              const presence = PIP_PRESENCE[p.presence_state] || PIP_PRESENCE.active;
-              const dotCls = isOnline ? (dark ? presence.dark : presence.light) : "bg-slate-400";
-              const subtitle = p.status?.trim()
-                ? p.status
-                : `${presence.label}${!isOnline ? " · Offline" : ""}`;
-              const canModerate = !isSelf && !isLeader && syncSession.leader_id === currentUserId;
-              return (
-                <li
-                  key={p.user_id}
-                  className={`flex items-center gap-2 px-2 h-12 rounded ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"}`}
-                >
-                  <div className="relative">
-                    <PipAvatar participant={p} dark={dark} isLeader={isLeader} />
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 ${
-                        dark ? "border-slate-900" : "border-white"
-                      } ${dotCls}`}
-                      title={presence.label}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className={`text-xs font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}
-                    >
-                      {isSelf ? `${p.display_name || "You"} (you)` : p.display_name || "Member"}
-                      {isLeader && (
-                        <span className={`ml-1 ${dark ? "text-amber-300" : "text-amber-500"}`}>★</span>
-                      )}
-                    </p>
-                    <p className={`text-[10px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                      {subtitle}
-                    </p>
-                  </div>
-                  {canModerate && (
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      {syncSession.leader_id === currentUserId && (
-                        <button
-                          type="button"
-                          onClick={() => onTransferLeader?.(p.user_id)}
-                          title="Make leader"
-                          className={`text-[11px] w-5 h-5 flex items-center justify-center rounded ${
-                            dark
-                              ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-slate-700"
-                              : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-200"
-                          }`}
-                        >
-                          ★
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onKickParticipant?.(p.user_id)}
-                        title="Remove"
-                        className={`text-[11px] w-5 h-5 flex items-center justify-center rounded ${
-                          dark
-                            ? "text-slate-400 hover:text-red-300 hover:bg-red-500/15"
-                            : "text-slate-500 hover:text-red-600 hover:bg-red-50"
-                        }`}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          <ParticipantCards max={8} />
         </div>
       )}
     </div>

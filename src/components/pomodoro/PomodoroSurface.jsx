@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, ExternalLink, Users, ChevronDown } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
-import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import TimerClock from "./TimerClock";
@@ -24,6 +23,7 @@ import { useWeekGoals } from "../../hooks/useWeekGoals";
 import { useTimerTitleAndBadge } from "./useTimerTitleAndBadge";
 import {
   cloneDocStyles,
+  copyRootCustomProps,
   PipFace,
   ReconnectingPill,
   PIP_VIEW_SIZES,
@@ -91,15 +91,8 @@ export default function PomodoroSurface({
   const cfg = VARIANT_CONFIG[variant] || VARIANT_CONFIG.floating;
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const { session } = useApp();
   const { syncSession } = useSyncSession();
-  const {
-    isSynced, pendingAction, realtimeStatus,
-    mode, isRunning, secondsLeft, pendingMode, durations,
-    toggleRun, resetTimer, skipTransition, switchAlternateBreak,
-    canControl, transferLeader, kickParticipant,
-  } = usePomodoro();
-  const { syncParticipants, presenceMap } = useSyncSession();
+  const { isSynced, pendingAction, realtimeStatus } = usePomodoro();
   const { goals: weekGoals } = useWeekGoals();
 
   useTimerTitleAndBadge();
@@ -136,6 +129,8 @@ export default function PomodoroSurface({
     const pipWin = pipWinRef.current;
     if (!pipWin?.document?.documentElement) return;
     pipWin.document.documentElement.classList.toggle("dark", dark);
+    // The accent palette differs by theme — re-mirror it on every toggle.
+    copyRootCustomProps(pipWin.document);
   }, [dark, pipMountEl]);
 
   async function openPictureInPicture() {
@@ -148,6 +143,7 @@ export default function PomodoroSurface({
       });
       pipWinRef.current = pipWin;
       cloneDocStyles(pipWin.document);
+      copyRootCustomProps(pipWin.document);
       pipWin.document.documentElement.style.height = "100%";
       pipWin.document.body.style.height = "100%";
       pipWin.document.body.style.margin = "0";
@@ -170,7 +166,6 @@ export default function PomodoroSurface({
 
   const pipSupported = typeof window !== "undefined" && "documentPictureInPicture" in window;
   const controlsLocked = !!pendingAction;
-  const userId = session?.user?.id;
 
   const containerCls = (() => {
     if (cfg.container === "embedded") {
@@ -194,19 +189,6 @@ export default function PomodoroSurface({
     }
     return "w-full p-3";
   })();
-
-  // PiP-only props for the existing PipFace.
-  const safeSeconds = Number.isFinite(secondsLeft) ? Math.max(0, secondsLeft) : 0;
-  const mins = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
-  const secs = String(safeSeconds % 60).padStart(2, "0");
-  const isBreakDisplay = (pendingMode || mode) !== "work";
-  const startLabelText = isRunning ? "Pause" : safeSeconds < (durations[mode] || 0) ? "Resume" : "Start";
-  const startBtnCls = isBreakDisplay
-    ? "bg-[var(--color-break)] hover:bg-[var(--color-break-hover)]"
-    : "bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)]";
-  const timeColor = isBreakDisplay ? "text-[var(--color-break)]" : "text-[var(--color-accent)]";
-  const showAlternateBreak = !pendingMode && (mode === "shortBreak" || mode === "longBreak");
-  const alternateBreakLabel = mode === "shortBreak" ? "Take long break instead" : "Take short break instead";
 
   // Everything below the timer: sound picker, status setter, participants,
   // week goals, and the synced session action bar. Rendered inline for most
@@ -364,34 +346,9 @@ export default function PomodoroSurface({
 
       {pipMountEl && createPortal(
         <PipFace
-          mins={mins}
-          secs={secs}
-          modeLabel={mode}
           dark={dark}
-          timeColor={timeColor}
-          startBtnCls={startBtnCls}
-          startLabel={startLabelText}
-          timeSizeClass={pipViewMode === "timer" ? "text-5xl" : "text-4xl"}
-          isRunning={isRunning}
-          onToggleRun={toggleRun}
-          onReset={resetTimer}
-          canControl={canControl}
-          controlsLocked={controlsLocked}
-          isInTransition={!!pendingMode}
-          onSkipTransition={skipTransition}
-          showAlternateBreak={showAlternateBreak}
-          alternateBreakLabel={alternateBreakLabel}
-          onSwitchAlternateBreak={switchAlternateBreak}
-          confirmProps={null}
-          realtimeStatus={realtimeStatus}
           viewMode={pipViewMode}
           onViewModeChange={setPipViewMode}
-          syncSession={syncSession}
-          syncParticipants={syncParticipants}
-          presenceMap={presenceMap}
-          currentUserId={userId}
-          onTransferLeader={transferLeader}
-          onKickParticipant={kickParticipant}
         />,
         pipMountEl
       )}
