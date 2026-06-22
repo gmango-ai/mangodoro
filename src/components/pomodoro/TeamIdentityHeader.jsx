@@ -18,7 +18,7 @@ import { usePomodoro } from "../../pomodoro/PomodoroContext";
 export default function TeamIdentityHeader({ interactive = false }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const { activeTeam } = useTeam();
+  const { activeTeam, rooms } = useTeam();
   const { syncSession, syncParticipants } = useSyncSession();
   const { isController } = usePomodoro();
 
@@ -27,6 +27,13 @@ export default function TeamIdentityHeader({ interactive = false }) {
   const accent = activeTeam.color || "#14b8a6";
   const iconUrl = activeTeam.icon_url || "";
   const initial = (activeTeam.name || "?")[0].toUpperCase();
+
+  // Which office room the active sync session lives in (if any), so the header
+  // answers "what room am I in?" — not just which org. Ad-hoc syncs with no
+  // room_id fall back to the generic "session" wording.
+  const room = syncSession?.room_id
+    ? (rooms || []).find((r) => r.id === syncSession.room_id)
+    : null;
 
   let stateLine = null;
   if (syncSession) {
@@ -38,9 +45,9 @@ export default function TeamIdentityHeader({ interactive = false }) {
           <span className={`font-semibold ${dark ? "text-emerald-300" : "text-emerald-700"}`}>
             Live
           </span>
-          <span className={dark ? "text-slate-500" : "text-slate-400"}>·</span>
-          <span className={dark ? "text-slate-300" : "text-slate-600"}>
-            {n} in session
+          <span className={`shrink-0 ${dark ? "text-slate-500" : "text-slate-400"}`}>·</span>
+          <span className={`truncate ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            {n} in {room ? <span className="font-semibold">{room.name}</span> : "session"}
           </span>
         </p>
       );
@@ -48,7 +55,15 @@ export default function TeamIdentityHeader({ interactive = false }) {
       const leader = (syncParticipants || []).find((p) => p.user_id === syncSession.leader_id);
       const leaderName = leader?.display_name || "Someone";
       stateLine = (
-        <p className={`text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
+        <p className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          {room && (
+            <>
+              <span className={`font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>
+                {room.name}
+              </span>{" "}
+              <span className="opacity-60">·</span>{" "}
+            </>
+          )}
           Synced <span className="opacity-60">·</span>{" "}
           <span className={`font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>
             {leaderName}
@@ -61,14 +76,19 @@ export default function TeamIdentityHeader({ interactive = false }) {
 
   return (
     <div className="flex items-center gap-2.5">
-      {/* Team avatar — colored square with icon or team initial */}
+      {/* Org avatar — when the team has a custom image we show it as-is, with
+          no accent fill behind it (so a logo with its own background or
+          transparency reads cleanly). With no image we fall back to a colored
+          square + the team initial. */}
       <div
-        className="w-9 h-9 rounded-lg shrink-0 inline-flex items-center justify-center text-white font-bold text-sm shadow-sm"
-        style={{ background: accent }}
+        className={`w-9 h-9 rounded-lg shrink-0 overflow-hidden inline-flex items-center justify-center text-white font-bold text-sm ${
+          iconUrl ? "" : "shadow-sm"
+        }`}
+        style={iconUrl ? undefined : { background: accent }}
         aria-hidden
       >
         {iconUrl ? (
-          <img src={iconUrl} alt="" className="w-full h-full object-cover rounded-lg" />
+          <img src={iconUrl} alt="" className="w-full h-full object-cover" />
         ) : (
           initial
         )}
