@@ -31,9 +31,15 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "consumePendingToggle", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getDeviceToken", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getWidgetRegistration", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addListener", returnType: CAPPluginReturnCallback),
         CAPPluginMethod(name: "removeAllListeners", returnType: CAPPluginReturnPromise)
     ]
+
+    /// Latest ActivityKit push-to-start token (hex). Lets the server CREATE a
+    /// Live Activity remotely (iOS 17.2+) when a timer starts on another
+    /// surface. Captured by observePushToStartToken().
+    static var pushToStartTokenHex: String?
 
     /// APNs environment for this build. Sandbox in DEBUG, production otherwise
     /// — both the per-activity and per-device token registrations use it so
@@ -57,6 +63,12 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Cancelled on stop() and replaced each time start() runs so we never
     /// duplicate emissions if the activity is replaced.
     private var pushTokenTask: Task<Void, Never>?
+
+    /// Subscriptions to the push-to-start token stream and to new-activity
+    /// updates (so a server-push-to-started activity gets its push token
+    /// registered for subsequent updates/end). Started once in load().
+    private var pushToStartTask: Task<Void, Never>?
+    private var activityUpdatesTask: Task<Void, Never>?
 
     @available(iOS 16.1, *)
     private func resolveWithActivityId(_ call: CAPPluginCall, activity: Activity<PomodoroActivityAttributes>) {
@@ -94,6 +106,41 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 "deviceId": Self.deviceIdentifier
             ])
         }
+
+        // Watch for activities the server push-to-starts (created without a
+        // local start() call) so we register their push token for later
+        // updates/end. iOS 17.2+ also yields a push-to-start token we forward
+        // to JS for registration.
+        if #available(iOS 16.1, *) { observeActivityUpdates() }
+        if #available(iOS 17.2, *) { observePushToStartToken() }
+    }
+
+    @available(iOS 17.2, *)
+    private func observePushToStartToken() {
+        pushToStartTask?.cancel()
+        pushToStartTask = Task { [weak self] in
+            for await tokenData in Activity<PomodoroActivityAttributes>.pushToStartTokenUpdates {
+                let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+                Self.pushToStartTokenHex = hex
+                DispatchQueue.main.async { [weak self] in
+                    self?.notifyListeners("pushToStartTokenReceived", data: [
+                        "ptsToken": hex,
+                        "apnsEnv": Self.apnsEnvironment,
+                        "deviceId": Self.deviceIdentifier
+                    ])
+                }
+            }
+        }
+    }
+
+    @available(iOS 16.1, *)
+    private func observeActivityUpdates() {
+        activityUpdatesTask?.cancel()
+        activityUpdatesTask = Task { [weak self] in
+            for await activity in Activity<PomodoroActivityAttributes>.activityUpdates {
+                await MainActor.run { self?.observePushToken(for: activity) }
+            }
+        }
     }
 
     /// Persist the timer's running state to the App Group so the widget
@@ -120,6 +167,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         let label = call.getString("label") ?? "Pomodoro"
         let isSynced = call.getBool("isSynced") ?? false
         let accentColorHex = call.getString("accentColorHex")
+        let breakColorHex = call.getString("breakColorHex")
+        let phaseDurationSeconds = call.getDouble("phaseDurationSeconds")
         let isRunning = call.getBool("isRunning") ?? true
         let pausedSecondsLeft = call.getInt("pausedSecondsLeft")
 
@@ -149,7 +198,9 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             label: label,
             isSynced: isSynced,
             isRunning: isRunning,
-            accentColorHex: accentColorHex
+            accentColorHex: accentColorHex,
+            breakColorHex: breakColorHex,
+            phaseDurationSeconds: phaseDurationSeconds
         )
         Self.mirrorContentState(state)
 
@@ -218,6 +269,12 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         state.pausedSecondsLeft = pausedSecondsLeft
         if let accentColorHex = call.getString("accentColorHex") {
             state.accentColorHex = accentColorHex
+        }
+        if let breakColorHex = call.getString("breakColorHex") {
+            state.breakColorHex = breakColorHex
+        }
+        if let phaseDurationSeconds = call.getDouble("phaseDurationSeconds") {
+            state.phaseDurationSeconds = phaseDurationSeconds
         }
         Self.mirrorContentState(state)
         Task {
@@ -357,6 +414,12 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         if let accentColorHex = state.accentColorHex {
             payload["accentColorHex"] = accentColorHex
         }
+        if let breakColorHex = state.breakColorHex {
+            payload["breakColorHex"] = breakColorHex
+        }
+        if let phaseDurationSeconds = state.phaseDurationSeconds {
+            payload["phaseDurationSeconds"] = phaseDurationSeconds
+        }
         return payload
     }
 
@@ -413,6 +476,40 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             "token": AppDelegate.deviceTokenHex ?? "",
             "apnsEnv": Self.apnsEnvironment,
             "deviceId": Self.deviceIdentifier
+        ])
+    }
+
+    /// Stores the current user id + device id in the App Group and ensures a
+    /// per-user "widget action" secret exists (minted on first use / when the
+    /// user changes). Returns the data JS needs to register with device-register
+    /// — the secret HASH (never the raw secret) plus any cached push tokens.
+    /// The home-widget Start button reads the raw secret from the App Group to
+    /// authenticate its call to widget-start.
+    @objc func getWidgetRegistration(_ call: CAPPluginCall) {
+        let defaults = UserDefaults(suiteName: AppGroup.identifier)
+        let deviceId = Self.deviceIdentifier
+        defaults?.set(deviceId, forKey: AppGroup.deviceIdKey)
+
+        if let userId = call.getString("userId"), !userId.isEmpty {
+            // A different user on this device → invalidate the old secret.
+            if defaults?.string(forKey: AppGroup.userIdKey) != userId {
+                defaults?.removeObject(forKey: AppGroup.widgetSecretKey)
+            }
+            defaults?.set(userId, forKey: AppGroup.userIdKey)
+        }
+
+        var secret = defaults?.string(forKey: AppGroup.widgetSecretKey) ?? ""
+        if secret.isEmpty {
+            secret = Self.generateSecretHex()
+            defaults?.set(secret, forKey: AppGroup.widgetSecretKey)
+        }
+
+        call.resolve([
+            "deviceId": deviceId,
+            "pushToken": AppDelegate.deviceTokenHex ?? "",
+            "ptsToken": Self.pushToStartTokenHex ?? "",
+            "secretHash": Self.sha256Hex(secret),
+            "apnsEnv": Self.apnsEnvironment
         ])
     }
 
@@ -518,4 +615,12 @@ enum AppGroup {
     // so the server's toggle math uses fresh state even if the host
     // changed it without telling the server.
     static let activityStateKey = "mangodoro.currentActivityState"
+
+    // Per-user "widget action" credential + identity, so the home-widget Start
+    // button can start a personal timer via the widget-start edge function
+    // without the app open (there's no user JWT natively). The raw secret lives
+    // here; its SHA256 hash is registered against device_push_tokens.
+    static let userIdKey = "mangodoro.userId"
+    static let deviceIdKey = "mangodoro.deviceId"
+    static let widgetSecretKey = "mangodoro.widgetUserSecret"
 }

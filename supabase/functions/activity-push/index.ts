@@ -17,7 +17,8 @@
 // Response: { ok, pushed }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { sendLiveActivityPush, sendBackgroundPush } from "../_shared/apns.ts";
+import { sendLiveActivityPush } from "../_shared/apns.ts";
+import { maybePushToStart, refreshDeviceWidgets, labelForMode } from "../_shared/pushToStart.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -83,6 +84,10 @@ Deno.serve(async (req) => {
       isSynced: (prev.isSynced as boolean) ?? true,
       isRunning,
       accentColorHex: (prev.accentColorHex as string | null) ?? null,
+      // Airy ring/accent — preserved from the registered token state so a
+      // web-initiated pause/resume keeps the break color + ring duration.
+      breakColorHex: (prev.breakColorHex as string | null) ?? null,
+      phaseDurationSeconds: (prev.phaseDurationSeconds as number | null) ?? null,
     };
     const res = await sendLiveActivityPush({
       pushToken: row.push_token as string,
@@ -98,35 +103,32 @@ Deno.serve(async (req) => {
     await admin.from("pomodoro_activity_tokens").update(updates).eq("activity_id", row.activity_id);
   }
 
-  // Also refresh the home-screen widget on every registered device via a
-  // silent background push. The home widget reads the App Group, which only
-  // the app itself can write — so we wake the app to merge the new state and
-  // reload its timeline. Runs even when the user has no Live Activity (rows
-  // empty) so the home widget never goes stale after a cross-device change.
-  const { data: devices, error: deviceLookupError } = await admin
-    .from("device_push_tokens")
-    .select("push_token, apns_env")
-    .eq("user_id", userId);
-  if (deviceLookupError) console.error("device token lookup failed", deviceLookupError);
-
-  let silentPushed = 0;
-  for (const d of devices ?? []) {
-    const res = await sendBackgroundPush({
-      pushToken: d.push_token as string,
-      apnsEnv: d.apns_env as "production" | "sandbox",
-      payload: {
-        kind: "pomodoro-state",
-        ended,
-        isRunning,
-        endsAtMs: endsAtMs ?? null,
-        pausedSecondsLeft: pausedSecondsLeft ?? null,
-        mode: typeof body.mode === "string" ? body.mode : null,
-        isSynced: body.isSynced === true,
-      },
+  // Starting with no active Live Activity (e.g. timer started on the web) →
+  // CREATE one via push-to-start so the Dynamic Island / lock screen lights up
+  // without opening the app (iOS 17.2+). `rows` is the set of active LA tokens.
+  const mode = typeof body.mode === "string" ? body.mode : "work";
+  let started = false;
+  if (!ended && isRunning && (rows?.length ?? 0) === 0) {
+    started = await maybePushToStart(admin, userId, {
+      endsAtEpochMs: endsAtMs ?? 0,
+      mode,
+      label: labelForMode(mode),
+      isSynced: body.isSynced === true,
+      isRunning: true,
     });
-    if (res.ok) silentPushed++;
-    else console.error("background push failed", res.status, res.body);
   }
 
-  return json(200, { ok: true, pushed, silentPushed });
+  // Refresh every device's home-screen widget via a silent background push.
+  // Runs even with no Live Activity so the home widget never goes stale after
+  // a cross-device change.
+  const silentPushed = await refreshDeviceWidgets(admin, userId, {
+    ended,
+    isRunning,
+    endsAtMs: endsAtMs ?? null,
+    pausedSecondsLeft: pausedSecondsLeft ?? null,
+    mode: typeof body.mode === "string" ? body.mode : null,
+    isSynced: body.isSynced === true,
+  });
+
+  return json(200, { ok: true, pushed, silentPushed, started });
 });

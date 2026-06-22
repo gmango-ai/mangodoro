@@ -4,15 +4,16 @@ import AppIntents
 import Foundation
 
 /// Home screen / lockscreen-stack widget showing the current pomodoro
-/// session at a glance. Reads its data from the same App Group key the
-/// Live Activity plugin mirrors on every start/update/pause — so the
-/// widget and the lockscreen activity stay in lockstep without a
-/// separate persistence path.
+/// session at a glance — "Airy" design (shared tokens/components live in
+/// AiryWidgetKit.swift). Reads its data from the same App Group key the
+/// Live Activity plugin mirrors on every start/update/pause, so the widget
+/// and the lockscreen activity stay in lockstep without a separate
+/// persistence path.
 ///
-/// Theming: container background is an accent-colored gradient using
-/// the same hex the user picked in the app, with the white Mangodoro
-/// silhouette over it (mirrors the splash). Reads as "Mangodoro" at a
-/// glance rather than a generic dark widget.
+/// Look: the widget container *is* the floating card (white in light /
+/// deep navy in dark); a rounded-square ring drains with time left; the
+/// accent is phase-driven (work = the user's accent, break = their break
+/// color).
 
 @available(iOS 14.0, *)
 struct PomodoroHomeWidget: Widget {
@@ -20,18 +21,11 @@ struct PomodoroHomeWidget: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: Self.kind, provider: PomodoroSnapshotProvider()) { entry in
-            let tint = entry.snapshot.flatMap { Color(hex: $0.accentColorHex) } ?? .teal
-            PomodoroHomeWidgetView(entry: entry, tint: tint)
-                .containerBackground(for: .widget) {
-                    LinearGradient(
-                        colors: [
-                            tint,
-                            tint.opacity(0.78),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                }
+            // The widget *is* the Airy card: its container background is the
+            // surface (white in light / deep navy in dark), and the content
+            // sits directly on it. The OS frames it against the wallpaper.
+            PomodoroHomeWidgetView(entry: entry)
+                .containerBackground(for: .widget) { AiryHomeBackground() }
         }
         .configurationDisplayName("Mangodoro")
         .description("Current pomodoro session.")
@@ -47,6 +41,11 @@ struct PomodoroSnapshot {
     let endsAtEpochMs: Double
     let pausedSecondsLeft: Int?
     let accentColorHex: String?
+    // Break-phase color + current phase length, for the Airy ring/accent.
+    // Optional — absent in pre-redesign snapshots; the views fall back to
+    // the accent and per-mode default durations.
+    let breakColorHex: String?
+    let phaseDurationSeconds: Double?
     // "pausing" | "resuming" while a widget tap's server round-trip is in
     // flight, else nil. The widget shows a transition label instead of a
     // (possibly stale) time until the authoritative state is mirrored back.
@@ -82,6 +81,8 @@ struct PomodoroSnapshot {
             endsAtEpochMs: obj["endsAtEpochMs"] as? Double ?? 0,
             pausedSecondsLeft: obj["pausedSecondsLeft"] as? Int,
             accentColorHex: obj["accentColorHex"] as? String,
+            breakColorHex: obj["breakColorHex"] as? String,
+            phaseDurationSeconds: obj["phaseDurationSeconds"] as? Double,
             transition: obj["transition"] as? String,
             transitionAtMs: obj["transitionAt"] as? Double
         )
@@ -201,8 +202,19 @@ struct PomodoroSnapshotProvider: TimelineProvider {
             // TTL so a stuck "Syncing…" auto-resolves to the underlying time.
             refresh = Date(timeIntervalSince1970: atMs / 1000.0 + PomodoroSnapshot.transitionTTL)
         } else if let s = snapshot, s.isRunning, s.endsAtEpochMs > 0 {
+            // The countdown itself ticks via Text(timerInterval:) without
+            // reloads, so a reload only matters to catch a STATE change made on
+            // another device (pause / resume / reset). The real-time path for
+            // that is the silent background push — but iOS throttles and drops
+            // those (worst when the app is backgrounded), which left the widget
+            // stuck on a stale phase until it ended. So also re-pull the
+            // authoritative state periodically (≤ ~20 min) as a self-heal,
+            // capped well within WidgetKit's ~40-70/day reload budget: at most
+            // one extra reload per work phase.
             let endsAt = Date(timeIntervalSince1970: s.endsAtEpochMs / 1000.0)
-            refresh = max(now.addingTimeInterval(60), endsAt.addingTimeInterval(2))
+            let phaseEnd = endsAt.addingTimeInterval(2)
+            let periodicHeal = now.addingTimeInterval(20 * 60)
+            refresh = max(now.addingTimeInterval(60), min(phaseEnd, periodicHeal))
         } else {
             refresh = now.addingTimeInterval(60 * 60)
         }
@@ -210,157 +222,166 @@ struct PomodoroSnapshotProvider: TimelineProvider {
     }
 }
 
+/// The widget's own surface — the Airy card. Reads the color scheme so the
+/// card is white in light mode and deep navy in dark.
+@available(iOS 14.0, *)
+private struct AiryHomeBackground: View {
+    @Environment(\.colorScheme) private var scheme
+    var body: some View { AiryTheme.resolve(scheme).fill }
+}
+
 @available(iOS 14.0, *)
 struct PomodoroHomeWidgetView: View {
     let entry: PomodoroHomeEntry
-    let tint: Color
     @Environment(\.widgetFamily) private var family
+    @Environment(\.colorScheme) private var scheme
+
+    private var theme: AiryTheme { AiryTheme.resolve(scheme) }
 
     var body: some View {
         if let s = entry.snapshot {
             switch family {
-            case .systemMedium:
-                mediumView(s)
-            default:
-                smallView(s)
+            case .systemMedium: mediumView(s)
+            default: smallView(s)
             }
         } else {
             emptyView
         }
     }
 
-    @ViewBuilder
+    private func accent(_ s: PomodoroSnapshot) -> Color {
+        airyPhaseAccent(mode: s.mode, accentHex: s.accentColorHex, breakHex: s.breakColorHex)
+    }
+    private func fraction(_ s: PomodoroSnapshot) -> Double {
+        airyRingFraction(
+            isRunning: s.isRunning, endsAtEpochMs: s.endsAtEpochMs,
+            pausedSecondsLeft: s.pausedSecondsLeft,
+            phaseDurationSeconds: s.phaseDurationSeconds, mode: s.mode
+        )
+    }
+    private func mins(_ s: PomodoroSnapshot) -> Int {
+        airyMinsLeft(isRunning: s.isRunning, endsAtEpochMs: s.endsAtEpochMs, pausedSecondsLeft: s.pausedSecondsLeft)
+    }
+
+    // MARK: small (2x2)
     private func smallView(_ s: PomodoroSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                MangoMark().frame(width: 28, height: 28)
+        let accent = accent(s)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Image(systemName: "timer").font(.system(size: 16, weight: .bold)).foregroundColor(accent)
                 Spacer(minLength: 0)
-                statusPill(isRunning: s.isRunning, transition: s.activeTransition())
+                Circle().fill(s.isRunning ? accent : theme.sub).frame(width: 7, height: 7)
             }
             Spacer(minLength: 0)
-            if let room = s.room {
-                roomChip(room, size: 9)
-            }
-            Text(s.label)
-                .font(.caption.weight(.medium))
-                .foregroundColor(.white.opacity(0.85))
-                .lineLimit(1)
-            HomeCountdown(snapshot: s)
-                .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
-                .foregroundColor(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            if #available(iOS 17.0, *) {
-                HomeControls(isRunning: s.isRunning, compact: true).padding(.top, 1)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func mediumView(_ s: PomodoroSnapshot) -> some View {
-        HStack(spacing: 14) {
-            MangoMark().frame(width: 52, height: 52)
-            VStack(alignment: .leading, spacing: 3) {
-                if let room = s.room {
-                    roomChip(room, size: 11)
-                }
-                Text(s.label)
-                    .font(.headline)
-                    .foregroundColor(.white)
+            VStack(alignment: .leading, spacing: 4) {
+                HomeCountdown(snapshot: s)
+                    .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundColor(theme.fg)
                     .lineLimit(1)
-                statusPill(isRunning: s.isRunning, transition: s.activeTransition())
-                Spacer(minLength: 0)
-                if #available(iOS 17.0, *) {
-                    HomeControls(isRunning: s.isRunning)
-                }
+                    .minimumScaleFactor(0.6)
+                Text("\(s.label.uppercased()) · \(mins(s))m")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundColor(accent)
+                    .lineLimit(1)
             }
-            Spacer()
-            HomeCountdown(snapshot: s)
-                .font(.system(size: 38, weight: .bold, design: .rounded).monospacedDigit())
-                .foregroundColor(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            Spacer(minLength: 0)
+            if #available(iOS 17.0, *) {
+                AiryPrimaryButton(intent: HomeToggleTimerIntent(), isRunning: s.isRunning, accent: accent, height: 32)
+                    .padding(.top, 8)
+            }
         }
     }
 
+    // MARK: medium (4x2)
+    private func mediumView(_ s: PomodoroSnapshot) -> some View {
+        let accent = accent(s)
+        return VStack(spacing: 12) {
+            HStack(spacing: 14) {
+                AiryRing(fraction: fraction(s), accent: accent, track: theme.track, size: 72) {
+                    VStack(spacing: 2) {
+                        HomeCountdown(snapshot: s)
+                            .font(.system(size: 17, weight: .semibold, design: .rounded).monospacedDigit())
+                            .foregroundColor(theme.fg)
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        Text(s.label.uppercased())
+                            .font(.system(size: 8, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundColor(accent)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 4)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(s.room ?? "Focus session")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(theme.fg)
+                        .lineLimit(1)
+                    statusChip(s)
+                }
+                Spacer(minLength: 0)
+            }
+            if #available(iOS 17.0, *) {
+                controls(s)
+            }
+        }
+    }
+
+    @available(iOS 17.0, *)
+    @ViewBuilder
+    private func controls(_ s: PomodoroSnapshot) -> some View {
+        if let t = s.activeTransition() {
+            AiryProcessing(
+                label: t == "resuming" ? "Resuming…" : "Pausing…",
+                accent: accent(s), sub: theme.sub, height: 38
+            )
+        } else {
+            HStack(spacing: 8) {
+                AiryPrimaryButton(intent: HomeToggleTimerIntent(), isRunning: s.isRunning, accent: accent(s), height: 38)
+                AirySecondaryButton(intent: HomeStopTimerIntent(), systemName: "stop.fill", bg: theme.btn, fg: theme.btnFg, size: 38)
+            }
+        }
+    }
+
+    private func statusChip(_ s: PomodoroSnapshot) -> some View {
+        let text = s.activeTransition() != nil ? "Syncing…" : (s.isRunning ? "Running" : "Paused")
+        return HStack(spacing: 6) {
+            Circle().fill(accent(s)).frame(width: 6, height: 6)
+            Text(text).font(.system(size: 11, weight: .semibold)).foregroundColor(theme.sub).lineLimit(1)
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 22)
+        .background(Capsule().fill(theme.chip))
+    }
+
+    // MARK: empty / idle
+    @ViewBuilder
     private var emptyView: some View {
-        // No active session. ActivityKit requires Live Activities to be
-        // started from the foreground app, so tapping opens the app (the
-        // widget's default tap target) where a session can be started.
-        VStack(spacing: 8) {
-            ZStack {
-                Circle().fill(Color.white.opacity(0.22)).frame(width: 46, height: 46)
-                Image(systemName: "play.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white)
+        // No active session. On iOS 17+ the Start button kicks off a personal
+        // timer in-place via HomeStartTimerIntent (→ widget-start), no app
+        // launch. On older iOS the tile is passive and tapping opens the app.
+        if #available(iOS 17.0, *) {
+            Button(intent: HomeStartTimerIntent()) { emptyContent }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            emptyContent.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var emptyContent: some View {
+        let accent = Color.teal
+        return VStack(spacing: 10) {
+            AiryRing(fraction: 1, accent: accent, track: theme.track, size: 54, lineWidth: 6) {
+                Image(systemName: "play.fill").font(.system(size: 18, weight: .bold)).foregroundColor(accent)
             }
             Text("Start a session")
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.white)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(theme.fg)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private func roomChip(_ room: String, size: CGFloat) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: "person.2.fill").font(.system(size: size - 1, weight: .semibold))
-            Text(room).lineLimit(1)
-        }
-        .font(.system(size: size, weight: .semibold))
-        .foregroundColor(.white.opacity(0.85))
-    }
-
-    @ViewBuilder
-    private func statusPill(isRunning: Bool, transition: String?) -> some View {
-        let label = transition != nil ? "Syncing…" : (isRunning ? "Running" : "Paused")
-        Text(label)
-            .font(.caption2.weight(.semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                Capsule()
-                    .fill(Color.white.opacity(isRunning ? 0.28 : 0.18))
-            )
-    }
-}
-
-/// Interactive controls for the home widget (iOS 17+). Pause/resume runs
-/// HomeToggleTimerIntent; reset runs HomeStopTimerIntent — plain AppIntents
-/// (NOT the Live Activity's LiveActivityIntent versions). A Home Screen
-/// widget button running a LiveActivityIntent gets tagged as a
-/// SessionStartingAction, which makes chronod freeze the widget's reloads
-/// for a fixed ~3.8s settle before it can repaint. The plain AppIntents
-/// avoid that hold while still hitting the same activity-action edge
-/// function, so the lock-screen Live Activity updates via APNs as before.
-@available(iOS 17.0, *)
-private struct HomeControls: View {
-    let isRunning: Bool
-    var compact: Bool = false
-
-    var body: some View {
-        HStack(spacing: compact ? 8 : 10) {
-            ctrl(HomeToggleTimerIntent(), systemName: isRunning ? "pause.fill" : "play.fill",
-                 size: compact ? 44 : 56, fill: 0.42)
-            ctrl(HomeStopTimerIntent(), systemName: "stop.fill",
-                 size: compact ? 38 : 46, fill: 0.22)
-        }
-    }
-
-    private func ctrl<I: AppIntent>(_ intent: I, systemName: String, size: CGFloat, fill: Double) -> some View {
-        Button(intent: intent) {
-            Image(systemName: systemName)
-                .font(.system(size: size * 0.42, weight: .bold))
-                .foregroundColor(.white)
-                .frame(width: size, height: size)
-                .background(Circle().fill(Color.white.opacity(fill)))
-                .padding(10)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -386,30 +407,6 @@ private struct HomeCountdown: View {
         } else {
             let sec = snapshot.pausedSecondsLeft ?? 0
             Text("\(sec / 60):\(String(format: "%02d", sec % 60))")
-        }
-    }
-}
-
-/// White Mangodoro silhouette on a soft translucent white circle so the
-/// mark reads clearly on whatever accent tint is behind the widget.
-@available(iOS 14.0, *)
-private struct MangoMark: View {
-    var body: some View {
-        ZStack {
-            Circle().fill(Color.white.opacity(0.18))
-            Circle().stroke(Color.white.opacity(0.35), lineWidth: 1)
-            if let appIcon = UIImage(named: "WidgetAppIcon") {
-                Image(uiImage: appIcon)
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundColor(.white)
-                    .padding(5)
-            } else {
-                Image(systemName: "timer")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white)
-            }
         }
     }
 }

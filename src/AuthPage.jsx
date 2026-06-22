@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Browser } from "@capacitor/browser";
 import { supabase } from "./supabase";
 import { Button } from "@/components/ui/button";
@@ -119,6 +120,12 @@ export default function AuthPage() {
         * { box-sizing: border-box; }
       `}</style>
 
+      {/* Electron: a draggable strip so the frameless window can still be moved
+          from the login screen (no global Nav title bar here). */}
+      {isElectron && (
+        <div className="ql-drag-region" style={{ position: "fixed", top: 0, left: 0, right: 0, height: 52 }} />
+      )}
+
       <div style={{ width: "100%", maxWidth: 400, padding: "0 16px" }}>
         {/* Logo / title */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
@@ -231,6 +238,16 @@ export default function AuthPage() {
             >
               {mode === "signin" ? "Sign up" : "Sign in"}
             </button>
+          </div>
+
+          {/* Back to the no-account timer (the signed-out landing). */}
+          <div style={{ marginTop: 12, textAlign: "center" }}>
+            <Link
+              to="/timer"
+              style={{ fontSize: 13, color: "#64748b", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              ← Back to the timer
+            </Link>
           </div>
         </div>
       </div>

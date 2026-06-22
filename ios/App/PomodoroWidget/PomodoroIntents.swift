@@ -33,6 +33,11 @@ private let activitySecretKey = "mangodoro.currentActivitySecret"
 private let activityStateKey = "mangodoro.currentActivityState"
 private let supabaseUrlKey = "mangodoro.supabaseUrl"
 private let supabaseAnonKeyKey = "mangodoro.supabaseAnonKey"
+// Per-user widget-action identity/credential (written by the plugin's
+// getWidgetRegistration). Lets the Start button authenticate to widget-start.
+private let userIdKey = "mangodoro.userId"
+private let deviceIdKey = "mangodoro.deviceId"
+private let widgetSecretKey = "mangodoro.widgetUserSecret"
 
 // Matches POMODORO_NOTIF_ID in src/lib/nativeNotifications.js. The
 // @capacitor/local-notifications iOS implementation registers
@@ -150,6 +155,80 @@ private func revertOptimisticStop(_ original: [String: Any]?) {
     defaults.set(json, forKey: activityStateKey)
     defaults.set(original["isRunning"] as? Bool ?? false, forKey: lastToggleResultRunningKey)
     reloadHomeWidget()
+}
+
+// Optimistically show a running work session so the widget flips to a countdown
+// the instant Start is tapped. The duration is a placeholder (25:00) — the
+// server's authoritative ends_at arrives moments later via the silent
+// home-widget refresh push and corrects it. Keeps the last-known accent.
+private func applyOptimisticStart() {
+    guard let defaults = UserDefaults(suiteName: appGroupID) else { return }
+    let nowMs = Date().timeIntervalSince1970 * 1000
+    var state: [String: Any] = [
+        "endsAtEpochMs": nowMs + 1500 * 1000,
+        "mode": "work",
+        "label": "Focus",
+        "isSynced": false,
+        "isRunning": true
+    ]
+    if let json = defaults.string(forKey: activityStateKey),
+       let data = json.data(using: .utf8),
+       let prev = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+       let accent = prev["accentColorHex"] {
+        state["accentColorHex"] = accent
+    }
+    if let data = try? JSONSerialization.data(withJSONObject: state),
+       let json = String(data: data, encoding: .utf8) {
+        defaults.set(json, forKey: activityStateKey)
+        defaults.set(true, forKey: lastToggleResultRunningKey)
+        reloadHomeWidget()
+    }
+}
+
+// Start never reached the server → snap the widget back to idle.
+private func revertOptimisticStart() {
+    guard let defaults = UserDefaults(suiteName: appGroupID) else { return }
+    defaults.set(false, forKey: lastToggleResultRunningKey)
+    defaults.removeObject(forKey: activityStateKey)
+    reloadHomeWidget()
+}
+
+/// POSTs to `<supabaseUrl>/functions/v1/widget-start`, authenticated by the
+/// per-user widget secret. Starts a personal work timer server-side; the
+/// website updates via realtime, the Live Activity appears via push-to-start,
+/// and the silent refresh push corrects this widget's optimistic time.
+@available(iOS 17.0, *)
+private func dispatchWidgetStart() async -> Bool {
+    guard let defaults = UserDefaults(suiteName: appGroupID) else { return false }
+    guard
+        let userId = defaults.string(forKey: userIdKey), !userId.isEmpty,
+        let deviceId = defaults.string(forKey: deviceIdKey), !deviceId.isEmpty,
+        let secret = defaults.string(forKey: widgetSecretKey), !secret.isEmpty,
+        let urlBase = defaults.string(forKey: supabaseUrlKey), !urlBase.isEmpty,
+        let anonKey = defaults.string(forKey: supabaseAnonKeyKey), !anonKey.isEmpty,
+        let url = URL(string: "\(urlBase.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/functions/v1/widget-start")
+    else {
+        log.notice("widget-start: missing App Group config")
+        return false
+    }
+    var request = URLRequest(url: url, timeoutInterval: 8)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue(anonKey, forHTTPHeaderField: "apikey")
+    request.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
+    let payload: [String: Any] = ["user_id": userId, "device_id": deviceId, "secret": secret]
+    do { request.httpBody = try JSONSerialization.data(withJSONObject: payload) }
+    catch { return false }
+    do {
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { return false }
+        if (200..<300).contains(http.statusCode) { return true }
+        log.error("widget-start: HTTP \(http.statusCode)")
+        return false
+    } catch {
+        log.error("widget-start: network failure: \(String(describing: error))")
+        return false
+    }
 }
 
 private enum ActivityAction: String {
@@ -355,13 +434,20 @@ struct StopTimerIntent: LiveActivityIntent {
 // button running a LiveActivityIntent gets tagged SessionStartingAction,
 // which makes chronod freeze the widget's reloads for a fixed ~3.8s settle).
 //
-// They also DO NOT await the network: the optimistic App Group write has
-// flipped the snapshot synchronously, so `perform()` returns immediately and
-// the system repaints the widget from the flipped local state without the
-// (cold-on-first-tap) round-trip on the critical path — instant response.
-// The round-trip runs detached and reconciles when it lands; the pending
-// flag is set synchronously so the app still converges on next open even if
-// the detached request is cut short by the extension suspending.
+// They AWAIT the round-trip (like the Live Activity buttons). An earlier
+// version fired it in a detached Task and returned immediately for an
+// "instant" optimistic flip — but the widget-extension process is suspended
+// the moment `perform()` returns, which routinely KILLED the request before
+// it reached the server. The visible fallout matched the bug reports: taps
+// that silently did nothing / reverted, and a widget stuck on the
+// "Pausing…/Resuming…" transition label because its reconcile (which clears
+// that label by mirroring the authoritative state) never ran. Awaiting keeps
+// the extension alive until the request lands; WidgetKit then repaints once
+// with the authoritative state when `perform()` returns. The optimistic
+// transition write still happens first (instant cross-surface feedback + the
+// pending flag the app reconciles on next open if the OS cuts `perform()`
+// short). Awaiting is safe here precisely because these are plain AppIntents,
+// not LiveActivityIntents — no SessionStartingAction tag, no chronod freeze.
 
 @available(iOS 17.0, *)
 struct HomeToggleTimerIntent: AppIntent {
@@ -374,9 +460,7 @@ struct HomeToggleTimerIntent: AppIntent {
         log.debug("HomeToggleTimerIntent fired")
         let original = applyTransitionToggle()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingToggleKey)
-        Task.detached(priority: .userInitiated) {
-            await dispatchToggleAndReconcile(original: original)
-        }
+        await dispatchToggleAndReconcile(original: original)
         return .result()
     }
 }
@@ -392,9 +476,27 @@ struct HomeStopTimerIntent: AppIntent {
         log.debug("HomeStopTimerIntent fired")
         let original = applyOptimisticStop()
         UserDefaults(suiteName: appGroupID)?.set(true, forKey: pendingStopKey)
-        Task.detached(priority: .userInitiated) {
-            await dispatchStopAndReconcile(restoreOnFailure: original)
-        }
+        await dispatchStopAndReconcile(restoreOnFailure: original)
+        return .result()
+    }
+}
+
+// Start a personal timer straight from the home widget when none is running —
+// no app launch. Plain AppIntent (not LiveActivityIntent): the Live Activity is
+// created server-side via push-to-start, so this just writes the DB through
+// widget-start. Optimistic local flip first for instant feedback.
+@available(iOS 17.0, *)
+struct HomeStartTimerIntent: AppIntent {
+    static let title: LocalizedStringResource = "Start pomodoro timer"
+    static let description = IntentDescription("Starts a focus session.")
+    static let openAppWhenRun: Bool = false
+    static let isDiscoverable: Bool = false
+
+    func perform() async throws -> some IntentResult {
+        log.debug("HomeStartTimerIntent fired")
+        applyOptimisticStart()
+        let ok = await dispatchWidgetStart()
+        if !ok { revertOptimisticStart() }
         return .result()
     }
 }

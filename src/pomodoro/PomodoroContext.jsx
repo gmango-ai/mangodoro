@@ -13,7 +13,9 @@ import { getEngine, destroyEngine } from "./engine/createEngine.js";
 import { isElectronPopover } from "./engine/electronTimerBridge.js";
 import { initDeviceWidgetPush } from "../lib/persistentTimer.js";
 
-const PomodoroContext = createContext(null);
+// Exported so the no-account local timer (LocalPomodoroProvider) can supply a
+// purely client-side value of the same shape, reusing the shared timer UI.
+export const PomodoroContext = createContext(null);
 
 export function PomodoroProvider({ userId, children, forceSlave = false }) {
   const appCtx = useApp();
@@ -34,11 +36,11 @@ export function PomodoroProvider({ userId, children, forceSlave = false }) {
 
   const engine = useMemo(() => (userId ? getEngine(userId) : null), [userId]);
 
-  // Once authenticated, register this device's APNs token so the server can
-  // keep the home-screen widget fresh via silent pushes (iOS-only, idempotent).
+  // Once authenticated, register this device for silent widget refresh,
+  // push-to-start, and the home-widget Start button (iOS-only, idempotent).
   useEffect(() => {
     if (!userId) return;
-    initDeviceWidgetPush();
+    initDeviceWidgetPush(userId);
   }, [userId]);
 
   useEffect(() => {

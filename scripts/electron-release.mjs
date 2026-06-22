@@ -1,4 +1,4 @@
-// Create + push an `electron-v<version>` tag, which triggers the
+// Create + push a `Mangodoro-v<version>` tag, which triggers the
 // "Release Electron" GitHub Action (builds the macOS .dmg, Windows installer
 // .exe, and Linux .AppImage, then drafts a GitHub Release with the artifacts).
 //
@@ -27,7 +27,7 @@ if (sh("git status --porcelain")) {
   die("Working tree is dirty — commit or stash before releasing.");
 }
 
-const tag = `electron-v${version}`;
+const tag = `Mangodoro-v${version}`;
 const exists = (() => {
   try { sh(`git rev-parse -q --verify refs/tags/${tag}`); return true; } catch { return false; }
 })();

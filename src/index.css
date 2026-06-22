@@ -318,6 +318,22 @@ html.electron .no-drag {
   -webkit-app-region: no-drag;
 }
 
+/* Generic Electron window-drag handle for chrome-less surfaces that have no
+   global Nav title bar — e.g. the signed-out local-timer landing. Same deal as
+   header.sticky: draggable, inset past the macOS traffic lights, with
+   interactive children opting back out so they stay clickable. */
+html.electron .ql-drag-region {
+  -webkit-app-region: drag;
+  padding-left: 72px;
+}
+html.electron .ql-drag-region a,
+html.electron .ql-drag-region button,
+html.electron .ql-drag-region input,
+html.electron .ql-drag-region select,
+html.electron .ql-drag-region [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
 /* Glassmorphic bottom tab bar (BottomNav.jsx). Hidden by default — desktop and
    wide screens navigate from the top nav. It takes over from the hamburger only
    on coarse-pointer (touch) devices below xl: there we reveal the bar, hide the

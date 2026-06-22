@@ -67,8 +67,8 @@
 		A1F236312FDEFD2F007972B9 /* PomodoroActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PomodoroActivityAttributes.swift; sourceTree = "<group>"; };
 		A1F236362FDF03A0007972B9 /* MangodoroBridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MangodoroBridgeViewController.swift; sourceTree = "<group>"; };
 		A1F2363A2FDF0BBF007972B9 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
-		A1F2363C2FDF1CC0007972B9 /* AppRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AppRelease.entitlements; sourceTree = "<group>"; };
 		A1F2363B2FDF0BFB007972B9 /* PomodoroWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PomodoroWidgetExtension.entitlements; sourceTree = "<group>"; };
+		A1F2363C2FDF1CC0007972B9 /* AppRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AppRelease.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */

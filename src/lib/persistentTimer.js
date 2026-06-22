@@ -25,11 +25,15 @@ let lastUploadedKey = null;
 let lastActivityId = null;
 let pendingStateSync = null;
 
-// Device-level APNs token (separate from the per-Live-Activity push token):
-// powers SILENT background pushes that refresh the home-screen widget when
-// the timer is driven from another device. Registered once per session.
+// Device-level registration (separate from the per-Live-Activity push token):
+// the APNs device token (silent home-widget refresh), the push-to-start token
+// (server-created Live Activities), and the per-user widget secret hash (auth
+// for the home-widget Start button). Registered once per session; re-uploaded
+// when a token arrives async.
 let deviceTokenListenerHandle = null;
+let pushToStartTokenListenerHandle = null;
 let lastUploadedDeviceKey = null;
+let deviceRegUserId = null;
 
 function captureActivityId(result) {
   if (result?.activityId) lastActivityId = result.activityId;
@@ -43,6 +47,8 @@ function buildActivityState({
   isRunning,
   pausedSecondsLeft,
   accentColorHex,
+  breakColorHex,
+  phaseDurationSeconds,
 }) {
   const state = {
     endsAtEpochMs: endsAtMs,
@@ -56,6 +62,15 @@ function buildActivityState({
   }
   if (accentColorHex) {
     state.accentColorHex = accentColorHex;
+  }
+  // Break-phase color + current phase length drive the Airy widget ring and
+  // its per-phase accent. Optional — the widget falls back to the accent and
+  // per-mode default durations when absent.
+  if (breakColorHex) {
+    state.breakColorHex = breakColorHex;
+  }
+  if (phaseDurationSeconds != null && phaseDurationSeconds > 0) {
+    state.phaseDurationSeconds = Math.round(phaseDurationSeconds);
   }
   return state;
 }
@@ -155,25 +170,34 @@ function modeLabel(mode) {
 // so we just pick it up from the computed style. Returns a hex string
 // or null.
 function currentAccentHex() {
+  return cssVarHex("--color-accent");
+}
+
+// The break-phase color (analogous to the accent), used by the Airy widget
+// ring/accent during shortBreak/longBreak. Same source/strategy as the accent.
+function currentBreakHex() {
+  return cssVarHex("--color-break");
+}
+
+// Reads a CSS custom property off the document root and returns it only if
+// it's a plain "#rrggbb" hex — for other forms (rgb(), oklch(), etc.) bail
+// rather than feed garbage to the native parser (it falls back to its tint).
+function cssVarHex(name) {
   if (typeof document === "undefined") return null;
   try {
-    const raw = getComputedStyle(document.documentElement)
-      .getPropertyValue("--color-accent")
-      .trim();
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     if (!raw) return null;
-    // Accept "#rrggbb" directly; for other forms (rgb(), oklch(), etc.)
-    // bail rather than feed garbage to the native parser — the activity
-    // will fall back to its default tint.
     return raw.startsWith("#") ? raw : null;
   } catch {
     return null;
   }
 }
 
-export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
+export async function startPersistentTimer({ endsAtMs, mode, isSynced, durationSeconds }) {
   if (!endsAtMs || endsAtMs <= Date.now()) return;
   const label = modeLabel(mode);
   const accentColorHex = currentAccentHex();
+  const breakColorHex = currentBreakHex();
   const platform = getPlatform();
   try {
     if (platform === "ios") {
@@ -185,6 +209,8 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
         isSynced: !!isSynced,
         isRunning: true,
         accentColorHex,
+        breakColorHex,
+        phaseDurationSeconds: durationSeconds,
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
       });
@@ -197,6 +223,8 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
           isSynced,
           isRunning: true,
           accentColorHex,
+          breakColorHex,
+          phaseDurationSeconds: durationSeconds,
         })
       );
     } else if (platform === "android") {
@@ -216,10 +244,11 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced }) {
 
 // Used when the phase changes mid-run. Cheaper than stop+start because
 // the surface stays visible without flicker.
-export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
+export async function updatePersistentTimer({ endsAtMs, mode, isSynced, durationSeconds }) {
   if (!endsAtMs || endsAtMs <= Date.now()) return;
   const label = modeLabel(mode);
   const accentColorHex = currentAccentHex();
+  const breakColorHex = currentBreakHex();
   const platform = getPlatform();
   try {
     if (platform === "ios") {
@@ -231,6 +260,8 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
         isSynced: !!isSynced,
         isRunning: true,
         accentColorHex,
+        breakColorHex,
+        phaseDurationSeconds: durationSeconds,
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
       });
@@ -243,6 +274,8 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
           isSynced,
           isRunning: true,
           accentColorHex,
+          breakColorHex,
+          phaseDurationSeconds: durationSeconds,
         })
       );
     } else if (platform === "android") {
@@ -264,9 +297,10 @@ export async function updatePersistentTimer({ endsAtMs, mode, isSynced }) {
 // surface. iOS-only for now — Android's ongoing notification still
 // clears on pause until we add a foreground service; Electron's tray
 // clears too.
-export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }) {
+export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced, durationSeconds }) {
   const label = modeLabel(mode);
   const accentColorHex = currentAccentHex();
+  const breakColorHex = currentBreakHex();
   const platform = getPlatform();
   const pausedSec = Math.max(0, Math.round(pausedSecondsLeft || 0));
   try {
@@ -277,6 +311,8 @@ export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }
         label,
         isSynced: !!isSynced,
         accentColorHex,
+        breakColorHex,
+        phaseDurationSeconds: durationSeconds,
       });
       captureActivityId(result);
       await syncActivityState(
@@ -288,6 +324,8 @@ export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }
           isRunning: false,
           pausedSecondsLeft: pausedSec,
           accentColorHex,
+          breakColorHex,
+          phaseDurationSeconds: durationSeconds,
         })
       );
     } else if (platform === "android") {
@@ -303,9 +341,9 @@ export async function pausePersistentTimer({ pausedSecondsLeft, mode, isSynced }
 // Resume from a paused state. Computes a fresh endsAtMs from the
 // remaining seconds at the moment of resume so the widget's
 // Text(timerInterval:) picks up exactly where it left off.
-export async function resumePersistentTimer({ pausedSecondsLeft, mode, isSynced }) {
+export async function resumePersistentTimer({ pausedSecondsLeft, mode, isSynced, durationSeconds }) {
   const endsAtMs = Date.now() + Math.max(0, Math.round(pausedSecondsLeft || 0)) * 1000;
-  await startPersistentTimer({ endsAtMs, mode, isSynced });
+  await startPersistentTimer({ endsAtMs, mode, isSynced, durationSeconds });
 }
 
 export async function stopPersistentTimer() {
@@ -346,14 +384,18 @@ export async function consumePendingTimerToggle() {
   }
 }
 
-async function uploadDeviceToken({ token, deviceId, apnsEnv } = {}) {
-  if (!token || !deviceId) return;
-  const key = `${deviceId}:${token}`;
+// Upload whatever device-level registration fields are currently available
+// (tokens arrive async, so this may be partial — device-register merges).
+async function uploadDeviceRegistration(reg) {
+  if (!reg?.deviceId) return;
+  const body = { device_id: reg.deviceId, apns_env: reg.apnsEnv || "production" };
+  if (reg.pushToken) body.push_token = reg.pushToken;
+  if (reg.ptsToken) body.pts_token = reg.ptsToken;
+  if (reg.secretHash) body.widget_secret_hash = reg.secretHash;
+  const key = JSON.stringify(body);
   if (key === lastUploadedDeviceKey) return;
   try {
-    const { error } = await supabase.functions.invoke("device-register", {
-      body: { device_id: deviceId, push_token: token, apns_env: apnsEnv || "production" },
-    });
+    const { error } = await supabase.functions.invoke("device-register", { body });
     if (error) {
       console.warn("[persistentTimer] device-register failed", error);
       return;
@@ -364,21 +406,40 @@ async function uploadDeviceToken({ token, deviceId, apnsEnv } = {}) {
   }
 }
 
-// Registers this device for silent background pushes that keep the home-screen
-// widget fresh when the timer changes on another device. Safe to call on every
-// app start once the user is authenticated (no-op off iOS / when unchanged).
-export async function initDeviceWidgetPush() {
+// Pull the current registration snapshot from native (ensures the per-user
+// widget secret exists + stores the user id in the App Group) and upload it.
+async function registerDevice() {
+  try {
+    const reg = await IOSLiveActivity.getWidgetRegistration(
+      deviceRegUserId ? { userId: deviceRegUserId } : {}
+    );
+    await uploadDeviceRegistration(reg);
+  } catch (e) {
+    console.warn("[persistentTimer] getWidgetRegistration failed", e);
+  }
+}
+
+// Registers this device for: silent home-widget refresh pushes, push-to-start
+// Live Activities, and the home-widget Start button (per-user widget secret).
+// Safe to call on every app start once authenticated (no-op off iOS). Re-uploads
+// when the APNs / push-to-start tokens arrive async.
+export async function initDeviceWidgetPush(userId) {
   if (getPlatform() !== "ios") return;
+  if (userId) deviceRegUserId = userId;
   try {
     if (!deviceTokenListenerHandle) {
       deviceTokenListenerHandle = await IOSLiveActivity.addListener(
         "deviceTokenReceived",
-        (data) => { uploadDeviceToken(data); }
+        () => { registerDevice(); }
       );
     }
-    // Pull any token APNs already handed us before the listener attached.
-    const current = await IOSLiveActivity.getDeviceToken();
-    if (current?.token) await uploadDeviceToken(current);
+    if (!pushToStartTokenListenerHandle) {
+      pushToStartTokenListenerHandle = await IOSLiveActivity.addListener(
+        "pushToStartTokenReceived",
+        () => { registerDevice(); }
+      );
+    }
+    await registerDevice();
   } catch (e) {
     console.warn("[persistentTimer] initDeviceWidgetPush failed", e);
   }

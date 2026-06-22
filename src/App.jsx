@@ -39,6 +39,7 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const JoinSyncPage = lazy(() => import("./pages/JoinSyncPage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const JoinRetroPage = lazy(() => import("./pages/JoinRetroPage"));
+const LocalTimerPage = lazy(() => import("./pages/LocalTimerPage"));
 import { applyAccent } from "./lib/accent";
 
 // Shared placeholder shown while a lazy route chunk downloads. Dependency-
@@ -452,9 +453,14 @@ export default function App() {
           <Route path="/pomodoro/join/:code" element={<JoinSyncPage />} />
           <Route path="/team/join/:code" element={<JoinTeamPage />} />
           <Route path="/retros/join/:code" element={<JoinRetroPage />} />
+          {/* No-account local timer. It's also the default landing for
+              signed-out visitors (catch-all below), so the web/desktop/Electron
+              app opens straight into a usable timer; signing in is opt-in. */}
+          <Route path="/timer" element={<LocalTimerPage />} />
+          <Route path="/login" element={session ? <Navigate to="/" replace /> : <AuthPage />} />
           <Route
             path="/*"
-            element={session ? <AuthenticatedApp session={session} /> : <AuthPage />}
+            element={session ? <AuthenticatedApp session={session} /> : <LocalTimerPage />}
           />
         </Routes>
         </Suspense>
