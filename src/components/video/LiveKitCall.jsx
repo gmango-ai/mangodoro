@@ -19,7 +19,7 @@ import {
 } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Aperture, Waves, ChevronDown, Check } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
@@ -41,7 +41,7 @@ import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livek
 // Per-device preferences for the local self-view processors + layout. Kept in
 // localStorage so they persist across calls and apply even in PiP (which has
 // no control bar to toggle them).
-const PREF = { blur: "ql_lk_blur", noise: "ql_lk_noise", layout: "ql_lk_layout" };
+const PREF = { bg: "ql_lk_bg", bgCustom: "ql_lk_bg_custom", noise: "ql_lk_noise", layout: "ql_lk_layout" };
 function loadPref(key, fallback) {
   try {
     const v = localStorage.getItem(key);
@@ -71,6 +71,64 @@ let _krispModPromise;
 const loadBlurMod = () => (_blurModPromise ||= import("@livekit/track-processors"));
 const loadKrispMod = () => (_krispModPromise ||= import("@livekit/krisp-noise-filter"));
 
+// Built-in virtual backgrounds — rendered as gradients on a canvas so we ship
+// no binary image assets. The same gradient backs the menu thumbnail (via CSS)
+// and the processor (via this canvas data URL), so they match exactly.
+const BG_PRESETS = [
+  { id: "ocean", label: "Ocean", colors: ["#0ea5e9", "#0f766e"] },
+  { id: "sunset", label: "Sunset", colors: ["#fb923c", "#db2777"] },
+  { id: "violet", label: "Violet", colors: ["#7c3aed", "#2563eb"] },
+  { id: "forest", label: "Forest", colors: ["#16a34a", "#0f766e"] },
+  { id: "slate", label: "Slate", colors: ["#475569", "#0f172a"] },
+];
+const _bgUrlCache = {};
+function bgPresetUrl(id) {
+  if (_bgUrlCache[id]) return _bgUrlCache[id];
+  const preset = BG_PRESETS.find((p) => p.id === id);
+  if (!preset) return null;
+  try {
+    const w = 1280, h = 720;
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const ctx = c.getContext("2d");
+    const g = ctx.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, preset.colors[0]);
+    g.addColorStop(1, preset.colors[1]);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    _bgUrlCache[id] = c.toDataURL("image/jpeg", 0.85);
+    return _bgUrlCache[id];
+  } catch {
+    return null;
+  }
+}
+
+// Downscale an uploaded image to a sane size + JPEG so the data URL stays small
+// enough for localStorage and light for the segmenter to composite each frame.
+function fileToScaledDataUrl(file, maxW = 1280) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxW / img.width);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", 0.85));
+      } catch (e) {
+        reject(e);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
+}
+
 function PublishController({ publish, choices }) {
   const { localParticipant } = useLocalParticipant();
   useEffect(() => {
@@ -94,7 +152,7 @@ function PublishController({ publish, choices }) {
 // camera (@livekit/track-processors) and Krisp noise cancellation on the mic
 // (@livekit/krisp-noise-filter — a LiveKit Cloud feature). Re-runs when the
 // toggle flips or the underlying track republishes (mute/unmute, device swap).
-function EffectsController({ blurEnabled, noiseEnabled }) {
+function EffectsController({ bg, customBg, noiseEnabled }) {
   const { cameraTrack, microphoneTrack } = useLocalParticipant();
 
   useEffect(() => {
@@ -103,18 +161,30 @@ function EffectsController({ blurEnabled, noiseEnabled }) {
     let active = true;
     (async () => {
       try {
-        if (blurEnabled) {
-          const { BackgroundBlur, supportsBackgroundProcessors } = await loadBlurMod();
-          if (active && supportsBackgroundProcessors()) await t.setProcessor(BackgroundBlur(10));
-        } else {
+        if (!bg || bg === "none") {
           await t.stopProcessor();
+          return;
         }
+        // bg descriptor: "blur:<radius>" or "image:<presetId|custom>".
+        const mod = await loadBlurMod();
+        if (!active || !mod.supportsBackgroundProcessors()) return;
+        let proc = null;
+        if (bg.startsWith("blur:")) {
+          proc = mod.BackgroundBlur(parseInt(bg.slice(5), 10) || 10);
+        } else if (bg.startsWith("image:")) {
+          const key = bg.slice(6);
+          const url = key === "custom" ? customBg : bgPresetUrl(key);
+          if (url) proc = mod.VirtualBackground(url);
+        }
+        if (!active) return;
+        if (proc) await t.setProcessor(proc);
+        else await t.stopProcessor();
       } catch {
         /* unsupported device/browser — leave the raw track */
       }
     })();
     return () => { active = false; };
-  }, [blurEnabled, cameraTrack]);
+  }, [bg, customBg, cameraTrack]);
 
   useEffect(() => {
     const t = microphoneTrack?.track;
@@ -158,10 +228,82 @@ function SettingRow({ icon: Icon, label, active, onClick }) {
   );
 }
 
+// Background picker for the camera menu: off, three blur strengths, and
+// virtual-background images (built-in gradients + a custom upload). Lives
+// inside the camera device menu so all video settings sit together.
+function BackgroundEffects({ value, onChange, customBg, onUpload }) {
+  const chip = (val, label) => (
+    <button
+      type="button"
+      onClick={() => onChange(val)}
+      aria-pressed={value === val}
+      className={`px-2 py-1 rounded-md text-[11px] font-medium text-left transition-colors ${
+        value === val ? "bg-white/15 text-white" : "opacity-80 hover:bg-white/10"
+      }`}
+    >
+      {label}
+    </button>
+  );
+  const thumbCls = (sel) =>
+    `aspect-square rounded overflow-hidden ring-1 transition ${
+      sel ? "ring-2 ring-white" : "ring-white/15 hover:ring-white/40"
+    }`;
+  return (
+    <div className="px-1 py-1">
+      <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">Background</div>
+      <div className="grid grid-cols-2 gap-1 px-1">
+        {chip("none", "None")}
+        {chip("blur:6", "Blur · Light")}
+        {chip("blur:12", "Blur · Medium")}
+        {chip("blur:22", "Blur · Strong")}
+      </div>
+      <div className="mt-1.5 px-1 grid grid-cols-5 gap-1">
+        {BG_PRESETS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            title={p.label}
+            aria-label={`Background: ${p.label}`}
+            onClick={() => onChange(`image:${p.id}`)}
+            className={thumbCls(value === `image:${p.id}`)}
+            style={{ backgroundImage: `linear-gradient(135deg, ${p.colors[0]}, ${p.colors[1]})` }}
+          />
+        ))}
+        {customBg && (
+          <button
+            type="button"
+            title="Custom background"
+            onClick={() => onChange("image:custom")}
+            className={thumbCls(value === "image:custom")}
+          >
+            <img src={customBg} alt="" className="w-full h-full object-cover" />
+          </button>
+        )}
+        <label
+          title="Upload an image"
+          className="aspect-square rounded ring-1 ring-white/15 flex items-center justify-center cursor-pointer hover:bg-white/10"
+        >
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onUpload(f);
+              e.target.value = "";
+            }}
+          />
+          <Plus className="w-3.5 h-3.5 opacity-70" />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 // Per-track settings dropdown: the device picker (mic / camera) PLUS that
-// track's processing settings as extra rows below it. Replaces LiveKit's
-// <MediaDeviceMenu> so all audio settings (mic + noise cancellation) live
-// under the mic, and all video settings (camera + blur) under the camera.
+// track's processing settings below it. Replaces LiveKit's <MediaDeviceMenu>
+// so all audio settings (mic + noise cancellation) live under the mic, and all
+// video settings (camera + background blur/image) under the camera.
 function DeviceSettingsMenu({ kind, label, children }) {
   const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind });
   const [open, setOpen] = useState(false);
@@ -192,7 +334,7 @@ function DeviceSettingsMenu({ kind, label, children }) {
         <ChevronDown className="w-4 h-4" />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-56 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1.5 shadow-xl text-[12px]">
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-60 max-h-[70vh] overflow-y-auto rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1.5 shadow-xl text-[12px]">
           <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
           <div className="max-h-44 overflow-auto">
             {devices.length === 0 ? (
@@ -235,7 +377,7 @@ function DeviceSettingsMenu({ kind, label, children }) {
 function CallControlBar({
   publish, tight, emote,
   layoutMode, onToggleLayout,
-  blurEnabled, onToggleBlur,
+  bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
 }) {
   const { theme } = useTheme();
@@ -278,7 +420,7 @@ function CallControlBar({
           <TrackToggle source={Track.Source.Camera} />
           {!tight && (
             <DeviceSettingsMenu kind="videoinput" label="Camera">
-              <SettingRow icon={Aperture} label="Blur background" active={blurEnabled} onClick={onToggleBlur} />
+              <BackgroundEffects value={bg} onChange={onChangeBg} customBg={customBg} onUpload={onUploadBg} />
             </DeviceSettingsMenu>
           )}
           <TrackToggle source={Track.Source.ScreenShare} />
@@ -434,17 +576,30 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote }) {
   }, []);
 
   const [layoutMode, setLayoutMode] = useState(() => loadPref(PREF.layout, "grid"));
-  const [blurEnabled, setBlurEnabled] = useState(() => loadPref(PREF.blur, "0") === "1");
+  // Background effect descriptor: "none" | "blur:<radius>" | "image:<id|custom>".
+  const [bg, setBg] = useState(() => loadPref(PREF.bg, "none"));
+  const [customBg, setCustomBg] = useState(() => loadPref(PREF.bgCustom, "") || null);
   // Noise cancellation defaults ON (the whole point), where supported.
   const [noiseEnabled, setNoiseEnabled] = useState(() => loadPref(PREF.noise, "1") === "1");
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
-  useEffect(() => savePref(PREF.blur, blurEnabled ? "1" : "0"), [blurEnabled]);
+  useEffect(() => savePref(PREF.bg, bg), [bg]);
   useEffect(() => savePref(PREF.noise, noiseEnabled ? "1" : "0"), [noiseEnabled]);
+
+  const onUploadBg = async (file) => {
+    try {
+      const url = await fileToScaledDataUrl(file);
+      try { localStorage.setItem(PREF.bgCustom, url); } catch { /* quota — keep in memory only */ }
+      setCustomBg(url);
+      setBg("image:custom");
+    } catch {
+      /* unreadable image — ignore */
+    }
+  };
 
   return (
     <div ref={rootRef} className="flex flex-col w-full h-full">
-      <EffectsController blurEnabled={blurEnabled} noiseEnabled={noiseEnabled} />
+      <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
       <LayoutContextProvider>
         <Stage compact={compact} publish={publish} onJoinIn={onJoinIn} layoutMode={layoutMode} />
       </LayoutContextProvider>
@@ -456,8 +611,10 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote }) {
             emote={emote}
             layoutMode={layoutMode}
             onToggleLayout={() => setLayoutMode((m) => (m === "speaker" ? "grid" : "speaker"))}
-            blurEnabled={blurEnabled}
-            onToggleBlur={() => setBlurEnabled((v) => !v)}
+            bg={bg}
+            onChangeBg={setBg}
+            customBg={customBg}
+            onUploadBg={onUploadBg}
             noiseEnabled={noiseEnabled}
             onToggleNoise={() => setNoiseEnabled((v) => !v)}
           />
