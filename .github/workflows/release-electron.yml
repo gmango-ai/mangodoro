@@ -3,7 +3,7 @@ name: Release Electron
 on:
   push:
     tags:
-      - 'electron-v*'
+      - 'Mangodoro-v*'
   workflow_dispatch:
     inputs:
       version:
@@ -26,17 +26,17 @@ jobs:
         id: v
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            VERSION="${GITHUB_REF#refs/tags/electron-v}"
+            VERSION="${GITHUB_REF#refs/tags/Mangodoro-v}"
             TAG="${GITHUB_REF#refs/tags/}"
           else
             VERSION="${{ inputs.version }}"
             if [ -z "$VERSION" ]; then
               echo "::error::version input is required for manual runs"; exit 1
             fi
-            TAG="electron-v${VERSION#v}"
+            TAG="Mangodoro-v${VERSION#v}"
           fi
           # Tolerate a leading "v" in the input (e.g. "v1.0.5") so we don't get
-          # an "electron-vv…" tag or a non-semver version stamped into the build.
+          # a "Mangodoro-vv…" tag or a non-semver version stamped into the build.
           VERSION="${VERSION#v}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
