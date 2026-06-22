@@ -13,7 +13,9 @@ import { getEngine, destroyEngine } from "./engine/createEngine.js";
 import { isElectronPopover } from "./engine/electronTimerBridge.js";
 import { initDeviceWidgetPush } from "../lib/persistentTimer.js";
 
-const PomodoroContext = createContext(null);
+// Exported so the no-account local timer (LocalPomodoroProvider) can supply a
+// purely client-side value of the same shape, reusing the shared timer UI.
+export const PomodoroContext = createContext(null);
 
 export function PomodoroProvider({ userId, children, forceSlave = false }) {
   const appCtx = useApp();
