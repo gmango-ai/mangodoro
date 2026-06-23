@@ -210,6 +210,7 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
         ref={textareaRef}
         value={draft}
         rows={1}
+        cols={1}
         onChange={(e) => setDraft(e.target.value.slice(0, 1000))}
         onBlur={commit}
         onKeyDown={(e) => {
