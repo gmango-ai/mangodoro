@@ -17,6 +17,8 @@ import {
   useParticipants,
   useLocalParticipant,
   useRoomContext,
+  useMaybeTrackRefContext,
+  useParticipantAttributes,
 } from "@livekit/components-react";
 import { Track, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
@@ -26,7 +28,7 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack } from "../../lib/livekitModerate";
-import { useRoomCluster } from "./useRoomCluster";
+import { useRoomCluster, ATTR_CLUSTER, ATTR_LEADER, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { pickBestMicrophone } from "./bestMic";
 
 // LiveKit's client logs at "info" by default, which floods the console with
@@ -763,6 +765,42 @@ function PeoplePanel({ roomId, onClose }) {
   );
 }
 
+// A ParticipantTile with an in-room badge. When a participant is part of a
+// physical-room cluster, their tile gets a small chip — amber "Room speaker"
+// for the one carrying the room's audio, muted "In room" for the followers —
+// so the grouping is visible right in the grid. Reads the tile participant's
+// OWN attributes (reactively, via useParticipantAttributes), so each tile
+// decides its own badge with no cross-tile coordination. Wraps the default
+// tile in a flex box and lets it fill, so the grid layout is unaffected.
+function ClusterParticipantTile() {
+  const trackRef = useMaybeTrackRefContext();
+  const participant = trackRef?.participant;
+  const { attributes } = useParticipantAttributes({ participant });
+  const inRoom = !!attributes?.[ATTR_CLUSTER];
+  const isSpeaker = inRoom && attributes?.[ATTR_LEADER] === participant?.identity;
+  const isDevice = attributes?.[ATTR_ROOM_DEVICE] === "1";
+  return (
+    <div style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}>
+      <ParticipantTile style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+      {inRoom && (
+        <div
+          className={`absolute top-1.5 left-1.5 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm pointer-events-none ${
+            isSpeaker ? "bg-amber-500/85 text-white" : "bg-slate-900/70 text-slate-100"
+          }`}
+          title={
+            isSpeaker
+              ? `${isDevice ? "Room device" : "Room speaker"} — carries this room's audio`
+              : "In the room · muted here (heard through the room speaker)"
+          }
+        >
+          {isSpeaker ? <Volume2 className="w-3 h-3 shrink-0" /> : <MicOff className="w-3 h-3 shrink-0" />}
+          {isSpeaker ? (isDevice ? "Room device" : "Room speaker") : "In room"}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // The video stage. Renders a grid, or a focus layout (one big tile + a
 // carousel filmstrip) when a tile is pinned, someone is screen-sharing, or
 // speaker view is on. Clicking a tile's focus button pins it (LiveKit's
@@ -813,13 +851,13 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
       {focusTrack ? (
         <FocusLayoutContainer style={{ height: "100%" }}>
           <CarouselLayout tracks={carousel}>
-            <ParticipantTile />
+            <ClusterParticipantTile />
           </CarouselLayout>
           <FocusLayout trackRef={focusTrack} />
         </FocusLayoutContainer>
       ) : (
         <GridLayout tracks={shown} style={{ height: "100%" }}>
-          <ParticipantTile />
+          <ClusterParticipantTile />
         </GridLayout>
       )}
 
