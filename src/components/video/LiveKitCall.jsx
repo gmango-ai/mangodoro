@@ -21,7 +21,7 @@ import {
 } from "@livekit/components-react";
 import { Track, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, MicOff, UserX, X, DoorOpen, Volume2, Sparkles } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import EmoteBar from "../emotes/EmoteBar";
@@ -155,7 +155,7 @@ function bgToOptions(bg, customBg) {
   return null;
 }
 
-function PublishController({ publish, choices }) {
+function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
   const { cluster, isMicSource } = useRoomCluster();
@@ -167,17 +167,17 @@ function PublishController({ publish, choices }) {
     // instead of giving them a (camera-off) tile in the grid.
     localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
     const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
-    // In a shared physical room only the mic SOURCE has a live mic — a second
-    // live mic in the same space would just feed back. Solo participants follow
-    // their own choice. Camera is untouched — each person keeps their own tile.
-    const wantAudio = publish && (cluster ? isMicSource : (choices ? choices.audioEnabled !== false : true));
+    // Your mic is live only when YOU haven't muted it AND (solo, or you're the
+    // room's mic source). The in-room gate is the "behind the scenes" auto-mute —
+    // it doesn't flip your personal mute button; that stays your own control.
+    const wantAudio = publish && !micMuted && (cluster ? isMicSource : true);
     localParticipant
       .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
       .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
     localParticipant
       .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
       .catch(() => { /* */ });
-  }, [localParticipant, publish, choices, cluster, isMicSource]);
+  }, [localParticipant, publish, choices, cluster, isMicSource, micMuted]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
@@ -641,6 +641,34 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
   );
 }
 
+// Personal mic mute. The icon reflects only what YOU did — not the in-room
+// auto-mute, which happens behind the scenes. When you're in a room and your
+// audio is being carried by the room mic, the icon still shows your own state
+// and the tooltip (plus the "In room" tile badge) explains why you may not be
+// transmitting. So: MicOff = you muted yourself; Mic + "In room" badge = the
+// room is carrying you.
+function MicButton({ micMuted, onToggleMic }) {
+  const { cluster, isMicSource } = useRoomCluster();
+  const carriedByRoom = !!cluster && !isMicSource;
+  const title = micMuted
+    ? "Unmute"
+    : carriedByRoom
+      ? "You're in the room — the room mic carries your audio"
+      : "Mute";
+  return (
+    <button
+      type="button"
+      className="lk-button"
+      aria-pressed={micMuted}
+      aria-label={micMuted ? "Unmute microphone" : "Mute microphone"}
+      title={title}
+      onClick={() => onToggleMic?.()}
+    >
+      {micMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+    </button>
+  );
+}
+
 // Custom control bar (replaces LiveKit's <ControlBar>) so reactions + the
 // layout toggle sit where we want and it collapses to icon-only when the tile
 // is narrow — keeping a small video usable rather than forcing a large minimum
@@ -656,6 +684,7 @@ function CallControlBar({
   bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
   autoMic, onToggleAutoMic,
+  micMuted, onToggleMic,
   peopleOpen, onTogglePeople,
 }) {
   const { theme } = useTheme();
@@ -689,7 +718,7 @@ function CallControlBar({
 
       {publish && (
         <>
-          <TrackToggle source={Track.Source.Microphone} />
+          <MicButton micMuted={micMuted} onToggleMic={onToggleMic} />
           {!tight && (
             <DeviceSettingsMenu kind="audioinput" label="Microphone">
               <SettingRow icon={Waves} label="Noise cancellation" active={noiseEnabled} onClick={onToggleNoise} />
@@ -994,7 +1023,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   );
 }
 
-function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
+function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic }) {
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
   const rootRef = useRef(null);
@@ -1066,6 +1095,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
             onToggleNoise={() => setNoiseEnabled((v) => !v)}
             autoMic={autoMic}
             onToggleAutoMic={() => setAutoMic((v) => !v)}
+            micMuted={micMuted}
+            onToggleMic={onToggleMic}
             peopleOpen={peopleOpen}
             onTogglePeople={() => setPeopleOpen((v) => !v)}
           />
@@ -1079,6 +1110,10 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [token, setToken] = useState(null);
+  // Personal mic mute — your own control, kept separate from the room's
+  // behind-the-scenes auto-mute. Seeded from the join choice.
+  const [micMuted, setMicMuted] = useState(choices?.audioEnabled === false);
+  const toggleMic = () => setMicMuted((v) => !v);
 
   useEffect(() => {
     let cancelled = false;
@@ -1136,8 +1171,8 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         onDisconnected={() => onLeft?.()}
         onError={(e) => onError?.(e?.message || "LiveKit connection error")}
       >
-        <PublishController publish={publish} choices={choices} />
-        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} />
+        <PublishController publish={publish} choices={choices} micMuted={micMuted} />
+        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} />
         {/* Owns in-room cluster management (leader handoff). Mount once. */}
         <RoomClusterManager />
         {/* In-room followers receive no audio at all (the room speaker carries
