@@ -7,6 +7,27 @@ import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
 import { setGoal, clearGoal } from "../../lib/goals";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
+
+// Markdown rendering for node display text. gfm = bold/italic, lists, links,
+// tables, task checkboxes; breaks = a single newline stays a line break (so
+// existing multi-line notes don't suddenly collapse into one paragraph).
+const MD_PLUGINS = [remarkGfm, remarkBreaks];
+const MD_COMPONENTS = {
+  // Links open in a new tab and must NOT start a node drag or bubble into the
+  // "click to edit" handler on the node body.
+  a: ({ node, ...props }) => (
+    <a
+      {...props}
+      className="nodrag"
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+    />
+  ),
+};
 
 // Full emoji picker for sticky reactions — lazy so its chunk only loads
 // when someone opens it.
@@ -66,7 +87,7 @@ export function markNodeForEdit(id) { if (id) PENDING_EDIT.add(id); }
 // Stops propagating wheel + pointerdown so the canvas doesn't pan under
 // the cursor mid-edit. Opens immediately for freshly-created nodes
 // (markNodeForEdit) and on a single click once the node is selected.
-function EditableText({ value, onChange, placeholder, className, style, nodeId, selected }) {
+function EditableText({ value, onChange, placeholder, className, style, nodeId, selected, markdown }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
   const textareaRef = useRef(null);
@@ -97,15 +118,21 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
   if (!editing) {
     return (
       <div
-        className={`whitespace-pre-wrap break-words ${className || ""}`}
+        className={`${markdown ? "wb-md" : "whitespace-pre-wrap break-words"} ${className || ""}`}
         style={style}
         onClick={() => { if (selected) setEditing(true); }}
         onDoubleClick={() => setEditing(true)}
       >
-        {value || (
+        {!value ? (
           <span style={{ opacity: 0.45, fontStyle: "italic" }}>
             {placeholder || "Double-click to edit…"}
           </span>
+        ) : markdown ? (
+          <ReactMarkdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>
+            {value}
+          </ReactMarkdown>
+        ) : (
+          value
         )}
       </div>
     );
@@ -279,6 +306,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
           placeholder="Type a note…"
           nodeId={id}
           selected={selected}
+          markdown
           style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: "center", color: ink }}
         />
       </div>
@@ -373,6 +401,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         placeholder="Type some text…"
         nodeId={id}
         selected={selected}
+        markdown
         style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3 }}
       />
     </div>
@@ -497,6 +526,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
           placeholder=""
           nodeId={id}
           selected={selected}
+          markdown
           style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center", color: textColor }}
         />
       </div>
