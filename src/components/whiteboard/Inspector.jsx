@@ -165,7 +165,53 @@ export default function Inspector({ node, patchNodeData }) {
           >
             <SwatchGrid value={fill} onPick={(c) => { patchNodeData({ fill: c }); setOpen(null); }} />
           </Dropdown>
-        ) : null}
+        ) : (
+          <>
+            {/* Standalone text: optional background turns it into a label/chip. */}
+            <Dropdown
+              openKey="fill"
+              open={open}
+              setOpen={setOpen}
+              title="Background"
+              icon={<span className="w-4 h-4 rounded-full border border-white/40" style={{ background: node.data?.fill || "transparent", borderStyle: node.data?.fill ? "solid" : "dashed" }} />}
+            >
+              <div className="p-1" style={{ width: 180 }}>
+                <Opt active={!node.data?.fill} onClick={() => { patchNodeData({ fill: null }); setOpen(null); }}>None</Opt>
+                <SwatchGrid value={node.data?.fill} onPick={(c) => { patchNodeData({ fill: c }); setOpen(null); }} />
+              </div>
+            </Dropdown>
+            {node.data?.fill && (
+              <Dropdown
+                openKey="box"
+                open={open}
+                setOpen={setOpen}
+                title="Padding & corners"
+                width={164}
+                icon={<span className="w-4 h-4 border-2 border-white/70" style={{ borderRadius: 5 }} />}
+              >
+                <div className="p-1.5" style={{ width: 164 }}>
+                  <div className="text-[10px] uppercase tracking-wide text-white/40 px-1 pb-1">Padding</div>
+                  <div className="flex gap-1 px-0.5 pb-2">
+                    {[["None", "none"], ["S", "sm"], ["M", "md"], ["L", "lg"]].map(([label, v]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => patchNodeData({ pad: v })}
+                        className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                          (node.data?.pad || "md") === v ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                        }`}
+                      >{label}</button>
+                    ))}
+                  </div>
+                  <div className="text-[10px] uppercase tracking-wide text-white/40 px-1 pb-1">Corners</div>
+                  {[["Sharp", 0], ["Rounded", 8], ["Round", 16], ["Pill", 999]].map(([label, r]) => (
+                    <Opt key={label} active={(node.data?.radius ?? 8) === r} onClick={() => patchNodeData({ radius: r })}>{label}</Opt>
+                  ))}
+                </div>
+              </Dropdown>
+            )}
+          </>
+        )}
 
         {isShape && (
           <Dropdown

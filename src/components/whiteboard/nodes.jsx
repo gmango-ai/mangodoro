@@ -121,8 +121,6 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
       const el = textareaRef.current;
       el.focus();
       el.select();
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 480)}px`;
     }
   }, [editing]);
 
@@ -150,8 +148,6 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
         if (!t) return;
         t.focus();
         try { t.setSelectionRange(selStart, selEnd); } catch { /* */ }
-        t.style.height = "auto";
-        t.style.height = `${t.scrollHeight}px`;
       });
     };
     activeEditor.current = fn;
@@ -186,32 +182,50 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
     );
   }
 
+  // A textarea has a cols-based intrinsic WIDTH, which blows up an auto-width
+  // node (text) the moment you start editing. So we overlay the textarea on an
+  // invisible SIZER with identical typography + wrapping: the grid cell sizes
+  // to the sizer (= the text), and the textarea fills it. Editing now hugs the
+  // content exactly like display does — in both width and height — for free.
   return (
-    <textarea
-      ref={textareaRef}
-      value={draft}
-      rows={1}
-      onChange={(e) => {
-        setDraft(e.target.value.slice(0, 1000));
-        // Auto-grow to content height so the flex parent keeps the text
-        // vertically centred while editing (instead of filling + top-aligning).
-        e.target.style.height = "auto";
-        e.target.style.height = `${Math.min(e.target.scrollHeight, 480)}px`;
-      }}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") { setDraft(value || ""); setEditing(false); }
-        else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { commit(); }
-      }}
-      onPointerDown={(e) => e.stopPropagation()}
-      onWheel={(e) => e.stopPropagation()}
-      // `nodrag`/`nowheel` are the canonical React Flow opt-outs: with them the
-      // canvas won't start a node drag (or pan/zoom) on a pointer-down inside
-      // the textarea, so click-drag SELECTS text instead of moving the node.
-      // (stopPropagation alone can't stop d3-drag's capture-phase listener.)
-      className={`nodrag nowheel resize-none border-none outline-none bg-transparent overflow-hidden ${className || ""}`}
-      style={{ ...style, width: "100%" }}
-    />
+    <div style={{ display: "grid" }}>
+      <div
+        aria-hidden
+        className={className}
+        style={{
+          ...style,
+          gridArea: "1 / 1",
+          visibility: "hidden",
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
+          margin: 0,
+          padding: 0,
+          minWidth: "1ch",
+          pointerEvents: "none",
+        }}
+      >
+        {(draft || placeholder || " ") + "​"}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={draft}
+        rows={1}
+        onChange={(e) => setDraft(e.target.value.slice(0, 1000))}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { setDraft(value || ""); setEditing(false); }
+          else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { commit(); }
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
+        // `nodrag`/`nowheel` are the canonical React Flow opt-outs: with them the
+        // canvas won't start a node drag (or pan/zoom) on a pointer-down inside
+        // the textarea, so click-drag SELECTS text instead of moving the node.
+        // (stopPropagation alone can't stop d3-drag's capture-phase listener.)
+        className={`nodrag nowheel resize-none border-none outline-none bg-transparent overflow-hidden ${className || ""}`}
+        style={{ ...style, gridArea: "1 / 1", width: "100%", height: "100%", margin: 0, padding: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+      />
+    </div>
   );
 }
 
@@ -430,16 +444,26 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
 
 // ─── TextNode ──────────────────────────────────────────────────────
 
+// Padding presets for a text node's background chip (data.pad).
+const TEXT_PAD = { none: "0px", sm: "8px 14px", md: "16px 26px", lg: "30px 44px" };
+
 export const TextNode = memo(function TextNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
+  // Optional background turns a text node into a label / chip / callout. When a
+  // fill is set the default text colour auto-contrasts against it (like sticky
+  // and shape do); radius + padding round the chip.
+  const fill = data?.fill || null;
+  const radius = data?.radius ?? 8;
+  const textColor = data?.textColor || (fill ? readableText(fill) : "var(--color-text)");
   return (
     <div
       style={{
-        minWidth: 180, padding: "8px 12px",
-        background: selected ? SELECT_FILL : "transparent",
-        borderRadius: 8,
-        boxShadow: selected ? `0 0 0 2px ${SELECT}` : "none",
-        color: "var(--color-text)",
+        minWidth: 180,
+        padding: fill ? (TEXT_PAD[data?.pad] || TEXT_PAD.md) : "8px 12px",
+        background: fill || (selected ? SELECT_FILL : "transparent"),
+        borderRadius: radius,
+        boxShadow: selected ? `0 0 0 2px ${SELECT}` : (fill ? "0 6px 16px -8px rgba(0,0,0,.35)" : "none"),
+        color: textColor,
       }}
     >
       <FourHandles visible={false} />
@@ -450,7 +474,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         nodeId={id}
         selected={selected}
         markdown
-        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: data?.textColor || "var(--color-text)" }}
+        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor }}
       />
     </div>
   );
