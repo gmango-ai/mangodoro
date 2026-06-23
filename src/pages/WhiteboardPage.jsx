@@ -712,6 +712,58 @@ function PaintToolbar({ dark, style, setStyle }) {
   );
 }
 
+// Dot-voting: a tally badge floating above each node's top-right corner. Shown
+// on any node that has votes, plus the selected node (as a "vote" affordance so
+// you can cast the first one). Votes are a per-user map in node.data.votes
+// (`{ userId: 1 }`), so they sync + persist like any node data and each person
+// can add/remove only their own. One overlay covers every node type.
+function VotesOverlay({ nodes, myId, onToggle, dark }) {
+  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const show = nodes.filter(
+    (n) => n.type !== "zone" && n.type !== "frame" &&
+      (n.selected || (n.data?.votes && Object.keys(n.data.votes).length))
+  );
+  if (!show.length) return null;
+  return (
+    <ViewportPortal>
+      {show.map((n) => {
+        const abs = nodeAbsPos(n, byId);
+        const w = n.width || n.measured?.width || 0;
+        const votes = n.data?.votes || {};
+        const count = Object.keys(votes).length;
+        const mine = !!(myId && votes[myId]);
+        return (
+          <div
+            key={`vote-${n.id}`}
+            style={{ position: "absolute", left: abs.x + w - 14, top: abs.y - 6, transform: "translate(0,-100%)", zIndex: 30 }}
+          >
+            <button
+              type="button"
+              className="nodrag"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onToggle(n.id); }}
+              title={count ? `${count} vote${count === 1 ? "" : "s"} — click to ${mine ? "remove" : "add"} yours` : "Vote"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 12, fontWeight: 800, lineHeight: 1,
+                padding: "3px 8px", borderRadius: 9999, cursor: "pointer",
+                background: mine ? "var(--color-accent)" : dark ? "rgba(15,23,42,.86)" : "#fff",
+                color: mine ? "#fff" : dark ? "#e2e8f0" : "#334155",
+                border: `1.5px solid ${mine ? "var(--color-accent)" : dark ? "rgba(255,255,255,.18)" : "rgba(0,0,0,.12)"}`,
+                boxShadow: "0 4px 10px -4px rgba(0,0,0,.4)",
+                opacity: count === 0 && !mine ? 0.7 : 1,
+              }}
+            >
+              <span style={{ fontSize: 13 }}>👍</span>
+              {count > 0 && <span>{count}</span>}
+            </button>
+          </div>
+        );
+      })}
+    </ViewportPortal>
+  );
+}
+
 let _idSeq = 1;
 function freshId(prefix) {
   // 36ms time + counter is plenty to avoid id collisions inside one
@@ -1982,6 +2034,20 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   const cloneRef = useRef(null);
   cloneRef.current = cloneNodes;
 
+  // Toggle MY dot-vote on a node (per-user map in data.votes). Syncs/persists
+  // like any node edit; clears the key (and the whole map when empty) to keep
+  // data lean. See VotesOverlay.
+  const toggleVote = useCallback((nodeId) => {
+    const myId = session?.user?.id;
+    if (!myId) return;
+    setNodes((nds) => nds.map((n) => {
+      if (n.id !== nodeId) return n;
+      const votes = { ...(n.data?.votes || {}) };
+      if (votes[myId]) delete votes[myId]; else votes[myId] = 1;
+      return { ...n, data: { ...n.data, votes: Object.keys(votes).length ? votes : undefined } };
+    }));
+  }, [session?.user?.id, setNodes]);
+
   // Alt/Option-drag = clone: at drag start, drop a copy of the dragged node(s)
   // in place (unselected) and let the ORIGINALS keep dragging — so you pull a
   // duplicate out, leaving the copy behind. Guarded so we clone once per drag.
@@ -2460,6 +2526,9 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
+
+        {/* Dot-voting tally badges (per-node, multiplayer). */}
+        <VotesOverlay nodes={nodes} myId={session?.user?.id} onToggle={toggleVote} dark={dark} />
 
         {/* My own fading laser-ink trail (flow space). */}
         {tool === "laser" && <LaserTrail pointsRef={laserInkRef} color={effectiveLaserColor} />}
