@@ -37,6 +37,8 @@ import {
   AlignEndHorizontal,
   AlignHorizontalDistributeCenter,
   AlignVerticalDistributeCenter,
+  StretchHorizontal,
+  StretchVertical,
   ChevronDown,
   Smile,
   Timer,
@@ -1565,9 +1567,18 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             cursor += (horiz ? r.w : r.h) + gap;
           }
         }
-        return nds.map((n) =>
-          pos.has(n.id) ? { ...n, position: { ...n.position, ...pos.get(n.id) } } : n
-        );
+        // Match-size: set every selected node's width / height to the largest.
+        const size = new Map();
+        if (op === "matchW" || op === "matchH") {
+          const dim = op === "matchW" ? "w" : "h";
+          const target = Math.max(...rs.map((r) => r[dim]));
+          for (const r of rs) size.set(r.id, op === "matchW" ? { width: target } : { height: target });
+        }
+        return nds.map((n) => {
+          if (size.has(n.id)) return { ...n, ...size.get(n.id) };
+          if (pos.has(n.id)) return { ...n, position: { ...n.position, ...pos.get(n.id) } };
+          return n;
+        });
       });
     },
     [setNodes]
@@ -1795,6 +1806,9 @@ function WhiteboardEditor({ boardId, embedded = false }) {
               null,
               ["distH", AlignHorizontalDistributeCenter, "Distribute horizontally"],
               ["distV", AlignVerticalDistributeCenter, "Distribute vertically"],
+              null,
+              ["matchW", StretchHorizontal, "Match width"],
+              ["matchH", StretchVertical, "Match height"],
             ].map((item, i) => {
               if (!item) return <div key={`d${i}`} className={`w-px h-5 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />;
               const [op, Icon, title] = item;
