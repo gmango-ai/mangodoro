@@ -1441,6 +1441,22 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     [setNodes]
   );
 
+  // Lock / unlock the selected node(s). React Flow's per-node `draggable:false`
+  // stops the move; the resizer is hidden via data.locked in each node. Both
+  // persist (snapshot + sync), so a lock is shared with everyone on the board.
+  const setSelectedLocked = useCallback(
+    (locked) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.selected && n.type !== "zone"
+            ? { ...n, draggable: locked ? false : undefined, data: { ...n.data, locked } }
+            : n
+        )
+      );
+    },
+    [setNodes]
+  );
+
   // Title / goal / archive — same flow as the prior page, just leaning
   // on the existing setters in lib/whiteboard.
   async function handleSaveTitle() {
@@ -1693,7 +1709,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             offset={selectedNode.type === "frame" ? (selectedNode.data?.fontSize ?? 20) + 28 : 14}
             align="center"
           >
-            <Inspector node={selectedNode} patchNodeData={patchNodeData} />
+            <Inspector node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} />
           </NodeToolbar>
         )}
       </ReactFlow>

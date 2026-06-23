@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Magnet, AlignLeft, AlignCenter, AlignRight, Bold, Italic } from "lucide-react";
+import { Magnet, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Lock, LockOpen } from "lucide-react";
 import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex, wrapActiveSelection } from "./nodes";
 import { Pill, ToolDivider, Dropdown, SwatchGrid, Opt } from "./toolbarUI";
 import { nodeSnaps } from "./snapping";
@@ -101,7 +101,7 @@ function StickyPicker({ value, onPick, onLive }) {
 // matching the edge toolbar. Positioned above the node by React Flow's
 // <NodeToolbar> at the call site. Only the controls a given node type
 // supports are shown.
-export default function Inspector({ node, patchNodeData }) {
+export default function Inspector({ node, patchNodeData, setLocked }) {
   const [open, setOpen] = useState(null);
   if (!node) return null;
 
@@ -118,6 +118,7 @@ export default function Inspector({ node, patchNodeData }) {
   const stickyColor = stickyHex(node.data?.color);
   const hasPre = isShape || isSticky || !isText; // any control before the text size
   const snapping = nodeSnaps(node); // grid + alignment snapping for this item
+  const locked = !!node.data?.locked;
   const isTextable = isSticky || isText || isShape;
   const curAlign = node.data?.textAlign || (isText ? "left" : "center");
   const curVAlign = node.data?.vAlign || "middle";
@@ -381,6 +382,17 @@ export default function Inspector({ node, patchNodeData }) {
           }`}
         >
           <Magnet className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          title={locked ? "Locked — click to unlock" : "Lock position & size"}
+          aria-pressed={locked}
+          onClick={() => setLocked?.(!locked)}
+          className={`h-7 px-1.5 rounded-md flex items-center transition-colors ${
+            locked ? "text-[var(--color-accent)] bg-white/10" : "text-white/50 hover:bg-white/10"
+          }`}
+        >
+          {locked ? <Lock className="w-4 h-4" /> : <LockOpen className="w-4 h-4" />}
         </button>
       </Pill>
     </div>

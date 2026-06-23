@@ -353,7 +353,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
       }}
     >
       {/* Resizable but square (keepAspectRatio); no connection handles. */}
-      <NodeResizer isVisible={selected} minWidth={120} minHeight={120} keepAspectRatio {...resizer(SELECT)} />
+      <NodeResizer isVisible={selected && !data?.locked} minWidth={120} minHeight={120} keepAspectRatio {...resizer(SELECT)} />
       {selected && (
         <button type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete"
           style={{ position: "absolute", top: 6, right: 6, opacity: 0.4, display: "flex", color: ink }}>
@@ -612,7 +612,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
   return (
     <div ref={ref} style={{ width: "100%", height: "100%", position: "relative" }}>
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected && !data?.locked}
         minWidth={70} minHeight={50}
         {...resizer(stroke)}
       />
@@ -689,7 +689,7 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
         color: text,
       }}
     >
-      <NodeResizer isVisible={selected} minWidth={200} minHeight={120} {...resizer("#f59e0b")} />
+      <NodeResizer isVisible={selected && !data?.locked} minWidth={200} minHeight={120} {...resizer("#f59e0b")} />
       {/* No connection handles — goals aren't edge endpoints. */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "linear-gradient(120deg,#f59e0b,#f97316)", color: "#fff", borderRadius: "12px 12px 0 0" }}>
         <Target style={{ width: 14, height: 14 }} />
@@ -797,7 +797,7 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
   };
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
-      <NodeResizer isVisible={selected} minWidth={160} minHeight={140} {...resizer(tint)} />
+      <NodeResizer isVisible={selected && !data?.locked} minWidth={160} minHeight={140} {...resizer(tint)} />
       {/* Label floats just ABOVE the frame's top-left (Lucidchart/Lucidspark
           style) — outside the clipped box so it's never cut off. */}
       <div style={{ position: "absolute", left: 2, bottom: "calc(100% + 5px)", display: "inline-flex", alignItems: "center", gap: 6, maxWidth: 360, ...(labelFill ? { background: labelFill, padding: "2px 10px", borderRadius: 8 } : null) }}>
@@ -878,7 +878,7 @@ export const ImageNode = memo(function ImageNode({ id, data, selected }) {
           : "0 14px 26px -12px rgba(0,0,0,.4), 0 3px 7px -3px rgba(0,0,0,.18)",
       }}
     >
-      <NodeResizer isVisible={selected} minWidth={48} minHeight={48} keepAspectRatio {...resizer(SELECT)} />
+      <NodeResizer isVisible={selected && !data?.locked} minWidth={48} minHeight={48} keepAspectRatio {...resizer(SELECT)} />
       {src ? (
         <img
           src={src}
