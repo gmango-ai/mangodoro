@@ -50,6 +50,8 @@ import {
   Map as MapIcon,
   LayoutTemplate,
   Wand2,
+  Paintbrush,
+  Eraser,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -115,6 +117,7 @@ import {
   LaserTrail,
 } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
+import PaintLayer from "../components/whiteboard/PaintLayer";
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import WhiteboardTimer from "../components/whiteboard/WhiteboardTimer";
@@ -538,6 +541,126 @@ function PenTool({ dark, active, style, setStyle, onToggle }) {
   );
 }
 
+// Raster-brush tool for the rail: toggles paint mode; the chevron opens colour
+// / size / opacity / eraser. Strokes rasterise onto the tiled paint layer and
+// broadcast to peers (see PaintLayer / paintTiles).
+function BrushTool({ dark, active, style, setStyle, onToggle }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title={active ? "Brush (on) — Esc to exit" : "Brush — raster paint"}
+        aria-label="Brush"
+        aria-pressed={active}
+        onClick={onToggle}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+          active
+            ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
+            : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        <Paintbrush className="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        title="Brush options"
+        aria-label="Brush options"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+          dark
+            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
+            : "bg-white text-slate-500 border border-slate-200"
+        }`}
+      >
+        <ChevronDown className="w-2.5 h-2.5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}
+            style={{ width: 196 }}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <div className={`text-[10px] font-bold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>Brush colour</div>
+              <button
+                type="button"
+                title="Eraser"
+                aria-pressed={style.erase}
+                onClick={() => setStyle((s) => ({ ...s, erase: !s.erase }))}
+                className={`h-6 px-1.5 rounded-md flex items-center gap-1 text-[10px] font-semibold transition-colors ${
+                  style.erase
+                    ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
+                    : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+                }`}
+              >
+                <Eraser className="w-3.5 h-3.5" /> Erase
+              </button>
+            </div>
+            <div className="grid grid-cols-6 gap-1">
+              {PEN_COLORS.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  title={hex}
+                  onClick={() => setStyle((s) => ({ ...s, color: hex, erase: false }))}
+                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
+                  style={{
+                    background: hex,
+                    outline: !style.erase && style.color.toLowerCase() === hex.toLowerCase() ? "2px solid #f97316" : "none",
+                    outlineOffset: 1,
+                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
+                  }}
+                />
+              ))}
+            </div>
+            <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(style.color) ? style.color : "#0ea5e9"}
+                onChange={(e) => setStyle((s) => ({ ...s, color: e.target.value, erase: false }))}
+                style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+              />
+              Custom colour
+            </label>
+            <div className={`text-[10px] font-bold uppercase tracking-wide mt-2.5 mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>Size</div>
+            <div className="flex gap-1">
+              {BRUSH_SIZES.map(([label, w]) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setStyle((s) => ({ ...s, size: w }))}
+                  className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                    style.size === w
+                      ? dark ? "bg-white/15 text-white" : "bg-slate-200 text-slate-700"
+                      : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+            <div className={`text-[10px] font-bold uppercase tracking-wide mt-2.5 mb-1 flex justify-between ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              <span>Opacity</span><span>{Math.round(style.opacity * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min={10}
+              max={100}
+              step={5}
+              value={Math.round(style.opacity * 100)}
+              onChange={(e) => setStyle((s) => ({ ...s, opacity: Number(e.target.value) / 100 }))}
+              className="w-full accent-[var(--color-accent)]"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 let _idSeq = 1;
 function freshId(prefix) {
   // 36ms time + counter is plenty to avoid id collisions inside one
@@ -613,6 +736,23 @@ function loadPenStyle() {
 }
 function savePenStyle(style) {
   try { localStorage.setItem(PEN_STYLE_KEY, JSON.stringify(style)); } catch { /* */ }
+}
+
+// Remembered raster-brush settings (colour / size / opacity / eraser).
+const BRUSH_STYLE_KEY = "ql_wb_brush_style";
+const BRUSH_SIZES = [["S", 8], ["M", 18], ["L", 44]];
+function loadBrushStyle() {
+  try {
+    const v = JSON.parse(localStorage.getItem(BRUSH_STYLE_KEY) || "null");
+    if (v && typeof v.color === "string") {
+      return { color: v.color, size: v.size || 18, opacity: v.opacity ?? 1, erase: false };
+    }
+  } catch { /* */ }
+  return { color: "#0ea5e9", size: 18, opacity: 1, erase: false };
+}
+function saveBrushStyle(style) {
+  // Eraser is a transient mode, not a saved preference.
+  try { localStorage.setItem(BRUSH_STYLE_KEY, JSON.stringify({ color: style.color, size: style.size, opacity: style.opacity })); } catch { /* */ }
 }
 
 export default function WhiteboardPage() {
@@ -741,7 +881,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
 
   // ── live collaboration: broadcast node/edge diffs + cursors on top of
   // the snapshot-of-record, plus presence. See useWhiteboardSync.
-  const { peers, members, pushCursor, myColor } = useWhiteboardSync({
+  // Raster paint layer (tiled). Peer strokes arrive as vectors and rasterise
+  // locally via the layer's imperative handle. onPaint is stable so it doesn't
+  // churn the sync channel subscription.
+  const paintRef = useRef(null);
+  const onPaint = useCallback((p) => paintRef.current?.apply(p), []);
+
+  const { peers, members, pushCursor, pushPaint, myColor } = useWhiteboardSync({
     boardId: board?.id,
     enabled: collabEnabled,
     nodes,
@@ -750,6 +896,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     setEdges,
     name: myName,
     onRemoteApply,
+    onPaint,
   });
 
   // Active canvas tool: "select" (default), "laser" (ephemeral presenting
@@ -776,6 +923,24 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   const laserInkRef = useRef([]);
   const laserDrawingRef = useRef(false);
 
+  // Raster brush settings (persisted) + the in-progress paint stroke. Local
+  // points rasterise immediately; broadcasts go out in ~70ms batches.
+  const [brushStyle, setBrushStyle] = useState(loadBrushStyle);
+  const brushStyleRef = useRef(brushStyle);
+  brushStyleRef.current = brushStyle;
+  useEffect(() => { saveBrushStyle(brushStyle); }, [brushStyle]);
+  const paintStrokeIdRef = useRef(null);
+  const paintBrushRef = useRef(null);
+  const paintBatchRef = useRef([]);
+  const paintLastFlushRef = useRef(0);
+  const flushPaint = useCallback(() => {
+    const id = paintStrokeIdRef.current;
+    const pts = paintBatchRef.current;
+    if (!id || !pts.length) return;
+    paintBatchRef.current = [];
+    pushPaint({ id, brush: paintBrushRef.current, pts });
+  }, [pushPaint]);
+
   // Last pointer position in FLOW coords — so paste lands under the cursor.
   const lastPtRef = useRef(null);
   const onWbPointerMove = useCallback(
@@ -791,6 +956,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
           if (!last || Math.abs(p.x - last.x) + Math.abs(p.y - last.y) > 1) {
             arr.push({ x: p.x, y: p.y, t: Date.now() });
           }
+        }
+        // Raster brush: rasterise locally each move; batch the broadcast.
+        if (paintStrokeIdRef.current) {
+          paintRef.current?.apply({ id: paintStrokeIdRef.current, brush: paintBrushRef.current, pts: [[p.x, p.y]] });
+          paintBatchRef.current.push([p.x, p.y]);
+          const now = Date.now();
+          if (now - paintLastFlushRef.current > 70) { paintLastFlushRef.current = now; flushPaint(); }
         }
         const dr = drawingRef.current;
         if (dr) {
@@ -810,7 +982,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         /* */
       }
     },
-    [rf, pushCursor]
+    [rf, pushCursor, flushPaint]
   );
 
   // Pen down: begin a stroke. Capture-phase so it wins over the (disabled in
@@ -819,20 +991,36 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   const onWbPointerDownCapture = useCallback(
     (e) => {
       const mode = toolRef.current;
-      if ((mode !== "pen" && mode !== "laser") || e.button !== 0) return;
+      if ((mode !== "pen" && mode !== "laser" && mode !== "brush") || e.button !== 0) return;
       const t = e.target;
       if (!(t instanceof Element) || !t.closest(".react-flow") || t.closest(".react-flow__panel")) return;
-      // In laser mode, ⌘/Ctrl+drag pans (handled by ReactFlow), so don't ink.
-      if (mode === "laser" && (e.ctrlKey || e.metaKey)) return;
+      // In laser / brush mode, ⌘/Ctrl+drag pans (handled by ReactFlow), so the
+      // left-drag stays free for the laser ink / brush — don't capture it.
+      if ((mode === "laser" || mode === "brush") && (e.ctrlKey || e.metaKey)) return;
       let p;
       try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
       if (mode === "pen") {
         drawingRef.current = { points: [[p.x, p.y]] };
         setDrawPath(strokePath(drawingRef.current.points));
-      } else {
+      } else if (mode === "laser") {
         laserDrawingRef.current = true;
         laserInkRef.current = [{ x: p.x, y: p.y, t: Date.now() }];
         pushCursor(p.x, p.y, true, true);
+      } else {
+        // brush: open a paint stroke, rasterise the first dab, start streaming.
+        const bs = brushStyleRef.current;
+        const brush = {
+          color: bs.erase ? "#000000" : bs.color,
+          size: bs.size,
+          opacity: bs.erase ? 1 : bs.opacity,
+          mode: bs.erase ? "eraser" : "brush",
+        };
+        const id = freshId("pt");
+        paintStrokeIdRef.current = id;
+        paintBrushRef.current = brush;
+        paintBatchRef.current = [[p.x, p.y]];
+        paintLastFlushRef.current = Date.now();
+        paintRef.current?.apply({ id, brush, pts: [[p.x, p.y]] });
       }
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
       e.preventDefault();
@@ -884,11 +1072,21 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         if (lp) pushCursor(lp.x, lp.y, true, false);
         return;
       }
+      if (paintStrokeIdRef.current) {
+        const id = paintStrokeIdRef.current;
+        try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+        // Flush the tail + tell peers the stroke ended; close it locally too.
+        pushPaint({ id, brush: paintBrushRef.current, pts: paintBatchRef.current, end: true });
+        paintBatchRef.current = [];
+        paintRef.current?.apply({ id, brush: paintBrushRef.current, pts: [], end: true });
+        paintStrokeIdRef.current = null;
+        return;
+      }
       if (!drawingRef.current) return;
       try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
       finishStroke();
     },
-    [finishStroke, pushCursor]
+    [finishStroke, pushCursor, pushPaint]
   );
 
   // On a tool switch, push one cursor update reflecting the new mode so peers
@@ -2080,7 +2278,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       // gesture area so taps there don't trigger an OS swipe. env() = 0 on
       // desktop, so it's a no-op there.
       className={`relative w-full overflow-hidden ${
-        tool === "pen" ? "wb-pen " : ""
+        tool === "pen" || tool === "brush" ? "wb-pen " : ""
       }${
         embedded
           ? "h-full"
@@ -2133,9 +2331,9 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         panOnScroll
         zoomOnScroll={false}
         zoomOnPinch
-        // Hold to pan with a left-drag: Space everywhere; in laser mode also
-        // ⌘/Ctrl so you can move the canvas while the left button draws ink.
-        panActivationKeyCode={tool === "laser" ? ["Space", "Control", "Meta"] : "Space"}
+        // Hold to pan with a left-drag: Space everywhere; in laser/brush mode
+        // also ⌘/Ctrl so you can move the canvas while the left button draws.
+        panActivationKeyCode={tool === "laser" || tool === "brush" ? ["Space", "Control", "Meta"] : "Space"}
         fitView
         fitViewOptions={{ padding: 0.15 }}
         proOptions={{ hideAttribution: true }}
@@ -2146,6 +2344,8 @@ function WhiteboardEditor({ boardId, embedded = false }) {
           size={1.6}
           color={dark ? "rgba(255,255,255,.06)" : "rgba(120,80,20,.14)"}
         />
+        {/* Tiled raster paint layer (collaborative; strokes sync as vectors). */}
+        <PaintLayer ref={paintRef} />
         {(helperLines.vertical || helperLines.horizontal) && (
           <HelperLines
             vertical={helperLines.vertical}
@@ -2293,6 +2493,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             style={penStyle}
             setStyle={setPenStyle}
             onToggle={() => setTool((t) => (t === "pen" ? "select" : "pen"))}
+          />
+          <BrushTool
+            dark={dark}
+            active={tool === "brush"}
+            style={brushStyle}
+            setStyle={setBrushStyle}
+            onToggle={() => setTool((t) => (t === "brush" ? "select" : "brush"))}
           />
           <ToolButton
             title={tool === "laser" ? "Laser (on) — drag to draw a fading line, ⌘/Ctrl-drag to pan, Esc to exit" : "Laser pointer — point things out & underline"}
