@@ -84,6 +84,7 @@ import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
 import { useWhiteboardHistory } from "../components/whiteboard/useWhiteboardHistory";
 import { uploadWhiteboardImage } from "../lib/whiteboardImage";
 import { ensureGoogleFont } from "../lib/whiteboardFonts";
+import TextPanel from "../components/whiteboard/TextPanel";
 import {
   snapToGrid,
   nodeSnaps,
@@ -364,6 +365,60 @@ function StickyTool({ dark, onAdd }) {
   );
 }
 
+// "Add text" tool — mirrors StickyTool. The button adds a text node seeded with
+// the saved defaults; the chevron opens the merged text options (font / size /
+// align / colour) that edit those defaults. Dark panel to match TextPanel.
+function TextTool({ onAdd, prefs, setPrefs, dark }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title="Add text"
+        aria-label="Add text"
+        onClick={() => onAdd()}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+          dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        <Type className="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        title="New-text defaults"
+        aria-label="New-text defaults"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+          dark
+            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
+            : "bg-white text-slate-500 border border-slate-200"
+        }`}
+      >
+        <ChevronDown className="w-2.5 h-2.5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className="absolute left-10 top-0 z-20 rounded-xl shadow-2xl overflow-hidden"
+            style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.1)" }}
+          >
+            <div className="px-2.5 pt-2 text-[10px] font-bold uppercase tracking-wide text-white/40">
+              New-text defaults
+            </div>
+            <TextPanel
+              node={{ type: "text", data: prefs }}
+              patchNodeData={(patch) => setPrefs({ ...prefs, ...patch })}
+              forDefaults
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 let _idSeq = 1;
 function freshId(prefix) {
   // 36ms time + counter is plenty to avoid id collisions inside one
@@ -408,6 +463,19 @@ function saveViewport(boardId, vp) {
   try {
     localStorage.setItem(`ql_wb_viewport:${boardId}`, JSON.stringify({ x: vp.x, y: vp.y, zoom: vp.zoom }));
   } catch { /* */ }
+}
+
+// Default style (font / size / colour / align) seeded into every new text node,
+// remembered per device — like the sticky tool remembers its colour.
+const TEXT_STYLE_KEY = "ql_wb_text_style";
+function loadTextStyle() {
+  try {
+    const v = JSON.parse(localStorage.getItem(TEXT_STYLE_KEY) || "null");
+    return v && typeof v === "object" ? v : {};
+  } catch { return {}; }
+}
+function saveTextStyle(style) {
+  try { localStorage.setItem(TEXT_STYLE_KEY, JSON.stringify(style || {})); } catch { /* */ }
 }
 
 export default function WhiteboardPage() {
@@ -483,6 +551,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     try { localStorage.setItem("ql_wb_minimap", showMinimap ? "1" : "0"); } catch { /* */ }
   }, [showMinimap]);
   const [saveTplOpen, setSaveTplOpen] = useState(false); // "Save as template" dialog
+
+  // Default style seeded into new text nodes (persisted per device). A ref keeps
+  // the latest for the stable double-click-create handler.
+  const [textStyle, setTextStyleRaw] = useState(loadTextStyle);
+  const textStyleRef = useRef(textStyle);
+  textStyleRef.current = textStyle;
+  const setTextStyle = useCallback((next) => { setTextStyleRaw(next); saveTextStyle(next); }, []);
 
   // Track the board's own size (only when embedded) to toggle compact chrome.
   useEffect(() => {
@@ -1256,7 +1331,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             id,
             type: "text",
             position: { x: pos.x - size.w / 2, y: pos.y - size.h / 2 },
-            data: { text: "" },
+            data: { text: "", ...textStyleRef.current },
             selected: true,
           })
       );
@@ -1652,14 +1727,12 @@ function WhiteboardEditor({ boardId, embedded = false }) {
               addNodeAtCenter("sticky", hex ? { color: hex } : {})
             }
           />
-          <ToolButton
-            title="Add text"
-            tone="neutral"
+          <TextTool
             dark={dark}
-            onClick={() => addNodeAtCenter("text")}
-          >
-            <Type className="w-4 h-4" />
-          </ToolButton>
+            prefs={textStyle}
+            setPrefs={setTextStyle}
+            onAdd={() => addNodeAtCenter("text", textStyleRef.current)}
+          />
           <div
             className={`h-px w-5 my-0.5 ${
               dark ? "bg-[var(--color-border)]" : "bg-slate-200"

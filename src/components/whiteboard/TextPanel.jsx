@@ -28,7 +28,7 @@ function Label({ children }) {
 // The single, merged text-editing panel — font · size · style · align · colour.
 // Lives inside the Inspector's "Text" dropdown. Google font rows preview in
 // their own font, loaded lazily on hover so opening the list stays cheap.
-export default function TextPanel({ node, patchNodeData }) {
+export default function TextPanel({ node, patchNodeData, forDefaults }) {
   const [q, setQ] = useState("");
   const data = node.data || {};
   const isText = node.type === "text";
@@ -134,11 +134,11 @@ export default function TextPanel({ node, patchNodeData }) {
         )}
       </div>
 
-      <Label>Style &amp; align</Label>
+      <Label>{forDefaults ? "Align" : "Style & align"}</Label>
       <div className="flex items-center gap-1">
-        {mdBtn(Bold, "**", "Bold (selection, or whole text)")}
-        {mdBtn(Italic, "_", "Italic (selection, or whole text)")}
-        <div className="w-px h-5 bg-white/10 mx-0.5" />
+        {!forDefaults && mdBtn(Bold, "**", "Bold (selection, or whole text)")}
+        {!forDefaults && mdBtn(Italic, "_", "Italic (selection, or whole text)")}
+        {!forDefaults && <div className="w-px h-5 bg-white/10 mx-0.5" />}
         {[["left", AlignLeft], ["center", AlignCenter], ["right", AlignRight]].map(([v, Icon]) => (
           <button
             key={v}
