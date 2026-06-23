@@ -30,6 +30,43 @@ const MD_COMPONENTS = {
   ),
 };
 
+// Flip the Nth `- [ ]`/`- [x]` task marker in the source text. Document order
+// (what react-markdown renders) matches the regex's left-to-right order, so the
+// index lines up.
+function toggleTask(text, index) {
+  if (!text) return text;
+  let i = 0;
+  return text.replace(/^(\s*[-*+]\s+)\[([ xX])\]/gm, (m, lead, mark) =>
+    i++ === index ? `${lead}[${mark === " " ? "x" : " "}]` : m,
+  );
+}
+
+// Markdown components with INTERACTIVE task checkboxes: clicking one toggles
+// the matching marker in the source and writes it back via onChange (so it
+// syncs + persists like any text edit). The per-render counter assigns each
+// checkbox its document-order index. stopPropagation keeps a tick from
+// selecting / editing the node, and `nodrag` keeps it from starting a drag.
+function taskListComponents(value, onChange) {
+  const cb = { i: 0 };
+  return {
+    ...MD_COMPONENTS,
+    input: ({ type, checked }) => {
+      if (type !== "checkbox") return null;
+      const idx = cb.i++;
+      return (
+        <input
+          type="checkbox"
+          className="nodrag wb-task"
+          checked={!!checked}
+          onChange={() => onChange?.(toggleTask(value, idx))}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        />
+      );
+    },
+  };
+}
+
 // Full emoji picker for sticky reactions — lazy so its chunk only loads
 // when someone opens it.
 const EmojiPicker = lazy(() => import("emoji-picker-react"));
@@ -174,7 +211,7 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
             {placeholder || "Double-click to edit…"}
           </span>
         ) : markdown ? (
-          <ReactMarkdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>
+          <ReactMarkdown remarkPlugins={MD_PLUGINS} components={taskListComponents(value, onChange)}>
             {value}
           </ReactMarkdown>
         ) : (

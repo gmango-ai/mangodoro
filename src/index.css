@@ -442,6 +442,10 @@ html.electron-popover body::before {
 .wb-md li { margin: 0.1em 0; }
 .wb-md a { text-decoration: underline; }
 .wb-md code { background: rgba(125, 125, 125, 0.18); padding: 0 0.3em; border-radius: 3px; font-size: 0.9em; }
+/* Interactive task-list checkboxes: clickable, sized, accented. */
+.wb-md ul:has(.wb-task) { list-style: none; padding-left: 0.2em; }
+.wb-md li:has(.wb-task) { display: flex; align-items: flex-start; gap: 0.4em; }
+.wb-md input.wb-task { cursor: pointer; width: 1em; height: 1em; margin-top: 0.18em; flex: 0 0 auto; accent-color: var(--color-accent); }
 .wb-md pre { background: rgba(125, 125, 125, 0.18); padding: 0.4em 0.6em; border-radius: 6px; overflow: auto; }
 .wb-md pre code { background: none; padding: 0; }
 .wb-md blockquote { margin: 0 0 0.35em; padding-left: 0.7em; border-left: 2px solid rgba(125, 125, 125, 0.4); opacity: 0.85; }
