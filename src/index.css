@@ -420,6 +420,12 @@ html.electron-popover body::before {
   cursor: crosshair;
 }
 
+/* Raster brush mode: hide the OS cursor — the brush ring stands in for it. */
+.wb-paint .react-flow__pane,
+.wb-paint .react-flow__renderer {
+  cursor: none;
+}
+
 /* Markdown rendered inside a node (sticky / text). Compact the default block
  * spacing so it reads tight in a small box; everything inherits the node's
  * font + colour. Neutral semi-transparent greys work on light stickies and

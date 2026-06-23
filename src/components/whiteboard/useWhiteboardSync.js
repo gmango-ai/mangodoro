@@ -169,7 +169,7 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     ch.on("broadcast", { event: "cursor" }, (m) => {
       const c = m.payload;
       if (!c || c.id === meId.current) return;
-      setPeers((prev) => ({ ...prev, [c.id]: { x: c.x, y: c.y, name: c.name, color: c.color, laser: !!c.laser, ink: !!c.ink, ts: Date.now() } }));
+      setPeers((prev) => ({ ...prev, [c.id]: { x: c.x, y: c.y, name: c.name, color: c.color, laser: !!c.laser, ink: !!c.ink, laserColor: c.laserColor, ts: Date.now() } }));
     });
 
     // Raster paint strokes (tiled paint layer): vectors in, rasterised locally.
@@ -242,14 +242,14 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
   // are ephemeral (for pointing things out / underlining while presenting).
   const cursorTimer = useRef(null);
   const pendingCursor = useRef(null);
-  const pushCursor = useCallback((x, y, laser, ink) => {
-    pendingCursor.current = { x, y, laser: !!laser, ink: !!ink };
+  const pushCursor = useCallback((x, y, laser, ink, laserColor) => {
+    pendingCursor.current = { x, y, laser: !!laser, ink: !!ink, laserColor };
     if (cursorTimer.current) return;
     cursorTimer.current = setTimeout(() => {
       cursorTimer.current = null;
       const ch = chanRef.current, c = pendingCursor.current;
       if (ch && c) {
-        try { ch.send({ type: "broadcast", event: "cursor", payload: { id: meId.current, x: c.x, y: c.y, name: myName, color: myColor, laser: c.laser, ink: c.ink } }); } catch { /* */ }
+        try { ch.send({ type: "broadcast", event: "cursor", payload: { id: meId.current, x: c.x, y: c.y, name: myName, color: myColor, laser: c.laser, ink: c.ink, laserColor: c.laserColor } }); } catch { /* */ }
       }
     }, CURSOR_THROTTLE_MS);
   }, [myName, myColor]);
