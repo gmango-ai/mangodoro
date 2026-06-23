@@ -13,7 +13,7 @@ import { Track, RoomEvent } from "livekit-client";
 import "@livekit/components-styles";
 import { Mic, MicOff, Video, VideoOff, Volume2, VolumeX, Monitor, MonitorOff } from "lucide-react";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
-import { ATTR_CLUSTER, ATTR_LEADER, ATTR_ROOM_DEVICE, pickMicSource } from "./useRoomCluster";
+import { ATTR_CLUSTER, ATTR_LEADER, ATTR_ROOM_DEVICE, pickMicSource, pickAudioSink } from "./useRoomCluster";
 
 // Advertises the locked device as its room's default mic + speakers (companion
 // mode). The device is always-on and already publishes mic + plays the call
@@ -51,10 +51,10 @@ function DeviceClusterBeacon() {
   return null;
 }
 
-// Is the device currently the room's mic source? False once someone in the room
-// has taken over the mic — the device then stays the speakers (audio sink) but
-// goes mic-silent so the two mics don't feed back.
-function useDeviceIsMicSource() {
+// The device's current room roles. Either goes false once someone in the room
+// takes over that role: the device then pauses its mic / speakers so two mics
+// or two speakers in one space don't conflict.
+function useDeviceRoles() {
   const room = useRoomContext();
   const participants = useParticipants();
   const [, bump] = useReducer((n) => (n + 1) % 1e9, 0);
@@ -66,11 +66,13 @@ function useDeviceIsMicSource() {
     };
   }, [room]);
   const myId = room?.localParticipant?.identity;
-  if (!myId) return true; // assume the mic until we know otherwise (avoids muting on connect)
+  // Assume both until we know otherwise (avoids cutting out on connect).
+  if (!myId) return { isMicSource: true, isAudioSink: true };
   // The device's cluster id is its own identity (set by the beacon).
   const members = participants.filter((p) => p.attributes?.[ATTR_CLUSTER] === myId);
-  if (!members.length) return true;
-  return pickMicSource(members) === myId;
+  if (!members.length) return { isMicSource: true, isAudioSink: true };
+  const micId = pickMicSource(members);
+  return { isMicSource: micId === myId, isAudioSink: pickAudioSink(members, micId) === myId };
 }
 
 function PortalGrid() {
@@ -119,7 +121,7 @@ function CtrlButton({ on, onIcon: OnIcon, offIcon: OffIcon, label, title, disabl
 function DeviceControls({
   micOn, micOverridden, onToggleMic,
   cameraOn, onToggleCamera,
-  soundOn, onToggleSound,
+  soundOn, soundOverridden, onToggleSound,
   screenOn, onToggleScreen,
 }) {
   return (
@@ -149,7 +151,10 @@ function DeviceControls({
         onIcon={Volume2}
         offIcon={VolumeX}
         label="Sound"
-        title={soundOn ? "Mute the call audio playing in the room" : "Play the call audio in the room again"}
+        disabled={soundOverridden}
+        title={soundOverridden
+          ? "Someone in the room is the speaker — the device speaker is paused"
+          : soundOn ? "Mute the call audio playing in the room" : "Play the call audio in the room again"}
         onClick={onToggleSound}
       />
       <CtrlButton
@@ -169,7 +174,7 @@ function DeviceControls({
 // still the room mic source (someone may have taken over).
 function DevicePortalInner() {
   const { localParticipant } = useLocalParticipant();
-  const isMicSource = useDeviceIsMicSource();
+  const { isMicSource, isAudioSink } = useDeviceRoles();
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
   const [soundOn, setSoundOn] = useState(true); // the room's speaker output
@@ -201,14 +206,16 @@ function DevicePortalInner() {
         onToggleMic={() => setMicOn((v) => !v)}
         cameraOn={cameraOn}
         onToggleCamera={() => setCameraOn((v) => !v)}
-        soundOn={soundOn}
+        soundOn={soundOn && isAudioSink}
+        soundOverridden={!isAudioSink}
         onToggleSound={() => setSoundOn((v) => !v)}
         screenOn={screenOn}
         onToggleScreen={() => setScreenOn((v) => !v)}
       />
-      {/* The device is the room's speakers — keep playing remote audio (even when
-          someone took over the mic) unless its operator muted the Sound. */}
-      {soundOn && <RoomAudioRenderer />}
+      {/* The device is the room's speakers by default — keep playing remote audio
+          (even when someone took over the mic) unless its operator muted the
+          Sound, OR someone in the room took over the speakers. */}
+      {soundOn && isAudioSink && <RoomAudioRenderer />}
     </>
   );
 }

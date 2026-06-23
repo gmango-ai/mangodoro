@@ -515,8 +515,8 @@ function DeviceSettingsMenu({ kind, label, children }) {
 // popover shows who's together and a Leave action.
 function RoomClusterButton({ autoMic, onToggleAutoMic }) {
   const {
-    cluster, members, isMicSource, existingCluster,
-    startRoom, joinRoom, takeSpeaker, stepDown, leaveRoom,
+    cluster, members, isMicSource, isAudioSink, existingCluster,
+    startRoom, joinRoom, takeSpeaker, stepDown, takeSink, releaseSink, leaveRoom,
   } = useRoomCluster();
   const roles = useClusterRoles();
   const [open, setOpen] = useState(false);
@@ -574,7 +574,15 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
           <ul className="max-h-40 overflow-auto mb-1.5">
             {members.map((p) => {
               const r = roles.get(p.identity) || {};
-              const tag = r.isDevice ? "device" : r.isMicSource ? "mic" : null;
+              const tag = r.isDevice
+                ? "device"
+                : r.isMicSource && r.isAudioSink
+                  ? "mic + speaker"
+                  : r.isMicSource
+                    ? "mic"
+                    : r.isAudioSink
+                      ? "speaker"
+                      : null;
               return (
                 <li key={p.identity} className="flex items-center gap-1.5 px-1 py-0.5">
                   <span className="flex-1 min-w-0 truncate">
@@ -610,6 +618,26 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
               >
                 Take over the room mic
               </button>
+            )}
+            {deviceInRoom && (
+              isAudioSink ? (
+                <button
+                  type="button"
+                  onClick={() => { releaseSink(); setOpen(false); }}
+                  className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
+                >
+                  Give room speakers back to device
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { takeSink(); setOpen(false); }}
+                  className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
+                  title="Play the call through this computer's speakers instead of the device's."
+                >
+                  Use my speakers for the room
+                </button>
+              )
             )}
             <button
               type="button"
@@ -915,10 +943,18 @@ function ClusterParticipantTile() {
   const roles = useClusterRoles();
   const role = participant ? roles.get(participant.identity) : null;
   const inRoom = !!role?.inRoom;
-  // Amber for whoever carries the room's audio I/O — the device (speakers, and
-  // mic unless overridden) or the current mic source — muted chip for the rest.
-  const active = !!role && (role.isDevice || role.isMicSource);
-  const label = role?.isDevice ? "Room device" : role?.isMicSource ? "Room mic" : "In room";
+  // Amber for whoever carries the room's audio I/O — the device, the current mic
+  // source, or the speakers — muted chip for the rest.
+  const active = !!role && (role.isDevice || role.isMicSource || role.isAudioSink);
+  const label = role?.isDevice
+    ? "Room device"
+    : role?.isMicSource && role?.isAudioSink
+      ? "Room mic + speaker"
+      : role?.isMicSource
+        ? "Room mic"
+        : role?.isAudioSink
+          ? "Room speaker"
+          : "In room";
   return (
     <div style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}>
       <ParticipantTile style={{ flex: 1, minWidth: 0, minHeight: 0 }} />

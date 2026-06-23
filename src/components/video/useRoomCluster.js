@@ -36,6 +36,7 @@ export const ATTR_CLUSTER = "cluster";
 export const ATTR_LEADER = "clusterLeaderId";
 export const ATTR_OVERRIDE = "speakerOverride";
 export const ATTR_ROOM_DEVICE = "roomDevice";
+export const ATTR_SINK = "clusterSink"; // self-claim for the speakers (audio sink) role
 
 // Who carries the room's mic, from a cluster's members. Pure.
 // Priority: a deliberate manual take-over (sticky) > the most-recent voice-
@@ -70,10 +71,18 @@ export function pickMicSource(members) {
     .sort()[0] || null;
 }
 
-// The sink (speakers) is the device when present, else the mic source. Pure.
-function pickAudioSink(members, micSourceId) {
+// The sink (speakers): a person who took over the room's speakers wins, else the
+// room device, else the mic source. Lets a laptop be the room's speakers while
+// the device (or someone else) stays the mic. Pure.
+export function pickAudioSink(members, micSourceId) {
+  const claimed = members
+    .filter((p) => p.attributes?.[ATTR_SINK] === p.identity && p.attributes?.[ATTR_ROOM_DEVICE] !== "1")
+    .map((p) => p.identity)
+    .sort();
+  if (claimed.length) return claimed[0];
   const device = members.find((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
-  return device ? device.identity : micSourceId;
+  if (device) return device.identity;
+  return micSourceId;
 }
 
 // identity -> { inRoom, isMicSource, isAudioSink, isDevice } for ALL clusters in
@@ -170,14 +179,14 @@ export function useRoomCluster({ manage = false } = {}) {
   // Found a room (device-less): become its mic + speakers.
   const startRoom = useCallback(() => {
     if (!myId) return;
-    setAttrs({ [ATTR_CLUSTER]: myId, [ATTR_LEADER]: myId, [ATTR_OVERRIDE]: "" }).then(bump);
+    setAttrs({ [ATTR_CLUSTER]: myId, [ATTR_LEADER]: myId, [ATTR_OVERRIDE]: "", [ATTR_SINK]: "" }).then(bump);
   }, [myId, setAttrs]);
 
   // Join an existing room as a muted, silent follower.
   const joinRoom = useCallback(
     (target) => {
       if (!target?.id) return;
-      setAttrs({ [ATTR_CLUSTER]: target.id, [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "" }).then(bump);
+      setAttrs({ [ATTR_CLUSTER]: target.id, [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "", [ATTR_SINK]: "" }).then(bump);
     },
     [setAttrs],
   );
@@ -207,9 +216,21 @@ export function useRoomCluster({ manage = false } = {}) {
     setAttrs({ [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "" }).then(bump);
   }, [setAttrs]);
 
+  // Take over the room's speakers — use my device's audio output for the room
+  // (e.g. better speakers) while the device/someone else keeps the mic.
+  const takeSink = useCallback(() => {
+    if (!myId || !cluster) return;
+    setAttrs({ [ATTR_SINK]: myId }).then(bump);
+  }, [myId, cluster, setAttrs]);
+
+  // Hand the speakers back to the room device / default.
+  const releaseSink = useCallback(() => {
+    setAttrs({ [ATTR_SINK]: "" }).then(bump);
+  }, [setAttrs]);
+
   // Leave the room entirely (back to solo).
   const leaveRoom = useCallback(() => {
-    setAttrs({ [ATTR_CLUSTER]: "", [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "" }).then(bump);
+    setAttrs({ [ATTR_CLUSTER]: "", [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "", [ATTR_SINK]: "" }).then(bump);
   }, [setAttrs]);
 
   // Tidy claims — manager instance only.
@@ -245,6 +266,8 @@ export function useRoomCluster({ manage = false } = {}) {
     joinRoom,
     takeSpeaker,
     stepDown,
+    takeSink,
+    releaseSink,
     leaveRoom,
     claimAuto,
     releaseAuto,
