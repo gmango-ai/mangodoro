@@ -48,6 +48,7 @@ import {
   Redo2,
   Map as MapIcon,
   LayoutTemplate,
+  Wand2,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -108,6 +109,7 @@ import {
 import {
   CollabCursors,
   PresenceStack,
+  LocalLaser,
 } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
@@ -157,8 +159,9 @@ const SIDE_FROM_POS = { top: "t", right: "r", bottom: "b", left: "l" };
 // Fallback entry side: opposite the side the edge left the source from.
 const OPPOSITE_TARGET = { t: "b", r: "l", b: "t", l: "r" };
 
-// Toolbar icon button — themed tints per tool kind.
-function ToolButton({ title, onClick, tone = "neutral", dark, children }) {
+// Toolbar icon button — themed tints per tool kind. `active` gives a filled
+// look for toggle tools (e.g. the laser pointer mode).
+function ToolButton({ title, onClick, tone = "neutral", dark, active, children }) {
   const tones = {
     neutral: dark
       ? "text-slate-300 hover:bg-white/10"
@@ -173,13 +176,15 @@ function ToolButton({ title, onClick, tone = "neutral", dark, children }) {
       ? "text-red-400 hover:bg-red-500/15"
       : "text-red-500 hover:bg-red-50",
   };
+  const activeCls = dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700";
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
+      aria-pressed={active || undefined}
       onClick={onClick}
-      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${tones[tone]}`}
+      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${active ? activeCls : tones[tone]}`}
     >
       {children}
     </button>
@@ -616,7 +621,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
 
   // ── live collaboration: broadcast node/edge diffs + cursors on top of
   // the snapshot-of-record, plus presence. See useWhiteboardSync.
-  const { peers, members, pushCursor } = useWhiteboardSync({
+  const { peers, members, pushCursor, myColor } = useWhiteboardSync({
     boardId: board?.id,
     enabled: collabEnabled,
     nodes,
@@ -626,6 +631,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     name: myName,
     onRemoteApply,
   });
+
+  // Active canvas tool: "select" (default) or "laser" (ephemeral pointer for
+  // presenting — gates node interaction so you can't accidentally move things).
+  const [tool, setTool] = useState("select");
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+
   // Last pointer position in FLOW coords — so paste lands under the cursor.
   const lastPtRef = useRef(null);
   const onWbPointerMove = useCallback(
@@ -633,13 +645,20 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       try {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         lastPtRef.current = { x: p.x, y: p.y };
-        pushCursor(p.x, p.y);
+        pushCursor(p.x, p.y, toolRef.current === "laser");
       } catch {
         /* */
       }
     },
     [rf, pushCursor]
   );
+
+  // On a tool switch, push one cursor update reflecting the new mode so peers
+  // flip my arrow ↔ laser immediately (even if I've stopped moving).
+  useEffect(() => {
+    const p = lastPtRef.current;
+    if (p) pushCursor(p.x, p.y, tool === "laser");
+  }, [tool, pushCursor]);
 
   // Keyboard navigation: ⌘/Ctrl +/−/0 zoom, Shift+1 fits, arrows pan (when
   // nothing's selected — otherwise React Flow nudges the selected node).
@@ -657,6 +676,8 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         return;
       const board = mainRef.current;
       if (!board || !(board.matches(":hover") || board.contains(el))) return;
+      // Escape drops back to the select tool (exit laser mode).
+      if (e.key === "Escape") { setTool("select"); return; }
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       if (mod && k === "z" && !e.shiftKey) {
@@ -1839,7 +1860,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         onReconnect={onReconnect}
         onNodeDragStop={onNodeDragStop}
         onNodeClick={onNodeClick}
-        onDoubleClick={onPaneDoubleClick}
+        onDoubleClick={tool === "select" ? onPaneDoubleClick : undefined}
         onMoveEnd={(_, vp) => { if (!embedded) saveViewport(board?.id, vp); }}
         onDragOver={onWbDragOver}
         onDrop={onWbDrop}
@@ -1849,14 +1870,20 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
-        selectionOnDrag
+        // Laser mode is point-only: no selecting, dragging, or connecting — so
+        // you can gesture over the board without disturbing it.
+        nodesDraggable={tool === "select"}
+        nodesConnectable={tool === "select"}
+        elementsSelectable={tool === "select"}
+        selectionOnDrag={tool === "select"}
         selectionMode={SelectionMode.Partial}
         // Shift adds to selection, freeing ⌘/Ctrl for the click-to-clone quick action.
         multiSelectionKeyCode="Shift"
         // Zoom way out for big boards (default floor is 0.5); a bit more in too.
         minZoom={0.1}
         maxZoom={3}
-        panOnDrag={[1, 2]}
+        // In laser mode left-drag pans (nothing to select), else it marquees.
+        panOnDrag={tool === "laser" ? [0, 1, 2] : [1, 2]}
         // Trackpad: two-finger scroll pans, pinch zooms (ctrl/⌘+scroll too);
         // hold Space to drag-pan. Left-drag still marquee-selects.
         panOnScroll
@@ -1996,6 +2023,20 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             }`}
           />
           <ToolButton
+            title={tool === "laser" ? "Laser pointer (on) — Esc to exit" : "Laser pointer — point things out"}
+            tone="sky"
+            dark={dark}
+            active={tool === "laser"}
+            onClick={() => setTool((t) => (t === "laser" ? "select" : "laser"))}
+          >
+            <Wand2 className="w-4 h-4" />
+          </ToolButton>
+          <div
+            className={`h-px w-5 my-0.5 ${
+              dark ? "bg-[var(--color-border)]" : "bg-slate-200"
+            }`}
+          />
+          <ToolButton
             title="Delete selected"
             tone="red"
             dark={dark}
@@ -2023,6 +2064,9 @@ function WhiteboardEditor({ boardId, embedded = false }) {
           </NodeToolbar>
         )}
       </ReactFlow>
+
+      {/* My own laser glow (screen space) — only while laser mode is on. */}
+      <LocalLaser active={tool === "laser"} color={myColor} />
 
       {/* Breadcrumb / board chrome — a floating card pinned top-left,
             like the timer. Holds back-nav, title, template badge, save

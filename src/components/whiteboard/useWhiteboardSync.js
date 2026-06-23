@@ -169,7 +169,7 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     ch.on("broadcast", { event: "cursor" }, (m) => {
       const c = m.payload;
       if (!c || c.id === meId.current) return;
-      setPeers((prev) => ({ ...prev, [c.id]: { x: c.x, y: c.y, name: c.name, color: c.color, ts: Date.now() } }));
+      setPeers((prev) => ({ ...prev, [c.id]: { x: c.x, y: c.y, name: c.name, color: c.color, laser: !!c.laser, ts: Date.now() } }));
     });
 
     ch.on("broadcast", { event: "sync-req" }, (m) => {
@@ -229,16 +229,19 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
   }, [enabled, boardId, applyOps, myName, myColor]);
 
   // ── outgoing cursor (throttled, trailing) ──
+  // `laser` rides along on the same channel: when set, peers render the
+  // cursor as a glowing laser dot instead of the arrow (ephemeral, for
+  // pointing things out while presenting).
   const cursorTimer = useRef(null);
   const pendingCursor = useRef(null);
-  const pushCursor = useCallback((x, y) => {
-    pendingCursor.current = { x, y };
+  const pushCursor = useCallback((x, y, laser) => {
+    pendingCursor.current = { x, y, laser: !!laser };
     if (cursorTimer.current) return;
     cursorTimer.current = setTimeout(() => {
       cursorTimer.current = null;
       const ch = chanRef.current, c = pendingCursor.current;
       if (ch && c) {
-        try { ch.send({ type: "broadcast", event: "cursor", payload: { id: meId.current, x: c.x, y: c.y, name: myName, color: myColor } }); } catch { /* */ }
+        try { ch.send({ type: "broadcast", event: "cursor", payload: { id: meId.current, x: c.x, y: c.y, name: myName, color: myColor, laser: c.laser } }); } catch { /* */ }
       }
     }, CURSOR_THROTTLE_MS);
   }, [myName, myColor]);
@@ -260,5 +263,5 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     return () => clearInterval(t);
   }, [enabled]);
 
-  return { peers, members, pushCursor };
+  return { peers, members, pushCursor, myColor };
 }
