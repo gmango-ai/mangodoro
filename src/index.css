@@ -418,6 +418,7 @@ html.electron-popover body::before {
  * spacing so it reads tight in a small box; everything inherits the node's
  * font + colour. Neutral semi-transparent greys work on light stickies and
  * dark text nodes alike. */
+.wb-md { overflow-wrap: anywhere; word-break: break-word; } /* break long unbroken strings instead of overflowing */
 .wb-md > :first-child { margin-top: 0; }
 .wb-md > :last-child { margin-bottom: 0; }
 .wb-md p { margin: 0 0 0.35em; }

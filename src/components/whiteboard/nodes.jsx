@@ -491,10 +491,43 @@ function useNodeSize(initial) {
   return [ref, size];
 }
 
+// Grow a fixed-size node's HEIGHT so its text never clips. Returns a ref to put
+// on a CONTENT-sized element (one that wraps at the node's width but is only as
+// tall as its text) — measuring that, not the node-filling box, means the node
+// growing can't re-trigger the observer, so there's no feedback loop. Grow-only:
+// it raises the node to fit the content but never shrinks it, so you can still
+// resize freely — you just can't drag it shorter than the text inside.
+function useAutoHeight(id, pad = 0) {
+  const ref = useRef(null);
+  const { setNodes } = useReactFlow();
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const apply = () => {
+      const needed = Math.ceil(el.scrollHeight + pad);
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          const cur = n.height ?? n.measured?.height ?? 0;
+          return needed > cur + 0.5 ? { ...n, height: needed } : n;
+        }),
+      );
+    };
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    apply();
+    return () => ro.disconnect();
+  }, [id, pad, setNodes]);
+  return ref;
+}
+
 export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
   const setText = useNodeTextUpdater(id);
   const { theme } = useTheme();
   const [ref, size] = useNodeSize({ w: 180, h: 100 });
+  // Grow the shape's height to fit its text (markdown can run tall) so content
+  // never clips. Width stays user-controlled; ~22px covers the 10px×2 padding.
+  const growRef = useAutoHeight(id, 22);
   const shape = data?.shape || LEGACY_SHAPE[type] || "process";
   // Default fill follows the theme (a dark surface in dark mode instead of a
   // glaring white box); a user-picked fill is respected. Text auto-contrasts.
@@ -520,15 +553,17 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
       </svg>
       <FourHandles />
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 14px" }}>
-        <EditableText
-          value={data?.text}
-          onChange={setText}
-          placeholder=""
-          nodeId={id}
-          selected={selected}
-          markdown
-          style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center", color: textColor }}
-        />
+        <div ref={growRef} style={{ width: "100%", minWidth: 0 }}>
+          <EditableText
+            value={data?.text}
+            onChange={setText}
+            placeholder=""
+            nodeId={id}
+            selected={selected}
+            markdown
+            style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center", color: textColor }}
+          />
+        </div>
       </div>
     </div>
   );

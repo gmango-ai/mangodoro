@@ -87,6 +87,7 @@ import {
   snapToGrid,
   nodeSnaps,
   getAlignmentGuides,
+  getResizeGuides,
   alignDistance,
   HelperLines,
 } from "../components/whiteboard/snapping";
@@ -907,9 +908,28 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     (changes) => {
       const all = rf.getNodes();
       const byId = new Map(all.map((n) => [n.id, n]));
-      // Grid-snap every dragged node that participates in snapping.
+      // A resize emits `dimensions` changes flagged with `resizing` (true while
+      // dragging a handle, false on release) — distinct from the unflagged
+      // `dimensions` changes React Flow fires when it MEASURES a node, which we
+      // must NOT snap (that would fight auto-sized nodes). Track the ids being
+      // resized so we also snap the position a top/left handle moves.
+      const isResize = (c) =>
+        c.type === "dimensions" && c.dimensions && c.resizing != null;
+      const resizingIds = new Set(changes.filter(isResize).map((c) => c.id));
+      // Grid-snap dragged AND resized nodes that participate in snapping.
       for (const c of changes) {
-        if (c.type === "position" && c.position && c.dragging != null) {
+        if (isResize(c)) {
+          const n = byId.get(c.id);
+          if (n && nodeSnaps(n))
+            c.dimensions = {
+              width: snapToGrid(c.dimensions.width),
+              height: snapToGrid(c.dimensions.height),
+            };
+        } else if (
+          c.type === "position" &&
+          c.position &&
+          (c.dragging != null || resizingIds.has(c.id))
+        ) {
           const n = byId.get(c.id);
           if (n && nodeSnaps(n))
             c.position = {
@@ -975,6 +995,61 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       } else if (helperShownRef.current) {
         setHelperLines(NO_LINES);
         helperShownRef.current = false;
+      }
+
+      // Resize alignment: snap the moving edge(s) of a single resized, top-level
+      // node to other nodes' edges/centres + matching width/height, drawing the
+      // same guides as drag. Runs AFTER the drag block so it owns the guide lines
+      // during a resize. Aspect-locked (image), no-snap (sticky), frame and zone
+      // nodes are skipped.
+      const resizeChange = resizingIds.size === 1 ? changes.find(isResize) : null;
+      const rzNode = resizeChange ? byId.get(resizeChange.id) : null;
+      if (
+        rzNode &&
+        !rzNode.parentId &&
+        rzNode.type !== "zone" &&
+        rzNode.type !== "frame" &&
+        rzNode.type !== "image" &&
+        nodeSnaps(rzNode)
+      ) {
+        const oldW = rzNode.measured?.width ?? rzNode.width ?? 0;
+        const oldH = rzNode.measured?.height ?? rzNode.height ?? 0;
+        const oldX = rzNode.position?.x ?? 0;
+        const oldY = rzNode.position?.y ?? 0;
+        const cp = changes.find((c) => c.type === "position" && c.id === resizeChange.id);
+        const newW = resizeChange.dimensions.width;
+        const newH = resizeChange.dimensions.height;
+        const newX = cp?.position?.x ?? oldX;
+        const newY = cp?.position?.y ?? oldY;
+        // A left/top handle moves x/y; a right/bottom handle changes only size.
+        const edges = {
+          left: Math.abs(newX - oldX) > 0.01,
+          top: Math.abs(newY - oldY) > 0.01,
+        };
+        edges.right = !edges.left && Math.abs(newW - oldW) > 0.01;
+        edges.bottom = !edges.top && Math.abs(newH - oldH) > 0.01;
+        const others = [];
+        for (const n of all) {
+          if (n.id === rzNode.id || n.type === "zone") continue;
+          const r = nodeRect(n);
+          if (r) others.push(r);
+        }
+        const g = getResizeGuides(
+          { x: newX, y: newY, w: newW, h: newH },
+          edges,
+          others,
+          alignDistance(rf.getViewport().zoom)
+        );
+        resizeChange.dimensions = { width: g.w, height: g.h };
+        if (cp && (g.x !== newX || g.y !== newY)) cp.position = { x: g.x, y: g.y };
+        const live = resizeChange.resizing === true;
+        if (live && (g.vertical || g.horizontal)) {
+          setHelperLines({ vertical: g.vertical, horizontal: g.horizontal });
+          helperShownRef.current = true;
+        } else if (helperShownRef.current) {
+          setHelperLines(NO_LINES);
+          helperShownRef.current = false;
+        }
       }
       onNodesChange(changes);
     },
