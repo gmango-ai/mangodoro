@@ -87,20 +87,19 @@ Make it restorative, social, and fun; the team breaks in rhythm too.
 ## Cross-cutting QoL   (slot in opportunistically)
 ────────────────────────────────────────────────────────
 ### Whiteboard
-SHIPPED this session: undo/redo · copy/paste/cut · image nodes (Storage) ·
+SHIPPED: undo/redo · copy/paste/cut · image nodes (Storage) + drag-drop/paste ·
 markdown in sticky/text/shape · easier resize + edge handles · text-selection
-inside nodes (nodrag) · snap-on-resize · grow-to-fit (shape; text auto-grows).
-- Drawing — freehand pen + laser pointer (ephemeral, for presenting)   [NEW]
-- Grow-to-fit for STICKY (square + author + reactions layout) — deferred
-- Interactive task-list checkboxes (toggle re-writes the markdown source)
-- Double-click empty canvas → new text node at the cursor
-- Alt-drag to clone; ctrl-drag marquee select
-- Multi-select align / distribute / match-size
-- Lock node (prevent accidental move)
-- Export PNG / SVG / PDF
-- Persist viewport (pan/zoom) across reloads — currently resets
-- Comments on nodes
-- Image follow-ups: drag-drop file onto canvas; paste-image from clipboard
+inside nodes (nodrag) · snap-on-resize · grow-to-fit (shape + STICKY) ·
+double-click canvas → text · per-node text colour/align/B-I/bg/radius/padding ·
+Google Fonts · z-order · lock node · per-node opacity · multi-select
+align/distribute/match-size · persist viewport · export PNG · freehand pen ·
+laser pointer (+ fading ink + colour) · interactive task checkboxes · alt-drag
+clone · dot-voting on nodes · comments on nodes · collaborative RASTER paint
+layer (infinite tiled, persisted).
+- Export SVG / PDF (PNG done)
+- Comments: per-node thread is flat + last-writer-wins on concurrent adds —
+  an append-only log would harden it
+- Paint follow-ups: viewport-priority tile load; tile manifest to skip list()
 - Edge tuning (parked): side-flip hysteresis, detour cost, parallel-edge fan-out
 
 ### Video
