@@ -644,10 +644,10 @@ function PaintToolbar({ dark, style, setStyle }) {
   );
   return (
     <Panel
-      position="top-center"
-      // Sit below the board's top chrome (back/title card + presence stack) so
-      // the bar never tucks under the nav row.
-      style={{ top: 56 }}
+      position="bottom-center"
+      // Bottom-centre, clear of the nav; the emote bar lifts above it while
+      // painting (see EmoteOverlay barOffset) so the two never collide.
+      style={{ bottom: 12 }}
       className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg max-w-[94vw] overflow-x-auto ${
         dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
       }`}
@@ -2972,6 +2972,8 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       <EmoteOverlay
         channelKey={`whiteboard:${board.id}`}
         barPosition={emoteBarOn && !compact ? "bottom-center" : "hidden"}
+        // Lift the emote bar above the paint toolbar while it's showing.
+        barOffset={tool === "brush" ? 64 : 0}
       />
     </main>
   );

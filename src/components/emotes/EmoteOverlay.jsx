@@ -65,6 +65,9 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
   // when the caller wants its own UI but still wants peers' particles
   // to render.
   barPosition = "bottom-center",
+  // Extra px to lift the horizontal bar off the bottom — lets a caller raise it
+  // above another bottom-centre toolbar (e.g. the whiteboard paint toolbar).
+  barOffset = 0,
   enabled = true,
   // Name shown under this user's reactions. Defaults to the session's
   // display name; callers with a curated name (e.g. the video call's
@@ -442,8 +445,12 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
       )}
 
       {barPosition !== "hidden" && enabled && !vertical && (
-        // Whiteboard: always-visible horizontal bar (plenty of room).
-        <div className="absolute left-1/2 bottom-3 -translate-x-1/2 pointer-events-auto">
+        // Whiteboard: always-visible horizontal bar (plenty of room). `bottom`
+        // lifts by barOffset so it can clear another bottom-centre toolbar.
+        <div
+          className="absolute left-1/2 -translate-x-1/2 pointer-events-auto"
+          style={{ bottom: 12 + barOffset, transition: "bottom .18s ease" }}
+        >
           <EmoteBar
             orientation="row"
             btn={40}
