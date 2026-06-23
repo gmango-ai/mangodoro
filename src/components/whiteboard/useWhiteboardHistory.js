@@ -1,0 +1,193 @@
+import { useCallback, useEffect, useReducer, useRef } from "react";
+import { sortParentsFirst } from "./frame";
+
+// ─── Whiteboard undo / redo ────────────────────────────────────────
+//
+// Multiplayer-safe history. Two design rules make this work alongside the
+// realtime sync (see useWhiteboardSync):
+//
+//   1. History is ENTITY-SCOPED, not whole-board. Each undo step records the
+//      before/after of only the nodes/edges that changed, keyed by id. Undo
+//      restores those entities by id (merge, not array-replace), so it can
+//      never delete a teammate's concurrently-added node.
+//   2. REMOTE changes fold into the baseline (onRemoteApply) and never become
+//      one of MY undo steps — I can only undo what I did.
+//
+// Capture is debounced so a continuous gesture (drag, type, resize burst)
+// collapses into ONE step. Because undo/redo go through the same setNodes/
+// setEdges as any edit, they auto-persist (autosave) and auto-sync (broadcast)
+// with no extra plumbing.
+
+const HISTORY_DEBOUNCE_MS = 450;
+const MAX_DEPTH = 100;
+
+// Per-user UI flags never describe the shared graph — mirror useWhiteboardSync
+// so our diffs match exactly what gets broadcast/persisted (no phantom steps
+// from a selection toggle).
+function stripLocal(o) {
+  const { selected, dragging, resizing, ...rest } = o;
+  return rest;
+}
+const cleanJson = (o) => JSON.stringify(stripLocal(o));
+
+// Baseline map: id → { json, ent } of clean entities.
+function baseFrom(list) {
+  const m = new Map();
+  for (const o of list || []) m.set(o.id, { json: cleanJson(o), ent: stripLocal(o) });
+  return m;
+}
+
+// Diff a current entity list against a baseline → [{ id, before, after }]
+// where before/after are clean entities or null (null = absent).
+function diffEntities(list, base) {
+  const entries = [];
+  const seen = new Set();
+  for (const o of list) {
+    seen.add(o.id);
+    const j = cleanJson(o);
+    const b = base.get(o.id);
+    if (!b) entries.push({ id: o.id, before: null, after: stripLocal(o) });
+    else if (b.json !== j) entries.push({ id: o.id, before: b.ent, after: stripLocal(o) });
+  }
+  for (const [id, b] of base) {
+    if (!seen.has(id)) entries.push({ id, before: b.ent, after: null });
+  }
+  return entries;
+}
+
+// Apply a transaction's reverts to a live entity list, restoring the chosen
+// side (null = remove). Restored entities are selected so the change is visible.
+function applyReverts(list, entries, side, sortParents) {
+  const map = new Map(list.map((x) => [x.id, x]));
+  for (const e of entries) {
+    const target = e[side];
+    if (target == null) map.delete(e.id);
+    else map.set(e.id, { ...target, selected: true });
+  }
+  const out = [...map.values()];
+  return sortParents ? sortParentsFirst(out) : out;
+}
+
+export function useWhiteboardHistory({ nodes, edges, setNodes, setEdges, enabled }) {
+  const nodesRef = useRef(nodes); nodesRef.current = nodes;
+  const edgesRef = useRef(edges); edgesRef.current = edges;
+
+  const baseN = useRef(new Map());
+  const baseE = useRef(new Map());
+  const past = useRef([]);    // [{ nodes:[entries], edges:[entries] }]
+  const future = useRef([]);
+  const primed = useRef(false);
+  const timer = useRef(null);
+  const pending = useRef(false); // an uncommitted local edit is in flight
+  const skip = useRef(false);    // suppress capture for our own undo/redo writes
+  const [, bump] = useReducer((x) => x + 1, 0);
+
+  // Re-baseline from a known state and drop history (board load / switch).
+  const prime = useCallback((nList, eList) => {
+    baseN.current = baseFrom(nList);
+    baseE.current = baseFrom(eList);
+    past.current = [];
+    future.current = [];
+    pending.current = false;
+    bump();
+  }, []);
+
+  // Move the baseline to a transaction's chosen side.
+  const rebaseTo = useCallback((txn, side) => {
+    for (const e of txn.nodes) {
+      if (e[side] == null) baseN.current.delete(e.id);
+      else baseN.current.set(e.id, { json: cleanJson(e[side]), ent: e[side] });
+    }
+    for (const e of txn.edges) {
+      if (e[side] == null) baseE.current.delete(e.id);
+      else baseE.current.set(e.id, { json: cleanJson(e[side]), ent: e[side] });
+    }
+  }, []);
+
+  // Commit any uncommitted local diff as one step. Returns true if it did.
+  const capture = useCallback(() => {
+    const nDiff = diffEntities(nodesRef.current, baseN.current);
+    const eDiff = diffEntities(edgesRef.current, baseE.current);
+    if (!nDiff.length && !eDiff.length) return false;
+    const txn = { nodes: nDiff, edges: eDiff };
+    past.current.push(txn);
+    if (past.current.length > MAX_DEPTH) past.current.shift();
+    future.current = [];
+    rebaseTo(txn, "after"); // baseline now reflects current
+    bump();
+    return true;
+  }, [rebaseTo]);
+
+  // Remote peer ops: absorb into the baseline so they never become MY undo
+  // steps. Called from useWhiteboardSync.applyOps (local user's changes never
+  // pass through here).
+  const onRemoteApply = useCallback((p) => {
+    if (!p) return;
+    if (p.nodeOps?.length) for (const n of p.nodeOps) baseN.current.set(n.id, { json: cleanJson(n), ent: stripLocal(n) });
+    if (p.removedNodes?.length) for (const id of p.removedNodes) baseN.current.delete(id);
+    if (p.edgeOps?.length) for (const e of p.edgeOps) baseE.current.set(e.id, { json: cleanJson(e), ent: stripLocal(e) });
+    if (p.removedEdges?.length) for (const id of p.removedEdges) baseE.current.delete(id);
+  }, []);
+
+  // Debounced capture on local state changes. Primes (no step) on first run.
+  useEffect(() => {
+    if (!enabled) return undefined;
+    if (!primed.current) {
+      prime(nodesRef.current, edgesRef.current);
+      primed.current = true;
+      return undefined;
+    }
+    if (skip.current) { skip.current = false; return undefined; } // our own undo/redo
+    if (!pending.current) { pending.current = true; bump(); }
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      pending.current = false;
+      if (!capture()) bump();
+    }, HISTORY_DEBOUNCE_MS);
+    return () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
+  }, [nodes, edges, enabled, prime, capture]);
+
+  // Re-prime for a new board (enabled flips false during load).
+  useEffect(() => {
+    if (enabled) return;
+    primed.current = false;
+    past.current = [];
+    future.current = [];
+    pending.current = false;
+    bump();
+  }, [enabled]);
+
+  const undo = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    pending.current = false;
+    capture(); // fold any in-flight edit into its own step first
+    const txn = past.current.pop();
+    if (!txn) { bump(); return; }
+    future.current.push(txn);
+    if (txn.nodes.length) setNodes((nds) => applyReverts(nds, txn.nodes, "before", true));
+    if (txn.edges.length) setEdges((eds) => applyReverts(eds, txn.edges, "before", false));
+    rebaseTo(txn, "before");
+    skip.current = true;
+    bump();
+  }, [capture, rebaseTo, setNodes, setEdges]);
+
+  const redo = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    pending.current = false;
+    capture(); // a new edit invalidates redo (capture clears the future stack)
+    const txn = future.current.pop();
+    if (!txn) { bump(); return; }
+    past.current.push(txn);
+    if (txn.nodes.length) setNodes((nds) => applyReverts(nds, txn.nodes, "after", true));
+    if (txn.edges.length) setEdges((eds) => applyReverts(eds, txn.edges, "after", false));
+    rebaseTo(txn, "after");
+    skip.current = true;
+    bump();
+  }, [capture, rebaseTo, setNodes, setEdges]);
+
+  const canUndo = past.current.length > 0 || pending.current;
+  const canRedo = future.current.length > 0;
+
+  return { undo, redo, canUndo, canRedo, onRemoteApply };
+}

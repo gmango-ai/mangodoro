@@ -53,6 +53,13 @@ A team productivity workspace that bundles a pomodoro timer, time tracker, retro
 - **Specialised libraries**: [@dnd-kit/core](https://dndkit.com/) for the office editor, [CodeMirror 6](https://codemirror.net/) for retros, [Recharts](https://recharts.org/) for the overview chart, [ExcelJS](https://github.com/exceljs/exceljs) + [jsPDF](https://github.com/parallax/jsPDF) for exports.
 - **AI**: [DeepSeek API](https://platform.deepseek.com/) for description rewriting and monthly summaries.
 
+## Desktop app
+
+Prebuilt macOS / Windows / Linux installers are on the [Releases page](../../releases).
+The macOS and Windows builds are **unsigned**, so the OS blocks them on first
+launch — see **[Installing the desktop app](docs/desktop-install.md)** for the
+one-time steps to get past Gatekeeper / SmartScreen.
+
 ## Getting started
 
 ### Prerequisites

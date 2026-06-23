@@ -3,6 +3,9 @@ import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
 import { Crown, ShieldCheck, Trash2, Pencil, X, Clock, ChevronDown, ChevronRight } from "lucide-react";
 import ConfirmRow from "./ConfirmRow";
+import { sortParticipants } from "../lib/participantSort";
+import { useParticipantSort } from "../hooks/useParticipantSort";
+import ParticipantSortPicker from "./pomodoro/ParticipantSortPicker";
 
 // Inline team chip strip — minimal so it fits next to a participant
 // name without inflating row height. Mirror MemberIdentity's chip
@@ -110,6 +113,7 @@ export default function SyncParticipantList({
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const [sortMode] = useParticipantSort();
   // Surfaces that lead with participants (the redesigned pomodoro
   // surface) pass defaultExpanded; otherwise the saved localStorage
   // preference wins, falling back to collapsed first-time so the
@@ -145,6 +149,13 @@ export default function SyncParticipantList({
   const allowMakeLeader = true;
   const selected = participants.find((p) => p.user_id === selectedId) || null;
 
+  // Stable display order (you → leader → rest by the chosen sort).
+  const ordered = sortParticipants(participants, {
+    mode: sortMode,
+    userId: currentUserId,
+    leaderId,
+  });
+
   function toggleSelect(userId) {
     setSelectedId((cur) => (cur === userId ? null : userId));
   }
@@ -153,24 +164,28 @@ export default function SyncParticipantList({
     <div className="space-y-1.5">
       {/* One header that toggles between avatars-strip (collapsed) and
           full list (expanded). Collapsed is the default — the strip
-          already tells you who's around. */}
-      <button
-        type="button"
-        onClick={() => setCollapsed((v) => !v)}
-        className={`w-full flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider mb-1 transition-colors ${
-          dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"
-        }`}
-        aria-expanded={!collapsed}
-      >
-        <span className="inline-flex items-center gap-1">
-          {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          In session · {participants.length}
-        </span>
-      </button>
+          already tells you who's around. The sort picker sits on the
+          right (only worth showing once there's more than one person). */}
+      <div className="flex items-center justify-between gap-1 mb-1">
+        <button
+          type="button"
+          onClick={() => setCollapsed((v) => !v)}
+          className={`flex items-center text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+            dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"
+          }`}
+          aria-expanded={!collapsed}
+        >
+          <span className="inline-flex items-center gap-1">
+            {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            In session · {participants.length}
+          </span>
+        </button>
+        {participants.length > 1 && <ParticipantSortPicker />}
+      </div>
 
       {collapsed ? (
         <CompactView
-          participants={participants}
+          participants={ordered}
           leaderId={leaderId}
           controllerId={controllerId}
           presenceMap={presenceMap}
@@ -181,7 +196,7 @@ export default function SyncParticipantList({
         />
       ) : (
         <ListView
-          participants={participants}
+          participants={ordered}
           leaderId={leaderId}
           controllerId={controllerId}
           presenceMap={presenceMap}

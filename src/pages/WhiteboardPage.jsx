@@ -17,6 +17,8 @@ import {
   SelectionMode,
   NodeToolbar,
   Position,
+  getNodesBounds,
+  ViewportPortal,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -24,15 +26,30 @@ import {
   Target,
   Pencil,
   Archive,
+  Download,
   Type,
   Shapes,
   Frame,
+  ImagePlus,
   Trash2,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignStartHorizontal,
+  AlignCenterHorizontal,
+  AlignEndHorizontal,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
+  StretchHorizontal,
+  StretchVertical,
   ChevronDown,
   Smile,
   Timer,
+  Undo2,
+  Redo2,
   Map as MapIcon,
   LayoutTemplate,
+  Wand2,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -57,6 +74,7 @@ import {
   STICKY_PALETTE,
   stickyHex,
   markNodeForEdit,
+  strokePath,
 } from "../components/whiteboard/nodes";
 import {
   nodeAbsPos,
@@ -78,16 +96,23 @@ import {
   NON_CONNECTABLE,
 } from "../components/whiteboard/edges";
 import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
+import { useWhiteboardHistory } from "../components/whiteboard/useWhiteboardHistory";
+import { uploadWhiteboardImage } from "../lib/whiteboardImage";
+import { ensureGoogleFont } from "../lib/whiteboardFonts";
+import TextPanel from "../components/whiteboard/TextPanel";
 import {
   snapToGrid,
   nodeSnaps,
   getAlignmentGuides,
+  getResizeGuides,
   alignDistance,
   HelperLines,
 } from "../components/whiteboard/snapping";
 import {
   CollabCursors,
   PresenceStack,
+  LocalLaser,
+  LaserTrail,
 } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
@@ -108,6 +133,7 @@ const DEFAULTS = {
   shape: { w: 180, h: 100 },
   goal: { w: 240, h: 150 },
   frame: { w: 600, h: 840 },
+  image: { w: 240, h: 180 },
 };
 
 const DEFAULT_EDGE_OPTIONS = {
@@ -136,8 +162,9 @@ const SIDE_FROM_POS = { top: "t", right: "r", bottom: "b", left: "l" };
 // Fallback entry side: opposite the side the edge left the source from.
 const OPPOSITE_TARGET = { t: "b", r: "l", b: "t", l: "r" };
 
-// Toolbar icon button — themed tints per tool kind.
-function ToolButton({ title, onClick, tone = "neutral", dark, children }) {
+// Toolbar icon button — themed tints per tool kind. `active` gives a filled
+// look for toggle tools (e.g. the laser pointer mode).
+function ToolButton({ title, onClick, tone = "neutral", dark, active, children }) {
   const tones = {
     neutral: dark
       ? "text-slate-300 hover:bg-white/10"
@@ -152,13 +179,15 @@ function ToolButton({ title, onClick, tone = "neutral", dark, children }) {
       ? "text-red-400 hover:bg-red-500/15"
       : "text-red-500 hover:bg-red-50",
   };
+  const activeCls = dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700";
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
+      aria-pressed={active || undefined}
       onClick={onClick}
-      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${tones[tone]}`}
+      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${active ? activeCls : tones[tone]}`}
     >
       {children}
     </button>
@@ -356,11 +385,234 @@ function StickyTool({ dark, onAdd }) {
   );
 }
 
+// "Add text" tool — mirrors StickyTool. The button adds a text node seeded with
+// the saved defaults; the chevron opens the merged text options (font / size /
+// align / colour) that edit those defaults. Dark panel to match TextPanel.
+function TextTool({ onAdd, prefs, setPrefs, dark }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title="Add text"
+        aria-label="Add text"
+        onClick={() => onAdd()}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+          dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        <Type className="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        title="New-text defaults"
+        aria-label="New-text defaults"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+          dark
+            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
+            : "bg-white text-slate-500 border border-slate-200"
+        }`}
+      >
+        <ChevronDown className="w-2.5 h-2.5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className="absolute left-10 top-0 z-20 rounded-xl shadow-2xl overflow-hidden"
+            style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.1)" }}
+          >
+            <div className="px-2.5 pt-2 text-[10px] font-bold uppercase tracking-wide text-white/40">
+              New-text defaults
+            </div>
+            <TextPanel
+              node={{ type: "text", data: prefs }}
+              patchNodeData={(patch) => setPrefs({ ...prefs, ...patch })}
+              forDefaults
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Freehand pen tool for the rail: the button toggles draw mode; the chevron
+// opens colour + width options (mirrors StickyTool / TextTool). Strokes commit
+// as draw nodes (see DrawNode), so they persist, sync and undo like anything.
+function PenTool({ dark, active, style, setStyle, onToggle }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title={active ? "Pen (on) — Esc to exit" : "Pen — draw freehand"}
+        aria-label="Pen"
+        aria-pressed={active}
+        onClick={onToggle}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+          active
+            ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
+            : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        <Pencil className="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        title="Pen options"
+        aria-label="Pen options"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+          dark
+            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
+            : "bg-white text-slate-500 border border-slate-200"
+        }`}
+      >
+        <ChevronDown className="w-2.5 h-2.5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
+              dark
+                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+                : "bg-white border-slate-200"
+            }`}
+            style={{ width: 188 }}
+          >
+            <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              Pen colour
+            </div>
+            <div className="grid grid-cols-6 gap-1">
+              {PEN_COLORS.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  title={hex}
+                  onClick={() => setStyle((s) => ({ ...s, color: hex }))}
+                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
+                  style={{
+                    background: hex,
+                    outline: style.color.toLowerCase() === hex.toLowerCase() ? "2px solid #f97316" : "none",
+                    outlineOffset: 1,
+                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
+                  }}
+                />
+              ))}
+            </div>
+            <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(style.color) ? style.color : "#0f172a"}
+                onChange={(e) => setStyle((s) => ({ ...s, color: e.target.value }))}
+                style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+              />
+              Custom colour
+            </label>
+            <div className={`text-[10px] font-bold uppercase tracking-wide mt-2.5 mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              Width
+            </div>
+            <div className="flex gap-1">
+              {PEN_WIDTHS.map(([label, w]) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setStyle((s) => ({ ...s, width: w }))}
+                  className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                    style.width === w
+                      ? dark ? "bg-white/15 text-white" : "bg-slate-200 text-slate-700"
+                      : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 let _idSeq = 1;
 function freshId(prefix) {
   // 36ms time + counter is plenty to avoid id collisions inside one
   // tab without dragging in a uuid dep just for this.
   return `${prefix}-${Date.now().toString(36)}-${_idSeq++}`;
+}
+
+// In-app clipboard for copy / cut / paste. localStorage so it survives
+// navigation between boards and works across tabs. Holds CLEANED nodes/edges
+// keeping their ORIGINAL ids, so paste can remap them — preserving internal
+// edges and frame parenting. (Not the OS clipboard — staying in-app avoids
+// permission prompts and serialization quirks.)
+const WB_CLIPBOARD_KEY = "ql_wb_clipboard";
+function readWbClipboard() {
+  try {
+    const raw = localStorage.getItem(WB_CLIPBOARD_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function writeWbClipboard(payload) {
+  try {
+    localStorage.setItem(WB_CLIPBOARD_KEY, JSON.stringify(payload));
+  } catch {
+    /* storage disabled / quota — clipboard just no-ops */
+  }
+}
+
+// Remember each board's pan/zoom so reopening it lands you where you left off
+// (full-page boards only — embedded room boards still fit-to-view each time).
+function loadViewport(boardId) {
+  if (!boardId) return null;
+  try {
+    const v = JSON.parse(localStorage.getItem(`ql_wb_viewport:${boardId}`) || "null");
+    if (v && typeof v.x === "number" && typeof v.y === "number" && typeof v.zoom === "number") return v;
+  } catch { /* */ }
+  return null;
+}
+function saveViewport(boardId, vp) {
+  if (!boardId || !vp) return;
+  try {
+    localStorage.setItem(`ql_wb_viewport:${boardId}`, JSON.stringify({ x: vp.x, y: vp.y, zoom: vp.zoom }));
+  } catch { /* */ }
+}
+
+// Default style (font / size / colour / align) seeded into every new text node,
+// remembered per device — like the sticky tool remembers its colour.
+const TEXT_STYLE_KEY = "ql_wb_text_style";
+function loadTextStyle() {
+  try {
+    const v = JSON.parse(localStorage.getItem(TEXT_STYLE_KEY) || "null");
+    return v && typeof v === "object" ? v : {};
+  } catch { return {}; }
+}
+function saveTextStyle(style) {
+  try { localStorage.setItem(TEXT_STYLE_KEY, JSON.stringify(style || {})); } catch { /* */ }
+}
+
+// Remembered pen colour + width for the freehand tool (per device).
+const PEN_STYLE_KEY = "ql_wb_pen_style";
+const PEN_COLORS = [
+  "#0f172a", "#475569", "#ef4444", "#f97316", "#f59e0b", "#22c55e",
+  "#14b8a6", "#0ea5e9", "#6366f1", "#a855f7", "#ec4899", "#ffffff",
+];
+const PEN_WIDTHS = [["Fine", 2], ["Medium", 4], ["Bold", 8]];
+function loadPenStyle() {
+  try {
+    const v = JSON.parse(localStorage.getItem(PEN_STYLE_KEY) || "null");
+    if (v && typeof v.color === "string") return { color: v.color, width: v.width || 4 };
+  } catch { /* */ }
+  return { color: "#0f172a", width: 4 };
+}
+function savePenStyle(style) {
+  try { localStorage.setItem(PEN_STYLE_KEY, JSON.stringify(style)); } catch { /* */ }
 }
 
 export default function WhiteboardPage() {
@@ -437,6 +689,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   }, [showMinimap]);
   const [saveTplOpen, setSaveTplOpen] = useState(false); // "Save as template" dialog
 
+  // Default style seeded into new text nodes (persisted per device). A ref keeps
+  // the latest for the stable double-click-create handler.
+  const [textStyle, setTextStyleRaw] = useState(loadTextStyle);
+  const textStyleRef = useRef(textStyle);
+  textStyleRef.current = textStyle;
+  const setTextStyle = useCallback((next) => { setTextStyleRaw(next); saveTextStyle(next); }, []);
+
   // Track the board's own size (only when embedded) to toggle compact chrome.
   useEffect(() => {
     if (!embedded) {
@@ -467,28 +726,177 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     session?.user?.email?.split("@")[0] ||
     "";
 
+  const collabEnabled = !loading && !!board?.id;
+
+  // ── undo / redo (entity-scoped, multiplayer-safe). Set up BEFORE sync so it
+  // can hand sync its onRemoteApply seam (peer edits fold into the baseline
+  // and never become my undo steps). See useWhiteboardHistory.
+  const { undo, redo, canUndo, canRedo, onRemoteApply } = useWhiteboardHistory({
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    enabled: collabEnabled,
+  });
+
   // ── live collaboration: broadcast node/edge diffs + cursors on top of
   // the snapshot-of-record, plus presence. See useWhiteboardSync.
-  const { peers, members, pushCursor } = useWhiteboardSync({
+  const { peers, members, pushCursor, myColor } = useWhiteboardSync({
     boardId: board?.id,
-    enabled: !loading && !!board?.id,
+    enabled: collabEnabled,
     nodes,
     edges,
     setNodes,
     setEdges,
     name: myName,
+    onRemoteApply,
   });
+
+  // Active canvas tool: "select" (default), "laser" (ephemeral presenting
+  // pointer) or "pen" (freehand draw). Laser/pen gate node interaction so you
+  // can gesture/draw over the board without disturbing it.
+  const [tool, setTool] = useState("select");
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+
+  // Pen colour + width (persisted per device). A ref so the pointer handlers
+  // read the latest without re-subscribing.
+  const [penStyle, setPenStyle] = useState(loadPenStyle);
+  const penStyleRef = useRef(penStyle);
+  penStyleRef.current = penStyle;
+  useEffect(() => { savePenStyle(penStyle); }, [penStyle]);
+
+  // In-progress freehand stroke (FLOW coords) + its rAF-batched live preview.
+  const drawingRef = useRef(null);
+  const drawRafRef = useRef(0);
+  const [drawPath, setDrawPath] = useState(null);
+
+  // Ephemeral laser-ink trail (FLOW coords, timestamped) drawn while the laser
+  // button is held — fades on its own, persists nothing. See LaserTrail.
+  const laserInkRef = useRef([]);
+  const laserDrawingRef = useRef(false);
+
+  // Last pointer position in FLOW coords — so paste lands under the cursor.
+  const lastPtRef = useRef(null);
   const onWbPointerMove = useCallback(
     (e) => {
       try {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-        pushCursor(p.x, p.y);
+        lastPtRef.current = { x: p.x, y: p.y };
+        pushCursor(p.x, p.y, toolRef.current === "laser", laserDrawingRef.current);
+        // Laser ink: append while the button is held (the trail fades itself).
+        if (laserDrawingRef.current) {
+          const arr = laserInkRef.current;
+          const last = arr[arr.length - 1];
+          if (!last || Math.abs(p.x - last.x) + Math.abs(p.y - last.y) > 1) {
+            arr.push({ x: p.x, y: p.y, t: Date.now() });
+          }
+        }
+        const dr = drawingRef.current;
+        if (dr) {
+          const last = dr.points[dr.points.length - 1];
+          // Drop near-duplicate samples so the path stays light.
+          if (!last || Math.abs(p.x - last[0]) + Math.abs(p.y - last[1]) > 1.2) {
+            dr.points.push([p.x, p.y]);
+            if (!drawRafRef.current) {
+              drawRafRef.current = requestAnimationFrame(() => {
+                drawRafRef.current = 0;
+                setDrawPath(strokePath(drawingRef.current?.points || []));
+              });
+            }
+          }
+        }
       } catch {
         /* */
       }
     },
     [rf, pushCursor]
   );
+
+  // Pen down: begin a stroke. Capture-phase so it wins over the (disabled in
+  // pen mode) ReactFlow pane/node handlers, and works when starting over a
+  // node. Only fires inside the canvas, never over the toolbar/controls.
+  const onWbPointerDownCapture = useCallback(
+    (e) => {
+      const mode = toolRef.current;
+      if ((mode !== "pen" && mode !== "laser") || e.button !== 0) return;
+      const t = e.target;
+      if (!(t instanceof Element) || !t.closest(".react-flow") || t.closest(".react-flow__panel")) return;
+      // In laser mode, ⌘/Ctrl+drag pans (handled by ReactFlow), so don't ink.
+      if (mode === "laser" && (e.ctrlKey || e.metaKey)) return;
+      let p;
+      try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
+      if (mode === "pen") {
+        drawingRef.current = { points: [[p.x, p.y]] };
+        setDrawPath(strokePath(drawingRef.current.points));
+      } else {
+        laserDrawingRef.current = true;
+        laserInkRef.current = [{ x: p.x, y: p.y, t: Date.now() }];
+        pushCursor(p.x, p.y, true, true);
+      }
+      try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
+      e.preventDefault();
+    },
+    [rf, pushCursor]
+  );
+
+  // Pen up: commit the stroke as a draw node (bbox-relative points). Tiny taps
+  // are dropped. The node carries pointerEvents:none so it's click-through
+  // except along the line (see DrawNode).
+  const finishStroke = useCallback(() => {
+    const dr = drawingRef.current;
+    drawingRef.current = null;
+    if (drawRafRef.current) { cancelAnimationFrame(drawRafRef.current); drawRafRef.current = 0; }
+    setDrawPath(null);
+    if (!dr || dr.points.length < 2) return;
+    const pts = dr.points;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of pts) {
+      if (x < minX) minX = x; if (y < minY) minY = y;
+      if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+    }
+    const { color, width } = penStyleRef.current;
+    const pad = Math.max(width, 4);
+    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+    if (w < 4 && h < 4) return; // discard a stray dot
+    const rel = pts.map(([x, y]) => [Math.round((x - minX) * 10) / 10, Math.round((y - minY) * 10) / 10]);
+    const node = {
+      id: freshId("draw"),
+      type: "draw",
+      position: { x: minX, y: minY },
+      width: w,
+      height: h,
+      style: { pointerEvents: "none" },
+      data: { points: rel, color, strokeWidth: width, w, h },
+    };
+    // Don't auto-select — keep the pen flowing for the next stroke.
+    setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(node));
+  }, [setNodes]);
+
+  const onWbPointerUp = useCallback(
+    (e) => {
+      if (laserDrawingRef.current) {
+        laserDrawingRef.current = false;
+        try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+        // Tell peers ink stopped (the trail then fades out on its own).
+        const lp = lastPtRef.current;
+        if (lp) pushCursor(lp.x, lp.y, true, false);
+        return;
+      }
+      if (!drawingRef.current) return;
+      try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+      finishStroke();
+    },
+    [finishStroke, pushCursor]
+  );
+
+  // On a tool switch, push one cursor update reflecting the new mode so peers
+  // flip my arrow ↔ laser immediately (even if I've stopped moving).
+  useEffect(() => {
+    const p = lastPtRef.current;
+    if (p) pushCursor(p.x, p.y, tool === "laser");
+  }, [tool, pushCursor]);
 
   // Keyboard navigation: ⌘/Ctrl +/−/0 zoom, Shift+1 fits, arrows pan (when
   // nothing's selected — otherwise React Flow nudges the selected node).
@@ -506,8 +914,23 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         return;
       const board = mainRef.current;
       if (!board || !(board.matches(":hover") || board.contains(el))) return;
+      // Escape drops back to the select tool (exit laser mode).
+      if (e.key === "Escape") { setTool("select"); return; }
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === "=" || e.key === "+")) {
+      const k = e.key.toLowerCase();
+      if (mod && k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (mod && (k === "y" || (k === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      } else if (mod && k === "c") {
+        // Only swallow the key if we actually copied nodes — otherwise let
+        // the browser copy selected text as usual.
+        if (copyRef.current?.()) e.preventDefault();
+      } else if (mod && k === "x") {
+        if (cutRef.current?.()) e.preventDefault();
+      } else if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
         rf.zoomIn({ duration: 150 });
       } else if (mod && e.key === "-") {
@@ -543,7 +966,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rf]);
+  }, [rf, undo, redo]);
 
   // ── load board metadata + snapshot, seed template if empty ──
   useEffect(() => {
@@ -587,10 +1010,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         edges: loadedEdges,
       });
       setLoading(false);
-      // Defer fitView to after layout settles.
+      // Restore this board's saved pan/zoom (full-page only); a first visit or
+      // an embedded board falls back to fit-to-view. Deferred so layout settles.
+      const savedVp = embedded ? null : loadViewport(data.id);
       setTimeout(() => {
         try {
-          rf.fitView({ padding: 0.15, duration: 0 });
+          if (savedVp) rf.setViewport(savedVp, { duration: 0 });
+          else rf.fitView({ padding: 0.15, duration: 0 });
         } catch {
           /* */
         }
@@ -633,6 +1059,12 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [nodes, edges, board?.id, loading]);
+
+  // Load every Google font in use (including fonts that arrive from peers via
+  // sync). ensureGoogleFont is idempotent and a no-op for the built-in presets.
+  useEffect(() => {
+    for (const n of nodes) ensureGoogleFont(n.data?.fontFamily);
+  }, [nodes]);
 
   // Flush pending edits on unmount / tab close.
   useEffect(() => {
@@ -846,9 +1278,28 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     (changes) => {
       const all = rf.getNodes();
       const byId = new Map(all.map((n) => [n.id, n]));
-      // Grid-snap every dragged node that participates in snapping.
+      // A resize emits `dimensions` changes flagged with `resizing` (true while
+      // dragging a handle, false on release) — distinct from the unflagged
+      // `dimensions` changes React Flow fires when it MEASURES a node, which we
+      // must NOT snap (that would fight auto-sized nodes). Track the ids being
+      // resized so we also snap the position a top/left handle moves.
+      const isResize = (c) =>
+        c.type === "dimensions" && c.dimensions && c.resizing != null;
+      const resizingIds = new Set(changes.filter(isResize).map((c) => c.id));
+      // Grid-snap dragged AND resized nodes that participate in snapping.
       for (const c of changes) {
-        if (c.type === "position" && c.position && c.dragging != null) {
+        if (isResize(c)) {
+          const n = byId.get(c.id);
+          if (n && nodeSnaps(n))
+            c.dimensions = {
+              width: snapToGrid(c.dimensions.width),
+              height: snapToGrid(c.dimensions.height),
+            };
+        } else if (
+          c.type === "position" &&
+          c.position &&
+          (c.dragging != null || resizingIds.has(c.id))
+        ) {
           const n = byId.get(c.id);
           if (n && nodeSnaps(n))
             c.position = {
@@ -914,6 +1365,61 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       } else if (helperShownRef.current) {
         setHelperLines(NO_LINES);
         helperShownRef.current = false;
+      }
+
+      // Resize alignment: snap the moving edge(s) of a single resized, top-level
+      // node to other nodes' edges/centres + matching width/height, drawing the
+      // same guides as drag. Runs AFTER the drag block so it owns the guide lines
+      // during a resize. Aspect-locked (image), no-snap (sticky), frame and zone
+      // nodes are skipped.
+      const resizeChange = resizingIds.size === 1 ? changes.find(isResize) : null;
+      const rzNode = resizeChange ? byId.get(resizeChange.id) : null;
+      if (
+        rzNode &&
+        !rzNode.parentId &&
+        rzNode.type !== "zone" &&
+        rzNode.type !== "frame" &&
+        rzNode.type !== "image" &&
+        nodeSnaps(rzNode)
+      ) {
+        const oldW = rzNode.measured?.width ?? rzNode.width ?? 0;
+        const oldH = rzNode.measured?.height ?? rzNode.height ?? 0;
+        const oldX = rzNode.position?.x ?? 0;
+        const oldY = rzNode.position?.y ?? 0;
+        const cp = changes.find((c) => c.type === "position" && c.id === resizeChange.id);
+        const newW = resizeChange.dimensions.width;
+        const newH = resizeChange.dimensions.height;
+        const newX = cp?.position?.x ?? oldX;
+        const newY = cp?.position?.y ?? oldY;
+        // A left/top handle moves x/y; a right/bottom handle changes only size.
+        const edges = {
+          left: Math.abs(newX - oldX) > 0.01,
+          top: Math.abs(newY - oldY) > 0.01,
+        };
+        edges.right = !edges.left && Math.abs(newW - oldW) > 0.01;
+        edges.bottom = !edges.top && Math.abs(newH - oldH) > 0.01;
+        const others = [];
+        for (const n of all) {
+          if (n.id === rzNode.id || n.type === "zone") continue;
+          const r = nodeRect(n);
+          if (r) others.push(r);
+        }
+        const g = getResizeGuides(
+          { x: newX, y: newY, w: newW, h: newH },
+          edges,
+          others,
+          alignDistance(rf.getViewport().zoom)
+        );
+        resizeChange.dimensions = { width: g.w, height: g.h };
+        if (cp && (g.x !== newX || g.y !== newY)) cp.position = { x: g.x, y: g.y };
+        const live = resizeChange.resizing === true;
+        if (live && (g.vertical || g.horizontal)) {
+          setHelperLines({ vertical: g.vertical, horizontal: g.horizontal });
+          helperShownRef.current = true;
+        } else if (helperShownRef.current) {
+          setHelperLines(NO_LINES);
+          helperShownRef.current = false;
+        }
       }
       onNodesChange(changes);
     },
@@ -1029,6 +1535,123 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     [rf, setNodes, myName]
   );
 
+  // Upload an image to Storage, then drop an image node (sized to the image's
+  // aspect ratio, capped) at the visible center. The node holds only the URL,
+  // so it syncs/saves like any other node and is undoable.
+  const fileInputRef = useRef(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const addImageNode = useCallback(
+    async (file, at) => {
+      if (!file) return;
+      const uid = session?.user?.id;
+      if (!uid) { setError("Sign in to add images."); return; }
+      setUploadingImage(true);
+      const { data, error: err } = await uploadWhiteboardImage(file, uid, board?.id);
+      setUploadingImage(false);
+      if (err || !data) { setError(err?.message || "Couldn't upload image."); return; }
+      // Initial display box: cap the longest edge, keep the image's ratio.
+      const MAX_EDGE = 320;
+      const nw = data.width || DEFAULTS.image.w, nh = data.height || DEFAULTS.image.h;
+      const s = Math.min(1, MAX_EDGE / Math.max(nw, nh));
+      const w = Math.max(48, Math.round(nw * s)), h = Math.max(48, Math.round(nh * s));
+      // Drop/paste position if given, else the visible centre.
+      let center = at;
+      if (!center) {
+        center = { x: 200, y: 200 };
+        try {
+          const el = document.querySelector(".react-flow");
+          if (el) {
+            const r = el.getBoundingClientRect();
+            center = rf.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+          }
+        } catch { /* */ }
+      }
+      const node = {
+        id: freshId("image"),
+        type: "image",
+        position: { x: center.x - w / 2, y: center.y - h / 2 },
+        width: w,
+        height: h,
+        data: { src: data.url, path: data.path, alt: file.name || "" },
+      };
+      setNodes((nds) =>
+        nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({ ...node, selected: true })
+      );
+    },
+    [session?.user?.id, board?.id, rf, setNodes]
+  );
+
+  // Drag an image file from Finder onto the canvas → upload + place at the drop.
+  const onWbDragOver = useCallback((e) => {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  }, []);
+  const onWbDrop = useCallback(
+    (e) => {
+      const file = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith("image/"));
+      if (!file) return;
+      e.preventDefault();
+      let at;
+      try { at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { /* */ }
+      addImageNode(file, at);
+    },
+    [rf, addImageNode]
+  );
+
+  // Paste: an image in the clipboard becomes an image node; otherwise paste the
+  // in-app node clipboard. Cmd/Ctrl+V lives here (not the keydown handler) since
+  // only the paste event exposes clipboard contents.
+  useEffect(() => {
+    function onPaste(e) {
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      const boardEl = mainRef.current;
+      if (!boardEl || !(boardEl.matches(":hover") || boardEl.contains(el))) return;
+      const items = e.clipboardData?.items;
+      const imgItem = items && [...items].find((it) => it.kind === "file" && it.type.startsWith("image/"));
+      if (imgItem) {
+        const file = imgItem.getAsFile();
+        if (file) { e.preventDefault(); addImageNode(file, lastPtRef.current); return; }
+      }
+      e.preventDefault();
+      pasteRef.current?.(lastPtRef.current);
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [addImageNode]);
+
+  // Double-click empty canvas → drop a text node at the cursor, ready to type.
+  // Gated to the pane itself so double-clicking a node still just edits it.
+  const onPaneDoubleClick = useCallback(
+    (e) => {
+      const t = e.target;
+      if (!(t instanceof Element) || !t.classList.contains("react-flow__pane")) return;
+      let pos;
+      try {
+        pos = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      } catch {
+        return;
+      }
+      const size = DEFAULTS.text;
+      const id = freshId("text");
+      markNodeForEdit(id); // open straight into edit
+      setNodes((nds) =>
+        nds
+          .map((n) => (n.selected ? { ...n, selected: false } : n))
+          .concat({
+            id,
+            type: "text",
+            position: { x: pos.x - size.w / 2, y: pos.y - size.h / 2 },
+            data: { text: "", ...textStyleRef.current },
+            selected: true,
+          })
+      );
+    },
+    [rf, setNodes]
+  );
+
   const deleteSelected = useCallback(() => {
     const selectedNodeIds = new Set(
       nodes.filter((n) => n.selected).map((n) => n.id)
@@ -1094,6 +1717,85 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   const cloneRef = useRef(null);
   cloneRef.current = cloneNodes;
 
+  // ── copy / cut / paste ──────────────────────────────────────────────
+  // Mirrors cloneNodes' id-remap + frame-children + internal-edges handling,
+  // but routed through the in-app clipboard so it works across boards/tabs.
+  // Returns whether anything was copied (so the keydown handler knows whether
+  // to swallow the key vs. let the browser copy text).
+  const copySelection = useCallback(() => {
+    const all = rf.getNodes();
+    const sel = new Set(all.filter((n) => n.selected && n.type !== "zone").map((n) => n.id));
+    if (!sel.size) return false;
+    for (const n of all) if (n.parentId && sel.has(n.parentId)) sel.add(n.id); // frame children ride along
+    const clipNodes = all
+      .filter((n) => sel.has(n.id))
+      .map(({ selected, dragging, resizing, ...rest }) => rest);
+    const clipEdges = rf
+      .getEdges()
+      .filter((e) => sel.has(e.source) && sel.has(e.target)) // edges fully inside the selection
+      .map(({ selected, ...rest }) => rest);
+    writeWbClipboard({ nodes: clipNodes, edges: clipEdges });
+    return true;
+  }, [rf]);
+
+  const pasteClipboard = useCallback((at) => {
+    const clip = readWbClipboard();
+    if (!clip?.nodes?.length) return;
+    const idMap = new Map(clip.nodes.map((n) => [n.id, freshId(n.type || "paste")]));
+    const isChild = (n) => n.parentId && idMap.has(n.parentId);
+    // Drop the cluster under the cursor (or its original spot +offset if we
+    // have no pointer yet). Top-level nodes carry absolute positions; framed
+    // children stay relative to their (also-pasted) frame.
+    const tops = clip.nodes.filter((n) => !isChild(n));
+    let dx = 32, dy = 32;
+    if (at && tops.length) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const n of tops) {
+        const x = n.position?.x ?? 0, y = n.position?.y ?? 0;
+        const w = n.width ?? n.measured?.width ?? 0, h = n.height ?? n.measured?.height ?? 0;
+        minX = Math.min(minX, x); minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+      }
+      dx = at.x - (minX + maxX) / 2;
+      dy = at.y - (minY + maxY) / 2;
+    }
+    const pasted = clip.nodes.map((n) => {
+      const next = { ...n, id: idMap.get(n.id), data: { ...n.data }, selected: true };
+      if (isChild(n)) {
+        next.parentId = idMap.get(n.parentId);   // re-parent to the pasted frame
+        next.position = { ...n.position };         // relative → keep
+      } else {
+        if ("parentId" in next) delete next.parentId; // frame not in the paste → unparent
+        next.position = { x: (n.position?.x ?? 0) + dx, y: (n.position?.y ?? 0) + dy };
+      }
+      return next;
+    });
+    setNodes((nds) =>
+      nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(pasted)
+    );
+    const pastedEdges = (clip.edges || [])
+      .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+      .map((e) => ({
+        ...e,
+        id: freshId("e"),
+        selected: false,
+        source: idMap.get(e.source),
+        target: idMap.get(e.target),
+        data: e.data ? { ...e.data } : e.data, // anchors are node-relative; route re-bases off the new ends
+      }));
+    if (pastedEdges.length) setEdges((eds) => eds.concat(pastedEdges));
+  }, [rf, setNodes, setEdges]);
+
+  const cutSelection = useCallback(() => {
+    if (!copySelection()) return false;
+    deleteSelected();
+    return true;
+  }, [copySelection, deleteSelected]);
+
+  const copyRef = useRef(null); copyRef.current = copySelection;
+  const cutRef = useRef(null); cutRef.current = cutSelection;
+  const pasteRef = useRef(null); pasteRef.current = pasteClipboard;
+
   // ⌘/Ctrl-click a node to drop a clone of it right next to it.
   const onNodeClick = useCallback((e, node) => {
     if ((e.metaKey || e.ctrlKey) && node.type !== "zone") {
@@ -1120,6 +1822,70 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     () => (selectedNode ? null : edges.find((e) => e.selected) || null),
     [edges, selectedNode]
   );
+  // Top-level selected nodes (framed children skipped — their coords are
+  // parent-relative). 2+ surfaces the align/distribute toolbar.
+  const multiCount = useMemo(
+    () => nodes.filter((n) => n.selected && n.type !== "zone" && !n.parentId).length,
+    [nodes]
+  );
+
+  // Align / distribute the selected top-level nodes by their bounding boxes.
+  const arrange = useCallback(
+    (op) => {
+      setNodes((nds) => {
+        const sel = nds.filter((n) => n.selected && n.type !== "zone" && !n.parentId);
+        if (sel.length < 2) return nds;
+        const rs = sel.map((n) => ({
+          id: n.id,
+          x: n.position.x,
+          y: n.position.y,
+          w: n.measured?.width ?? n.width ?? 0,
+          h: n.measured?.height ?? n.height ?? 0,
+        }));
+        const minX = Math.min(...rs.map((r) => r.x));
+        const maxR = Math.max(...rs.map((r) => r.x + r.w));
+        const minY = Math.min(...rs.map((r) => r.y));
+        const maxB = Math.max(...rs.map((r) => r.y + r.h));
+        const cX = (minX + maxR) / 2, cY = (minY + maxB) / 2;
+        const pos = new Map();
+        for (const r of rs) {
+          let { x, y } = r;
+          if (op === "left") x = minX;
+          else if (op === "right") x = maxR - r.w;
+          else if (op === "centerH") x = cX - r.w / 2;
+          else if (op === "top") y = minY;
+          else if (op === "bottom") y = maxB - r.h;
+          else if (op === "middleV") y = cY - r.h / 2;
+          pos.set(r.id, { x, y });
+        }
+        if (op === "distH" || op === "distV") {
+          const horiz = op === "distH";
+          const sorted = [...rs].sort((a, b) => (horiz ? a.x - b.x : a.y - b.y));
+          const span = horiz ? maxR - minX : maxB - minY;
+          const used = sorted.reduce((s, r) => s + (horiz ? r.w : r.h), 0);
+          const gap = (span - used) / (sorted.length - 1);
+          let cursor = horiz ? minX : minY;
+          for (const r of sorted) {
+            pos.set(r.id, horiz ? { x: cursor, y: r.y } : { x: r.x, y: cursor });
+            cursor += (horiz ? r.w : r.h) + gap;
+          }
+        }
+        // Match-size: set every selected node's width / height to the largest.
+        const size = new Map();
+        if (op === "matchW" || op === "matchH") {
+          const dim = op === "matchW" ? "w" : "h";
+          const target = Math.max(...rs.map((r) => r[dim]));
+          for (const r of rs) size.set(r.id, op === "matchW" ? { width: target } : { height: target });
+        }
+        return nds.map((n) => {
+          if (size.has(n.id)) return { ...n, ...size.get(n.id) };
+          if (pos.has(n.id)) return { ...n, position: { ...n.position, ...pos.get(n.id) } };
+          return n;
+        });
+      });
+    },
+    [setNodes]
+  );
 
   const patchNodeData = useCallback(
     (patch) => {
@@ -1130,6 +1896,53 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             : n
         )
       );
+    },
+    [setNodes]
+  );
+
+  // Lock / unlock the selected node(s). React Flow's per-node `draggable:false`
+  // stops the move; the resizer is hidden via data.locked in each node. Both
+  // persist (snapshot + sync), so a lock is shared with everyone on the board.
+  const setSelectedLocked = useCallback(
+    (locked) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.selected && n.type !== "zone"
+            ? { ...n, draggable: locked ? false : undefined, data: { ...n.data, locked } }
+            : n
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  // Per-node opacity via React Flow's node.style (persists + syncs). 1 clears it.
+  const setSelectedOpacity = useCallback(
+    (opacity) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.selected && n.type !== "zone"
+            ? { ...n, style: { ...(n.style || {}), opacity: opacity >= 1 ? undefined : opacity } }
+            : n
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  // Z-order: stacking follows array order (later = on top). Move the selection
+  // to the end (front) or start (back); sortParentsFirst is a stable sort so it
+  // only re-pins frames ahead of their children, keeping the new order. Persists
+  // in the snapshot; live-syncs on the next reload (order isn't a per-entity op).
+  const reorderSelected = useCallback(
+    (toFront) => {
+      setNodes((nds) => {
+        const selIds = new Set(nds.filter((n) => n.selected && n.type !== "zone").map((n) => n.id));
+        if (!selIds.size) return nds;
+        const sel = nds.filter((n) => selIds.has(n.id));
+        const rest = nds.filter((n) => !selIds.has(n.id));
+        return sortParentsFirst(toFront ? [...rest, ...sel] : [...sel, ...rest]);
+      });
     },
     [setNodes]
   );
@@ -1173,6 +1986,43 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     }
     navigate("/whiteboards");
   }
+
+  // Export the whole board as a PNG. We capture React Flow's viewport element
+  // with an overridden transform that frames the nodes' bounding box (so the
+  // export covers everything, not just what's on screen). html-to-image clones
+  // the node, so the live view isn't disturbed.
+  const handleExportPng = useCallback(async () => {
+    const el = mainRef.current?.querySelector(".react-flow__viewport");
+    if (!el) return;
+    const bounds = getNodesBounds(rf.getNodes());
+    if (!bounds.width || !bounds.height) { setError("Nothing to export yet."); return; }
+    const pad = 48;
+    // Up to 2x for crisp small boards; scale down big ones to cap ~4000px.
+    const zoom = Math.min(2, 4000 / Math.max(bounds.width, bounds.height));
+    const w = Math.ceil(bounds.width * zoom + pad * 2);
+    const h = Math.ceil(bounds.height * zoom + pad * 2);
+    try {
+      const { toPng } = await import("html-to-image");
+      const dataUrl = await toPng(el, {
+        backgroundColor: dark ? "#0f172a" : "#fbf6ee",
+        width: w,
+        height: h,
+        pixelRatio: 1,
+        cacheBust: true,
+        style: {
+          width: `${w}px`,
+          height: `${h}px`,
+          transform: `translate(${pad - bounds.x * zoom}px, ${pad - bounds.y * zoom}px) scale(${zoom})`,
+        },
+      });
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `${(board?.title || "whiteboard").replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "whiteboard"}.png`;
+      a.click();
+    } catch (e) {
+      setError(`Export failed: ${e?.message || "unknown error"}`);
+    }
+  }, [rf, dark, board?.title]);
 
   const template = useMemo(
     () => (board?.template_key ? TEMPLATES[board.template_key] : null),
@@ -1230,11 +2080,16 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       // gesture area so taps there don't trigger an OS swipe. env() = 0 on
       // desktop, so it's a no-op there.
       className={`relative w-full overflow-hidden ${
+        tool === "pen" ? "wb-pen " : ""
+      }${
         embedded
           ? "h-full"
           : "h-[calc(100dvh-3.5rem-var(--top-inset)-var(--bottom-inset))] sm:h-[calc(100dvh-4rem-var(--top-inset)-var(--bottom-inset))]"
       }`}
       onPointerMove={onWbPointerMove}
+      onPointerDownCapture={onWbPointerDownCapture}
+      onPointerUp={onWbPointerUp}
+      onPointerCancel={onWbPointerUp}
     >
       <EdgeMarkerDefs />
       <ReactFlow
@@ -1248,25 +2103,39 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         onReconnect={onReconnect}
         onNodeDragStop={onNodeDragStop}
         onNodeClick={onNodeClick}
+        onDoubleClick={tool === "select" ? onPaneDoubleClick : undefined}
+        onMoveEnd={(_, vp) => { if (!embedded) saveViewport(board?.id, vp); }}
+        onDragOver={onWbDragOver}
+        onDrop={onWbDrop}
+        zoomOnDoubleClick={false}
         connectionMode={ConnectionMode.Loose}
         connectionLineComponent={ConnectionLine}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
-        selectionOnDrag
+        // Laser mode is point-only: no selecting, dragging, or connecting — so
+        // you can gesture over the board without disturbing it.
+        nodesDraggable={tool === "select"}
+        nodesConnectable={tool === "select"}
+        elementsSelectable={tool === "select"}
+        selectionOnDrag={tool === "select"}
         selectionMode={SelectionMode.Partial}
         // Shift adds to selection, freeing ⌘/Ctrl for the click-to-clone quick action.
         multiSelectionKeyCode="Shift"
         // Zoom way out for big boards (default floor is 0.5); a bit more in too.
         minZoom={0.1}
         maxZoom={3}
+        // Left-drag is reserved (marquee in select, draw in pen/laser-ink), so
+        // panning is always middle/right-drag — plus the activation key below.
         panOnDrag={[1, 2]}
         // Trackpad: two-finger scroll pans, pinch zooms (ctrl/⌘+scroll too);
         // hold Space to drag-pan. Left-drag still marquee-selects.
         panOnScroll
         zoomOnScroll={false}
         zoomOnPinch
-        panActivationKeyCode="Space"
+        // Hold to pan with a left-drag: Space everywhere; in laser mode also
+        // ⌘/Ctrl so you can move the canvas while the left button draws ink.
+        panActivationKeyCode={tool === "laser" ? ["Space", "Control", "Meta"] : "Space"}
         fitView
         fitViewOptions={{ padding: 0.15 }}
         proOptions={{ hideAttribution: true }}
@@ -1288,6 +2157,67 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
 
+        {/* My own fading laser-ink trail (flow space). */}
+        {tool === "laser" && <LaserTrail pointsRef={laserInkRef} color={myColor} />}
+
+        {/* Live preview of the freehand stroke in progress (flow space). */}
+        {drawPath && (
+          <ViewportPortal>
+            <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 6 }}>
+              <path
+                d={drawPath}
+                fill="none"
+                stroke={penStyle.color}
+                strokeWidth={penStyle.width}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </ViewportPortal>
+        )}
+
+        {/* Align / distribute toolbar — only with 2+ top-level nodes selected. */}
+        {multiCount >= 2 && (
+          <Panel
+            position="top-center"
+            className={`flex items-center gap-0.5 px-1.5 py-1 rounded-xl border shadow-lg ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}
+          >
+            {[
+              ["left", AlignStartVertical, "Align left"],
+              ["centerH", AlignCenterVertical, "Align centers (horizontal)"],
+              ["right", AlignEndVertical, "Align right"],
+              null,
+              ["top", AlignStartHorizontal, "Align top"],
+              ["middleV", AlignCenterHorizontal, "Align middles (vertical)"],
+              ["bottom", AlignEndHorizontal, "Align bottom"],
+              null,
+              ["distH", AlignHorizontalDistributeCenter, "Distribute horizontally"],
+              ["distV", AlignVerticalDistributeCenter, "Distribute vertically"],
+              null,
+              ["matchW", StretchHorizontal, "Match width"],
+              ["matchH", StretchVertical, "Match height"],
+            ].map((item, i) => {
+              if (!item) return <div key={`d${i}`} className={`w-px h-5 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />;
+              const [op, Icon, title] = item;
+              return (
+                <button
+                  key={op}
+                  type="button"
+                  title={title}
+                  onClick={() => arrange(op)}
+                  className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
+                    dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                </button>
+              );
+            })}
+          </Panel>
+        )}
+
         <Panel
           position="center-left"
           className={`flex flex-col items-center gap-0.5 p-1 rounded-2xl border shadow-sm ${
@@ -1302,14 +2232,12 @@ function WhiteboardEditor({ boardId, embedded = false }) {
               addNodeAtCenter("sticky", hex ? { color: hex } : {})
             }
           />
-          <ToolButton
-            title="Add text"
-            tone="neutral"
+          <TextTool
             dark={dark}
-            onClick={() => addNodeAtCenter("text")}
-          >
-            <Type className="w-4 h-4" />
-          </ToolButton>
+            prefs={textStyle}
+            setPrefs={setTextStyle}
+            onAdd={() => addNodeAtCenter("text", textStyleRef.current)}
+          />
           <div
             className={`h-px w-5 my-0.5 ${
               dark ? "bg-[var(--color-border)]" : "bg-slate-200"
@@ -1334,6 +2262,46 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             onClick={() => addNodeAtCenter("frame")}
           >
             <Frame className="w-4 h-4" />
+          </ToolButton>
+          <ToolButton
+            title={uploadingImage ? "Uploading image…" : "Add image"}
+            tone="neutral"
+            dark={dark}
+            onClick={() => !uploadingImage && fileInputRef.current?.click()}
+          >
+            <ImagePlus className={`w-4 h-4 ${uploadingImage ? "animate-pulse opacity-60" : ""}`} />
+          </ToolButton>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = ""; // allow re-picking the same file
+              if (f) addImageNode(f);
+            }}
+          />
+          <div
+            className={`h-px w-5 my-0.5 ${
+              dark ? "bg-[var(--color-border)]" : "bg-slate-200"
+            }`}
+          />
+          <PenTool
+            dark={dark}
+            active={tool === "pen"}
+            style={penStyle}
+            setStyle={setPenStyle}
+            onToggle={() => setTool((t) => (t === "pen" ? "select" : "pen"))}
+          />
+          <ToolButton
+            title={tool === "laser" ? "Laser (on) — drag to draw a fading line, ⌘/Ctrl-drag to pan, Esc to exit" : "Laser pointer — point things out & underline"}
+            tone="sky"
+            dark={dark}
+            active={tool === "laser"}
+            onClick={() => setTool((t) => (t === "laser" ? "select" : "laser"))}
+          >
+            <Wand2 className="w-4 h-4" />
           </ToolButton>
           <div
             className={`h-px w-5 my-0.5 ${
@@ -1364,10 +2332,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             offset={selectedNode.type === "frame" ? (selectedNode.data?.fontSize ?? 20) + 28 : 14}
             align="center"
           >
-            <Inspector node={selectedNode} patchNodeData={patchNodeData} />
+            <Inspector node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
           </NodeToolbar>
         )}
       </ReactFlow>
+
+      {/* My own laser glow (screen space) — only while laser mode is on. */}
+      <LocalLaser active={tool === "laser"} color={myColor} />
 
       {/* Breadcrumb / board chrome — a floating card pinned top-left,
             like the timer. Holds back-nav, title, template badge, save
@@ -1469,6 +2440,39 @@ function WhiteboardEditor({ boardId, embedded = false }) {
               {saveLabel}
             </span>
           )}
+          <div
+            className={`w-px h-4 ${
+              dark ? "bg-[var(--color-border)]" : "bg-slate-200"
+            }`}
+          />
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (⌘Z)"
+            aria-label="Undo"
+            className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+              !canUndo
+                ? dark ? "text-slate-600 cursor-not-allowed" : "text-slate-300 cursor-not-allowed"
+                : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+            }`}
+          >
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (⌘⇧Z)"
+            aria-label="Redo"
+            className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+              !canRedo
+                ? dark ? "text-slate-600 cursor-not-allowed" : "text-slate-300 cursor-not-allowed"
+                : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+            }`}
+          >
+            <Redo2 className="w-4 h-4" />
+          </button>
           {!compact && (
             <>
               <div
@@ -1527,6 +2531,21 @@ function WhiteboardEditor({ boardId, embedded = false }) {
                 <MapIcon className="w-4 h-4" />
               </button>
             </>
+          )}
+          {!embedded && (
+            <button
+              type="button"
+              onClick={handleExportPng}
+              title="Export as PNG"
+              aria-label="Export as PNG"
+              className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+                dark
+                  ? "text-slate-400 hover:bg-white/10"
+                  : "text-slate-500 hover:bg-slate-100"
+              }`}
+            >
+              <Download className="w-4 h-4" />
+            </button>
           )}
           {!embedded && (
             <button

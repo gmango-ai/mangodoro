@@ -40,7 +40,7 @@ function stripLocal(o) {
 }
 const idJson = (o) => JSON.stringify(stripLocal(o));
 
-export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, setEdges, name }) {
+export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, setEdges, name, onRemoteApply }) {
   const meId = useRef("");
   if (!meId.current) {
     meId.current = (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -114,6 +114,9 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
   // ── incoming: merge remote ops by id (preserving my local UI state) ──
   const applyOps = useCallback((p) => {
     if (!p || p.from === meId.current) return;
+    // Let undo/redo history absorb peer changes into its baseline so they
+    // never become one of MY undo steps (see useWhiteboardHistory).
+    onRemoteApply?.(p);
     if (p.nodeOps?.length || p.removedNodes?.length) {
       setNodes((nds) => {
         let next = nds;
@@ -151,7 +154,7 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
         return next;
       });
     }
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, onRemoteApply]);
 
   // ── channel lifecycle ──
   useEffect(() => {
@@ -166,7 +169,7 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     ch.on("broadcast", { event: "cursor" }, (m) => {
       const c = m.payload;
       if (!c || c.id === meId.current) return;
-      setPeers((prev) => ({ ...prev, [c.id]: { x: c.x, y: c.y, name: c.name, color: c.color, ts: Date.now() } }));
+      setPeers((prev) => ({ ...prev, [c.id]: { x: c.x, y: c.y, name: c.name, color: c.color, laser: !!c.laser, ink: !!c.ink, ts: Date.now() } }));
     });
 
     ch.on("broadcast", { event: "sync-req" }, (m) => {
@@ -226,16 +229,20 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
   }, [enabled, boardId, applyOps, myName, myColor]);
 
   // ── outgoing cursor (throttled, trailing) ──
+  // `laser` rides along on the same channel: when set, peers render the
+  // cursor as a glowing laser dot instead of the arrow. `ink` means the laser
+  // button is held — peers buffer those positions into a fading trail. Both
+  // are ephemeral (for pointing things out / underlining while presenting).
   const cursorTimer = useRef(null);
   const pendingCursor = useRef(null);
-  const pushCursor = useCallback((x, y) => {
-    pendingCursor.current = { x, y };
+  const pushCursor = useCallback((x, y, laser, ink) => {
+    pendingCursor.current = { x, y, laser: !!laser, ink: !!ink };
     if (cursorTimer.current) return;
     cursorTimer.current = setTimeout(() => {
       cursorTimer.current = null;
       const ch = chanRef.current, c = pendingCursor.current;
       if (ch && c) {
-        try { ch.send({ type: "broadcast", event: "cursor", payload: { id: meId.current, x: c.x, y: c.y, name: myName, color: myColor } }); } catch { /* */ }
+        try { ch.send({ type: "broadcast", event: "cursor", payload: { id: meId.current, x: c.x, y: c.y, name: myName, color: myColor, laser: c.laser, ink: c.ink } }); } catch { /* */ }
       }
     }, CURSOR_THROTTLE_MS);
   }, [myName, myColor]);
@@ -257,5 +264,5 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     return () => clearInterval(t);
   }, [enabled]);
 
-  return { peers, members, pushCursor };
+  return { peers, members, pushCursor, myColor };
 }

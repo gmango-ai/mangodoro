@@ -5,7 +5,7 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import {
   Hash, Briefcase, MessageSquare, Lock,
-  LogIn, LogOut, Play, Pause, PanelLeftOpen, PanelLeftClose, ChevronDown,
+  LogIn, LogOut, Play, Pause, PanelLeftOpen, PanelLeftClose, ChevronDown, Settings,
 } from "lucide-react";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { openPomodoroSurface } from "../../lib/pomodoroSurface";
@@ -90,6 +90,7 @@ function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, current
 export default function RoomView({
   room, activeSession, orgTeams, busy, onJoin, onStart,
   sidebarOpen, onToggleSidebar, onOpenRoomSwitcher, onLeaveRoom,
+  onEditRoom, canEditRoom,
 }) {
   const { theme } = useTheme();
   const { session } = useApp();
@@ -137,120 +138,155 @@ export default function RoomView({
   return (
     <div className="flex flex-col h-full min-h-0">
       <header
-        className={`px-4 sm:px-6 py-3 border-b shrink-0 ${
+        className={`@container px-4 sm:px-6 py-3 border-b shrink-0 ${
           dark ? "border-[var(--color-border)]" : "border-slate-200"
         }`}
         style={{ background: `linear-gradient(180deg, ${accent}12, transparent)` }}
       >
-        <div className="flex items-center gap-3">
-          {onToggleSidebar && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onToggleSidebar}
-              title={sidebarOpen ? "Hide widgets" : "Show widgets"}
-              aria-label={sidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
-              aria-pressed={sidebarOpen}
-              className={`hidden md:inline-flex h-8 w-8 shrink-0 ${
-                dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              <SidebarIcon className="w-4 h-4" />
-            </Button>
-          )}
+        {/* Split into two groups that stack into two rows when the bar
+            is narrow and collapse back to one row when it's wide. We key
+            off a *container* query (the header's own width) rather than a
+            viewport breakpoint because the room view loses ~288px to the
+            inline widgets sidebar when it's open — so the same viewport
+            can be one row (sidebar closed) or two (sidebar open). The
+            single row only fits once the header is ~576px+ wide, which is
+            roughly a 925px viewport with the sidebar open. */}
+        <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:gap-3">
+          {/* Identity row — room name, switcher, leave. Grows to fill
+              the bar in one-row mode; the first of two rows when narrow. */}
+          <div className="flex items-center gap-3 min-w-0 @xl:flex-1">
+            {onToggleSidebar && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onToggleSidebar}
+                title={sidebarOpen ? "Hide widgets" : "Show widgets"}
+                aria-label={sidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
+                aria-pressed={sidebarOpen}
+                className={`hidden md:inline-flex h-8 w-8 shrink-0 ${
+                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <SidebarIcon className="w-4 h-4" />
+              </Button>
+            )}
 
-          {/* Room identity — clickable. Opens the office overlay so
-              the user can switch rooms or leave to the hallway. */}
-          <button
-            type="button"
-            onClick={onOpenRoomSwitcher}
-            className={`flex items-center gap-3 min-w-0 flex-1 text-left rounded-lg -m-1 p-1 transition-colors ${
-              dark ? "hover:bg-[var(--color-surface-raised)]/60" : "hover:bg-slate-100/60"
-            }`}
-            title="Switch room"
-          >
-            <div
-              className="p-2 rounded-xl shrink-0"
-              style={{ background: `${accent}22`, color: accent }}
+            {/* Room identity — clickable. Opens the office overlay so
+                the user can switch rooms or leave to the hallway. */}
+            <button
+              type="button"
+              onClick={onOpenRoomSwitcher}
+              className={`flex items-center gap-3 min-w-0 flex-1 text-left rounded-lg -m-1 p-1 transition-colors ${
+                dark ? "hover:bg-[var(--color-surface-raised)]/60" : "hover:bg-slate-100/60"
+              }`}
+              title="Switch room"
             >
-              <Icon className="w-4 h-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h1 className={`text-lg font-bold truncate inline-flex items-center gap-1.5 ${
-                dark ? "text-slate-100" : "text-slate-800"
-              }`}>
-                {room.name}
-                <ChevronDown className={`w-3.5 h-3.5 shrink-0 opacity-60 ${dark ? "text-slate-400" : "text-slate-500"}`} />
-              </h1>
-              <p className={`text-[10px] uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
-                {KIND_LABEL[room.kind] || room.kind}
-                {room.kind === "private" && room.invite_code && (
-                  <span className={`ml-2 ${dark ? "text-amber-300" : "text-amber-600"}`}>
-                    · Locked
+              <div
+                className="p-2 rounded-xl shrink-0"
+                style={{ background: `${accent}22`, color: accent }}
+              >
+                <Icon className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h1 className={`text-lg font-bold truncate inline-flex items-center gap-1.5 ${
+                  dark ? "text-slate-100" : "text-slate-800"
+                }`}>
+                  {room.name}
+                  <ChevronDown className={`w-3.5 h-3.5 shrink-0 opacity-60 ${dark ? "text-slate-400" : "text-slate-500"}`} />
+                </h1>
+                <p className={`text-[10px] uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                  {KIND_LABEL[room.kind] || room.kind}
+                  {room.kind === "private" && room.invite_code && (
+                    <span className={`ml-2 ${dark ? "text-amber-300" : "text-amber-600"}`}>
+                      · Locked
+                    </span>
+                  )}
+                </p>
+              </div>
+            </button>
+
+            {/* Room settings — opens the same RoomSettingsModal used on
+                the team page (name, color, team gating, meeting duration,
+                delete). Only shown to users who can actually edit this
+                room; the RPCs enforce permission server-side regardless. */}
+            {canEditRoom && onEditRoom && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onEditRoom(room)}
+                title="Room settings"
+                aria-label="Room settings"
+                className={`h-8 w-8 shrink-0 ${
+                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+              </Button>
+            )}
+
+            {/* Leave room — navigates to the hallway, which trips the
+                auto-leave effect in OfficeShell (same path as the
+                overlay's "Leave to hallway"). Kept right next to the
+                name so leaving is a one-click action, not buried in the
+                switcher overlay. */}
+            {onLeaveRoom && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onLeaveRoom}
+                title="Leave room"
+                aria-label="Leave room"
+                className={`h-8 w-8 shrink-0 ${
+                  dark
+                    ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
+                    : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+                }`}
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
+            )}
+
+            {gatingTeams.length > 0 && (
+              <div className="hidden xl:flex flex-wrap items-center gap-1.5">
+                {gatingTeams.map((t) => (
+                  <span
+                    key={t.id}
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                    style={{ background: `${t.color}22`, color: dark ? "#fff" : t.color, border: `1px solid ${t.color}55` }}
+                  >
+                    <span className="w-1 h-1 rounded-full" style={{ background: t.color }} />
+                    {t.name}
                   </span>
-                )}
-              </p>
-            </div>
-          </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-          {/* Leave room — navigates to the hallway, which trips the
-              auto-leave effect in OfficeShell (same path as the
-              overlay's "Leave to hallway"). Kept right next to the
-              name so leaving is a one-click action, not buried in the
-              switcher overlay. */}
-          {onLeaveRoom && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onLeaveRoom}
-              title="Leave room"
-              aria-label="Leave room"
-              className={`h-8 w-8 shrink-0 ${
-                dark
-                  ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
-                  : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
-              }`}
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
-          )}
+          {/* Controls row — session status + layout tools. Drops to a
+              second row when the bar is too narrow for one row. */}
+          <div className="flex items-center gap-2 @xl:gap-3 justify-between @xl:justify-end shrink-0">
+            <RoomSessionAction
+              room={room}
+              activeSession={activeSession}
+              busy={busy}
+              onJoin={onJoin}
+              onStart={onStart}
+              currentSyncSession={currentSyncSession}
+            />
 
-          {gatingTeams.length > 0 && (
-            <div className="hidden xl:flex flex-wrap items-center gap-1.5">
-              {gatingTeams.map((t) => (
-                <span
-                  key={t.id}
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                  style={{ background: `${t.color}22`, color: dark ? "#fff" : t.color, border: `1px solid ${t.color}55` }}
-                >
-                  <span className="w-1 h-1 rounded-full" style={{ background: t.color }} />
-                  {t.name}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <RoomSessionAction
-            room={room}
-            activeSession={activeSession}
-            busy={busy}
-            onJoin={onJoin}
-            onStart={onStart}
-            currentSyncSession={currentSyncSession}
-          />
-
-          <LayoutBar
-            presetId={presetId}
-            onApply={applyPreset}
-            onReset={reset}
-            accent={accent}
-            dark={dark}
-            arranging={arranging}
-            onToggleArrange={() => setArranging((v) => !v)}
-            panels={quickPanels}
-            activePanels={activePanels}
-            onTogglePanel={togglePanel}
-          />
+            <LayoutBar
+              presetId={presetId}
+              onApply={applyPreset}
+              onReset={reset}
+              accent={accent}
+              dark={dark}
+              arranging={arranging}
+              onToggleArrange={() => setArranging((v) => !v)}
+              panels={quickPanels}
+              activePanels={activePanels}
+              onTogglePanel={togglePanel}
+            />
+          </div>
         </div>
       </header>
 

@@ -66,6 +66,55 @@ export function getAlignmentGuides(drag, others, dist) {
   return { x: snapX, y: snapY, vertical, horizontal };
 }
 
+// Resize alignment. Snaps the MOVING edge(s) of a resizing node to other nodes'
+// edges/centres AND to MATCH another node's width/height (so two nodes can be
+// sized the same). `edges` = { left, right, top, bottom } flags which side is
+// being dragged. Returns the adjusted absolute rect + the guide line(s) to draw
+// (null where there's no snap). Only the dragged edge moves; the opposite holds.
+export function getResizeGuides(rect, edges, others, dist) {
+  let { x, y, w, h } = rect;
+
+  let vertical = null;
+  if (edges.left || edges.right) {
+    const moving = edges.left ? x : x + w; // the edge under the cursor
+    const fixed = edges.left ? x + w : x;  // the opposite edge stays put
+    let best = dist, snap = null, span = null;
+    for (const o of others) {
+      // edge-align targets (left / centre / right) + a same-WIDTH target: the
+      // moving edge placed so this node's width equals the other's.
+      const cands = [o.x, o.x + o.w / 2, o.x + o.w, edges.left ? fixed - o.w : fixed + o.w];
+      for (const v of cands) {
+        const d = Math.abs(moving - v);
+        if (d < best) { best = d; snap = v; span = o; }
+      }
+    }
+    if (snap != null) {
+      if (edges.left) { x = snap; w = fixed - x; } else { w = snap - fixed; }
+      vertical = { x: snap, y1: Math.min(y, span.y), y2: Math.max(y + h, span.y + span.h) };
+    }
+  }
+
+  let horizontal = null;
+  if (edges.top || edges.bottom) {
+    const moving = edges.top ? y : y + h;
+    const fixed = edges.top ? y + h : y;
+    let best = dist, snap = null, span = null;
+    for (const o of others) {
+      const cands = [o.y, o.y + o.h / 2, o.y + o.h, edges.top ? fixed - o.h : fixed + o.h];
+      for (const v of cands) {
+        const d = Math.abs(moving - v);
+        if (d < best) { best = d; snap = v; span = o; }
+      }
+    }
+    if (snap != null) {
+      if (edges.top) { y = snap; h = fixed - y; } else { h = snap - fixed; }
+      horizontal = { y: snap, x1: Math.min(x, span.x), x2: Math.max(x + w, span.x + span.w) };
+    }
+  }
+
+  return { x, y, w: Math.max(8, w), h: Math.max(8, h), vertical, horizontal };
+}
+
 // Screen-space threshold → flow units at the current zoom (consistent feel).
 export function alignDistance(zoom) {
   return ALIGN_SCREEN_PX / (zoom || 1);

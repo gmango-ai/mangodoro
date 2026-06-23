@@ -416,3 +416,6 @@ verify_jwt = true
 
 [functions.mint-livekit-token]
 verify_jwt = true
+
+[functions.livekit-moderate]
+verify_jwt = true

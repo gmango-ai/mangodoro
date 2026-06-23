@@ -5,6 +5,7 @@ import { useTeam } from "../context/TeamContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { useTheme } from "../context/ThemeContext";
 import OfficeShell from "../components/office/OfficeShell";
+import RoomSettingsModal from "../components/RoomSettingsModal";
 import { Button } from "@/components/ui/button";
 import { Pencil } from "lucide-react";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
@@ -19,7 +20,7 @@ export default function OfficePage() {
   const { session } = useApp();
   const {
     activeTeam, activeTeamId, activeTeamSessions, visibleRooms, lockedRooms, isAdmin,
-    teamMembers, myOrgTeamLeadIds, orgTeams,
+    teamMembers, myOrgTeamLeadIds, orgTeams, loadRoomsForActiveTeam,
   } = useTeam();
   const { syncSession, joinSession: joinSyncCtx } = useSyncSession();
   const { theme } = useTheme();
@@ -29,6 +30,7 @@ export default function OfficePage() {
   const [codePromptRoom, setCodePromptRoom] = useState(null);
   const [roomBusy, setRoomBusy] = useState(false);
   const [joinError, setJoinError] = useState("");
+  const [roomToEdit, setRoomToEdit] = useState(null);
 
   // Map active sessions by room_id for fast lookup.
   const sessionByRoomId = new Map();
@@ -100,6 +102,18 @@ export default function OfficePage() {
   const canEdit = isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0);
   const hasRooms = (visibleRooms || []).length > 0;
 
+  // Can the current user edit THIS specific room? Mirrors the server-side
+  // RPC checks (admin OR room creator OR lead of a team gating the room) so
+  // the in-room settings gear only appears when an edit would actually
+  // succeed. The RPCs still enforce this regardless.
+  function canEditRoom(room) {
+    if (!room) return false;
+    if (isAdmin) return true;
+    if (room.created_by && room.created_by === session.user.id) return true;
+    const gatingTeamIds = (room.room_teams || []).map((rt) => rt.org_team_id);
+    return gatingTeamIds.some((id) => myOrgTeamLeadIds?.has(id));
+  }
+
   if (!activeTeam) {
     return (
       <main className="px-4 pt-8 pb-24 max-w-[920px] mx-auto">
@@ -147,6 +161,29 @@ export default function OfficePage() {
         onJoin={handleJoin}
         onStart={handleStart}
         onEditOffice={() => navigate("/team#office")}
+        onEditRoom={(room) => setRoomToEdit(room)}
+        canEditRoom={canEditRoom}
+      />
+
+      <RoomSettingsModal
+        open={!!roomToEdit}
+        room={roomToEdit}
+        orgTeams={orgTeams || []}
+        isAdmin={isAdmin}
+        myOrgTeamLeadIds={myOrgTeamLeadIds || new Set()}
+        onClose={() => setRoomToEdit(null)}
+        onSaved={() => {
+          setRoomToEdit(null);
+          loadRoomsForActiveTeam?.();
+        }}
+        onError={(msg) => setJoinError(msg)}
+        onDeleted={() => {
+          setRoomToEdit(null);
+          loadRoomsForActiveTeam?.();
+          // The room is gone — drop back to the hallway rather than
+          // sitting on a now-dangling /office/r/:id URL.
+          navigate("/office");
+        }}
       />
 
       {/* Private room → "Enter code" sheet */}

@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Magnet } from "lucide-react";
+import { Magnet, Lock, LockOpen, BringToFront, SendToBack, Contrast } from "lucide-react";
 import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex } from "./nodes";
+import TextPanel from "./TextPanel";
+import { fontStack } from "../../lib/whiteboardFonts";
 import { Pill, ToolDivider, Dropdown, SwatchGrid, Opt } from "./toolbarUI";
 import { nodeSnaps } from "./snapping";
 
@@ -88,7 +90,7 @@ function StickyPicker({ value, onPick, onLive }) {
 // matching the edge toolbar. Positioned above the node by React Flow's
 // <NodeToolbar> at the call site. Only the controls a given node type
 // supports are shown.
-export default function Inspector({ node, patchNodeData }) {
+export default function Inspector({ node, patchNodeData, setLocked, onReorder, setOpacity }) {
   const [open, setOpen] = useState(null);
   if (!node) return null;
 
@@ -96,15 +98,24 @@ export default function Inspector({ node, patchNodeData }) {
   const isShape = ["shape", "rect", "ellipse", "diamond"].includes(node.type);
   const isText = node.type === "text";
   const isFrame = node.type === "frame";
+  const isDraw = node.type === "draw";
+  const curStrokeColor = node.data?.color || "#0f172a";
+  const curPenWidth = node.data?.strokeWidth ?? 3;
   const labelBg = node.data?.labelBg; // frame title background: undefined/"none" | "tint" | hex
   const labelBgColor = labelBg === "tint" ? (node.data?.fill || "#0ea5e9") : (labelBg && labelBg !== "none" ? labelBg : null);
   const curFont = node.data?.fontSize || (isText ? 16 : isFrame ? 20 : 13);
   const curShape = node.data?.shape || LEGACY_SHAPE[node.type] || "process";
   const fill = node.data?.fill || "#ffffff";
   const stroke = node.data?.stroke || "#0ea5e9";
+  const curStrokeWidth = node.data?.strokeWidth ?? 2;
+  const curDash = node.data?.strokeDash || "solid";
   const stickyColor = stickyHex(node.data?.color);
   const hasPre = isShape || isSticky || !isText; // any control before the text size
   const snapping = nodeSnaps(node); // grid + alignment snapping for this item
+  const locked = !!node.data?.locked;
+  const curOpacity = Math.round((node.style?.opacity ?? 1) * 100);
+  const isTextable = isSticky || isText || isShape;
+  const curFontFamily = node.data?.fontFamily || "sans";
 
   const stop = (e) => e.stopPropagation();
 
@@ -124,7 +135,43 @@ export default function Inspector({ node, patchNodeData }) {
           </Dropdown>
         )}
 
-        {isSticky ? (
+        {isDraw ? (
+          <>
+            <Dropdown
+              openKey="fill"
+              open={open}
+              setOpen={setOpen}
+              title="Stroke colour"
+              icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: curStrokeColor }} />}
+            >
+              <SwatchGrid value={curStrokeColor} onPick={(c) => { patchNodeData({ color: c }); setOpen(null); }} onLive={(c) => patchNodeData({ color: c })} />
+            </Dropdown>
+            <Dropdown
+              openKey="border"
+              open={open}
+              setOpen={setOpen}
+              title="Stroke width"
+              width={150}
+              icon={<span className="text-[11px] font-semibold text-white/80">{curPenWidth}px</span>}
+            >
+              <div className="p-1.5" style={{ width: 150 }}>
+                <div className="text-[10px] uppercase tracking-wide text-white/40 px-0.5 pb-1">Width</div>
+                <div className="flex gap-1">
+                  {[["Fine", 2], ["Medium", 4], ["Bold", 8]].map(([label, w]) => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => patchNodeData({ strokeWidth: w })}
+                      className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                        curPenWidth === w ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                      }`}
+                    >{label}</button>
+                  ))}
+                </div>
+              </div>
+            </Dropdown>
+          </>
+        ) : isSticky ? (
           <Dropdown
             openKey="fill"
             open={open}
@@ -146,9 +193,55 @@ export default function Inspector({ node, patchNodeData }) {
             title="Fill"
             icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: fill }} />}
           >
-            <SwatchGrid value={fill} onPick={(c) => { patchNodeData({ fill: c }); setOpen(null); }} />
+            <SwatchGrid value={fill} onPick={(c) => { patchNodeData({ fill: c }); setOpen(null); }} onLive={(c) => patchNodeData({ fill: c })} />
           </Dropdown>
-        ) : null}
+        ) : (
+          <>
+            {/* Standalone text: optional background turns it into a label/chip. */}
+            <Dropdown
+              openKey="fill"
+              open={open}
+              setOpen={setOpen}
+              title="Background"
+              icon={<span className="w-4 h-4 rounded-full border border-white/40" style={{ background: node.data?.fill || "transparent", borderStyle: node.data?.fill ? "solid" : "dashed" }} />}
+            >
+              <div>
+                <Opt active={!node.data?.fill} onClick={() => { patchNodeData({ fill: null }); setOpen(null); }}>None</Opt>
+                <SwatchGrid value={node.data?.fill} onPick={(c) => { patchNodeData({ fill: c }); setOpen(null); }} onLive={(c) => patchNodeData({ fill: c })} />
+              </div>
+            </Dropdown>
+            {node.data?.fill && (
+              <Dropdown
+                openKey="box"
+                open={open}
+                setOpen={setOpen}
+                title="Padding & corners"
+                width={164}
+                icon={<span className="w-4 h-4 border-2 border-white/70" style={{ borderRadius: 5 }} />}
+              >
+                <div className="p-1.5" style={{ width: 164 }}>
+                  <div className="text-[10px] uppercase tracking-wide text-white/40 px-1 pb-1">Padding</div>
+                  <div className="flex gap-1 px-0.5 pb-2">
+                    {[["None", "none"], ["S", "sm"], ["M", "md"], ["L", "lg"]].map(([label, v]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => patchNodeData({ pad: v })}
+                        className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                          (node.data?.pad || "md") === v ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                        }`}
+                      >{label}</button>
+                    ))}
+                  </div>
+                  <div className="text-[10px] uppercase tracking-wide text-white/40 px-1 pb-1">Corners</div>
+                  {[["Sharp", 0], ["Rounded", 8], ["Round", 16], ["Pill", 999]].map(([label, r]) => (
+                    <Opt key={label} active={(node.data?.radius ?? 8) === r} onClick={() => patchNodeData({ radius: r })}>{label}</Opt>
+                  ))}
+                </div>
+              </Dropdown>
+            )}
+          </>
+        )}
 
         {isShape && (
           <Dropdown
@@ -158,7 +251,37 @@ export default function Inspector({ node, patchNodeData }) {
             title="Border"
             icon={<span className="w-4 h-4 rounded-full border-2" style={{ borderColor: stroke }} />}
           >
-            <SwatchGrid value={stroke} onPick={(c) => { patchNodeData({ stroke: c }); setOpen(null); }} />
+            <div>
+              <SwatchGrid value={stroke} onPick={(c) => { patchNodeData({ stroke: c }); setOpen(null); }} onLive={(c) => patchNodeData({ stroke: c })} />
+              <div className="px-1.5 pb-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-white/40 px-0.5 pb-1">Width</div>
+                <div className="flex gap-1 pb-2">
+                  {[["Thin", 1.5], ["Med", 2], ["Thick", 3.5]].map(([label, w]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => patchNodeData({ strokeWidth: w })}
+                      className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                        curStrokeWidth === w ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                      }`}
+                    >{label}</button>
+                  ))}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide text-white/40 px-0.5 pb-1">Style</div>
+                <div className="flex gap-1">
+                  {[["Solid", "solid"], ["Dashed", "dashed"], ["Dotted", "dotted"]].map(([label, v]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => patchNodeData({ strokeDash: v })}
+                      className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                        curDash === v ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                      }`}
+                    >{label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </Dropdown>
         )}
 
@@ -175,41 +298,105 @@ export default function Inspector({ node, patchNodeData }) {
               >T</span>
             }
           >
-            <div className="p-1" style={{ width: 180 }}>
+            <div>
               <Opt active={!labelBg || labelBg === "none"} onClick={() => { patchNodeData({ labelBg: "none" }); setOpen(null); }}>Transparent</Opt>
               <Opt active={labelBg === "tint"} onClick={() => { patchNodeData({ labelBg: "tint" }); setOpen(null); }}>Frame colour</Opt>
-              <SwatchGrid value={labelBg} onPick={(c) => { patchNodeData({ labelBg: c }); setOpen(null); }} />
+              <SwatchGrid value={labelBg} onPick={(c) => { patchNodeData({ labelBg: c }); setOpen(null); }} onLive={(c) => patchNodeData({ labelBg: c })} />
             </div>
           </Dropdown>
         )}
 
         {hasPre && <ToolDivider />}
 
+        {/* Goal / frame keep a simple size control (draw has no text). */}
+        {!isTextable && !isDraw && (
+          <Dropdown
+            openKey="text"
+            open={open}
+            setOpen={setOpen}
+            title="Text size"
+            width={132}
+            icon={
+              <span className="flex items-center gap-1">
+                <span className="text-[13px] font-bold leading-none">Aa</span>
+                <span className="text-[11px] text-white/70">{curFont}px</span>
+              </span>
+            }
+          >
+            <div className="py-1 nowheel" style={{ maxHeight: 240, overflowY: "auto" }}>
+              {FONT_SIZES.map((f) => (
+                <Opt key={f.v} active={curFont === f.v} onClick={() => { patchNodeData({ fontSize: f.v }); setOpen(null); }}>
+                  <span className="inline-flex items-baseline gap-2">
+                    <span>{f.v}px</span>
+                    {f.label && <span className="text-white/45 text-[11px]">{f.label}</span>}
+                  </span>
+                </Opt>
+              ))}
+            </div>
+          </Dropdown>
+        )}
+
+        {/* Sticky / text / shape: ALL text editing (font, size, style, align,
+            colour) lives in one panel. */}
+        {isTextable && (
+          <Dropdown
+            openKey="text"
+            open={open}
+            setOpen={setOpen}
+            title="Text"
+            icon={
+              <span className="flex items-center gap-1">
+                <span className="text-[13px] font-bold leading-none" style={{ fontFamily: curFontFamily === "sans" ? undefined : fontStack(curFontFamily) }}>Aa</span>
+                <span className="text-[11px] text-white/70">{curFont}px</span>
+              </span>
+            }
+          >
+            <TextPanel node={node} patchNodeData={patchNodeData} />
+          </Dropdown>
+        )}
+
         <Dropdown
-          openKey="text"
+          openKey="opacity"
           open={open}
           setOpen={setOpen}
-          title="Text size"
-          width={132}
-          icon={
-            <span className="flex items-center gap-1">
-              <span className="text-[13px] font-bold leading-none">Aa</span>
-              <span className="text-[11px] text-white/70">{curFont}px</span>
-            </span>
-          }
+          title="Opacity"
+          width={156}
+          icon={<Contrast className="w-4 h-4" style={{ opacity: Math.max(0.4, curOpacity / 100) }} />}
         >
-          <div className="py-1 nowheel" style={{ maxHeight: 240, overflowY: "auto" }}>
-            {FONT_SIZES.map((f) => (
-              <Opt key={f.v} active={curFont === f.v} onClick={() => { patchNodeData({ fontSize: f.v }); setOpen(null); }}>
-                <span className="inline-flex items-baseline gap-2">
-                  <span>{f.v}px</span>
-                  {f.label && <span className="text-white/45 text-[11px]">{f.label}</span>}
-                </span>
-              </Opt>
-            ))}
+          <div className="p-2.5" style={{ width: 156 }}>
+            <div className="text-[10px] uppercase tracking-wide text-white/40 pb-1.5 flex justify-between">
+              <span>Opacity</span><span>{curOpacity}%</span>
+            </div>
+            <input
+              type="range"
+              min={10}
+              max={100}
+              step={5}
+              value={curOpacity}
+              onChange={(e) => setOpacity?.(Number(e.target.value) / 100)}
+              className="w-full accent-[var(--color-accent)]"
+            />
           </div>
         </Dropdown>
 
+        <ToolDivider />
+        {/* Z-order: stacking of overlapping nodes. */}
+        <button
+          type="button"
+          title="Bring to front"
+          onClick={() => onReorder?.(true)}
+          className="h-7 px-1.5 rounded-md flex items-center text-white/60 hover:bg-white/10 transition-colors"
+        >
+          <BringToFront className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          title="Send to back"
+          onClick={() => onReorder?.(false)}
+          className="h-7 px-1.5 rounded-md flex items-center text-white/60 hover:bg-white/10 transition-colors"
+        >
+          <SendToBack className="w-4 h-4" />
+        </button>
         <ToolDivider />
         {/* Per-item snapping toggle (grid + alignment). Stickies default off. */}
         <button
@@ -222,6 +409,17 @@ export default function Inspector({ node, patchNodeData }) {
           }`}
         >
           <Magnet className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          title={locked ? "Locked — click to unlock" : "Lock position & size"}
+          aria-pressed={locked}
+          onClick={() => setLocked?.(!locked)}
+          className={`h-7 px-1.5 rounded-md flex items-center transition-colors ${
+            locked ? "text-[var(--color-accent)] bg-white/10" : "text-white/50 hover:bg-white/10"
+          }`}
+        >
+          {locked ? <Lock className="w-4 h-4" /> : <LockOpen className="w-4 h-4" />}
         </button>
       </Pill>
     </div>

@@ -236,6 +236,13 @@ export async function fetchSyncParticipants(sessionId) {
   const { data, error } = await supabase
     .from("sync_session_participants")
     .select("*")
+    // Deterministic base order so the list doesn't reshuffle when a row is
+    // updated (presence/status change). joined_at is the natural order;
+    // user_id is a never-changing tiebreaker. The client re-sorts per the
+    // user's chosen key (lib/participantSort), but this keeps every consumer
+    // — including ones that don't re-sort — stable.
+    .order("joined_at", { ascending: true })
+    .order("user_id", { ascending: true })
     .eq("session_id", sessionId)
     .is("left_at", null);
   return { data: data || [], error };

@@ -7,6 +7,28 @@ import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
 import { setGoal, clearGoal } from "../../lib/goals";
+import { fontStack } from "../../lib/whiteboardFonts";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
+
+// Markdown rendering for node display text. gfm = bold/italic, lists, links,
+// tables, task checkboxes; breaks = a single newline stays a line break (so
+// existing multi-line notes don't suddenly collapse into one paragraph).
+const MD_PLUGINS = [remarkGfm, remarkBreaks];
+const MD_COMPONENTS = {
+  // Links open in a new tab and must NOT start a node drag or bubble into the
+  // "click to edit" handler on the node body.
+  a: ({ node, ...props }) => (
+    <a
+      {...props}
+      className="nodrag"
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+    />
+  ),
+};
 
 // Full emoji picker for sticky reactions — lazy so its chunk only loads
 // when someone opens it.
@@ -56,17 +78,34 @@ function readableText(bg) {
   return lum > 0.6 ? "#0f172a" : "#f1f5f9";
 }
 
+// Vertical text placement (data.vAlign) → flexbox alignment for the text box.
+function vAlignFlex(v) {
+  return v === "top" ? "flex-start" : v === "bottom" ? "flex-end" : "center";
+}
+
+
 // Nodes that should open straight into edit mode (just created via the
 // toolbar or a quick-add pull). Tracked outside node data so the flag
 // never persists to the snapshot or syncs to peers.
 const PENDING_EDIT = new Set();
 export function markNodeForEdit(id) { if (id) PENDING_EDIT.add(id); }
 
+// The textarea currently being edited registers a "wrap the selection in
+// markdown" handler here, so a toolbar button (Inspector B / I) can format the
+// LIVE selection without stealing focus. Returns false when nothing is being
+// edited (the caller can then fall back to toggling the whole node's text).
+const activeEditor = { current: null };
+export function wrapActiveSelection(marker) {
+  if (!activeEditor.current) return false;
+  activeEditor.current(marker);
+  return true;
+}
+
 // Shared text editor used inside the sticky / text / shape nodes.
 // Stops propagating wheel + pointerdown so the canvas doesn't pan under
 // the cursor mid-edit. Opens immediately for freshly-created nodes
 // (markNodeForEdit) and on a single click once the node is selected.
-function EditableText({ value, onChange, placeholder, className, style, nodeId, selected }) {
+function EditableText({ value, onChange, placeholder, className, style, nodeId, selected, markdown }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
   const textareaRef = useRef(null);
@@ -84,9 +123,37 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
       const el = textareaRef.current;
       el.focus();
       el.select();
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 480)}px`;
     }
+  }, [editing]);
+
+  // Register a selection-wrapper while editing so the Inspector B / I buttons
+  // can markdown-format the live selection (their mouse-down keeps our focus).
+  useEffect(() => {
+    if (!editing) return undefined;
+    const fn = (marker) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const s = el.selectionStart ?? 0, e = el.selectionEnd ?? 0;
+      const val = el.value, sel = val.slice(s, e), ml = marker.length;
+      let next, selStart, selEnd;
+      if (sel.length >= 2 * ml && sel.startsWith(marker) && sel.endsWith(marker)) {
+        const inner = sel.slice(ml, sel.length - ml); // already wrapped → toggle off
+        next = val.slice(0, s) + inner + val.slice(e);
+        selStart = s; selEnd = s + inner.length;
+      } else {
+        next = val.slice(0, s) + marker + sel + marker + val.slice(e);
+        selStart = s + ml; selEnd = e + ml;
+      }
+      setDraft(next.slice(0, 1000));
+      requestAnimationFrame(() => {
+        const t = textareaRef.current;
+        if (!t) return;
+        t.focus();
+        try { t.setSelectionRange(selStart, selEnd); } catch { /* */ }
+      });
+    };
+    activeEditor.current = fn;
+    return () => { if (activeEditor.current === fn) activeEditor.current = null; };
   }, [editing]);
 
   const commit = useCallback(() => {
@@ -97,42 +164,71 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
   if (!editing) {
     return (
       <div
-        className={`whitespace-pre-wrap break-words ${className || ""}`}
+        className={`${markdown ? "wb-md" : "whitespace-pre-wrap break-words"} ${className || ""}`}
         style={style}
         onClick={() => { if (selected) setEditing(true); }}
         onDoubleClick={() => setEditing(true)}
       >
-        {value || (
+        {!value ? (
           <span style={{ opacity: 0.45, fontStyle: "italic" }}>
             {placeholder || "Double-click to edit…"}
           </span>
+        ) : markdown ? (
+          <ReactMarkdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>
+            {value}
+          </ReactMarkdown>
+        ) : (
+          value
         )}
       </div>
     );
   }
 
+  // A textarea has a cols-based intrinsic WIDTH, which blows up an auto-width
+  // node (text) the moment you start editing. So we overlay the textarea on an
+  // invisible SIZER with identical typography + wrapping: the grid cell sizes
+  // to the sizer (= the text), and the textarea fills it. Editing now hugs the
+  // content exactly like display does — in both width and height — for free.
   return (
-    <textarea
-      ref={textareaRef}
-      value={draft}
-      rows={1}
-      onChange={(e) => {
-        setDraft(e.target.value.slice(0, 1000));
-        // Auto-grow to content height so the flex parent keeps the text
-        // vertically centred while editing (instead of filling + top-aligning).
-        e.target.style.height = "auto";
-        e.target.style.height = `${Math.min(e.target.scrollHeight, 480)}px`;
-      }}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") { setDraft(value || ""); setEditing(false); }
-        else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { commit(); }
-      }}
-      onPointerDown={(e) => e.stopPropagation()}
-      onWheel={(e) => e.stopPropagation()}
-      className={`resize-none border-none outline-none bg-transparent overflow-hidden ${className || ""}`}
-      style={{ ...style, width: "100%" }}
-    />
+    <div style={{ display: "grid" }}>
+      <div
+        aria-hidden
+        className={className}
+        style={{
+          ...style,
+          gridArea: "1 / 1",
+          visibility: "hidden",
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
+          margin: 0,
+          padding: 0,
+          minWidth: "1ch",
+          pointerEvents: "none",
+        }}
+      >
+        {(draft || placeholder || " ") + "​"}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={draft}
+        rows={1}
+        cols={1}
+        onChange={(e) => setDraft(e.target.value.slice(0, 1000))}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { setDraft(value || ""); setEditing(false); }
+          else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { commit(); }
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
+        // `nodrag`/`nowheel` are the canonical React Flow opt-outs: with them the
+        // canvas won't start a node drag (or pan/zoom) on a pointer-down inside
+        // the textarea, so click-drag SELECTS text instead of moving the node.
+        // (stopPropagation alone can't stop d3-drag's capture-phase listener.)
+        className={`nodrag nowheel resize-none border-none outline-none bg-transparent overflow-hidden ${className || ""}`}
+        style={{ ...style, gridArea: "1 / 1", width: "100%", height: "100%", margin: 0, padding: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+      />
+    </div>
   );
 }
 
@@ -204,6 +300,9 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
   const { setNodes } = useReactFlow();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [allOpen, setAllOpen] = useState(false); // "view all reactions" popover
+  // Grow the note's height to fit its text so nothing clips (width stays
+  // user-controlled, like shapes). Pad covers the 16/12 padding + author line.
+  const growRef = useAutoHeight(id, 28 + (data?.author ? 20 : 0) + 6);
   // Legacy notes were created without an explicit size; give them one (square,
   // from their measured box) so the resizer has real dimensions to work from.
   useEffect(() => {
@@ -258,8 +357,9 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         fontFamily: "inherit",
       }}
     >
-      {/* Resizable but square (keepAspectRatio); no connection handles. */}
-      <NodeResizer isVisible={selected} minWidth={120} minHeight={120} keepAspectRatio {...resizer(SELECT)} />
+      {/* Free resize; the height also auto-grows to fit the text (see growRef).
+          No connection handles. */}
+      <NodeResizer isVisible={selected && !data?.locked} minWidth={120} minHeight={120} {...resizer(SELECT)} />
       {selected && (
         <button type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete"
           style={{ position: "absolute", top: 6, right: 6, opacity: 0.4, display: "flex", color: ink }}>
@@ -267,16 +367,20 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         </button>
       )}
 
-      {/* Centred note text. */}
-      <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        <EditableText
-          value={data?.text}
-          onChange={setText}
-          placeholder="Type a note…"
-          nodeId={id}
-          selected={selected}
-          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: "center", color: ink }}
-        />
+      {/* Note text — vertical placement, alignment + colour are per-note. The
+          inner growRef box is content-height so it can be measured for grow. */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: vAlignFlex(data?.vAlign), justifyContent: "center", overflow: "hidden" }}>
+        <div ref={growRef} style={{ width: "100%", minWidth: 0 }}>
+          <EditableText
+            value={data?.text}
+            onChange={setText}
+            placeholder="Type a note…"
+            nodeId={id}
+            selected={selected}
+            markdown
+            style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily) }}
+          />
+        </div>
       </div>
 
       {/* Author, bottom-right. */}
@@ -350,16 +454,26 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
 
 // ─── TextNode ──────────────────────────────────────────────────────
 
+// Padding presets for a text node's background chip (data.pad).
+const TEXT_PAD = { none: "0px", sm: "8px 14px", md: "16px 26px", lg: "30px 44px" };
+
 export const TextNode = memo(function TextNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
+  // Optional background turns a text node into a label / chip / callout. When a
+  // fill is set the default text colour auto-contrasts against it (like sticky
+  // and shape do); radius + padding round the chip.
+  const fill = data?.fill || null;
+  const radius = data?.radius ?? 8;
+  const textColor = data?.textColor || (fill ? readableText(fill) : "var(--color-text)");
   return (
     <div
       style={{
-        minWidth: 180, padding: "8px 12px",
-        background: selected ? SELECT_FILL : "transparent",
-        borderRadius: 8,
-        boxShadow: selected ? `0 0 0 2px ${SELECT}` : "none",
-        color: "var(--color-text)",
+        minWidth: 180,
+        padding: fill ? (TEXT_PAD[data?.pad] || TEXT_PAD.md) : "8px 12px",
+        background: fill || (selected ? SELECT_FILL : "transparent"),
+        borderRadius: radius,
+        boxShadow: selected ? `0 0 0 2px ${SELECT}` : (fill ? "0 6px 16px -8px rgba(0,0,0,.35)" : "none"),
+        color: textColor,
       }}
     >
       <FourHandles visible={false} />
@@ -369,7 +483,8 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         placeholder="Type some text…"
         nodeId={id}
         selected={selected}
-        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3 }}
+        markdown
+        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
       />
     </div>
   );
@@ -399,10 +514,10 @@ const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" }
 
 // SVG children for a shape drawn within w×h (stroke inset by sw so it's
 // never clipped). Used both by the node and the toolbar/inspector previews.
-export function ShapeSvg({ shape, w, h, fill, stroke, sw = 2 }) {
+export function ShapeSvg({ shape, w, h, fill, stroke, sw = 2, dash, cap }) {
   // fill/stroke go through `style` (not attributes) so a CSS var like the
   // theme accent — var(--color-accent) — resolves; attributes don't parse var().
-  const p = { strokeWidth: sw, strokeLinejoin: "round", style: { fill, stroke } };
+  const p = { strokeWidth: sw, strokeLinejoin: "round", strokeDasharray: dash || undefined, strokeLinecap: cap || undefined, style: { fill, stroke } };
   const x0 = sw / 2, y0 = sw / 2, x1 = w - sw / 2, y1 = h - sw / 2, cx = w / 2, cy = h / 2;
   switch (shape) {
     case "ellipse":
@@ -458,22 +573,63 @@ function useNodeSize(initial) {
   return [ref, size];
 }
 
+// Grow a fixed-size node's HEIGHT so its text never clips. Returns a ref to put
+// on a CONTENT-sized element (one that wraps at the node's width but is only as
+// tall as its text) — measuring that, not the node-filling box, means the node
+// growing can't re-trigger the observer, so there's no feedback loop. Grow-only:
+// it raises the node to fit the content but never shrinks it, so you can still
+// resize freely — you just can't drag it shorter than the text inside.
+function useAutoHeight(id, pad = 0) {
+  const ref = useRef(null);
+  const { setNodes } = useReactFlow();
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const apply = () => {
+      const needed = Math.ceil(el.scrollHeight + pad);
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== id) return n;
+          const cur = n.height ?? n.measured?.height ?? 0;
+          return needed > cur + 0.5 ? { ...n, height: needed } : n;
+        }),
+      );
+    };
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    apply();
+    return () => ro.disconnect();
+  }, [id, pad, setNodes]);
+  return ref;
+}
+
 export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
   const setText = useNodeTextUpdater(id);
   const { theme } = useTheme();
   const [ref, size] = useNodeSize({ w: 180, h: 100 });
+  // Grow the shape's height to fit its text (markdown can run tall) so content
+  // never clips. Width stays user-controlled; ~22px covers the 10px×2 padding.
+  const growRef = useAutoHeight(id, 22);
   const shape = data?.shape || LEGACY_SHAPE[type] || "process";
   // Default fill follows the theme (a dark surface in dark mode instead of a
   // glaring white box); a user-picked fill is respected. Text auto-contrasts.
   const fill = data?.fill || (theme === "dark" ? "#1e293b" : "#ffffff");
   // Outline keeps its own colour; selecting just THICKENS it (no accent swap).
   const stroke = data?.stroke || "#0ea5e9";
-  const sw = selected ? 4 : 2;
+  // User-set border width (default 2) + a touch of emphasis when selected.
+  const baseSw = data?.strokeWidth ?? 2;
+  const sw = selected ? baseSw + 1.5 : baseSw;
+  // Border style → dasharray (scaled to the width so it reads at any weight).
+  const dash =
+    data?.strokeDash === "dashed" ? `${sw * 2.5} ${sw * 1.8}`
+    : data?.strokeDash === "dotted" ? `${sw * 0.1} ${sw * 2}`
+    : undefined;
+  const cap = data?.strokeDash === "dotted" ? "round" : undefined;
   const textColor = readableText(fill);
   return (
     <div ref={ref} style={{ width: "100%", height: "100%", position: "relative" }}>
       <NodeResizer
-        isVisible={selected}
+        isVisible={selected && !data?.locked}
         minWidth={70} minHeight={50}
         {...resizer(stroke)}
       />
@@ -483,18 +639,21 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
         viewBox={`0 0 ${size.w} ${size.h}`}
         style={{ position: "absolute", inset: 0, overflow: "visible", display: "block" }}
       >
-        <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={sw} />
+        <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={sw} dash={dash} cap={cap} />
       </svg>
       <FourHandles />
-      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 14px" }}>
-        <EditableText
-          value={data?.text}
-          onChange={setText}
-          placeholder=""
-          nodeId={id}
-          selected={selected}
-          style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center", color: textColor }}
-        />
+      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: vAlignFlex(data?.vAlign), justifyContent: "center", padding: "10px 14px" }}>
+        <div ref={growRef} style={{ width: "100%", minWidth: 0 }}>
+          <EditableText
+            value={data?.text}
+            onChange={setText}
+            placeholder=""
+            nodeId={id}
+            selected={selected}
+            markdown
+            style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor, fontFamily: fontStack(data?.fontFamily) }}
+          />
+        </div>
       </div>
     </div>
   );
@@ -547,7 +706,7 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
         color: text,
       }}
     >
-      <NodeResizer isVisible={selected} minWidth={200} minHeight={120} {...resizer("#f59e0b")} />
+      <NodeResizer isVisible={selected && !data?.locked} minWidth={200} minHeight={120} {...resizer("#f59e0b")} />
       {/* No connection handles — goals aren't edge endpoints. */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "linear-gradient(120deg,#f59e0b,#f97316)", color: "#fff", borderRadius: "12px 12px 0 0" }}>
         <Target style={{ width: 14, height: 14 }} />
@@ -655,7 +814,7 @@ export const FrameNode = memo(function FrameNode({ id, data, selected }) {
   };
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
-      <NodeResizer isVisible={selected} minWidth={160} minHeight={140} {...resizer(tint)} />
+      <NodeResizer isVisible={selected && !data?.locked} minWidth={160} minHeight={140} {...resizer(tint)} />
       {/* Label floats just ABOVE the frame's top-left (Lucidchart/Lucidspark
           style) — outside the clipped box so it's never cut off. */}
       <div style={{ position: "absolute", left: 2, bottom: "calc(100% + 5px)", display: "inline-flex", alignItems: "center", gap: 6, maxWidth: 360, ...(labelFill ? { background: labelFill, padding: "2px 10px", borderRadius: 8 } : null) }}>
@@ -716,12 +875,121 @@ export const ZoneNode = memo(function ZoneNode({ data }) {
   );
 });
 
+// ─── ImageNode ─────────────────────────────────────────────────────
+// An embedded image. The bytes live in Supabase Storage (whiteboard-images
+// bucket); the node only carries the public URL (data.src) + path, so the
+// snapshot and realtime ops stay tiny. Resizes with a locked aspect ratio and
+// connects like any other node (FourHandles + free anchors).
+export const ImageNode = memo(function ImageNode({ id, data, selected }) {
+  const { setNodes } = useReactFlow();
+  const src = data?.src;
+  const stop = (e) => e.stopPropagation();
+  const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
+  return (
+    <div
+      style={{
+        width: "100%", height: "100%", position: "relative",
+        borderRadius: 6, overflow: "hidden", background: "#0b1020",
+        boxShadow: selected
+          ? `0 0 0 2px ${SELECT}, 0 16px 28px -12px rgba(0,0,0,.5)`
+          : "0 14px 26px -12px rgba(0,0,0,.4), 0 3px 7px -3px rgba(0,0,0,.18)",
+      }}
+    >
+      <NodeResizer isVisible={selected && !data?.locked} minWidth={48} minHeight={48} keepAspectRatio {...resizer(SELECT)} />
+      {src ? (
+        <img
+          src={src}
+          alt={data?.alt || ""}
+          draggable={false}
+          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", pointerEvents: "none", userSelect: "none" }}
+        />
+      ) : (
+        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12, padding: 8, textAlign: "center" }}>
+          Image unavailable
+        </div>
+      )}
+      <FourHandles />
+      {selected && (
+        <button
+          type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete"
+          style={{ position: "absolute", top: 6, right: 6, display: "flex", color: "#fff", background: "rgba(0,0,0,.45)", borderRadius: 6, padding: 3 }}
+        >
+          <X style={{ width: 13, height: 13 }} />
+        </button>
+      )}
+    </div>
+  );
+});
+
+// ─── Freehand pen ─────────────────────────────────────────────────
+//
+// Each pen stroke is its OWN node (type "draw") so it persists, syncs,
+// undoes and z-orders exactly like everything else — no separate drawing
+// layer. Points are stored relative to the node's box. The node's `style`
+// carries pointerEvents:"none" (set at creation) so a stroke laid over other
+// nodes is click-through everywhere except the line itself.
+
+// Smooth a list of [x,y] points into an SVG path (quadratic curves through
+// the midpoints — the classic cheap freehand smoothing). Shared by the live
+// preview on the page and the committed node.
+export function strokePath(pts) {
+  if (!pts || !pts.length) return "";
+  if (pts.length === 1) return `M${pts[0][0]},${pts[0][1]} L${pts[0][0] + 0.1},${pts[0][1]}`;
+  if (pts.length === 2) return `M${pts[0][0]},${pts[0][1]} L${pts[1][0]},${pts[1][1]}`;
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2;
+    const my = (pts[i][1] + pts[i + 1][1]) / 2;
+    d += ` Q${pts[i][0]},${pts[i][1]} ${mx},${my}`;
+  }
+  const last = pts[pts.length - 1];
+  return `${d} L${last[0]},${last[1]}`;
+}
+
+export const DrawNode = memo(function DrawNode({ id, data, width, height, selected }) {
+  const { setNodes } = useReactFlow();
+  const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
+  const pts = data?.points || [];
+  const color = data?.color || "#0f172a";
+  const sw = data?.strokeWidth ?? 3;
+  const w = width || data?.w || 1;
+  const h = height || data?.h || 1;
+  const d = strokePath(pts);
+  const lineProps = {
+    d, fill: "none", strokeLinecap: "round", strokeLinejoin: "round",
+  };
+  return (
+    // pointerEvents:none on the box (also set via node.style) → click-through;
+    // the stroke paths opt back in so the line stays grabbable/selectable.
+    <div style={{ width: "100%", height: "100%", position: "relative", pointerEvents: "none" }}>
+      <svg width={w} height={h} style={{ display: "block", overflow: "visible" }}>
+        {selected && (
+          <path {...lineProps} stroke={SELECT} strokeOpacity={0.3} strokeWidth={sw + 8} style={{ pointerEvents: "none" }} />
+        )}
+        {/* Fat invisible hit line so a thin stroke is easy to grab. */}
+        <path {...lineProps} stroke="transparent" strokeWidth={Math.max(sw + 14, 18)} style={{ pointerEvents: "stroke", cursor: "move" }} />
+        <path {...lineProps} stroke={color} strokeWidth={sw} style={{ pointerEvents: "stroke", cursor: "move" }} />
+      </svg>
+      {selected && (
+        <button
+          type="button" className="nodrag" onPointerDown={(e) => e.stopPropagation()} onClick={remove} title="Delete"
+          style={{ position: "absolute", top: -12, right: -12, display: "flex", color: "#fff", background: "rgba(15,23,42,.82)", borderRadius: 9999, padding: 3, pointerEvents: "auto" }}
+        >
+          <X style={{ width: 12, height: 12 }} />
+        </button>
+      )}
+    </div>
+  );
+});
+
 export const NODE_TYPES = {
   sticky: StickyNode,
   text: TextNode,
   shape: ShapeNode,
   goal: GoalNode,
   frame: FrameNode,
+  image: ImageNode,
+  draw: DrawNode,
   // Legacy aliases — old snapshots store these node types.
   rect: ShapeNode,
   ellipse: ShapeNode,

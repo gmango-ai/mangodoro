@@ -1,0 +1,416 @@
+// Refined background processor — the "Approach 2" self-managed pipeline.
+//
+// LiveKit's stock @livekit/track-processors composites a low-res MediaPipe mask
+// with no edge refinement, which reads as "blobby". This runs our OWN pipeline
+// and publishes the result as the camera track, packaged as a LiveKit
+// TrackProcessor so it still plugs into `localVideoTrack.setProcessor()`:
+//
+//   camera MediaStreamTrack
+//     -> <video>  -> MediaPipe ImageSegmenter (person confidence mask)
+//     -> WebGL2:  joint-bilateral edge refine (mask snapped to image edges,
+//                 the Google-Meet trick) + temporal smoothing + gaussian blur
+//                 (blur mode) + light wrap
+//     -> <canvas>.captureStream()  -> processedTrack  -> published by LiveKit
+//
+// Everything is fail-safe: if WebGL2 / the model / a frame errors, we leave the
+// raw camera untouched so the call never breaks — you just don't get the effect.
+//
+// This is a first pass that needs in-browser tuning. Likely tuning points are
+// flagged with [TUNE]: mask polarity (foreground vs background), vertical
+// orientation, blur strength, and the bilateral edge weight.
+
+const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
+
+const PROC_WIDTH_CAP = 960; // cap the processing resolution for perf
+
+// ── tiny WebGL helpers ───────────────────────────────────────
+function compile(gl, type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(sh);
+    gl.deleteShader(sh);
+    throw new Error("shader compile failed: " + log);
+  }
+  return sh;
+}
+function makeProgram(gl, vsrc, fsrc) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl, gl.VERTEX_SHADER, vsrc));
+  gl.attachShader(p, compile(gl, gl.FRAGMENT_SHADER, fsrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    throw new Error("program link failed: " + gl.getProgramInfoLog(p));
+  }
+  return { program: p, a_pos: gl.getAttribLocation(p, "a_pos"), u: {} };
+}
+function uni(gl, prog, name) {
+  if (!(name in prog.u)) prog.u[name] = gl.getUniformLocation(prog.program, name);
+  return prog.u[name];
+}
+function makeTex(gl, filter) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function makeFBO(gl, w, h, internal, format, type) {
+  const tex = makeTex(gl, gl.LINEAR);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, format, type, null);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { fbo, tex, w, h };
+}
+
+const VERT = `#version 300 es
+in vec2 a_pos; out vec2 v_uv;
+void main(){ v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+
+// Joint-bilateral upsample of the raw mask, guided by the camera image so the
+// alpha snaps to real edges, blended with the previous frame for stability.
+const FRAG_REFINE = `#version 300 es
+precision highp float;
+in vec2 v_uv; out vec4 o;
+uniform sampler2D u_mask;   // raw person-confidence mask (R8, low-res)
+uniform sampler2D u_guide;  // camera image (edge guide)
+uniform sampler2D u_prev;   // previous frame's refined alpha
+uniform vec2 u_texel;       // 1.0 / processing size
+uniform float u_hasPrev;    // 1.0 once we have a previous frame
+float luma(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
+void main(){
+  float cg = luma(texture(u_guide, v_uv).rgb);
+  float msum = 0.0, wsum = 0.0;
+  const int R = 2;                                  // 5x5 neighbourhood
+  for (int dy = -R; dy <= R; dy++) {
+    for (int dx = -R; dx <= R; dx++) {
+      vec2 off = vec2(float(dx), float(dy)) * u_texel;
+      float m = texture(u_mask, v_uv + off).r;
+      float g = luma(texture(u_guide, v_uv + off).rgb);
+      float ws = exp(-float(dx*dx + dy*dy) / 4.0);   // spatial weight
+      float dc = cg - g;
+      float wc = exp(-(dc*dc) / 0.015);              // [TUNE] edge sensitivity
+      float w = ws * wc;
+      msum += m * w; wsum += w;
+    }
+  }
+  float refined = wsum > 0.0 ? msum / wsum : texture(u_mask, v_uv).r;
+  refined = clamp((refined - 0.5) * 1.6 + 0.5, 0.0, 1.0);   // crisp-up the ramp
+  float a = refined;
+  if (u_hasPrev > 0.5) a = mix(texture(u_prev, v_uv).r, refined, 0.6); // temporal EMA
+  o = vec4(a, 0.0, 0.0, 1.0);
+}`;
+
+// Separable gaussian (run once horizontally, once vertically) for blur mode.
+const FRAG_BLUR = `#version 300 es
+precision highp float;
+in vec2 v_uv; out vec4 o;
+uniform sampler2D u_src; uniform vec2 u_dir;
+void main(){
+  float w0 = 0.227027, w1 = 0.194595, w2 = 0.121622, w3 = 0.054054, w4 = 0.016216;
+  vec4 sum = texture(u_src, v_uv) * w0;
+  sum += texture(u_src, v_uv + u_dir * 1.0) * w1;
+  sum += texture(u_src, v_uv - u_dir * 1.0) * w1;
+  sum += texture(u_src, v_uv + u_dir * 2.0) * w2;
+  sum += texture(u_src, v_uv - u_dir * 2.0) * w2;
+  sum += texture(u_src, v_uv + u_dir * 3.0) * w3;
+  sum += texture(u_src, v_uv - u_dir * 3.0) * w3;
+  sum += texture(u_src, v_uv + u_dir * 4.0) * w4;
+  sum += texture(u_src, v_uv - u_dir * 4.0) * w4;
+  o = sum;
+}`;
+
+// Composite foreground over background with a light wrap at the edge band, and
+// flip vertically so the captured canvas is upright.
+const FRAG_COMPOSITE = `#version 300 es
+precision highp float;
+in vec2 v_uv; out vec4 o;
+uniform sampler2D u_video;
+uniform sampler2D u_bg;
+uniform sampler2D u_alpha;
+uniform float u_lightWrap;
+void main(){
+  vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);     // [TUNE] flip for upright output
+  vec3 fg = texture(u_video, uv).rgb;
+  vec3 bg = texture(u_bg, uv).rgb;
+  float a = texture(u_alpha, uv).r;
+  float edge = smoothstep(0.0, 0.5, a) * (1.0 - smoothstep(0.5, 1.0, a)); // mid-alpha band
+  fg = mix(fg, bg, edge * u_lightWrap);
+  o = vec4(mix(bg, fg, a), 1.0);
+}`;
+
+async function createSegmenter() {
+  const { FilesetResolver, ImageSegmenter } = await import("@mediapipe/tasks-vision");
+  const fileset = await FilesetResolver.forVisionTasks(WASM_BASE);
+  return ImageSegmenter.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
+    runningMode: "VIDEO",
+    outputCategoryMask: false,
+    outputConfidenceMasks: true,
+  });
+}
+
+function waitForVideo(v) {
+  return new Promise((resolve) => {
+    if (v.videoWidth > 0) return resolve();
+    const done = () => resolve();
+    v.addEventListener("loadeddata", done, { once: true });
+    setTimeout(done, 2500); // never hang the call on a stuck camera
+  });
+}
+
+function normalize(opts) {
+  return {
+    mode: opts?.mode === "image" ? "image" : "blur",
+    blurRadius: Number.isFinite(opts?.blurRadius) ? opts.blurRadius : 12,
+    imageUrl: opts?.imageUrl || null,
+  };
+}
+
+// Implements the livekit-client TrackProcessor interface (init/restart/destroy +
+// processedTrack). LiveKit calls init(opts) with the raw camera MediaStreamTrack
+// and publishes whatever we expose as `processedTrack`.
+class RefinedBackgroundProcessor {
+  constructor(opts) {
+    this.name = "refined-background";
+    this.opts = normalize(opts);
+    this._running = false;
+    this._busy = false;
+    this._ts = 0;
+    this._lastSeg = 0;
+    this._hasPrev = 0;
+  }
+
+  async init(processorOptions) {
+    const track = processorOptions?.track;
+    if (!track) throw new Error("no source track");
+    this.source = track;
+
+    this.video = document.createElement("video");
+    this.video.muted = true;
+    this.video.autoplay = true;
+    this.video.playsInline = true;
+    this.video.srcObject = new MediaStream([track]);
+    await this.video.play().catch(() => {});
+    await waitForVideo(this.video);
+
+    const vw = this.video.videoWidth || 640;
+    const vh = this.video.videoHeight || 480;
+    const scale = Math.min(1, PROC_WIDTH_CAP / vw);
+    this.W = Math.max(2, Math.round(vw * scale));
+    this.H = Math.max(2, Math.round(vh * scale));
+
+    this.canvas = document.createElement("canvas");
+    this.canvas.width = this.W;
+    this.canvas.height = this.H;
+    const gl = this.canvas.getContext("webgl2", { alpha: false, premultipliedAlpha: false, desynchronized: true });
+    if (!gl) throw new Error("webgl2 unavailable");
+    this.gl = gl;
+    this._setupGL();
+
+    this.segmenter = await createSegmenter();
+    if (this.opts.imageUrl) await this._loadBg(this.opts.imageUrl);
+
+    this.processedTrack = this.canvas.captureStream(30).getVideoTracks()[0];
+    this._running = true;
+    this._loop();
+  }
+
+  async restart(processorOptions) {
+    await this.destroy();
+    await this.init(processorOptions);
+  }
+
+  updateOptions(opts) {
+    const next = normalize(opts);
+    const imgChanged = next.imageUrl !== this.opts.imageUrl;
+    this.opts = next;
+    if (next.mode === "image" && next.imageUrl && imgChanged) {
+      this._loadBg(next.imageUrl).catch(() => {});
+    }
+  }
+
+  async destroy() {
+    this._running = false;
+    if (this._raf) cancelAnimationFrame(this._raf);
+    try { this.segmenter?.close(); } catch { /* */ }
+    try { this.processedTrack?.stop(); } catch { /* */ }
+    if (this.video) { this.video.srcObject = null; this.video = null; }
+    this.segmenter = null;
+    this.gl = null;
+    this.canvas = null;
+  }
+
+  _setupGL() {
+    const gl = this.gl;
+    this.quad = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+
+    this.pRefine = makeProgram(gl, VERT, FRAG_REFINE);
+    this.pBlur = makeProgram(gl, VERT, FRAG_BLUR);
+    this.pComposite = makeProgram(gl, VERT, FRAG_COMPOSITE);
+
+    this.texVideo = makeTex(gl, gl.LINEAR);
+    this.texMask = makeTex(gl, gl.LINEAR);
+    this.texBg = makeTex(gl, gl.LINEAR);
+    // 1x1 placeholder background until an image loads.
+    gl.bindTexture(gl.TEXTURE_2D, this.texBg);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([30, 41, 59, 255]));
+
+    this.alphaA = makeFBO(gl, this.W, this.H, gl.R8, gl.RED, gl.UNSIGNED_BYTE);
+    this.alphaB = makeFBO(gl, this.W, this.H, gl.R8, gl.RED, gl.UNSIGNED_BYTE);
+    this.bw = Math.max(1, this.W >> 1);
+    this.bh = Math.max(1, this.H >> 1);
+    this.blur1 = makeFBO(gl, this.bw, this.bh, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
+    this.blur2 = makeFBO(gl, this.bw, this.bh, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
+  }
+
+  async _loadBg(url) {
+    // Cover-fit the image onto a W×H canvas up front so the shader can sample it
+    // 1:1 (no aspect math in the composite).
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.crossOrigin = "anonymous";
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = url;
+    });
+    const c = document.createElement("canvas");
+    c.width = this.W; c.height = this.H;
+    const ctx = c.getContext("2d");
+    const ir = img.width / img.height, cr = this.W / this.H;
+    let dw, dh;
+    if (ir > cr) { dh = this.H; dw = dh * ir; } else { dw = this.W; dh = dw / ir; }
+    ctx.drawImage(img, (this.W - dw) / 2, (this.H - dh) / 2, dw, dh);
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.texBg);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+  }
+
+  _drawQuad(prog) {
+    const gl = this.gl;
+    gl.useProgram(prog.program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    gl.enableVertexAttribArray(prog.a_pos);
+    gl.vertexAttribPointer(prog.a_pos, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  _uploadVideo() {
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.video);
+  }
+
+  _uploadMask(mask) {
+    const f32 = mask.getAsFloat32Array();
+    const mw = mask.width, mh = mask.height;
+    const u8 = this._maskBuf && this._maskBuf.length === f32.length ? this._maskBuf : (this._maskBuf = new Uint8Array(f32.length));
+    for (let i = 0; i < f32.length; i++) u8[i] = (f32[i] * 255) | 0;
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.texMask);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, mw, mh, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
+  }
+
+  _render() {
+    const gl = this.gl;
+    const curr = this.alphaA, prev = this.alphaB;
+
+    // 1) refine + temporal → curr (reads raw mask, video guide, prev alpha)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, curr.fbo);
+    gl.viewport(0, 0, this.W, this.H);
+    gl.useProgram(this.pRefine.program);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texMask);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, prev.tex);
+    gl.uniform1i(uni(gl, this.pRefine, "u_mask"), 0);
+    gl.uniform1i(uni(gl, this.pRefine, "u_guide"), 1);
+    gl.uniform1i(uni(gl, this.pRefine, "u_prev"), 2);
+    gl.uniform2f(uni(gl, this.pRefine, "u_texel"), 1 / this.W, 1 / this.H);
+    gl.uniform1f(uni(gl, this.pRefine, "u_hasPrev"), this._hasPrev);
+    this._drawQuad(this.pRefine);
+
+    // 2) background source
+    let bgTex;
+    if (this.opts.mode === "image") {
+      bgTex = this.texBg;
+    } else {
+      const spread = Math.max(1, this.opts.blurRadius);
+      // blur X: video → blur1
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur1.fbo);
+      gl.viewport(0, 0, this.bw, this.bh);
+      gl.useProgram(this.pBlur.program);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
+      gl.uniform1i(uni(gl, this.pBlur, "u_src"), 0);
+      gl.uniform2f(uni(gl, this.pBlur, "u_dir"), spread / this.W, 0);
+      this._drawQuad(this.pBlur);
+      // blur Y: blur1 → blur2
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur2.fbo);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.blur1.tex);
+      gl.uniform2f(uni(gl, this.pBlur, "u_dir"), 0, spread / this.H);
+      this._drawQuad(this.pBlur);
+      bgTex = this.blur2.tex;
+    }
+
+    // 3) composite → canvas
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.W, this.H);
+    gl.useProgram(this.pComposite.program);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, bgTex);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, curr.tex);
+    gl.uniform1i(uni(gl, this.pComposite, "u_video"), 0);
+    gl.uniform1i(uni(gl, this.pComposite, "u_bg"), 1);
+    gl.uniform1i(uni(gl, this.pComposite, "u_alpha"), 2);
+    gl.uniform1f(uni(gl, this.pComposite, "u_lightWrap"), 0.35); // [TUNE] light-wrap strength
+    this._drawQuad(this.pComposite);
+
+    // ping-pong the alpha buffers for next frame's temporal blend
+    this.alphaA = prev;
+    this.alphaB = curr;
+    this._hasPrev = 1;
+  }
+
+  _loop() {
+    if (!this._running) return;
+    this._raf = requestAnimationFrame(() => this._loop());
+    const v = this.video;
+    if (!v || v.readyState < 2 || this._busy) return;
+    const now = performance.now();
+    if (now - this._lastSeg < 33) return; // ~30fps cap
+    this._lastSeg = now;
+    this._busy = true;
+    this._ts = Math.max(this._ts + 1, Math.round(now));
+    try {
+      this.segmenter.segmentForVideo(v, this._ts, (result) => {
+        this._busy = false;
+        try {
+          const mask = result?.confidenceMasks?.[0];
+          if (mask) this._uploadMask(mask);
+          this._uploadVideo();
+          if (mask) this._render();
+        } catch { /* skip this frame */ } finally {
+          try { result?.close?.(); } catch { /* */ }
+        }
+      });
+    } catch {
+      this._busy = false;
+    }
+  }
+}
+
+export function createRefinedBackgroundProcessor(opts) {
+  return new RefinedBackgroundProcessor(opts);
+}

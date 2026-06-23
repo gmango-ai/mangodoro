@@ -388,20 +388,63 @@ html.electron-popover body::before {
   inset: -3px; /* ~18px grab target around the 12px dot */
   border-radius: 9999px;
 }
-/* NodeResizer CORNER handles: bigger + a modest invisible margin. We do
- * NOT enlarge the side LINES — that corridor used to sit on top of the
- * connection dots and steal their clicks. Resize from a corner, or from
- * the edge away from the midpoint. */
+/* NodeResizer handles. Corners get a bigger dot + invisible margin, and the
+ * side LINES get a modest invisible grab corridor too so you can resize by
+ * dragging an edge — not just a corner. The connection dots sit at the side
+ * MIDPOINTS with a higher z-index (12, inline) than these controls (6), so the
+ * midpoint still starts a connection and the corridor takes the rest of the
+ * edge. (An earlier widening stole the dots' clicks for lack of this z-order.) */
 .react-flow__resize-control.handle {
-  width: 12px !important;
-  height: 12px !important;
+  width: 13px !important;
+  height: 13px !important;
   border-radius: 3px;
+  z-index: 6;
 }
 .react-flow__resize-control.handle::after {
   content: "";
   position: absolute;
-  inset: -6px; /* ~24px grab target, small enough not to bleed onto neighbours */
+  inset: -7px; /* ~27px grab target, small enough not to bleed onto neighbours */
 }
+.react-flow__resize-control.line {
+  z-index: 6;
+}
+.react-flow__resize-control.line::after {
+  content: "";
+  position: absolute;
+  inset: -5px; /* ~11px grab corridor along the edge (dots win at the midpoint) */
+}
+
+/* Freehand pen mode: a crosshair over the canvas signals you're drawing. */
+.wb-pen .react-flow__pane,
+.wb-pen .react-flow__renderer {
+  cursor: crosshair;
+}
+
+/* Markdown rendered inside a node (sticky / text). Compact the default block
+ * spacing so it reads tight in a small box; everything inherits the node's
+ * font + colour. Neutral semi-transparent greys work on light stickies and
+ * dark text nodes alike. */
+.wb-md { overflow-wrap: anywhere; word-break: break-word; } /* break long unbroken strings instead of overflowing */
+.wb-md > :first-child { margin-top: 0; }
+.wb-md > :last-child { margin-bottom: 0; }
+.wb-md p { margin: 0 0 0.35em; }
+.wb-md h1, .wb-md h2, .wb-md h3, .wb-md h4 { margin: 0.3em 0 0.2em; font-weight: 800; line-height: 1.2; }
+.wb-md h1 { font-size: 1.3em; }
+.wb-md h2 { font-size: 1.15em; }
+.wb-md h3 { font-size: 1.05em; }
+.wb-md ul, .wb-md ol { margin: 0 0 0.35em; padding-left: 1.25em; }
+.wb-md li { margin: 0.1em 0; }
+.wb-md a { text-decoration: underline; }
+.wb-md code { background: rgba(125, 125, 125, 0.18); padding: 0 0.3em; border-radius: 3px; font-size: 0.9em; }
+.wb-md pre { background: rgba(125, 125, 125, 0.18); padding: 0.4em 0.6em; border-radius: 6px; overflow: auto; }
+.wb-md pre code { background: none; padding: 0; }
+.wb-md blockquote { margin: 0 0 0.35em; padding-left: 0.7em; border-left: 2px solid rgba(125, 125, 125, 0.4); opacity: 0.85; }
+.wb-md hr { border: none; border-top: 1px solid rgba(125, 125, 125, 0.3); margin: 0.4em 0; }
+.wb-md table { border-collapse: collapse; }
+.wb-md th, .wb-md td { border: 1px solid rgba(125, 125, 125, 0.35); padding: 1px 5px; }
+/* GFM task lists: drop the bullet, keep the checkbox. */
+.wb-md ul.contains-task-list { list-style: none; padding-left: 0.2em; }
+.wb-md li.task-list-item input { margin-right: 0.4em; }
 
 /* Whiteboard sticky note — real-paper feel: a soft drop shadow (set inline)
  * plus lifted, slightly-curled bottom corners. The pseudo-elements sit behind

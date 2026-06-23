@@ -63,6 +63,7 @@ function saveSidebarOpen(v) {
 export default function OfficeShell({
   activeTeam, rooms, lockedRooms, sessionByRoomId, orgTeams,
   onlineCount, canEdit, busy, onJoin, onStart, onEditOffice,
+  onEditRoom, canEditRoom,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -288,6 +289,8 @@ export default function OfficeShell({
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onOpenRoomSwitcher={() => setOverlayOpen(true)}
           onLeaveRoom={handleLeaveRoom}
+          onEditRoom={onEditRoom}
+          canEditRoom={canEditRoom?.(selectedRoom)}
         />
       </div>
 

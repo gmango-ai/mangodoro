@@ -40,6 +40,11 @@ export default defineConfig({
         clientsClaim: true,
         cleanupOutdatedCaches: true,
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
+        // The LiveKit self-view processors (MediaPipe background blur, Krisp
+        // noise filter) are multi-MB and lazy-loaded only when a call enables
+        // the effect — never precache them (video isn't an offline feature, and
+        // non-video users shouldn't download them on SW install).
+        globIgnores: ["**/lk-blur-*.js", "**/lk-krisp-*.js"],
         // CodeMirror + markdown bring the main bundle past 2 MB. Bump
         // the precache ceiling rather than carve out chunks; offline
         // start still works.
@@ -98,6 +103,16 @@ export default defineConfig({
         // their dynamic imports, so naming them would just pull them eager.
         manualChunks(id) {
           if (!id.includes("node_modules")) return;
+          // LiveKit self-view processors — lazy-loaded only when a call enables
+          // an effect. Stable names so the PWA precache can skip them (see
+          // workbox.globIgnores); they're multi-MB and not an offline feature.
+          if (id.includes("@livekit/krisp-noise-filter")) return "lk-krisp";
+          if (id.includes("@livekit/track-processors") || id.includes("@mediapipe")) return "lk-blur";
+          // livekit-client + components are a heavy, eagerly-loaded vendor lib
+          // (App.jsx statically mounts the call). Keep them in their own chunk
+          // so app-code changes don't bust the cached vendor bundle. (Checked
+          // after the lk-* rules above so those win for the processor packages.)
+          if (id.includes("livekit-client") || id.includes("@livekit/")) return "livekit";
           // Keep the whole React ecosystem in one chunk (single instance).
           if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return "react-vendor";
           if (id.includes("@supabase")) return "supabase";
