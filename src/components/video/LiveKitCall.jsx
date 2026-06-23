@@ -221,6 +221,28 @@ function ClusterAudioRenderer() {
   return <RoomAudioRenderer />;
 }
 
+// Stops audio from even being *sent* to in-room followers. They hear the call
+// through the room speaker (the leader) in person, so they need no audio on
+// their own device — not the leader's mic, not the remotes. Unsubscribing (vs
+// just not playing) means the SFU stops delivering those streams here at all,
+// matching "in-room people only need external audio, via the room speaker".
+// Re-subscribes the moment they stop being a follower.
+function FollowerAudioGate() {
+  const { isFollower } = useRoomCluster();
+  const audioTracks = useTracks(
+    [Track.Source.Microphone, Track.Source.ScreenShareAudio],
+    { onlySubscribed: false },
+  );
+  useEffect(() => {
+    audioTracks.forEach((tr) => {
+      const pub = tr.publication;
+      if (!pub || tr.participant?.isLocal || typeof pub.setSubscribed !== "function") return;
+      pub.setSubscribed(!isFollower);
+    });
+  }, [isFollower, audioTracks]);
+  return null;
+}
+
 // Applies the self-view processors to the LOCAL tracks: our refined background
 // pipeline on the camera (refinedBackground.js — MediaPipe + WebGL edge refine)
 // and Krisp noise cancellation on the mic (@livekit/krisp-noise-filter, a
@@ -1023,6 +1045,9 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} />
         {/* Owns in-room cluster management (leader handoff). Mount once. */}
         <RoomClusterManager />
+        {/* In-room followers receive no audio at all (the room speaker carries
+            it for them); everyone else plays normally. */}
+        <FollowerAudioGate />
         {/* Required for participants to be audible — suppressed for in-room
             followers so the leader's speakers don't echo back through them. */}
         <ClusterAudioRenderer />
