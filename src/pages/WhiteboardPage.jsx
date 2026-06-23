@@ -2973,7 +2973,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         channelKey={`whiteboard:${board.id}`}
         barPosition={emoteBarOn && !compact ? "bottom-center" : "hidden"}
         // Lift the emote bar above the paint toolbar while it's showing.
-        barOffset={tool === "brush" ? 64 : 0}
+        barOffset={tool === "brush" ? 80 : 0}
       />
     </main>
   );
