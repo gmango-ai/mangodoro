@@ -53,6 +53,7 @@ import {
   Paintbrush,
   Eraser,
   MessageSquare,
+  X,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -737,8 +738,9 @@ function VotesOverlay({ nodes, myId, onToggle, dark }) {
           <div
             key={`vote-${n.id}`}
             // Just OUTSIDE the right edge near the top — clear of the Inspector
-            // (above) and the corner resize handles.
-            style={{ position: "absolute", left: abs.x + w + 8, top: abs.y + 2, zIndex: 30 }}
+            // (above) and the corner resize handles. pointerEvents:auto opts back
+            // in (the viewport-portal layer is none, so clicks pass through it).
+            style={{ position: "absolute", left: abs.x + w + 8, top: abs.y + 2, zIndex: 30, pointerEvents: "auto" }}
           >
             <button
               type="button"
@@ -798,12 +800,13 @@ function CommentsOverlay({ nodes, openId, onOpen, dark }) {
           <div
             key={`cmt-${n.id}`}
             // Just OUTSIDE the left edge near the top — clear of the Inspector
-            // (above) and the corner resize handles.
-            style={{ position: "absolute", left: abs.x - 8, top: abs.y + 2, transform: "translate(-100%,0)", zIndex: 30 }}
+            // (above) and the corner resize handles. pointerEvents:auto opts back
+            // in (the viewport-portal layer is none, so clicks pass through it).
+            style={{ position: "absolute", left: abs.x - 8, top: abs.y + 2, transform: "translate(-100%,0)", zIndex: 30, pointerEvents: "auto" }}
           >
             <button
               type="button"
-              className="nodrag"
+              className="nodrag wb-comment-badge"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onOpen(open ? null : n.id); }}
               title={count ? `${count} comment${count === 1 ? "" : "s"}` : "Comment"}
@@ -840,7 +843,7 @@ function CommentThread({ comments, myId, onAdd, onDelete, onClose, dark }) {
   const muted = "#94a3b8";
   return (
     <div
-      className="nodrag nowheel"
+      className="nodrag nowheel wb-comment-thread"
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
@@ -1159,6 +1162,8 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   // button is held — fades on its own, persists nothing. See LaserTrail.
   const laserInkRef = useRef([]);
   const laserDrawingRef = useRef(false);
+  // Drives the local laser dot's visibility — it only shows while pressing.
+  const [laserPressing, setLaserPressing] = useState(false);
 
   // Raster brush settings (persisted) + the in-progress paint stroke. Local
   // points rasterise immediately; broadcasts go out in ~70ms batches.
@@ -1192,7 +1197,9 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       try {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         lastPtRef.current = { x: p.x, y: p.y };
-        pushCursor(p.x, p.y, toolRef.current === "laser", laserDrawingRef.current, laserColorRef.current);
+        // Laser dot (mine + peers') shows only while pressing, so broadcast the
+        // laser flag tied to the press, not just the mode.
+        pushCursor(p.x, p.y, laserDrawingRef.current, laserDrawingRef.current, laserColorRef.current);
         // Laser ink: append while the button is held (the trail fades itself).
         if (laserDrawingRef.current) {
           const arr = laserInkRef.current;
@@ -1248,6 +1255,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         setDrawPath(strokePath(drawingRef.current.points));
       } else if (mode === "laser") {
         laserDrawingRef.current = true;
+        setLaserPressing(true);
         laserInkRef.current = [{ x: p.x, y: p.y, t: Date.now() }];
         pushCursor(p.x, p.y, true, true, laserColorRef.current);
       } else {
@@ -1310,10 +1318,12 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     (e) => {
       if (laserDrawingRef.current) {
         laserDrawingRef.current = false;
+        setLaserPressing(false);
         try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
-        // Tell peers ink stopped (the trail then fades out on its own).
+        // Released: drop the laser flag so my dot + peers' hide; the ink trail
+        // fades out on its own.
         const lp = lastPtRef.current;
-        if (lp) pushCursor(lp.x, lp.y, true, false, laserColorRef.current);
+        if (lp) pushCursor(lp.x, lp.y, false, false, laserColorRef.current);
         return;
       }
       if (paintStrokeIdRef.current) {
@@ -1337,7 +1347,8 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   // flip my arrow ↔ laser immediately (even if I've stopped moving).
   useEffect(() => {
     const p = lastPtRef.current;
-    if (p) pushCursor(p.x, p.y, tool === "laser", false, laserColorRef.current);
+    // Switching tools never shows a laser dot now — it only appears on press.
+    if (p) pushCursor(p.x, p.y, false, false, laserColorRef.current);
   }, [tool, pushCursor]);
 
   // Keyboard navigation: ⌘/Ctrl +/−/0 zoom, Shift+1 fits, arrows pan (when
@@ -2191,6 +2202,23 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       return { ...n, data: { ...n.data, comments: comments.length ? comments : undefined } };
     }));
   }, [setNodes]);
+  // Auto-close the comment thread on click-away (anywhere but the thread or a
+  // comment badge — the badge handles its own toggle/switch) and on Escape.
+  useEffect(() => {
+    if (!openCommentId) return undefined;
+    const onDown = (e) => {
+      const t = e.target;
+      if (t instanceof Element && (t.closest(".wb-comment-thread") || t.closest(".wb-comment-badge"))) return;
+      setOpenCommentId(null);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setOpenCommentId(null); };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [openCommentId]);
 
   // Alt/Option-drag = clone: at drag start, drop a copy of the dragged node(s)
   // in place (unselected) and let the ORIGINALS keep dragging — so you pull a
@@ -2885,8 +2913,8 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         })()}
       </ReactFlow>
 
-      {/* My own laser glow (screen space) — only while laser mode is on. */}
-      <LocalLaser active={tool === "laser"} color={effectiveLaserColor} />
+      {/* My own laser glow (screen space) — tracks in laser mode, shows on press. */}
+      <LocalLaser active={tool === "laser"} show={laserPressing} color={effectiveLaserColor} />
       {/* Photoshop-style brush ring while painting (replaces the crosshair). */}
       <BrushCursor active={tool === "brush"} size={brushStyle.size} color={brushStyle.color} erase={brushStyle.erase} />
 

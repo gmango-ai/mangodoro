@@ -8,14 +8,13 @@ import EmoteOverlay from "../emotes/EmoteOverlay";
 
 // Provider dispatcher for a single room's call.
 //
-// Resolves which provider this room is assigned (Jitsi or LiveKit — see
-// videoProvider.js for the per-room A/B split), renders the matching
+// Resolves the provider (LiveKit everywhere it's configured; Jitsi only as a
+// fallback / manual override — see videoProvider.js), renders the matching
 // provider component, and owns the cross-provider concerns:
 //   • the shared "couldn't load the call" error UI
 //   • the EmoteOverlay (reactions float over either provider)
 //   • PostHog instrumentation — attempt / connected / failed / ended,
-//     tagged with provider + platform + duration, which is the whole
-//     point of running the experiment.
+//     tagged with provider + platform + duration.
 //
 // roomId          — the Mangodoro room id (stable for this component's
 //                   life; PersistentVideoCall keys us by roomId).
