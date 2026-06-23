@@ -40,7 +40,7 @@ function stripLocal(o) {
 }
 const idJson = (o) => JSON.stringify(stripLocal(o));
 
-export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, setEdges, name, onRemoteApply }) {
+export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, setEdges, name, onRemoteApply, onPaint }) {
   const meId = useRef("");
   if (!meId.current) {
     meId.current = (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -169,7 +169,14 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     ch.on("broadcast", { event: "cursor" }, (m) => {
       const c = m.payload;
       if (!c || c.id === meId.current) return;
-      setPeers((prev) => ({ ...prev, [c.id]: { x: c.x, y: c.y, name: c.name, color: c.color, laser: !!c.laser, ink: !!c.ink, ts: Date.now() } }));
+      setPeers((prev) => ({ ...prev, [c.id]: { x: c.x, y: c.y, name: c.name, color: c.color, laser: !!c.laser, ink: !!c.ink, laserColor: c.laserColor, ts: Date.now() } }));
+    });
+
+    // Raster paint strokes (tiled paint layer): vectors in, rasterised locally.
+    ch.on("broadcast", { event: "paint" }, (m) => {
+      const p = m.payload;
+      if (!p || p.from === meId.current) return;
+      onPaint?.(p);
     });
 
     ch.on("broadcast", { event: "sync-req" }, (m) => {
@@ -226,7 +233,7 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
       setPeers({});
       setMembers([]);
     };
-  }, [enabled, boardId, applyOps, myName, myColor]);
+  }, [enabled, boardId, applyOps, myName, myColor, onPaint]);
 
   // ── outgoing cursor (throttled, trailing) ──
   // `laser` rides along on the same channel: when set, peers render the
@@ -235,17 +242,26 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
   // are ephemeral (for pointing things out / underlining while presenting).
   const cursorTimer = useRef(null);
   const pendingCursor = useRef(null);
-  const pushCursor = useCallback((x, y, laser, ink) => {
-    pendingCursor.current = { x, y, laser: !!laser, ink: !!ink };
+  const pushCursor = useCallback((x, y, laser, ink, laserColor) => {
+    pendingCursor.current = { x, y, laser: !!laser, ink: !!ink, laserColor };
     if (cursorTimer.current) return;
     cursorTimer.current = setTimeout(() => {
       cursorTimer.current = null;
       const ch = chanRef.current, c = pendingCursor.current;
       if (ch && c) {
-        try { ch.send({ type: "broadcast", event: "cursor", payload: { id: meId.current, x: c.x, y: c.y, name: myName, color: myColor, laser: c.laser, ink: c.ink } }); } catch { /* */ }
+        try { ch.send({ type: "broadcast", event: "cursor", payload: { id: meId.current, x: c.x, y: c.y, name: myName, color: myColor, laser: c.laser, ink: c.ink, laserColor: c.laserColor } }); } catch { /* */ }
       }
     }, CURSOR_THROTTLE_MS);
   }, [myName, myColor]);
+
+  // ── outgoing paint strokes (raster paint layer) ──
+  // Fire-and-forget: each chunk carries the brush + the new points, so a
+  // dropped chunk just means a tiny gap in a peer's render, not corruption.
+  const pushPaint = useCallback((payload) => {
+    const ch = chanRef.current;
+    if (!ch) return;
+    try { ch.send({ type: "broadcast", event: "paint", payload: { ...payload, from: meId.current } }); } catch { /* */ }
+  }, []);
 
   // Prune stale cursors (peer idle / dropped without a presence leave).
   useEffect(() => {
@@ -264,5 +280,5 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     return () => clearInterval(t);
   }, [enabled]);
 
-  return { peers, members, pushCursor, myColor };
+  return { peers, members, pushCursor, pushPaint, myColor };
 }

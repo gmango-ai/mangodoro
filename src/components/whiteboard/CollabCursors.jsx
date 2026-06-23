@@ -119,7 +119,7 @@ export function CollabCursors({ peers }) {
       const vx = prev ? p.x - prev.x : 0;
       const vy = prev ? p.y - prev.y : 0;
       targets.current[id] = {
-        x: p.x, y: p.y, name: p.name, color: p.color, laser: p.laser,
+        x: p.x, y: p.y, name: p.name, color: p.color, laser: p.laser, laserColor: p.laserColor,
         // smooth the velocity so a single jittery sample doesn't fling it
         vx: prev ? prev.vx * 0.5 + vx * 0.5 : 0,
         vy: prev ? prev.vy * 0.5 + vy * 0.5 : 0,
@@ -166,7 +166,8 @@ export function CollabCursors({ peers }) {
       {/* Each peer's fading laser-ink trail (buffered from their cursor). */}
       {ids.map((id) => {
         const ref = inkRefs.current[id] || (inkRefs.current[id] = { current: [] });
-        return <LaserTrail key={`trail-${id}`} pointsRef={ref} color={targets.current[id]?.color || "#ef4444"} />;
+        const t = targets.current[id];
+        return <LaserTrail key={`trail-${id}`} pointsRef={ref} color={t?.laserColor || t?.color || "#ef4444"} />;
       })}
       <ViewportPortal>
         {ids.map((id) => {
@@ -186,7 +187,7 @@ export function CollabCursors({ peers }) {
             }}
           >
             {p.laser ? (
-              <LaserDot color={p.color} name={p.name} />
+              <LaserDot color={p.laserColor || p.color} name={p.name} />
             ) : (
               <>
                 <svg width="22" height="22" viewBox="0 0 24 24" style={{ display: "block", filter: "drop-shadow(0 1px 1.5px rgba(0,0,0,.35))" }}>
@@ -245,6 +246,43 @@ export function LocalLaser({ active, color = "#ef4444" }) {
       }}
     >
       <LaserDot color={color} />
+    </div>
+  );
+}
+
+// A Photoshop-style brush ring that follows the OS pointer in SCREEN space and
+// shows the true painted size (brush size in flow units × zoom). Replaces the
+// crosshair while the brush is active; greys + matches the brush colour, and
+// reads as an eraser outline when erasing.
+export function BrushCursor({ active, size, color = "#0ea5e9", erase }) {
+  const { zoom } = useViewport();
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!active) return;
+    const move = (e) => {
+      const el = ref.current;
+      if (el) el.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+    };
+    window.addEventListener("pointermove", move, { passive: true });
+    return () => window.removeEventListener("pointermove", move);
+  }, [active]);
+  if (!active) return null;
+  const d = Math.max(4, size * (zoom || 1));
+  return (
+    <div
+      ref={ref}
+      style={{ position: "fixed", left: 0, top: 0, pointerEvents: "none", zIndex: 60, transform: "translate(-9999px, -9999px)" }}
+    >
+      <div
+        style={{
+          position: "absolute", left: -d / 2, top: -d / 2, width: d, height: d,
+          borderRadius: "50%",
+          border: erase ? "1.5px dashed #94a3b8" : `1.5px solid ${color}`,
+          boxShadow: "0 0 0 1px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.5)",
+        }}
+      />
+      {/* a centre dot so a tiny brush is still locatable */}
+      <div style={{ position: "absolute", left: -1, top: -1, width: 2, height: 2, borderRadius: "50%", background: erase ? "#94a3b8" : color }} />
     </div>
   );
 }
