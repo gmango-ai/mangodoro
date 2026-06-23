@@ -28,6 +28,7 @@ import InviteCard from "../components/InviteCard";
 import RemoveMemberModal from "../components/RemoveMemberModal";
 import { archiveRoomV2 } from "../lib/rooms";
 import RoomSettingsModal from "../components/RoomSettingsModal";
+import OrgDevicesPanel from "../components/OrgDevicesPanel";
 import { joinSyncSession } from "../lib/syncSession";
 import { getShareableBaseUrl } from "../lib/platform";
 import { notifySessionJoined } from "../sync/joinSession";
@@ -512,6 +513,9 @@ export default function TeamPage() {
               onError={(msg) => setError(msg)}
             />
           )}
+
+          {/* Device accounts (admin only) — shared kiosks pinned to a room. */}
+          {isAdmin && <OrgDevicesPanel orgId={activeTeamId} />}
 
           {/* Org-shared pomodoro sounds. Every member sees the list and
               can pick one inside the timer's Sound panel; whether they can
