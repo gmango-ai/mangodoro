@@ -419,3 +419,14 @@ verify_jwt = true
 
 [functions.livekit-moderate]
 verify_jwt = true
+
+# Org device accounts. provision/revoke are admin-only (user JWT); pair has no
+# JWT because the device has no session until it redeems its code.
+[functions.device-provision]
+verify_jwt = true
+
+[functions.device-revoke]
+verify_jwt = true
+
+[functions.device-pair]
+verify_jwt = false
