@@ -17,6 +17,7 @@ import {
   SelectionMode,
   NodeToolbar,
   Position,
+  getNodesBounds,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -24,6 +25,7 @@ import {
   Target,
   Pencil,
   Archive,
+  Download,
   Type,
   Shapes,
   Frame,
@@ -1670,6 +1672,43 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     navigate("/whiteboards");
   }
 
+  // Export the whole board as a PNG. We capture React Flow's viewport element
+  // with an overridden transform that frames the nodes' bounding box (so the
+  // export covers everything, not just what's on screen). html-to-image clones
+  // the node, so the live view isn't disturbed.
+  const handleExportPng = useCallback(async () => {
+    const el = mainRef.current?.querySelector(".react-flow__viewport");
+    if (!el) return;
+    const bounds = getNodesBounds(rf.getNodes());
+    if (!bounds.width || !bounds.height) { setError("Nothing to export yet."); return; }
+    const pad = 48;
+    // Up to 2x for crisp small boards; scale down big ones to cap ~4000px.
+    const zoom = Math.min(2, 4000 / Math.max(bounds.width, bounds.height));
+    const w = Math.ceil(bounds.width * zoom + pad * 2);
+    const h = Math.ceil(bounds.height * zoom + pad * 2);
+    try {
+      const { toPng } = await import("html-to-image");
+      const dataUrl = await toPng(el, {
+        backgroundColor: dark ? "#0f172a" : "#fbf6ee",
+        width: w,
+        height: h,
+        pixelRatio: 1,
+        cacheBust: true,
+        style: {
+          width: `${w}px`,
+          height: `${h}px`,
+          transform: `translate(${pad - bounds.x * zoom}px, ${pad - bounds.y * zoom}px) scale(${zoom})`,
+        },
+      });
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `${(board?.title || "whiteboard").replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "whiteboard"}.png`;
+      a.click();
+    } catch (e) {
+      setError(`Export failed: ${e?.message || "unknown error"}`);
+    }
+  }, [rf, dark, board?.title]);
+
   const template = useMemo(
     () => (board?.template_key ? TEMPLATES[board.template_key] : null),
     [board?.template_key]
@@ -2118,6 +2157,21 @@ function WhiteboardEditor({ boardId, embedded = false }) {
                 <MapIcon className="w-4 h-4" />
               </button>
             </>
+          )}
+          {!embedded && (
+            <button
+              type="button"
+              onClick={handleExportPng}
+              title="Export as PNG"
+              aria-label="Export as PNG"
+              className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+                dark
+                  ? "text-slate-400 hover:bg-white/10"
+                  : "text-slate-500 hover:bg-slate-100"
+              }`}
+            >
+              <Download className="w-4 h-4" />
+            </button>
           )}
           {!embedded && (
             <button
