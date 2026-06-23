@@ -1207,6 +1207,36 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     [session?.user?.id, board?.id, rf, setNodes]
   );
 
+  // Double-click empty canvas → drop a text node at the cursor, ready to type.
+  // Gated to the pane itself so double-clicking a node still just edits it.
+  const onPaneDoubleClick = useCallback(
+    (e) => {
+      const t = e.target;
+      if (!(t instanceof Element) || !t.classList.contains("react-flow__pane")) return;
+      let pos;
+      try {
+        pos = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      } catch {
+        return;
+      }
+      const size = DEFAULTS.text;
+      const id = freshId("text");
+      markNodeForEdit(id); // open straight into edit
+      setNodes((nds) =>
+        nds
+          .map((n) => (n.selected ? { ...n, selected: false } : n))
+          .concat({
+            id,
+            type: "text",
+            position: { x: pos.x - size.w / 2, y: pos.y - size.h / 2 },
+            data: { text: "" },
+            selected: true,
+          })
+      );
+    },
+    [rf, setNodes]
+  );
+
   const deleteSelected = useCallback(() => {
     const selectedNodeIds = new Set(
       nodes.filter((n) => n.selected).map((n) => n.id)
@@ -1505,6 +1535,8 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         onReconnect={onReconnect}
         onNodeDragStop={onNodeDragStop}
         onNodeClick={onNodeClick}
+        onDoubleClick={onPaneDoubleClick}
+        zoomOnDoubleClick={false}
         connectionMode={ConnectionMode.Loose}
         connectionLineComponent={ConnectionLine}
         nodeTypes={NODE_TYPES}
