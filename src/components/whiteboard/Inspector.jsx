@@ -1,23 +1,12 @@
 import { useState } from "react";
-import { Magnet, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Lock, LockOpen, BringToFront, SendToBack } from "lucide-react";
-import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex, wrapActiveSelection } from "./nodes";
+import { Magnet, Lock, LockOpen, BringToFront, SendToBack } from "lucide-react";
+import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex } from "./nodes";
+import TextPanel from "./TextPanel";
+import { fontStack } from "../../lib/whiteboardFonts";
 import { Pill, ToolDivider, Dropdown, SwatchGrid, Opt } from "./toolbarUI";
 import { nodeSnaps } from "./snapping";
 
 const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
-
-// Toggle a markdown marker around the WHOLE node text — the fallback when no
-// live selection is being edited (B / I clicked on a selected-but-not-editing
-// node).
-function toggleWholeMarkdown(text, marker) {
-  const t = text || "";
-  if (!t.trim()) return t;
-  const ml = marker.length;
-  if (t.length >= 2 * ml && t.startsWith(marker) && t.endsWith(marker)) {
-    return t.slice(ml, t.length - ml);
-  }
-  return marker + t + marker;
-}
 
 function ShapeMini({ shape }) {
   return (
@@ -122,9 +111,7 @@ export default function Inspector({ node, patchNodeData, setLocked, onReorder })
   const snapping = nodeSnaps(node); // grid + alignment snapping for this item
   const locked = !!node.data?.locked;
   const isTextable = isSticky || isText || isShape;
-  const curAlign = node.data?.textAlign || (isText ? "left" : "center");
-  const curVAlign = node.data?.vAlign || "middle";
-  const curTextColor = node.data?.textColor || null;
+  const curFontFamily = node.data?.fontFamily || "sans";
 
   const stop = (e) => e.stopPropagation();
 
@@ -281,124 +268,50 @@ export default function Inspector({ node, patchNodeData, setLocked, onReorder })
 
         {hasPre && <ToolDivider />}
 
-        <Dropdown
-          openKey="text"
-          open={open}
-          setOpen={setOpen}
-          title="Text size"
-          width={132}
-          icon={
-            <span className="flex items-center gap-1">
-              <span className="text-[13px] font-bold leading-none">Aa</span>
-              <span className="text-[11px] text-white/70">{curFont}px</span>
-            </span>
-          }
-        >
-          <div className="py-1 nowheel" style={{ maxHeight: 240, overflowY: "auto" }}>
-            {FONT_SIZES.map((f) => (
-              <Opt key={f.v} active={curFont === f.v} onClick={() => { patchNodeData({ fontSize: f.v }); setOpen(null); }}>
-                <span className="inline-flex items-baseline gap-2">
-                  <span>{f.v}px</span>
-                  {f.label && <span className="text-white/45 text-[11px]">{f.label}</span>}
-                </span>
-              </Opt>
-            ))}
-          </div>
-        </Dropdown>
-
-        {isTextable && (
-          <>
-            <button
-              type="button"
-              title="Bold (selection, or whole text)"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                if (!wrapActiveSelection("**")) patchNodeData({ text: toggleWholeMarkdown(node.data?.text, "**") });
-              }}
-              className="h-7 w-7 rounded-md flex items-center justify-center text-white/75 hover:bg-white/10"
-            >
-              <Bold className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              title="Italic (selection, or whole text)"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                if (!wrapActiveSelection("_")) patchNodeData({ text: toggleWholeMarkdown(node.data?.text, "_") });
-              }}
-              className="h-7 w-7 rounded-md flex items-center justify-center text-white/75 hover:bg-white/10"
-            >
-              <Italic className="w-4 h-4" />
-            </button>
-          </>
-        )}
-
-        {isTextable && (
+        {/* Goal / frame keep a simple size control. */}
+        {!isTextable && (
           <Dropdown
-            openKey="textcolor"
+            openKey="text"
             open={open}
             setOpen={setOpen}
-            title="Text colour"
+            title="Text size"
+            width={132}
             icon={
-              <span
-                className="text-[13px] font-extrabold leading-none"
-                style={{ color: curTextColor || "#fff", textShadow: curTextColor ? "0 0 2px rgba(0,0,0,.7)" : "none" }}
-              >A</span>
+              <span className="flex items-center gap-1">
+                <span className="text-[13px] font-bold leading-none">Aa</span>
+                <span className="text-[11px] text-white/70">{curFont}px</span>
+              </span>
             }
           >
-            <div>
-              <Opt active={!curTextColor} onClick={() => { patchNodeData({ textColor: null }); setOpen(null); }}>Auto (contrast)</Opt>
-              <SwatchGrid value={curTextColor} onPick={(c) => { patchNodeData({ textColor: c }); setOpen(null); }} onLive={(c) => patchNodeData({ textColor: c })} />
+            <div className="py-1 nowheel" style={{ maxHeight: 240, overflowY: "auto" }}>
+              {FONT_SIZES.map((f) => (
+                <Opt key={f.v} active={curFont === f.v} onClick={() => { patchNodeData({ fontSize: f.v }); setOpen(null); }}>
+                  <span className="inline-flex items-baseline gap-2">
+                    <span>{f.v}px</span>
+                    {f.label && <span className="text-white/45 text-[11px]">{f.label}</span>}
+                  </span>
+                </Opt>
+              ))}
             </div>
           </Dropdown>
         )}
 
+        {/* Sticky / text / shape: ALL text editing (font, size, style, align,
+            colour) lives in one panel. */}
         {isTextable && (
           <Dropdown
-            openKey="align"
+            openKey="text"
             open={open}
             setOpen={setOpen}
-            title="Alignment"
-            width={160}
-            icon={<AlignCenter className="w-4 h-4" />}
+            title="Text"
+            icon={
+              <span className="flex items-center gap-1">
+                <span className="text-[13px] font-bold leading-none" style={{ fontFamily: curFontFamily === "sans" ? undefined : fontStack(curFontFamily) }}>Aa</span>
+                <span className="text-[11px] text-white/70">{curFont}px</span>
+              </span>
+            }
           >
-            <div className="p-1.5" style={{ width: 160 }}>
-              <div className="text-[10px] uppercase tracking-wide text-white/40 px-1 pb-1">Horizontal</div>
-              <div className="flex gap-1 px-0.5 pb-2">
-                {[["left", AlignLeft], ["center", AlignCenter], ["right", AlignRight]].map(([val, Icon]) => (
-                  <button
-                    key={val}
-                    type="button"
-                    title={val}
-                    onClick={() => patchNodeData({ textAlign: val })}
-                    className={`h-7 flex-1 rounded-md flex items-center justify-center transition-colors ${
-                      curAlign === val ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                  </button>
-                ))}
-              </div>
-              {(isSticky || isShape) && (
-                <>
-                  <div className="text-[10px] uppercase tracking-wide text-white/40 px-1 pb-1">Vertical</div>
-                  <div className="flex gap-1 px-0.5">
-                    {[["top", "Top"], ["middle", "Mid"], ["bottom", "Bot"]].map(([val, label]) => (
-                      <button
-                        key={val}
-                        type="button"
-                        onClick={() => patchNodeData({ vAlign: val })}
-                        className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
-                          curVAlign === val ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            <TextPanel node={node} patchNodeData={patchNodeData} />
           </Dropdown>
         )}
 

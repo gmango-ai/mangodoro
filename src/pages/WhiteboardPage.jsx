@@ -83,6 +83,7 @@ import {
 import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
 import { useWhiteboardHistory } from "../components/whiteboard/useWhiteboardHistory";
 import { uploadWhiteboardImage } from "../lib/whiteboardImage";
+import { ensureGoogleFont } from "../lib/whiteboardFonts";
 import {
   snapToGrid,
   nodeSnaps,
@@ -715,6 +716,12 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [nodes, edges, board?.id, loading]);
+
+  // Load every Google font in use (including fonts that arrive from peers via
+  // sync). ensureGoogleFont is idempotent and a no-op for the built-in presets.
+  useEffect(() => {
+    for (const n of nodes) ensureGoogleFont(n.data?.fontFamily);
+  }, [nodes]);
 
   // Flush pending edits on unmount / tab close.
   useEffect(() => {

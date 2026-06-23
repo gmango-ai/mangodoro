@@ -7,6 +7,7 @@ import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
 import { setGoal, clearGoal } from "../../lib/goals";
+import { fontStack } from "../../lib/whiteboardFonts";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -81,6 +82,7 @@ function readableText(bg) {
 function vAlignFlex(v) {
   return v === "top" ? "flex-start" : v === "bottom" ? "flex-end" : "center";
 }
+
 
 // Nodes that should open straight into edit mode (just created via the
 // toolbar or a quick-add pull). Tracked outside node data so the flag
@@ -370,7 +372,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
           nodeId={id}
           selected={selected}
           markdown
-          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink }}
+          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily) }}
         />
       </div>
 
@@ -475,7 +477,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         nodeId={id}
         selected={selected}
         markdown
-        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor }}
+        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
       />
     </div>
   );
@@ -642,7 +644,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
             nodeId={id}
             selected={selected}
             markdown
-            style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor }}
+            style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor, fontFamily: fontStack(data?.fontFamily) }}
           />
         </div>
       </div>
