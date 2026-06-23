@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Magnet, Lock, LockOpen, BringToFront, SendToBack } from "lucide-react";
+import { Magnet, Lock, LockOpen, BringToFront, SendToBack, Contrast } from "lucide-react";
 import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex } from "./nodes";
 import TextPanel from "./TextPanel";
 import { fontStack } from "../../lib/whiteboardFonts";
@@ -90,7 +90,7 @@ function StickyPicker({ value, onPick, onLive }) {
 // matching the edge toolbar. Positioned above the node by React Flow's
 // <NodeToolbar> at the call site. Only the controls a given node type
 // supports are shown.
-export default function Inspector({ node, patchNodeData, setLocked, onReorder }) {
+export default function Inspector({ node, patchNodeData, setLocked, onReorder, setOpacity }) {
   const [open, setOpen] = useState(null);
   if (!node) return null;
 
@@ -110,6 +110,7 @@ export default function Inspector({ node, patchNodeData, setLocked, onReorder })
   const hasPre = isShape || isSticky || !isText; // any control before the text size
   const snapping = nodeSnaps(node); // grid + alignment snapping for this item
   const locked = !!node.data?.locked;
+  const curOpacity = Math.round((node.style?.opacity ?? 1) * 100);
   const isTextable = isSticky || isText || isShape;
   const curFontFamily = node.data?.fontFamily || "sans";
 
@@ -314,6 +315,30 @@ export default function Inspector({ node, patchNodeData, setLocked, onReorder })
             <TextPanel node={node} patchNodeData={patchNodeData} />
           </Dropdown>
         )}
+
+        <Dropdown
+          openKey="opacity"
+          open={open}
+          setOpen={setOpen}
+          title="Opacity"
+          width={156}
+          icon={<Contrast className="w-4 h-4" style={{ opacity: Math.max(0.4, curOpacity / 100) }} />}
+        >
+          <div className="p-2.5" style={{ width: 156 }}>
+            <div className="text-[10px] uppercase tracking-wide text-white/40 pb-1.5 flex justify-between">
+              <span>Opacity</span><span>{curOpacity}%</span>
+            </div>
+            <input
+              type="range"
+              min={10}
+              max={100}
+              step={5}
+              value={curOpacity}
+              onChange={(e) => setOpacity?.(Number(e.target.value) / 100)}
+              className="w-full accent-[var(--color-accent)]"
+            />
+          </div>
+        </Dropdown>
 
         <ToolDivider />
         {/* Z-order: stacking of overlapping nodes. */}

@@ -1657,6 +1657,20 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     [setNodes]
   );
 
+  // Per-node opacity via React Flow's node.style (persists + syncs). 1 clears it.
+  const setSelectedOpacity = useCallback(
+    (opacity) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.selected && n.type !== "zone"
+            ? { ...n, style: { ...(n.style || {}), opacity: opacity >= 1 ? undefined : opacity } }
+            : n
+        )
+      );
+    },
+    [setNodes]
+  );
+
   // Z-order: stacking follows array order (later = on top). Move the selection
   // to the end (front) or start (back); sortParentsFirst is a stable sort so it
   // only re-pins frames ahead of their children, keeping the new order. Persists
@@ -2005,7 +2019,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             offset={selectedNode.type === "frame" ? (selectedNode.data?.fontSize ?? 20) + 28 : 14}
             align="center"
           >
-            <Inspector node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} />
+            <Inspector node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
           </NodeToolbar>
         )}
       </ReactFlow>
