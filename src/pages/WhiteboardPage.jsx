@@ -671,9 +671,6 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         if (copyRef.current?.()) e.preventDefault();
       } else if (mod && k === "x") {
         if (cutRef.current?.()) e.preventDefault();
-      } else if (mod && k === "v") {
-        e.preventDefault();
-        pasteRef.current?.(lastPtRef.current);
       } else if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
         rf.zoomIn({ duration: 150 });
@@ -1285,7 +1282,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   const fileInputRef = useRef(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const addImageNode = useCallback(
-    async (file) => {
+    async (file, at) => {
       if (!file) return;
       const uid = session?.user?.id;
       if (!uid) { setError("Sign in to add images."); return; }
@@ -1298,14 +1295,18 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       const nw = data.width || DEFAULTS.image.w, nh = data.height || DEFAULTS.image.h;
       const s = Math.min(1, MAX_EDGE / Math.max(nw, nh));
       const w = Math.max(48, Math.round(nw * s)), h = Math.max(48, Math.round(nh * s));
-      let center = { x: 200, y: 200 };
-      try {
-        const el = document.querySelector(".react-flow");
-        if (el) {
-          const r = el.getBoundingClientRect();
-          center = rf.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
-        }
-      } catch { /* */ }
+      // Drop/paste position if given, else the visible centre.
+      let center = at;
+      if (!center) {
+        center = { x: 200, y: 200 };
+        try {
+          const el = document.querySelector(".react-flow");
+          if (el) {
+            const r = el.getBoundingClientRect();
+            center = rf.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+          }
+        } catch { /* */ }
+      }
       const node = {
         id: freshId("image"),
         type: "image",
@@ -1320,6 +1321,47 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     },
     [session?.user?.id, board?.id, rf, setNodes]
   );
+
+  // Drag an image file from Finder onto the canvas → upload + place at the drop.
+  const onWbDragOver = useCallback((e) => {
+    if (e.dataTransfer?.types?.includes("Files")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  }, []);
+  const onWbDrop = useCallback(
+    (e) => {
+      const file = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith("image/"));
+      if (!file) return;
+      e.preventDefault();
+      let at;
+      try { at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { /* */ }
+      addImageNode(file, at);
+    },
+    [rf, addImageNode]
+  );
+
+  // Paste: an image in the clipboard becomes an image node; otherwise paste the
+  // in-app node clipboard. Cmd/Ctrl+V lives here (not the keydown handler) since
+  // only the paste event exposes clipboard contents.
+  useEffect(() => {
+    function onPaste(e) {
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      const boardEl = mainRef.current;
+      if (!boardEl || !(boardEl.matches(":hover") || boardEl.contains(el))) return;
+      const items = e.clipboardData?.items;
+      const imgItem = items && [...items].find((it) => it.kind === "file" && it.type.startsWith("image/"));
+      if (imgItem) {
+        const file = imgItem.getAsFile();
+        if (file) { e.preventDefault(); addImageNode(file, lastPtRef.current); return; }
+      }
+      e.preventDefault();
+      pasteRef.current?.(lastPtRef.current);
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [addImageNode]);
 
   // Double-click empty canvas → drop a text node at the cursor, ready to type.
   // Gated to the pane itself so double-clicking a node still just edits it.
@@ -1785,6 +1827,8 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         onNodeClick={onNodeClick}
         onDoubleClick={onPaneDoubleClick}
         onMoveEnd={(_, vp) => { if (!embedded) saveViewport(board?.id, vp); }}
+        onDragOver={onWbDragOver}
+        onDrop={onWbDrop}
         zoomOnDoubleClick={false}
         connectionMode={ConnectionMode.Loose}
         connectionLineComponent={ConnectionLine}
