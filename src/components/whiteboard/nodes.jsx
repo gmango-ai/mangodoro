@@ -505,10 +505,10 @@ const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" }
 
 // SVG children for a shape drawn within w×h (stroke inset by sw so it's
 // never clipped). Used both by the node and the toolbar/inspector previews.
-export function ShapeSvg({ shape, w, h, fill, stroke, sw = 2 }) {
+export function ShapeSvg({ shape, w, h, fill, stroke, sw = 2, dash, cap }) {
   // fill/stroke go through `style` (not attributes) so a CSS var like the
   // theme accent — var(--color-accent) — resolves; attributes don't parse var().
-  const p = { strokeWidth: sw, strokeLinejoin: "round", style: { fill, stroke } };
+  const p = { strokeWidth: sw, strokeLinejoin: "round", strokeDasharray: dash || undefined, strokeLinecap: cap || undefined, style: { fill, stroke } };
   const x0 = sw / 2, y0 = sw / 2, x1 = w - sw / 2, y1 = h - sw / 2, cx = w / 2, cy = h / 2;
   switch (shape) {
     case "ellipse":
@@ -607,7 +607,15 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
   const fill = data?.fill || (theme === "dark" ? "#1e293b" : "#ffffff");
   // Outline keeps its own colour; selecting just THICKENS it (no accent swap).
   const stroke = data?.stroke || "#0ea5e9";
-  const sw = selected ? 4 : 2;
+  // User-set border width (default 2) + a touch of emphasis when selected.
+  const baseSw = data?.strokeWidth ?? 2;
+  const sw = selected ? baseSw + 1.5 : baseSw;
+  // Border style → dasharray (scaled to the width so it reads at any weight).
+  const dash =
+    data?.strokeDash === "dashed" ? `${sw * 2.5} ${sw * 1.8}`
+    : data?.strokeDash === "dotted" ? `${sw * 0.1} ${sw * 2}`
+    : undefined;
+  const cap = data?.strokeDash === "dotted" ? "round" : undefined;
   const textColor = readableText(fill);
   return (
     <div ref={ref} style={{ width: "100%", height: "100%", position: "relative" }}>
@@ -622,7 +630,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
         viewBox={`0 0 ${size.w} ${size.h}`}
         style={{ position: "absolute", inset: 0, overflow: "visible", display: "block" }}
       >
-        <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={sw} />
+        <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={sw} dash={dash} cap={cap} />
       </svg>
       <FourHandles />
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: vAlignFlex(data?.vAlign), justifyContent: "center", padding: "10px 14px" }}>

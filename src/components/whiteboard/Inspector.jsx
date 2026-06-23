@@ -115,6 +115,8 @@ export default function Inspector({ node, patchNodeData, setLocked }) {
   const curShape = node.data?.shape || LEGACY_SHAPE[node.type] || "process";
   const fill = node.data?.fill || "#ffffff";
   const stroke = node.data?.stroke || "#0ea5e9";
+  const curStrokeWidth = node.data?.strokeWidth ?? 2;
+  const curDash = node.data?.strokeDash || "solid";
   const stickyColor = stickyHex(node.data?.color);
   const hasPre = isShape || isSticky || !isText; // any control before the text size
   const snapping = nodeSnaps(node); // grid + alignment snapping for this item
@@ -222,7 +224,37 @@ export default function Inspector({ node, patchNodeData, setLocked }) {
             title="Border"
             icon={<span className="w-4 h-4 rounded-full border-2" style={{ borderColor: stroke }} />}
           >
-            <SwatchGrid value={stroke} onPick={(c) => { patchNodeData({ stroke: c }); setOpen(null); }} onLive={(c) => patchNodeData({ stroke: c })} />
+            <div>
+              <SwatchGrid value={stroke} onPick={(c) => { patchNodeData({ stroke: c }); setOpen(null); }} onLive={(c) => patchNodeData({ stroke: c })} />
+              <div className="px-1.5 pb-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-white/40 px-0.5 pb-1">Width</div>
+                <div className="flex gap-1 pb-2">
+                  {[["Thin", 1.5], ["Med", 2], ["Thick", 3.5]].map(([label, w]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => patchNodeData({ strokeWidth: w })}
+                      className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                        curStrokeWidth === w ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                      }`}
+                    >{label}</button>
+                  ))}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide text-white/40 px-0.5 pb-1">Style</div>
+                <div className="flex gap-1">
+                  {[["Solid", "solid"], ["Dashed", "dashed"], ["Dotted", "dotted"]].map(([label, v]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => patchNodeData({ strokeDash: v })}
+                      className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                        curDash === v ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                      }`}
+                    >{label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </Dropdown>
         )}
 
