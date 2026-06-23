@@ -392,6 +392,23 @@ function writeWbClipboard(payload) {
   }
 }
 
+// Remember each board's pan/zoom so reopening it lands you where you left off
+// (full-page boards only — embedded room boards still fit-to-view each time).
+function loadViewport(boardId) {
+  if (!boardId) return null;
+  try {
+    const v = JSON.parse(localStorage.getItem(`ql_wb_viewport:${boardId}`) || "null");
+    if (v && typeof v.x === "number" && typeof v.y === "number" && typeof v.zoom === "number") return v;
+  } catch { /* */ }
+  return null;
+}
+function saveViewport(boardId, vp) {
+  if (!boardId || !vp) return;
+  try {
+    localStorage.setItem(`ql_wb_viewport:${boardId}`, JSON.stringify({ x: vp.x, y: vp.y, zoom: vp.zoom }));
+  } catch { /* */ }
+}
+
 export default function WhiteboardPage() {
   const { whiteboardId } = useParams();
   return <WhiteboardBoard boardId={whiteboardId} />;
@@ -649,10 +666,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         edges: loadedEdges,
       });
       setLoading(false);
-      // Defer fitView to after layout settles.
+      // Restore this board's saved pan/zoom (full-page only); a first visit or
+      // an embedded board falls back to fit-to-view. Deferred so layout settles.
+      const savedVp = embedded ? null : loadViewport(data.id);
       setTimeout(() => {
         try {
-          rf.fitView({ padding: 0.15, duration: 0 });
+          if (savedVp) rf.setViewport(savedVp, { duration: 0 });
+          else rf.fitView({ padding: 0.15, duration: 0 });
         } catch {
           /* */
         }
@@ -1536,6 +1556,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         onNodeDragStop={onNodeDragStop}
         onNodeClick={onNodeClick}
         onDoubleClick={onPaneDoubleClick}
+        onMoveEnd={(_, vp) => { if (!embedded) saveViewport(board?.id, vp); }}
         zoomOnDoubleClick={false}
         connectionMode={ConnectionMode.Loose}
         connectionLineComponent={ConnectionLine}
