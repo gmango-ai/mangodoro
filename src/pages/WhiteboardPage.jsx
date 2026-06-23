@@ -112,6 +112,7 @@ import {
   CollabCursors,
   PresenceStack,
   LocalLaser,
+  LaserTrail,
 } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
@@ -770,6 +771,11 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   const drawRafRef = useRef(0);
   const [drawPath, setDrawPath] = useState(null);
 
+  // Ephemeral laser-ink trail (FLOW coords, timestamped) drawn while the laser
+  // button is held — fades on its own, persists nothing. See LaserTrail.
+  const laserInkRef = useRef([]);
+  const laserDrawingRef = useRef(false);
+
   // Last pointer position in FLOW coords — so paste lands under the cursor.
   const lastPtRef = useRef(null);
   const onWbPointerMove = useCallback(
@@ -777,7 +783,15 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       try {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         lastPtRef.current = { x: p.x, y: p.y };
-        pushCursor(p.x, p.y, toolRef.current === "laser");
+        pushCursor(p.x, p.y, toolRef.current === "laser", laserDrawingRef.current);
+        // Laser ink: append while the button is held (the trail fades itself).
+        if (laserDrawingRef.current) {
+          const arr = laserInkRef.current;
+          const last = arr[arr.length - 1];
+          if (!last || Math.abs(p.x - last.x) + Math.abs(p.y - last.y) > 1) {
+            arr.push({ x: p.x, y: p.y, t: Date.now() });
+          }
+        }
         const dr = drawingRef.current;
         if (dr) {
           const last = dr.points[dr.points.length - 1];
@@ -804,17 +818,26 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   // node. Only fires inside the canvas, never over the toolbar/controls.
   const onWbPointerDownCapture = useCallback(
     (e) => {
-      if (toolRef.current !== "pen" || e.button !== 0) return;
+      const mode = toolRef.current;
+      if ((mode !== "pen" && mode !== "laser") || e.button !== 0) return;
       const t = e.target;
       if (!(t instanceof Element) || !t.closest(".react-flow") || t.closest(".react-flow__panel")) return;
+      // In laser mode, ⌘/Ctrl+drag pans (handled by ReactFlow), so don't ink.
+      if (mode === "laser" && (e.ctrlKey || e.metaKey)) return;
       let p;
       try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
-      drawingRef.current = { points: [[p.x, p.y]] };
-      setDrawPath(strokePath(drawingRef.current.points));
+      if (mode === "pen") {
+        drawingRef.current = { points: [[p.x, p.y]] };
+        setDrawPath(strokePath(drawingRef.current.points));
+      } else {
+        laserDrawingRef.current = true;
+        laserInkRef.current = [{ x: p.x, y: p.y, t: Date.now() }];
+        pushCursor(p.x, p.y, true, true);
+      }
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
       e.preventDefault();
     },
-    [rf]
+    [rf, pushCursor]
   );
 
   // Pen up: commit the stroke as a draw node (bbox-relative points). Tiny taps
@@ -853,11 +876,19 @@ function WhiteboardEditor({ boardId, embedded = false }) {
 
   const onWbPointerUp = useCallback(
     (e) => {
+      if (laserDrawingRef.current) {
+        laserDrawingRef.current = false;
+        try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+        // Tell peers ink stopped (the trail then fades out on its own).
+        const lp = lastPtRef.current;
+        if (lp) pushCursor(lp.x, lp.y, true, false);
+        return;
+      }
       if (!drawingRef.current) return;
       try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
       finishStroke();
     },
-    [finishStroke]
+    [finishStroke, pushCursor]
   );
 
   // On a tool switch, push one cursor update reflecting the new mode so peers
@@ -2094,14 +2125,17 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         // Zoom way out for big boards (default floor is 0.5); a bit more in too.
         minZoom={0.1}
         maxZoom={3}
-        // In laser mode left-drag pans (nothing to select), else it marquees.
-        panOnDrag={tool === "laser" ? [0, 1, 2] : [1, 2]}
+        // Left-drag is reserved (marquee in select, draw in pen/laser-ink), so
+        // panning is always middle/right-drag — plus the activation key below.
+        panOnDrag={[1, 2]}
         // Trackpad: two-finger scroll pans, pinch zooms (ctrl/⌘+scroll too);
         // hold Space to drag-pan. Left-drag still marquee-selects.
         panOnScroll
         zoomOnScroll={false}
         zoomOnPinch
-        panActivationKeyCode="Space"
+        // Hold to pan with a left-drag: Space everywhere; in laser mode also
+        // ⌘/Ctrl so you can move the canvas while the left button draws ink.
+        panActivationKeyCode={tool === "laser" ? ["Space", "Control", "Meta"] : "Space"}
         fitView
         fitViewOptions={{ padding: 0.15 }}
         proOptions={{ hideAttribution: true }}
@@ -2122,6 +2156,9 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
+
+        {/* My own fading laser-ink trail (flow space). */}
+        {tool === "laser" && <LaserTrail pointsRef={laserInkRef} color={myColor} />}
 
         {/* Live preview of the freehand stroke in progress (flow space). */}
         {drawPath && (
@@ -2258,7 +2295,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             onToggle={() => setTool((t) => (t === "pen" ? "select" : "pen"))}
           />
           <ToolButton
-            title={tool === "laser" ? "Laser pointer (on) — Esc to exit" : "Laser pointer — point things out"}
+            title={tool === "laser" ? "Laser (on) — drag to draw a fading line, ⌘/Ctrl-drag to pan, Esc to exit" : "Laser pointer — point things out & underline"}
             tone="sky"
             dark={dark}
             active={tool === "laser"}

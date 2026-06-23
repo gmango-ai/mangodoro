@@ -49,10 +49,59 @@ function LaserDot({ color = "#ef4444", name }) {
   );
 }
 
+const TRAIL_TTL = 900; // ms a laser-ink point lives before it fully fades
+
+// A fading "laser ink" line in FLOW space. Reads timestamped points from a ref
+// (so the writer mutates without forcing a render) and animates the fade on its
+// own rAF. Stroke weight counter-scales with zoom so it stays constant on
+// screen. Used for both my own ink and each peer's (buffered from their cursor
+// stream). Returns null until there are ≥2 live points.
+export function LaserTrail({ pointsRef, color = "#ef4444" }) {
+  const { zoom } = useViewport();
+  const [, force] = useState(0);
+  useEffect(() => {
+    let raf;
+    const tick = () => {
+      const now = Date.now();
+      const pts = pointsRef.current;
+      const had = pts.length;
+      while (pts.length && now - pts[0].t > TRAIL_TTL) pts.shift();
+      if (pts.length || had) force((n) => (n + 1) & 0xffff);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [pointsRef]);
+  const pts = pointsRef.current;
+  if (!pts || pts.length < 2) return null;
+  const now = Date.now();
+  const sw = 3 / (zoom || 1);
+  return (
+    <ViewportPortal>
+      <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 1002 }}>
+        {pts.slice(1).map((b, i) => {
+          const a = pts[i];
+          const op = Math.max(0, 1 - (now - b.t) / TRAIL_TTL);
+          if (op <= 0) return null;
+          return (
+            <line
+              key={i}
+              x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+              stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round"
+              opacity={op * 0.9}
+            />
+          );
+        })}
+      </svg>
+    </ViewportPortal>
+  );
+}
+
 export function CollabCursors({ peers }) {
   const { zoom } = useViewport();
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  const inkRefs = useRef({});   // id → { current: [{x,y,t}] } stable ref per peer
 
   const targets = useRef({});   // id → { x, y, vx, vy, name, color }
   const anim = useRef({});      // id → { x, y } (rendered, smoothed)
@@ -76,9 +125,14 @@ export function CollabCursors({ peers }) {
         vy: prev ? prev.vy * 0.5 + vy * 0.5 : 0,
       };
       if (!anim.current[id]) anim.current[id] = { x: p.x, y: p.y };
+      // Buffer laser-ink positions into a per-peer trail (fades via LaserTrail).
+      if (p.ink) {
+        const ref = inkRefs.current[id] || (inkRefs.current[id] = { current: [] });
+        ref.current.push({ x: p.x, y: p.y, t: Date.now() });
+      }
     }
     for (const id of Object.keys(targets.current)) {
-      if (!next[id]) { delete targets.current[id]; delete anim.current[id]; }
+      if (!next[id]) { delete targets.current[id]; delete anim.current[id]; delete inkRefs.current[id]; }
     }
     // Re-render when the set OR anyone's laser-ness changes (so the markup
     // swaps between the arrow and the glowing laser dot).
@@ -108,13 +162,19 @@ export function CollabCursors({ peers }) {
   }, []);
 
   return (
-    <ViewportPortal>
+    <>
+      {/* Each peer's fading laser-ink trail (buffered from their cursor). */}
       {ids.map((id) => {
-        const p = targets.current[id] || { color: "#64748b" };
-        return (
-          <div
-            key={id}
-            ref={(el) => { if (el) els.current[id] = el; else delete els.current[id]; }}
+        const ref = inkRefs.current[id] || (inkRefs.current[id] = { current: [] });
+        return <LaserTrail key={`trail-${id}`} pointsRef={ref} color={targets.current[id]?.color || "#ef4444"} />;
+      })}
+      <ViewportPortal>
+        {ids.map((id) => {
+          const p = targets.current[id] || { color: "#64748b" };
+          return (
+            <div
+              key={id}
+              ref={(el) => { if (el) els.current[id] = el; else delete els.current[id]; }}
             style={{
               position: "absolute",
               left: 0,
@@ -152,10 +212,11 @@ export function CollabCursors({ peers }) {
                 )}
               </>
             )}
-          </div>
-        );
-      })}
-    </ViewportPortal>
+            </div>
+          );
+        })}
+      </ViewportPortal>
+    </>
   );
 }
 
