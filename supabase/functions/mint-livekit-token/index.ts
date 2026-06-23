@@ -84,6 +84,19 @@ Deno.serve(async (req) => {
     return json(400, { error: "room is required" });
   }
 
+  // A device account may only get a token for ITS OWN pinned room. org_devices
+  // is service-role-write only and "device reads self" RLS lets the caller read
+  // its own row, so this is authoritative (unlike self-editable user_metadata).
+  const { data: device } = await supabase
+    .from("org_devices")
+    .select("room_id")
+    .eq("user_id", user.id)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (device && room !== `mangodoro-${device.room_id}`) {
+    return json(403, { error: "A device can only join its own room" });
+  }
+
   // Cap the TTL (1m–12h). The client re-mints on re-entry anyway.
   const ttl = Math.min(
     Math.max(60, body.ttl_seconds ?? 6 * 60 * 60),

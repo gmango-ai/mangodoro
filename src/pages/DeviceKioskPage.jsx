@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { applyAccent } from "../lib/accent";
+import { LIVEKIT_URL } from "../lib/livekit";
 import UserAvatar from "../components/UserAvatar";
 import LogoMark from "../components/LogoMark";
+import DevicePortalCall from "../components/video/DevicePortalCall";
 
 // Full-screen read-only room display for a paired device account. Shows the
 // room's active pomodoro timer + who's present, driven by the device's
@@ -89,46 +91,77 @@ export default function DeviceKioskPage({ session }) {
 
   const unpair = async () => { await supabase.auth.signOut(); };
 
+  // When LiveKit is configured the kiosk is a two-way video portal (camera + mic
+  // published; remote members can drop in). The timer then rides as a compact
+  // overlay. With no LiveKit, fall back to the big centered timer display.
+  const portal = !!LIVEKIT_URL && !!roomId;
+
   return (
-    <main className="min-h-[100dvh] flex flex-col items-center justify-center bg-[var(--color-bg)] text-slate-100 px-6 select-none">
-      <header className="fixed top-0 inset-x-0 flex items-center justify-between px-5 h-14">
+    <main className="relative min-h-[100dvh] bg-[var(--color-bg)] text-slate-100 overflow-hidden select-none">
+      {portal && (
+        <div className="absolute inset-0">
+          <DevicePortalCall roomId={roomId} displayName={`${room?.name || deviceName} · Portal`} />
+        </div>
+      )}
+      {portal && (
+        <>
+          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
+          <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/55 to-transparent pointer-events-none" />
+        </>
+      )}
+
+      <header className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-5 h-14">
         <span className="inline-flex items-center gap-2">
           <span className="text-[var(--color-accent)]"><LogoMark size={22} /></span>
-          <span className="text-sm font-semibold text-slate-300">{room?.name || deviceName}</span>
+          <span className="text-sm font-semibold text-white/90 drop-shadow">{room?.name || deviceName}</span>
         </span>
-        <button type="button" onClick={unpair} className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
+        <button type="button" onClick={unpair} className="text-[11px] text-white/60 hover:text-white transition-colors drop-shadow">
           Unpair
         </button>
       </header>
 
-      {sess ? (
-        <>
-          <div className={`text-[11px] font-semibold uppercase tracking-[0.25em] mb-3 ${isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]"}`}>
-            {MODE_LABEL[sess.mode] || "Focus"}
+      {portal ? (
+        sess && (
+          <div className="absolute bottom-5 left-5 z-10 rounded-2xl bg-black/45 backdrop-blur px-5 py-3">
+            <div className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]"}`}>
+              {MODE_LABEL[sess.mode] || "Focus"}{!sess.is_running ? " · Paused" : ""}
+            </div>
+            <div className="font-bold tabular-nums leading-none mt-1" style={{ fontSize: "clamp(2.5rem, 8vw, 4.5rem)", fontFamily: "'Parkinsans', sans-serif" }}>
+              {mm}:{ss}
+            </div>
           </div>
-          <div
-            className="font-bold tabular-nums leading-none"
-            style={{ fontSize: "clamp(5rem, 22vw, 15rem)", fontFamily: "'Parkinsans', sans-serif", letterSpacing: "0.01em" }}
-          >
-            {mm}:{ss}
-          </div>
-          {!sess.is_running && <div className="mt-3 text-sm uppercase tracking-widest text-slate-500">Paused</div>}
-
-          {participants.length > 0 && (
-            <div className="mt-12 flex items-center gap-4 flex-wrap justify-center max-w-3xl">
-              {participants.map((p) => (
-                <div key={p.user_id} className="flex flex-col items-center gap-1.5">
-                  <UserAvatar url={p.avatar_url || ""} name={p.display_name || "Member"} size={44} />
-                  <span className="text-[11px] text-slate-400 max-w-[88px] truncate">{p.display_name || "Member"}</span>
+        )
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-6">
+          {sess ? (
+            <>
+              <div className={`text-[11px] font-semibold uppercase tracking-[0.25em] mb-3 ${isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]"}`}>
+                {MODE_LABEL[sess.mode] || "Focus"}
+              </div>
+              <div
+                className="font-bold tabular-nums leading-none"
+                style={{ fontSize: "clamp(5rem, 22vw, 15rem)", fontFamily: "'Parkinsans', sans-serif", letterSpacing: "0.01em" }}
+              >
+                {mm}:{ss}
+              </div>
+              {!sess.is_running && <div className="mt-3 text-sm uppercase tracking-widest text-slate-500">Paused</div>}
+              {participants.length > 0 && (
+                <div className="mt-12 flex items-center gap-4 flex-wrap justify-center max-w-3xl">
+                  {participants.map((p) => (
+                    <div key={p.user_id} className="flex flex-col items-center gap-1.5">
+                      <UserAvatar url={p.avatar_url || ""} name={p.display_name || "Member"} size={44} />
+                      <span className="text-[11px] text-slate-400 max-w-[88px] truncate">{p.display_name || "Member"}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+            </>
+          ) : (
+            <div className="text-center">
+              <div className="text-3xl font-semibold text-slate-200">{room?.name || deviceName}</div>
+              <p className="mt-4 text-slate-500">No active session. Waiting for someone to start the timer…</p>
             </div>
           )}
-        </>
-      ) : (
-        <div className="text-center">
-          <div className="text-3xl font-semibold text-slate-200">{room?.name || deviceName}</div>
-          <p className="mt-4 text-slate-500">No active session. Waiting for someone to start the timer…</p>
         </div>
       )}
     </main>
