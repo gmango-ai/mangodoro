@@ -1,29 +1,153 @@
-## Data & Storage
-- ✅ Connect to a database for data persistence and multi device support
-- ✅ Data backup & restore — export/import all data as JSON
-- ✅ CSV/JSON import — bring in data from other time tracking tools
+# Mangodoro — Roadmap / TODO
 
-## Time Tracking
-- ✅ Reminders — browser notifications to clock out if you forgot, or to clock in at a set time
-- ✅ Add a clock in / clock out feature with time rounding
-- ✅ Add option for coarse or fine time rounding with 1 min, 5 min, 15 min, and 30 min options
-- ✅ Duplicate entry — copy a past session to today with one click
+The strategy crystallized into THREE programs (+ cross-cutting polish). Two
+"layers": the RECORD layer is what a team pays for (monetization); the RHYTHM
+and BREAK layers get people in and coming back daily (engagement / cohesion).
+"Park it" (below) is the bridge — it serves both.
 
-## Projects & Billing
-- ✅ Add projects and clients for managing multiple projects and clients
-- ✅ Billable vs non-billable flag per entry, with totals separated in exports and earnings
-- ✅ Invoice generation — produce a printable/PDF invoice from a month or project's hours
-- Multi-currency support for the hourly rate
+Don't hard-pivot: the moat is the synchronous, multiplayer, cross-device focus
+engine. These programs re-position AROUND that engine. Keep everything opt-in /
+IC-owned / non-surveillance.
 
-## Goals & Insights
-- ✅ Target hours — set a daily or weekly goal and show a progress bar / how many hours remain
-- ✅ Calendar heatmap view — visualize days worked at a glance, spot gaps
+────────────────────────────────────────────────────────
+## ▶ BUILD NEXT  (highest leverage, cherry-picked across programs)
+────────────────────────────────────────────────────────
+1. Notification LAYER — reusable infra (prefs + delivery surfaces + triggers).
+   Foundational: powers awareness pings, break/park-it reminders, rejoin
+   nudges, @mentions. Build as a platform, not one-offs.
+2. "Park it" — pre-break snapshot / pick up where you left off (the "time to
+   park & take a break" nudge rides on #1).   [keystone]
+3. Whiteboard improvements — edge reliability (make it feel right >80% of the
+   time) + table-stakes (undo/redo, copy/paste, image nodes, export).
+4. Break deck (restorative) + ONE co-op break game on the whiteboard canvas
+5. Pomodoro → timesheet auto-logging   (the record falls out of focusing)
 
-## UI & Experience
-- ✅ Make the app into a PWA for offline access and push notifications and mobile support
-- ✅ Keyboard shortcuts — N jumps to Log Hours form, Esc cancels inline edit
-- ✅ Refactor code to break it into smaller, more manageable components
-- ✅ Dark mode
+────────────────────────────────────────────────────────
+## PROGRAM A — The work record   (monetization layer)
+"You just focus; the recap / standup / timesheet write themselves."
+(ordered by build sequence)
+- [keystone] "Park it" pre-break snapshot — capture the NEXT action + parked
+  context at break start (the one moment the user WANTS to type, so the
+  friction pays for itself). On return: "you were…; next…; jump in?" Restore
+  surfaces (open board, linked task) where possible. Doubles as the highest-
+  quality work-record capture signal.
+- Native session task / intention widget (replaces the stubbed Tasks widget) —
+  "what I'm working on this session", one-tap, tied to a project/task.
+- Pomodoro → timesheet auto-logging — completed focus time → time entries.
+- AI day/week recap — summarize sessions + intentions + goals + chat into the
+  end-of-day recap / standup (reuse DeepSeek). Summary is the EASY part —
+  invest in capture quality ("confirm, don't compose"; capture only at seams).
+- Later sources: ClickUp (suggested intentions from assignments), calendar
+  (meetings auto-appear in the record).
 
+────────────────────────────────────────────────────────
+## PROGRAM B — Collective rhythm   (get people focusing together)
+The "company metronome" — but self-healing across time zones, opt-in /
+invitational, never mandated.
+- Notification LAYER [foundational — build FIRST] — a reusable delivery layer
+  (push + desktop + in-app) with per-user preferences and a trigger system, so
+  every other feature fires notifications without re-plumbing. Powers:
+  awareness ("teammate started a focus session / joined Room X / is back from
+  lunch"), "notify me when [person] starts focusing", @mention pings, AND the
+  reminders for Program A (park-it / break) and Program C (break nudges).
+  Build on the existing iOS push infra.
+- Focus waves — start a wave others can SEE and JOIN; presence-driven, not a
+  fixed global clock. (Minimal experiment: can a few people start a wave that
+  others ride? Build on existing sync sessions.)
+- Scheduled / recurring co-working sessions — reliable anchor blocks per
+  time-zone cluster so there's always a "next wave" to rejoin.
+- Lunch as a first-class status + self-healing rejoin — "out for lunch, back
+  ~1:00"; when a critical mass returns, nudge "Maria & Tom are starting at :00
+  — join?"; on YOUR return: "5 focusing, next break in 12 min — jump in?"
+- "Join me" / invite a teammate to your current room (deep link + ping).
+- Personal 1:1 calls — call a teammate directly (needs presence + notifs).
 
-- Set Preferred entry method between auto or manual so it will always use the user's preferred method
+────────────────────────────────────────────────────────
+## PROGRAM C — Own the break   (engagement / cohesion / retention)
+Nobody makes the break first-class — it's dead countdown time everywhere else.
+Make it restorative, social, and fun; the team breaks in rhythm too.
+- Break deck — activities sized to break length:
+    · Restorative (short breaks): guided stretch, breathing, 20-20-20 eye
+      rest, posture / hydrate nudges. (Wellbeing / anti-burnout angle.)
+    · Co-op (long breaks): quick multiplayer games on the whiteboard canvas
+      (doodle / Pictionary first — cheap on infra you already have), trivia,
+      "this or that" icebreakers.
+  GUARDRAIL: games HARD-STOP when the break ends; refreshing ≠ stimulating.
+- Team-shared streaks + unlocks — the engagement loop. TEAM-shared, not
+  individual (no Duolingo guilt; survives time zones / days off); streak
+  freezes; celebrate milestones, never punish lapses. Unlocks: cosmetic by
+  default (badges, team trophy, new break games, room themes) + OPTIONAL
+  admin-funded real reward (e.g. a "pizza party" an admin configures & pays for).
+- Inter-department co-op challenges — LAST, once the loop is proven. Compete on
+  PARTICIPATION / consistency / hitting a shared goal — NOT raw hours (which
+  rewards overwork and punishes different roles & schedules).
+- Shared media widget — YouTube / music player (shared lo-fi while you work).
+
+────────────────────────────────────────────────────────
+## Cross-cutting QoL   (slot in opportunistically)
+────────────────────────────────────────────────────────
+### Whiteboard
+SHIPPED this session: undo/redo · copy/paste/cut · image nodes (Storage) ·
+markdown in sticky/text/shape · easier resize + edge handles · text-selection
+inside nodes (nodrag) · snap-on-resize · grow-to-fit (shape; text auto-grows).
+- Drawing — freehand pen + laser pointer (ephemeral, for presenting)   [NEW]
+- Grow-to-fit for STICKY (square + author + reactions layout) — deferred
+- Interactive task-list checkboxes (toggle re-writes the markdown source)
+- Double-click empty canvas → new text node at the cursor
+- Alt-drag to clone; ctrl-drag marquee select
+- Multi-select align / distribute / match-size
+- Lock node (prevent accidental move)
+- Export PNG / SVG / PDF
+- Persist viewport (pan/zoom) across reloads — currently resets
+- Comments on nodes
+- Image follow-ups: drag-drop file onto canvas; paste-image from clipboard
+- Edge tuning (parked): side-flip hysteresis, detour cost, parallel-edge fan-out
+
+### Video
+- Keyboard shortcuts (mute, camera, screen share)
+- Use the ROOM chat next to video (provider-agnostic); LiveKit has no chat
+- LiveKit parity: reactions (reuse emote system) + raise hand
+- Push-to-talk
+
+### Rooms
+- Room chat, make it sticky: @mentions (+ notification → feeds Program B),
+  reactions (reuse emote system), unread badge / ping, image paste, pagination
+- Deeper room settings (in-room ⚙️ shipped): topic/description, capacity,
+  default layout, permissions
+- Room topic / status visible from the hallway
+- Idle auto-away; hallway favorites / sort
+
+### Pomodoro / Time tracking
+- Focus intention prompt at session start (feeds Program A)
+- Per-session custom duration (without editing global settings)
+- Idle detection / "log your time" nudge
+- Calendar / heatmap view of logged time
+
+────────────────────────────────────────────────────────
+## Larger / dependent builds
+────────────────────────────────────────────────────────
+- Guest access + waiting room (merges guest-video + guest-room; auth/security)
+- Integrations — Slack (post "team is focusing" / presence → Program B),
+  ClickUp (task source → Program A)
+
+────────────────────────────────────────────────────────
+## Niche / future / heavy
+────────────────────────────────────────────────────────
+- Whiteboard teleport / portal nodes
+- Whiteboard presentation / follow mode (presenter drives everyone's viewport)
+- Video recording / transcription / captions (heavy — LiveKit egress)
+- Screen-share annotation
+- Breakout rooms
+
+## Dropped / folded (redundant with existing features)
+- Temporary room type → use Meeting rooms (auto-close duration already exists)
+- Lucide flowchart widget → covered by the existing whiteboard panel
+
+────────────────────────────────────────────────────────
+## Positioning / the sell   (still TBD, converging)
+────────────────────────────────────────────────────────
+Not "a pomodoro clock that links to tools." Leading frame: the team focuses
+TOGETHER (rhythm), the BREAK is the best part (engagement), and the work
+RECORDS ITSELF (monetization). "Park it" bridges fun → record. The untraveled,
+team-only-ownable angle: collective focus rhythm where the timer protects flow
+and the break is where cohesion happens — all opt-in / IC-owned / non-surveillance.
