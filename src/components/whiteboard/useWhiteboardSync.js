@@ -40,7 +40,7 @@ function stripLocal(o) {
 }
 const idJson = (o) => JSON.stringify(stripLocal(o));
 
-export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, setEdges, name }) {
+export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, setEdges, name, onRemoteApply }) {
   const meId = useRef("");
   if (!meId.current) {
     meId.current = (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -114,6 +114,9 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
   // ── incoming: merge remote ops by id (preserving my local UI state) ──
   const applyOps = useCallback((p) => {
     if (!p || p.from === meId.current) return;
+    // Let undo/redo history absorb peer changes into its baseline so they
+    // never become one of MY undo steps (see useWhiteboardHistory).
+    onRemoteApply?.(p);
     if (p.nodeOps?.length || p.removedNodes?.length) {
       setNodes((nds) => {
         let next = nds;
@@ -151,7 +154,7 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
         return next;
       });
     }
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, onRemoteApply]);
 
   // ── channel lifecycle ──
   useEffect(() => {

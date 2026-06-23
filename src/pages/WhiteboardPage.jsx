@@ -31,6 +31,8 @@ import {
   ChevronDown,
   Smile,
   Timer,
+  Undo2,
+  Redo2,
   Map as MapIcon,
   LayoutTemplate,
 } from "lucide-react";
@@ -78,6 +80,7 @@ import {
   NON_CONNECTABLE,
 } from "../components/whiteboard/edges";
 import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
+import { useWhiteboardHistory } from "../components/whiteboard/useWhiteboardHistory";
 import {
   snapToGrid,
   nodeSnaps,
@@ -363,6 +366,28 @@ function freshId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${_idSeq++}`;
 }
 
+// In-app clipboard for copy / cut / paste. localStorage so it survives
+// navigation between boards and works across tabs. Holds CLEANED nodes/edges
+// keeping their ORIGINAL ids, so paste can remap them — preserving internal
+// edges and frame parenting. (Not the OS clipboard — staying in-app avoids
+// permission prompts and serialization quirks.)
+const WB_CLIPBOARD_KEY = "ql_wb_clipboard";
+function readWbClipboard() {
+  try {
+    const raw = localStorage.getItem(WB_CLIPBOARD_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function writeWbClipboard(payload) {
+  try {
+    localStorage.setItem(WB_CLIPBOARD_KEY, JSON.stringify(payload));
+  } catch {
+    /* storage disabled / quota — clipboard just no-ops */
+  }
+}
+
 export default function WhiteboardPage() {
   const { whiteboardId } = useParams();
   return <WhiteboardBoard boardId={whiteboardId} />;
@@ -467,21 +492,38 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     session?.user?.email?.split("@")[0] ||
     "";
 
+  const collabEnabled = !loading && !!board?.id;
+
+  // ── undo / redo (entity-scoped, multiplayer-safe). Set up BEFORE sync so it
+  // can hand sync its onRemoteApply seam (peer edits fold into the baseline
+  // and never become my undo steps). See useWhiteboardHistory.
+  const { undo, redo, canUndo, canRedo, onRemoteApply } = useWhiteboardHistory({
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    enabled: collabEnabled,
+  });
+
   // ── live collaboration: broadcast node/edge diffs + cursors on top of
   // the snapshot-of-record, plus presence. See useWhiteboardSync.
   const { peers, members, pushCursor } = useWhiteboardSync({
     boardId: board?.id,
-    enabled: !loading && !!board?.id,
+    enabled: collabEnabled,
     nodes,
     edges,
     setNodes,
     setEdges,
     name: myName,
+    onRemoteApply,
   });
+  // Last pointer position in FLOW coords — so paste lands under the cursor.
+  const lastPtRef = useRef(null);
   const onWbPointerMove = useCallback(
     (e) => {
       try {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        lastPtRef.current = { x: p.x, y: p.y };
         pushCursor(p.x, p.y);
       } catch {
         /* */
@@ -507,7 +549,23 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       const board = mainRef.current;
       if (!board || !(board.matches(":hover") || board.contains(el))) return;
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === "=" || e.key === "+")) {
+      const k = e.key.toLowerCase();
+      if (mod && k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (mod && (k === "y" || (k === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      } else if (mod && k === "c") {
+        // Only swallow the key if we actually copied nodes — otherwise let
+        // the browser copy selected text as usual.
+        if (copyRef.current?.()) e.preventDefault();
+      } else if (mod && k === "x") {
+        if (cutRef.current?.()) e.preventDefault();
+      } else if (mod && k === "v") {
+        e.preventDefault();
+        pasteRef.current?.(lastPtRef.current);
+      } else if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
         rf.zoomIn({ duration: 150 });
       } else if (mod && e.key === "-") {
@@ -543,7 +601,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rf]);
+  }, [rf, undo, redo]);
 
   // ── load board metadata + snapshot, seed template if empty ──
   useEffect(() => {
@@ -1094,6 +1152,85 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   const cloneRef = useRef(null);
   cloneRef.current = cloneNodes;
 
+  // ── copy / cut / paste ──────────────────────────────────────────────
+  // Mirrors cloneNodes' id-remap + frame-children + internal-edges handling,
+  // but routed through the in-app clipboard so it works across boards/tabs.
+  // Returns whether anything was copied (so the keydown handler knows whether
+  // to swallow the key vs. let the browser copy text).
+  const copySelection = useCallback(() => {
+    const all = rf.getNodes();
+    const sel = new Set(all.filter((n) => n.selected && n.type !== "zone").map((n) => n.id));
+    if (!sel.size) return false;
+    for (const n of all) if (n.parentId && sel.has(n.parentId)) sel.add(n.id); // frame children ride along
+    const clipNodes = all
+      .filter((n) => sel.has(n.id))
+      .map(({ selected, dragging, resizing, ...rest }) => rest);
+    const clipEdges = rf
+      .getEdges()
+      .filter((e) => sel.has(e.source) && sel.has(e.target)) // edges fully inside the selection
+      .map(({ selected, ...rest }) => rest);
+    writeWbClipboard({ nodes: clipNodes, edges: clipEdges });
+    return true;
+  }, [rf]);
+
+  const pasteClipboard = useCallback((at) => {
+    const clip = readWbClipboard();
+    if (!clip?.nodes?.length) return;
+    const idMap = new Map(clip.nodes.map((n) => [n.id, freshId(n.type || "paste")]));
+    const isChild = (n) => n.parentId && idMap.has(n.parentId);
+    // Drop the cluster under the cursor (or its original spot +offset if we
+    // have no pointer yet). Top-level nodes carry absolute positions; framed
+    // children stay relative to their (also-pasted) frame.
+    const tops = clip.nodes.filter((n) => !isChild(n));
+    let dx = 32, dy = 32;
+    if (at && tops.length) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const n of tops) {
+        const x = n.position?.x ?? 0, y = n.position?.y ?? 0;
+        const w = n.width ?? n.measured?.width ?? 0, h = n.height ?? n.measured?.height ?? 0;
+        minX = Math.min(minX, x); minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+      }
+      dx = at.x - (minX + maxX) / 2;
+      dy = at.y - (minY + maxY) / 2;
+    }
+    const pasted = clip.nodes.map((n) => {
+      const next = { ...n, id: idMap.get(n.id), data: { ...n.data }, selected: true };
+      if (isChild(n)) {
+        next.parentId = idMap.get(n.parentId);   // re-parent to the pasted frame
+        next.position = { ...n.position };         // relative → keep
+      } else {
+        if ("parentId" in next) delete next.parentId; // frame not in the paste → unparent
+        next.position = { x: (n.position?.x ?? 0) + dx, y: (n.position?.y ?? 0) + dy };
+      }
+      return next;
+    });
+    setNodes((nds) =>
+      nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(pasted)
+    );
+    const pastedEdges = (clip.edges || [])
+      .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+      .map((e) => ({
+        ...e,
+        id: freshId("e"),
+        selected: false,
+        source: idMap.get(e.source),
+        target: idMap.get(e.target),
+        data: e.data ? { ...e.data } : e.data, // anchors are node-relative; route re-bases off the new ends
+      }));
+    if (pastedEdges.length) setEdges((eds) => eds.concat(pastedEdges));
+  }, [rf, setNodes, setEdges]);
+
+  const cutSelection = useCallback(() => {
+    if (!copySelection()) return false;
+    deleteSelected();
+    return true;
+  }, [copySelection, deleteSelected]);
+
+  const copyRef = useRef(null); copyRef.current = copySelection;
+  const cutRef = useRef(null); cutRef.current = cutSelection;
+  const pasteRef = useRef(null); pasteRef.current = pasteClipboard;
+
   // ⌘/Ctrl-click a node to drop a clone of it right next to it.
   const onNodeClick = useCallback((e, node) => {
     if ((e.metaKey || e.ctrlKey) && node.type !== "zone") {
@@ -1469,6 +1606,39 @@ function WhiteboardEditor({ boardId, embedded = false }) {
               {saveLabel}
             </span>
           )}
+          <div
+            className={`w-px h-4 ${
+              dark ? "bg-[var(--color-border)]" : "bg-slate-200"
+            }`}
+          />
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (⌘Z)"
+            aria-label="Undo"
+            className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+              !canUndo
+                ? dark ? "text-slate-600 cursor-not-allowed" : "text-slate-300 cursor-not-allowed"
+                : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+            }`}
+          >
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (⌘⇧Z)"
+            aria-label="Redo"
+            className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+              !canRedo
+                ? dark ? "text-slate-600 cursor-not-allowed" : "text-slate-300 cursor-not-allowed"
+                : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+            }`}
+          >
+            <Redo2 className="w-4 h-4" />
+          </button>
           {!compact && (
             <>
               <div
