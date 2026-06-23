@@ -12,6 +12,7 @@ import { TeamProvider } from "./context/TeamContext";
 import { SyncSessionProvider, useSyncSession } from "./context/SyncSessionContext";
 import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import { VideoCallProvider } from "./context/VideoCallContext";
+import LunchReminder from "./components/LunchReminder";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
@@ -160,6 +161,8 @@ function AppLayout({ session }) {
 
   return (
     <div>
+      {/* Out-to-lunch auto-status nudge (renders a prompt at lunch time). */}
+      <LunchReminder />
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis
           here makes this div a scroll container, which traps the sticky
           <header> so it scrolls away and lets content slide under the

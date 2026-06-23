@@ -1199,6 +1199,9 @@ export function AppProvider({ session, children }) {
     if ("name" in patch) dbPatch.name = patch.name || null;
     if ("status" in patch) dbPatch.status = patch.status ?? null;
     if ("presenceState" in patch) dbPatch.presence_state = patch.presenceState || null;
+    if ("lunchTime" in patch) dbPatch.lunch_time = patch.lunchTime || null;
+    if ("lunchMode" in patch) dbPatch.lunch_mode = patch.lunchMode || "off";
+    if ("lunchDurationMin" in patch) dbPatch.lunch_duration_min = patch.lunchDurationMin ?? 60;
     if (Object.keys(dbPatch).length === 0) return;
     if (!session?.user?.id) return;
     await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);

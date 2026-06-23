@@ -1251,6 +1251,7 @@ function NotificationsSection({ dark }) {
     reminderTime, setReminderTime,
     googleToken, googleTokenExpiry,
     connectGoogleSheets, disconnectGoogleSheets,
+    settings, updateSettingsField,
   } = useApp();
   const userId = session?.user?.id;
 
@@ -1304,6 +1305,46 @@ function NotificationsSection({ dark }) {
             >
               Clear
             </button>
+          )}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Lunch break"
+        hint="At your lunch time, flip your status to Out to lunch — automatically, or after a quick prompt. It flips back when the break is over."
+        dark={dark}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex gap-1.5">
+            {[["off", "Off"], ["ask", "Ask me"], ["auto", "Automatic"]].map(([v, l]) => {
+              const on = (settings?.lunchMode || "off") === v;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => updateSettingsField({ lunchMode: v })}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                    on
+                      ? dark ? "bg-orange-500/25 text-orange-200" : "bg-orange-100 text-orange-700"
+                      : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >{l}</button>
+              );
+            })}
+          </div>
+          {(settings?.lunchMode || "off") !== "off" && (
+            <div className="flex items-center gap-2 flex-wrap text-sm">
+              <span className={dark ? "text-slate-400" : "text-slate-500"}>At</span>
+              <TimeSelect value={settings?.lunchTime || ""} onChange={(v) => updateSettingsField({ lunchTime: v || null })} />
+              <span className={dark ? "text-slate-400" : "text-slate-500"}>for</span>
+              <select
+                value={settings?.lunchDurationMin ?? 60}
+                onChange={(e) => updateSettingsField({ lunchDurationMin: Number(e.target.value) })}
+                className={`rounded-lg px-2 py-1.5 text-sm border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`}
+              >
+                {[30, 45, 60, 90].map((m) => <option key={m} value={m}>{m} min</option>)}
+              </select>
+            </div>
           )}
         </div>
       </SectionCard>
