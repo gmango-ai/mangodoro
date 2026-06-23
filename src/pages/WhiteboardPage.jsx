@@ -1694,6 +1694,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   // child (so it moves with the frame); when dragged out, release it.
   const onNodeDragStop = useCallback(
     (_evt, node) => {
+      altCloningRef.current = false; // re-arm alt-drag clone for the next drag
       if (helperShownRef.current) {
         setHelperLines(NO_LINES);
         helperShownRef.current = false;
@@ -1980,6 +1981,41 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   // Ref so the keydown handler (subscribed once) can call the latest clone fn.
   const cloneRef = useRef(null);
   cloneRef.current = cloneNodes;
+
+  // Alt/Option-drag = clone: at drag start, drop a copy of the dragged node(s)
+  // in place (unselected) and let the ORIGINALS keep dragging — so you pull a
+  // duplicate out, leaving the copy behind. Guarded so we clone once per drag.
+  const altCloningRef = useRef(false);
+  const onNodeDragStartClone = useCallback((event, node) => {
+    const alt = event?.altKey ?? event?.sourceEvent?.altKey;
+    if (!alt || altCloningRef.current) return;
+    altCloningRef.current = true;
+    const all = rf.getNodes();
+    const ids = node.selected
+      ? all.filter((n) => n.selected && n.type !== "zone").map((n) => n.id)
+      : [node.id];
+    const set = new Set(ids);
+    for (const n of all) if (n.parentId && set.has(n.parentId)) set.add(n.id); // frame children ride along
+    const src = all.filter((n) => set.has(n.id) && n.type !== "zone");
+    if (!src.length) return;
+    const idMap = new Map(src.map((n) => [n.id, freshId(n.type || "dup")]));
+    const clones = src.map((n) => {
+      const next = { ...n, id: idMap.get(n.id), data: { ...n.data }, selected: false, dragging: false };
+      if (n.parentId && idMap.has(n.parentId)) next.parentId = idMap.get(n.parentId);
+      next.position = { ...n.position }; // SAME spot — the copy stays put
+      return next;
+    });
+    setNodes((nds) => nds.concat(clones));
+    setEdges((eds) => {
+      const inside = eds.filter((e) => idMap.has(e.source) && idMap.has(e.target));
+      if (!inside.length) return eds;
+      return eds.concat(inside.map((e) => ({
+        ...e, id: freshId("e"), selected: false,
+        source: idMap.get(e.source), target: idMap.get(e.target),
+        data: e.data ? { ...e.data } : e.data,
+      })));
+    });
+  }, [rf, setNodes, setEdges]);
 
   // ── copy / cut / paste ──────────────────────────────────────────────
   // Mirrors cloneNodes' id-remap + frame-children + internal-edges handling,
@@ -2365,6 +2401,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onReconnect={onReconnect}
+        onNodeDragStart={onNodeDragStartClone}
         onNodeDragStop={onNodeDragStop}
         onNodeClick={onNodeClick}
         onDoubleClick={tool === "select" ? onPaneDoubleClick : undefined}
