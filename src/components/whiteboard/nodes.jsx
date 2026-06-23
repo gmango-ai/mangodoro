@@ -88,6 +88,17 @@ function vAlignFlex(v) {
 const PENDING_EDIT = new Set();
 export function markNodeForEdit(id) { if (id) PENDING_EDIT.add(id); }
 
+// The textarea currently being edited registers a "wrap the selection in
+// markdown" handler here, so a toolbar button (Inspector B / I) can format the
+// LIVE selection without stealing focus. Returns false when nothing is being
+// edited (the caller can then fall back to toggling the whole node's text).
+const activeEditor = { current: null };
+export function wrapActiveSelection(marker) {
+  if (!activeEditor.current) return false;
+  activeEditor.current(marker);
+  return true;
+}
+
 // Shared text editor used inside the sticky / text / shape nodes.
 // Stops propagating wheel + pointerdown so the canvas doesn't pan under
 // the cursor mid-edit. Opens immediately for freshly-created nodes
@@ -113,6 +124,38 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
       el.style.height = "auto";
       el.style.height = `${Math.min(el.scrollHeight, 480)}px`;
     }
+  }, [editing]);
+
+  // Register a selection-wrapper while editing so the Inspector B / I buttons
+  // can markdown-format the live selection (their mouse-down keeps our focus).
+  useEffect(() => {
+    if (!editing) return undefined;
+    const fn = (marker) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const s = el.selectionStart ?? 0, e = el.selectionEnd ?? 0;
+      const val = el.value, sel = val.slice(s, e), ml = marker.length;
+      let next, selStart, selEnd;
+      if (sel.length >= 2 * ml && sel.startsWith(marker) && sel.endsWith(marker)) {
+        const inner = sel.slice(ml, sel.length - ml); // already wrapped → toggle off
+        next = val.slice(0, s) + inner + val.slice(e);
+        selStart = s; selEnd = s + inner.length;
+      } else {
+        next = val.slice(0, s) + marker + sel + marker + val.slice(e);
+        selStart = s + ml; selEnd = e + ml;
+      }
+      setDraft(next.slice(0, 1000));
+      requestAnimationFrame(() => {
+        const t = textareaRef.current;
+        if (!t) return;
+        t.focus();
+        try { t.setSelectionRange(selStart, selEnd); } catch { /* */ }
+        t.style.height = "auto";
+        t.style.height = `${t.scrollHeight}px`;
+      });
+    };
+    activeEditor.current = fn;
+    return () => { if (activeEditor.current === fn) activeEditor.current = null; };
   }, [editing]);
 
   const commit = useCallback(() => {

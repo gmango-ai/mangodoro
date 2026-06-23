@@ -1,10 +1,23 @@
 import { useState } from "react";
-import { Magnet, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
-import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex } from "./nodes";
+import { Magnet, AlignLeft, AlignCenter, AlignRight, Bold, Italic } from "lucide-react";
+import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex, wrapActiveSelection } from "./nodes";
 import { Pill, ToolDivider, Dropdown, SwatchGrid, Opt } from "./toolbarUI";
 import { nodeSnaps } from "./snapping";
 
 const LEGACY_SHAPE = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
+
+// Toggle a markdown marker around the WHOLE node text — the fallback when no
+// live selection is being edited (B / I clicked on a selected-but-not-editing
+// node).
+function toggleWholeMarkdown(text, marker) {
+  const t = text || "";
+  if (!t.trim()) return t;
+  const ml = marker.length;
+  if (t.length >= 2 * ml && t.startsWith(marker) && t.endsWith(marker)) {
+    return t.slice(ml, t.length - ml);
+  }
+  return marker + t + marker;
+}
 
 function ShapeMini({ shape }) {
   return (
@@ -213,6 +226,33 @@ export default function Inspector({ node, patchNodeData }) {
             ))}
           </div>
         </Dropdown>
+
+        {isTextable && (
+          <>
+            <button
+              type="button"
+              title="Bold (selection, or whole text)"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                if (!wrapActiveSelection("**")) patchNodeData({ text: toggleWholeMarkdown(node.data?.text, "**") });
+              }}
+              className="h-7 w-7 rounded-md flex items-center justify-center text-white/75 hover:bg-white/10"
+            >
+              <Bold className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              title="Italic (selection, or whole text)"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                if (!wrapActiveSelection("_")) patchNodeData({ text: toggleWholeMarkdown(node.data?.text, "_") });
+              }}
+              className="h-7 w-7 rounded-md flex items-center justify-center text-white/75 hover:bg-white/10"
+            >
+              <Italic className="w-4 h-4" />
+            </button>
+          </>
+        )}
 
         {isTextable && (
           <Dropdown
