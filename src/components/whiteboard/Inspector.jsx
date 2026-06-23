@@ -163,7 +163,7 @@ export default function Inspector({ node, patchNodeData }) {
             title="Fill"
             icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: fill }} />}
           >
-            <SwatchGrid value={fill} onPick={(c) => { patchNodeData({ fill: c }); setOpen(null); }} />
+            <SwatchGrid value={fill} onPick={(c) => { patchNodeData({ fill: c }); setOpen(null); }} onLive={(c) => patchNodeData({ fill: c })} />
           </Dropdown>
         ) : (
           <>
@@ -175,9 +175,9 @@ export default function Inspector({ node, patchNodeData }) {
               title="Background"
               icon={<span className="w-4 h-4 rounded-full border border-white/40" style={{ background: node.data?.fill || "transparent", borderStyle: node.data?.fill ? "solid" : "dashed" }} />}
             >
-              <div className="p-1" style={{ width: 180 }}>
+              <div>
                 <Opt active={!node.data?.fill} onClick={() => { patchNodeData({ fill: null }); setOpen(null); }}>None</Opt>
-                <SwatchGrid value={node.data?.fill} onPick={(c) => { patchNodeData({ fill: c }); setOpen(null); }} />
+                <SwatchGrid value={node.data?.fill} onPick={(c) => { patchNodeData({ fill: c }); setOpen(null); }} onLive={(c) => patchNodeData({ fill: c })} />
               </div>
             </Dropdown>
             {node.data?.fill && (
@@ -221,7 +221,7 @@ export default function Inspector({ node, patchNodeData }) {
             title="Border"
             icon={<span className="w-4 h-4 rounded-full border-2" style={{ borderColor: stroke }} />}
           >
-            <SwatchGrid value={stroke} onPick={(c) => { patchNodeData({ stroke: c }); setOpen(null); }} />
+            <SwatchGrid value={stroke} onPick={(c) => { patchNodeData({ stroke: c }); setOpen(null); }} onLive={(c) => patchNodeData({ stroke: c })} />
           </Dropdown>
         )}
 
@@ -238,10 +238,10 @@ export default function Inspector({ node, patchNodeData }) {
               >T</span>
             }
           >
-            <div className="p-1" style={{ width: 180 }}>
+            <div>
               <Opt active={!labelBg || labelBg === "none"} onClick={() => { patchNodeData({ labelBg: "none" }); setOpen(null); }}>Transparent</Opt>
               <Opt active={labelBg === "tint"} onClick={() => { patchNodeData({ labelBg: "tint" }); setOpen(null); }}>Frame colour</Opt>
-              <SwatchGrid value={labelBg} onPick={(c) => { patchNodeData({ labelBg: c }); setOpen(null); }} />
+              <SwatchGrid value={labelBg} onPick={(c) => { patchNodeData({ labelBg: c }); setOpen(null); }} onLive={(c) => patchNodeData({ labelBg: c })} />
             </div>
           </Dropdown>
         )}
@@ -306,7 +306,6 @@ export default function Inspector({ node, patchNodeData }) {
             open={open}
             setOpen={setOpen}
             title="Text colour"
-            width={180}
             icon={
               <span
                 className="text-[13px] font-extrabold leading-none"
@@ -314,9 +313,9 @@ export default function Inspector({ node, patchNodeData }) {
               >A</span>
             }
           >
-            <div className="p-1" style={{ width: 180 }}>
+            <div>
               <Opt active={!curTextColor} onClick={() => { patchNodeData({ textColor: null }); setOpen(null); }}>Auto (contrast)</Opt>
-              <SwatchGrid value={curTextColor} onPick={(c) => { patchNodeData({ textColor: c }); setOpen(null); }} />
+              <SwatchGrid value={curTextColor} onPick={(c) => { patchNodeData({ textColor: c }); setOpen(null); }} onLive={(c) => patchNodeData({ textColor: c })} />
             </div>
           </Dropdown>
         )}

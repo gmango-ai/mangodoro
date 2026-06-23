@@ -53,8 +53,11 @@ export function Dropdown({ openKey, open, setOpen, icon, title, width, children 
   );
 }
 
-// A 6-wide grid of colour swatches for a Dropdown panel.
-export function SwatchGrid({ value, onPick }) {
+// A 6-wide grid of colour swatches for a Dropdown panel, ending in a custom
+// colour well. `onLive` (optional) previews the native picker as you drag
+// WITHOUT committing/closing — onPick is the final commit (swatch click).
+export function SwatchGrid({ value, onPick, onLive }) {
+  const live = onLive || onPick;
   // Fixed-width tracks (not fractional grid-cols) so swatches keep their full
   // size and gap no matter how the panel sizes itself — no overlap.
   return (
@@ -68,6 +71,21 @@ export function SwatchGrid({ value, onPick }) {
           style={{ width: 24, height: 24, background: c, outline: value === c ? "2px solid #fff" : "none", outlineOffset: 2 }}
         />
       ))}
+      <label
+        title="Custom colour"
+        className="rounded-full overflow-hidden inline-flex items-center justify-center cursor-pointer border border-white/30"
+        style={{ width: 24, height: 24, background: "conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red)" }}
+      >
+        <input
+          type="color"
+          value={/^#[0-9a-fA-F]{6}$/.test(value || "") ? value : "#888888"}
+          // Live-preview while dragging the native picker; never auto-close, so
+          // you can keep adjusting (click a swatch or click away to finish).
+          onInput={(e) => live(e.target.value)}
+          onChange={(e) => live(e.target.value)}
+          style={{ width: 30, height: 30, margin: -3, padding: 0, border: "none", background: "none", cursor: "pointer", opacity: 0 }}
+        />
+      </label>
     </div>
   );
 }
