@@ -388,19 +388,30 @@ html.electron-popover body::before {
   inset: -3px; /* ~18px grab target around the 12px dot */
   border-radius: 9999px;
 }
-/* NodeResizer CORNER handles: bigger + a modest invisible margin. We do
- * NOT enlarge the side LINES — that corridor used to sit on top of the
- * connection dots and steal their clicks. Resize from a corner, or from
- * the edge away from the midpoint. */
+/* NodeResizer handles. Corners get a bigger dot + invisible margin, and the
+ * side LINES get a modest invisible grab corridor too so you can resize by
+ * dragging an edge — not just a corner. The connection dots sit at the side
+ * MIDPOINTS with a higher z-index (12, inline) than these controls (6), so the
+ * midpoint still starts a connection and the corridor takes the rest of the
+ * edge. (An earlier widening stole the dots' clicks for lack of this z-order.) */
 .react-flow__resize-control.handle {
-  width: 12px !important;
-  height: 12px !important;
+  width: 13px !important;
+  height: 13px !important;
   border-radius: 3px;
+  z-index: 6;
 }
 .react-flow__resize-control.handle::after {
   content: "";
   position: absolute;
-  inset: -6px; /* ~24px grab target, small enough not to bleed onto neighbours */
+  inset: -7px; /* ~27px grab target, small enough not to bleed onto neighbours */
+}
+.react-flow__resize-control.line {
+  z-index: 6;
+}
+.react-flow__resize-control.line::after {
+  content: "";
+  position: absolute;
+  inset: -5px; /* ~11px grab corridor along the edge (dots win at the midpoint) */
 }
 
 /* Whiteboard sticky note — real-paper feel: a soft drop shadow (set inline)

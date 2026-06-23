@@ -130,7 +130,11 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
       }}
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
-      className={`resize-none border-none outline-none bg-transparent overflow-hidden ${className || ""}`}
+      // `nodrag`/`nowheel` are the canonical React Flow opt-outs: with them the
+      // canvas won't start a node drag (or pan/zoom) on a pointer-down inside
+      // the textarea, so click-drag SELECTS text instead of moving the node.
+      // (stopPropagation alone can't stop d3-drag's capture-phase listener.)
+      className={`nodrag nowheel resize-none border-none outline-none bg-transparent overflow-hidden ${className || ""}`}
       style={{ ...style, width: "100%" }}
     />
   );
