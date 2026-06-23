@@ -222,10 +222,11 @@ export function CollabCursors({ peers }) {
 }
 
 // My own laser glow, in SCREEN space, following the OS pointer directly (no
-// network round-trip, so it tracks tightly). Rendered outside the flow so it
-// sits over the canvas while laser mode is on; position:fixed = viewport
-// coords = clientX/Y exactly.
-export function LocalLaser({ active, color = "#ef4444" }) {
+// network round-trip, so it tracks tightly). `active` keeps it mounted +
+// tracking the pointer while laser mode is on; `show` reveals the dot only
+// while pressing — so it appears instantly at the right spot the moment you
+// click (position is already tracked) and hides otherwise.
+export function LocalLaser({ active, show, color = "#ef4444" }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!active) return;
@@ -243,6 +244,7 @@ export function LocalLaser({ active, color = "#ef4444" }) {
       style={{
         position: "fixed", left: 0, top: 0, pointerEvents: "none", zIndex: 55,
         willChange: "transform", transform: "translate(-9999px, -9999px)",
+        opacity: show ? 1 : 0, transition: "opacity .08s ease",
       }}
     >
       <LaserDot color={color} />
