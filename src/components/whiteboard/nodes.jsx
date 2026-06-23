@@ -77,6 +77,11 @@ function readableText(bg) {
   return lum > 0.6 ? "#0f172a" : "#f1f5f9";
 }
 
+// Vertical text placement (data.vAlign) → flexbox alignment for the text box.
+function vAlignFlex(v) {
+  return v === "top" ? "flex-start" : v === "bottom" ? "flex-end" : "center";
+}
+
 // Nodes that should open straight into edit mode (just created via the
 // toolbar or a quick-add pull). Tracked outside node data so the flag
 // never persists to the snapshot or syncs to peers.
@@ -298,8 +303,8 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         </button>
       )}
 
-      {/* Centred note text. */}
-      <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+      {/* Note text — vertical placement, alignment + colour are per-note. */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: vAlignFlex(data?.vAlign), justifyContent: "center", overflow: "hidden" }}>
         <EditableText
           value={data?.text}
           onChange={setText}
@@ -307,7 +312,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
           nodeId={id}
           selected={selected}
           markdown
-          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: "center", color: ink }}
+          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink }}
         />
       </div>
 
@@ -402,7 +407,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         nodeId={id}
         selected={selected}
         markdown
-        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3 }}
+        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: data?.textColor || "var(--color-text)" }}
       />
     </div>
   );
@@ -552,7 +557,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
         <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={sw} />
       </svg>
       <FourHandles />
-      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 14px" }}>
+      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: vAlignFlex(data?.vAlign), justifyContent: "center", padding: "10px 14px" }}>
         <div ref={growRef} style={{ width: "100%", minWidth: 0 }}>
           <EditableText
             value={data?.text}
@@ -561,7 +566,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
             nodeId={id}
             selected={selected}
             markdown
-            style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: "center", color: textColor }}
+            style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor }}
           />
         </div>
       </div>

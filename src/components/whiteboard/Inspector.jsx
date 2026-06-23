@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Magnet } from "lucide-react";
+import { Magnet, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex } from "./nodes";
 import { Pill, ToolDivider, Dropdown, SwatchGrid, Opt } from "./toolbarUI";
 import { nodeSnaps } from "./snapping";
@@ -105,6 +105,10 @@ export default function Inspector({ node, patchNodeData }) {
   const stickyColor = stickyHex(node.data?.color);
   const hasPre = isShape || isSticky || !isText; // any control before the text size
   const snapping = nodeSnaps(node); // grid + alignment snapping for this item
+  const isTextable = isSticky || isText || isShape;
+  const curAlign = node.data?.textAlign || (isText ? "left" : "center");
+  const curVAlign = node.data?.vAlign || "middle";
+  const curTextColor = node.data?.textColor || null;
 
   const stop = (e) => e.stopPropagation();
 
@@ -209,6 +213,76 @@ export default function Inspector({ node, patchNodeData }) {
             ))}
           </div>
         </Dropdown>
+
+        {isTextable && (
+          <Dropdown
+            openKey="textcolor"
+            open={open}
+            setOpen={setOpen}
+            title="Text colour"
+            width={180}
+            icon={
+              <span
+                className="text-[13px] font-extrabold leading-none"
+                style={{ color: curTextColor || "#fff", textShadow: curTextColor ? "0 0 2px rgba(0,0,0,.7)" : "none" }}
+              >A</span>
+            }
+          >
+            <div className="p-1" style={{ width: 180 }}>
+              <Opt active={!curTextColor} onClick={() => { patchNodeData({ textColor: null }); setOpen(null); }}>Auto (contrast)</Opt>
+              <SwatchGrid value={curTextColor} onPick={(c) => { patchNodeData({ textColor: c }); setOpen(null); }} />
+            </div>
+          </Dropdown>
+        )}
+
+        {isTextable && (
+          <Dropdown
+            openKey="align"
+            open={open}
+            setOpen={setOpen}
+            title="Alignment"
+            width={160}
+            icon={<AlignCenter className="w-4 h-4" />}
+          >
+            <div className="p-1.5" style={{ width: 160 }}>
+              <div className="text-[10px] uppercase tracking-wide text-white/40 px-1 pb-1">Horizontal</div>
+              <div className="flex gap-1 px-0.5 pb-2">
+                {[["left", AlignLeft], ["center", AlignCenter], ["right", AlignRight]].map(([val, Icon]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    title={val}
+                    onClick={() => patchNodeData({ textAlign: val })}
+                    className={`h-7 flex-1 rounded-md flex items-center justify-center transition-colors ${
+                      curAlign === val ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </button>
+                ))}
+              </div>
+              {(isSticky || isShape) && (
+                <>
+                  <div className="text-[10px] uppercase tracking-wide text-white/40 px-1 pb-1">Vertical</div>
+                  <div className="flex gap-1 px-0.5">
+                    {[["top", "Top"], ["middle", "Mid"], ["bottom", "Bot"]].map(([val, label]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => patchNodeData({ vAlign: val })}
+                        className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                          curVAlign === val ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </Dropdown>
+        )}
 
         <ToolDivider />
         {/* Per-item snapping toggle (grid + alignment). Stickies default off. */}
