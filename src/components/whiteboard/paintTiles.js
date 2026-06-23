@@ -23,6 +23,11 @@ export function createPaintStore(onCreate) {
   return { tiles: new Map(), strokes: new Map(), onCreate };
 }
 
+// Materialise a tile without drawing (used when loading a persisted PNG in).
+export function ensureTile(store, tx, ty) {
+  return getOrCreateTile(store, tx, ty);
+}
+
 function getOrCreateTile(store, tx, ty) {
   const key = tileKey(tx, ty);
   let tile = store.tiles.get(key);

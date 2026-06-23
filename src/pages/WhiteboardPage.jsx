@@ -959,7 +959,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         }
         // Raster brush: rasterise locally each move; batch the broadcast.
         if (paintStrokeIdRef.current) {
-          paintRef.current?.apply({ id: paintStrokeIdRef.current, brush: paintBrushRef.current, pts: [[p.x, p.y]] });
+          paintRef.current?.apply({ id: paintStrokeIdRef.current, brush: paintBrushRef.current, pts: [[p.x, p.y]] }, true);
           paintBatchRef.current.push([p.x, p.y]);
           const now = Date.now();
           if (now - paintLastFlushRef.current > 70) { paintLastFlushRef.current = now; flushPaint(); }
@@ -1020,7 +1020,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         paintBrushRef.current = brush;
         paintBatchRef.current = [[p.x, p.y]];
         paintLastFlushRef.current = Date.now();
-        paintRef.current?.apply({ id, brush, pts: [[p.x, p.y]] });
+        paintRef.current?.apply({ id, brush, pts: [[p.x, p.y]] }, true);
       }
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
       e.preventDefault();
@@ -1078,7 +1078,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         // Flush the tail + tell peers the stroke ended; close it locally too.
         pushPaint({ id, brush: paintBrushRef.current, pts: paintBatchRef.current, end: true });
         paintBatchRef.current = [];
-        paintRef.current?.apply({ id, brush: paintBrushRef.current, pts: [], end: true });
+        paintRef.current?.apply({ id, brush: paintBrushRef.current, pts: [], end: true }, true);
         paintStrokeIdRef.current = null;
         return;
       }
@@ -2344,8 +2344,9 @@ function WhiteboardEditor({ boardId, embedded = false }) {
           size={1.6}
           color={dark ? "rgba(255,255,255,.06)" : "rgba(120,80,20,.14)"}
         />
-        {/* Tiled raster paint layer (collaborative; strokes sync as vectors). */}
-        <PaintLayer ref={paintRef} />
+        {/* Tiled raster paint layer (collaborative; strokes sync as vectors,
+            tiles persist to Storage). */}
+        <PaintLayer ref={paintRef} boardId={board?.id} enabled={collabEnabled} />
         {(helperLines.vertical || helperLines.horizontal) && (
           <HelperLines
             vertical={helperLines.vertical}
