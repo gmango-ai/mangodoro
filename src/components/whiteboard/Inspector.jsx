@@ -98,6 +98,9 @@ export default function Inspector({ node, patchNodeData, setLocked, onReorder, s
   const isShape = ["shape", "rect", "ellipse", "diamond"].includes(node.type);
   const isText = node.type === "text";
   const isFrame = node.type === "frame";
+  const isDraw = node.type === "draw";
+  const curStrokeColor = node.data?.color || "#0f172a";
+  const curPenWidth = node.data?.strokeWidth ?? 3;
   const labelBg = node.data?.labelBg; // frame title background: undefined/"none" | "tint" | hex
   const labelBgColor = labelBg === "tint" ? (node.data?.fill || "#0ea5e9") : (labelBg && labelBg !== "none" ? labelBg : null);
   const curFont = node.data?.fontSize || (isText ? 16 : isFrame ? 20 : 13);
@@ -132,7 +135,43 @@ export default function Inspector({ node, patchNodeData, setLocked, onReorder, s
           </Dropdown>
         )}
 
-        {isSticky ? (
+        {isDraw ? (
+          <>
+            <Dropdown
+              openKey="fill"
+              open={open}
+              setOpen={setOpen}
+              title="Stroke colour"
+              icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: curStrokeColor }} />}
+            >
+              <SwatchGrid value={curStrokeColor} onPick={(c) => { patchNodeData({ color: c }); setOpen(null); }} onLive={(c) => patchNodeData({ color: c })} />
+            </Dropdown>
+            <Dropdown
+              openKey="border"
+              open={open}
+              setOpen={setOpen}
+              title="Stroke width"
+              width={150}
+              icon={<span className="text-[11px] font-semibold text-white/80">{curPenWidth}px</span>}
+            >
+              <div className="p-1.5" style={{ width: 150 }}>
+                <div className="text-[10px] uppercase tracking-wide text-white/40 px-0.5 pb-1">Width</div>
+                <div className="flex gap-1">
+                  {[["Fine", 2], ["Medium", 4], ["Bold", 8]].map(([label, w]) => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => patchNodeData({ strokeWidth: w })}
+                      className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                        curPenWidth === w ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+                      }`}
+                    >{label}</button>
+                  ))}
+                </div>
+              </div>
+            </Dropdown>
+          </>
+        ) : isSticky ? (
           <Dropdown
             openKey="fill"
             open={open}
@@ -269,8 +308,8 @@ export default function Inspector({ node, patchNodeData, setLocked, onReorder, s
 
         {hasPre && <ToolDivider />}
 
-        {/* Goal / frame keep a simple size control. */}
-        {!isTextable && (
+        {/* Goal / frame keep a simple size control (draw has no text). */}
+        {!isTextable && !isDraw && (
           <Dropdown
             openKey="text"
             open={open}

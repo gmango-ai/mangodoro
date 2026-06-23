@@ -27,7 +27,7 @@ const STUB = 22; // min distance an edge travels perpendicular before bending
 
 // Edges only attach to flowchart shapes. Containers and content nodes —
 // frames, zones, sticky notes, goals — are never edge endpoints.
-export const NON_CONNECTABLE = new Set(["frame", "zone", "sticky", "goal"]);
+export const NON_CONNECTABLE = new Set(["frame", "zone", "sticky", "goal", "draw"]);
 
 function stubDir(pos) {
   return pos === "left" ? [-1, 0] : pos === "right" ? [1, 0] : pos === "top" ? [0, -1] : [0, 1];

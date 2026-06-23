@@ -18,6 +18,7 @@ import {
   NodeToolbar,
   Position,
   getNodesBounds,
+  ViewportPortal,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -73,6 +74,7 @@ import {
   STICKY_PALETTE,
   stickyHex,
   markNodeForEdit,
+  strokePath,
 } from "../components/whiteboard/nodes";
 import {
   nodeAbsPos,
@@ -436,6 +438,105 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
   );
 }
 
+// Freehand pen tool for the rail: the button toggles draw mode; the chevron
+// opens colour + width options (mirrors StickyTool / TextTool). Strokes commit
+// as draw nodes (see DrawNode), so they persist, sync and undo like anything.
+function PenTool({ dark, active, style, setStyle, onToggle }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title={active ? "Pen (on) — Esc to exit" : "Pen — draw freehand"}
+        aria-label="Pen"
+        aria-pressed={active}
+        onClick={onToggle}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+          active
+            ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
+            : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+        }`}
+      >
+        <Pencil className="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        title="Pen options"
+        aria-label="Pen options"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+          dark
+            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
+            : "bg-white text-slate-500 border border-slate-200"
+        }`}
+      >
+        <ChevronDown className="w-2.5 h-2.5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
+              dark
+                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+                : "bg-white border-slate-200"
+            }`}
+            style={{ width: 188 }}
+          >
+            <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              Pen colour
+            </div>
+            <div className="grid grid-cols-6 gap-1">
+              {PEN_COLORS.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  title={hex}
+                  onClick={() => setStyle((s) => ({ ...s, color: hex }))}
+                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
+                  style={{
+                    background: hex,
+                    outline: style.color.toLowerCase() === hex.toLowerCase() ? "2px solid #f97316" : "none",
+                    outlineOffset: 1,
+                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
+                  }}
+                />
+              ))}
+            </div>
+            <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(style.color) ? style.color : "#0f172a"}
+                onChange={(e) => setStyle((s) => ({ ...s, color: e.target.value }))}
+                style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+              />
+              Custom colour
+            </label>
+            <div className={`text-[10px] font-bold uppercase tracking-wide mt-2.5 mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              Width
+            </div>
+            <div className="flex gap-1">
+              {PEN_WIDTHS.map(([label, w]) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setStyle((s) => ({ ...s, width: w }))}
+                  className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                    style.width === w
+                      ? dark ? "bg-white/15 text-white" : "bg-slate-200 text-slate-700"
+                      : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 let _idSeq = 1;
 function freshId(prefix) {
   // 36ms time + counter is plenty to avoid id collisions inside one
@@ -493,6 +594,24 @@ function loadTextStyle() {
 }
 function saveTextStyle(style) {
   try { localStorage.setItem(TEXT_STYLE_KEY, JSON.stringify(style || {})); } catch { /* */ }
+}
+
+// Remembered pen colour + width for the freehand tool (per device).
+const PEN_STYLE_KEY = "ql_wb_pen_style";
+const PEN_COLORS = [
+  "#0f172a", "#475569", "#ef4444", "#f97316", "#f59e0b", "#22c55e",
+  "#14b8a6", "#0ea5e9", "#6366f1", "#a855f7", "#ec4899", "#ffffff",
+];
+const PEN_WIDTHS = [["Fine", 2], ["Medium", 4], ["Bold", 8]];
+function loadPenStyle() {
+  try {
+    const v = JSON.parse(localStorage.getItem(PEN_STYLE_KEY) || "null");
+    if (v && typeof v.color === "string") return { color: v.color, width: v.width || 4 };
+  } catch { /* */ }
+  return { color: "#0f172a", width: 4 };
+}
+function savePenStyle(style) {
+  try { localStorage.setItem(PEN_STYLE_KEY, JSON.stringify(style)); } catch { /* */ }
 }
 
 export default function WhiteboardPage() {
@@ -632,11 +751,24 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     onRemoteApply,
   });
 
-  // Active canvas tool: "select" (default) or "laser" (ephemeral pointer for
-  // presenting — gates node interaction so you can't accidentally move things).
+  // Active canvas tool: "select" (default), "laser" (ephemeral presenting
+  // pointer) or "pen" (freehand draw). Laser/pen gate node interaction so you
+  // can gesture/draw over the board without disturbing it.
   const [tool, setTool] = useState("select");
   const toolRef = useRef(tool);
   toolRef.current = tool;
+
+  // Pen colour + width (persisted per device). A ref so the pointer handlers
+  // read the latest without re-subscribing.
+  const [penStyle, setPenStyle] = useState(loadPenStyle);
+  const penStyleRef = useRef(penStyle);
+  penStyleRef.current = penStyle;
+  useEffect(() => { savePenStyle(penStyle); }, [penStyle]);
+
+  // In-progress freehand stroke (FLOW coords) + its rAF-batched live preview.
+  const drawingRef = useRef(null);
+  const drawRafRef = useRef(0);
+  const [drawPath, setDrawPath] = useState(null);
 
   // Last pointer position in FLOW coords — so paste lands under the cursor.
   const lastPtRef = useRef(null);
@@ -646,11 +778,86 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         lastPtRef.current = { x: p.x, y: p.y };
         pushCursor(p.x, p.y, toolRef.current === "laser");
+        const dr = drawingRef.current;
+        if (dr) {
+          const last = dr.points[dr.points.length - 1];
+          // Drop near-duplicate samples so the path stays light.
+          if (!last || Math.abs(p.x - last[0]) + Math.abs(p.y - last[1]) > 1.2) {
+            dr.points.push([p.x, p.y]);
+            if (!drawRafRef.current) {
+              drawRafRef.current = requestAnimationFrame(() => {
+                drawRafRef.current = 0;
+                setDrawPath(strokePath(drawingRef.current?.points || []));
+              });
+            }
+          }
+        }
       } catch {
         /* */
       }
     },
     [rf, pushCursor]
+  );
+
+  // Pen down: begin a stroke. Capture-phase so it wins over the (disabled in
+  // pen mode) ReactFlow pane/node handlers, and works when starting over a
+  // node. Only fires inside the canvas, never over the toolbar/controls.
+  const onWbPointerDownCapture = useCallback(
+    (e) => {
+      if (toolRef.current !== "pen" || e.button !== 0) return;
+      const t = e.target;
+      if (!(t instanceof Element) || !t.closest(".react-flow") || t.closest(".react-flow__panel")) return;
+      let p;
+      try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
+      drawingRef.current = { points: [[p.x, p.y]] };
+      setDrawPath(strokePath(drawingRef.current.points));
+      try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
+      e.preventDefault();
+    },
+    [rf]
+  );
+
+  // Pen up: commit the stroke as a draw node (bbox-relative points). Tiny taps
+  // are dropped. The node carries pointerEvents:none so it's click-through
+  // except along the line (see DrawNode).
+  const finishStroke = useCallback(() => {
+    const dr = drawingRef.current;
+    drawingRef.current = null;
+    if (drawRafRef.current) { cancelAnimationFrame(drawRafRef.current); drawRafRef.current = 0; }
+    setDrawPath(null);
+    if (!dr || dr.points.length < 2) return;
+    const pts = dr.points;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of pts) {
+      if (x < minX) minX = x; if (y < minY) minY = y;
+      if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+    }
+    const { color, width } = penStyleRef.current;
+    const pad = Math.max(width, 4);
+    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+    if (w < 4 && h < 4) return; // discard a stray dot
+    const rel = pts.map(([x, y]) => [Math.round((x - minX) * 10) / 10, Math.round((y - minY) * 10) / 10]);
+    const node = {
+      id: freshId("draw"),
+      type: "draw",
+      position: { x: minX, y: minY },
+      width: w,
+      height: h,
+      style: { pointerEvents: "none" },
+      data: { points: rel, color, strokeWidth: width, w, h },
+    };
+    // Don't auto-select — keep the pen flowing for the next stroke.
+    setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(node));
+  }, [setNodes]);
+
+  const onWbPointerUp = useCallback(
+    (e) => {
+      if (!drawingRef.current) return;
+      try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+      finishStroke();
+    },
+    [finishStroke]
   );
 
   // On a tool switch, push one cursor update reflecting the new mode so peers
@@ -1842,11 +2049,16 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       // gesture area so taps there don't trigger an OS swipe. env() = 0 on
       // desktop, so it's a no-op there.
       className={`relative w-full overflow-hidden ${
+        tool === "pen" ? "wb-pen " : ""
+      }${
         embedded
           ? "h-full"
           : "h-[calc(100dvh-3.5rem-var(--top-inset)-var(--bottom-inset))] sm:h-[calc(100dvh-4rem-var(--top-inset)-var(--bottom-inset))]"
       }`}
       onPointerMove={onWbPointerMove}
+      onPointerDownCapture={onWbPointerDownCapture}
+      onPointerUp={onWbPointerUp}
+      onPointerCancel={onWbPointerUp}
     >
       <EdgeMarkerDefs />
       <ReactFlow
@@ -1910,6 +2122,22 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
+
+        {/* Live preview of the freehand stroke in progress (flow space). */}
+        {drawPath && (
+          <ViewportPortal>
+            <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 6 }}>
+              <path
+                d={drawPath}
+                fill="none"
+                stroke={penStyle.color}
+                strokeWidth={penStyle.width}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </ViewportPortal>
+        )}
 
         {/* Align / distribute toolbar — only with 2+ top-level nodes selected. */}
         {multiCount >= 2 && (
@@ -2021,6 +2249,13 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             className={`h-px w-5 my-0.5 ${
               dark ? "bg-[var(--color-border)]" : "bg-slate-200"
             }`}
+          />
+          <PenTool
+            dark={dark}
+            active={tool === "pen"}
+            style={penStyle}
+            setStyle={setPenStyle}
+            onToggle={() => setTool((t) => (t === "pen" ? "select" : "pen"))}
           />
           <ToolButton
             title={tool === "laser" ? "Laser pointer (on) — Esc to exit" : "Laser pointer — point things out"}

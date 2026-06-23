@@ -914,6 +914,67 @@ export const ImageNode = memo(function ImageNode({ id, data, selected }) {
   );
 });
 
+// ─── Freehand pen ─────────────────────────────────────────────────
+//
+// Each pen stroke is its OWN node (type "draw") so it persists, syncs,
+// undoes and z-orders exactly like everything else — no separate drawing
+// layer. Points are stored relative to the node's box. The node's `style`
+// carries pointerEvents:"none" (set at creation) so a stroke laid over other
+// nodes is click-through everywhere except the line itself.
+
+// Smooth a list of [x,y] points into an SVG path (quadratic curves through
+// the midpoints — the classic cheap freehand smoothing). Shared by the live
+// preview on the page and the committed node.
+export function strokePath(pts) {
+  if (!pts || !pts.length) return "";
+  if (pts.length === 1) return `M${pts[0][0]},${pts[0][1]} L${pts[0][0] + 0.1},${pts[0][1]}`;
+  if (pts.length === 2) return `M${pts[0][0]},${pts[0][1]} L${pts[1][0]},${pts[1][1]}`;
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2;
+    const my = (pts[i][1] + pts[i + 1][1]) / 2;
+    d += ` Q${pts[i][0]},${pts[i][1]} ${mx},${my}`;
+  }
+  const last = pts[pts.length - 1];
+  return `${d} L${last[0]},${last[1]}`;
+}
+
+export const DrawNode = memo(function DrawNode({ id, data, width, height, selected }) {
+  const { setNodes } = useReactFlow();
+  const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
+  const pts = data?.points || [];
+  const color = data?.color || "#0f172a";
+  const sw = data?.strokeWidth ?? 3;
+  const w = width || data?.w || 1;
+  const h = height || data?.h || 1;
+  const d = strokePath(pts);
+  const lineProps = {
+    d, fill: "none", strokeLinecap: "round", strokeLinejoin: "round",
+  };
+  return (
+    // pointerEvents:none on the box (also set via node.style) → click-through;
+    // the stroke paths opt back in so the line stays grabbable/selectable.
+    <div style={{ width: "100%", height: "100%", position: "relative", pointerEvents: "none" }}>
+      <svg width={w} height={h} style={{ display: "block", overflow: "visible" }}>
+        {selected && (
+          <path {...lineProps} stroke={SELECT} strokeOpacity={0.3} strokeWidth={sw + 8} style={{ pointerEvents: "none" }} />
+        )}
+        {/* Fat invisible hit line so a thin stroke is easy to grab. */}
+        <path {...lineProps} stroke="transparent" strokeWidth={Math.max(sw + 14, 18)} style={{ pointerEvents: "stroke", cursor: "move" }} />
+        <path {...lineProps} stroke={color} strokeWidth={sw} style={{ pointerEvents: "stroke", cursor: "move" }} />
+      </svg>
+      {selected && (
+        <button
+          type="button" className="nodrag" onPointerDown={(e) => e.stopPropagation()} onClick={remove} title="Delete"
+          style={{ position: "absolute", top: -12, right: -12, display: "flex", color: "#fff", background: "rgba(15,23,42,.82)", borderRadius: 9999, padding: 3, pointerEvents: "auto" }}
+        >
+          <X style={{ width: 12, height: 12 }} />
+        </button>
+      )}
+    </div>
+  );
+});
+
 export const NODE_TYPES = {
   sticky: StickyNode,
   text: TextNode,
@@ -921,6 +982,7 @@ export const NODE_TYPES = {
   goal: GoalNode,
   frame: FrameNode,
   image: ImageNode,
+  draw: DrawNode,
   // Legacy aliases — old snapshots store these node types.
   rect: ShapeNode,
   ellipse: ShapeNode,
