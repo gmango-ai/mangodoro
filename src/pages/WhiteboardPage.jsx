@@ -52,6 +52,7 @@ import {
   Wand2,
   Paintbrush,
   Eraser,
+  MessageSquare,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
@@ -709,6 +710,183 @@ function PaintToolbar({ dark, style, setStyle }) {
         <span className={`${numCls} w-8 text-right`}>{Math.round(style.opacity * 100)}%</span>
       </div>
     </Panel>
+  );
+}
+
+// Dot-voting: a tally badge floating above each node's top-right corner. Shown
+// on any node that has votes, plus the selected node (as a "vote" affordance so
+// you can cast the first one). Votes are a per-user map in node.data.votes
+// (`{ userId: 1 }`), so they sync + persist like any node data and each person
+// can add/remove only their own. One overlay covers every node type.
+function VotesOverlay({ nodes, myId, onToggle, dark }) {
+  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const show = nodes.filter(
+    (n) => n.type !== "zone" && n.type !== "frame" &&
+      (n.selected || (n.data?.votes && Object.keys(n.data.votes).length))
+  );
+  if (!show.length) return null;
+  return (
+    <ViewportPortal>
+      {show.map((n) => {
+        const abs = nodeAbsPos(n, byId);
+        const w = n.width || n.measured?.width || 0;
+        const votes = n.data?.votes || {};
+        const count = Object.keys(votes).length;
+        const mine = !!(myId && votes[myId]);
+        return (
+          <div
+            key={`vote-${n.id}`}
+            // Just OUTSIDE the right edge near the top — clear of the Inspector
+            // (above) and the corner resize handles.
+            style={{ position: "absolute", left: abs.x + w + 8, top: abs.y + 2, zIndex: 30 }}
+          >
+            <button
+              type="button"
+              className="nodrag"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onToggle(n.id); }}
+              title={count ? `${count} vote${count === 1 ? "" : "s"} — click to ${mine ? "remove" : "add"} yours` : "Vote"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 12, fontWeight: 800, lineHeight: 1,
+                padding: "3px 8px", borderRadius: 9999, cursor: "pointer",
+                background: mine ? "var(--color-accent)" : dark ? "rgba(15,23,42,.86)" : "#fff",
+                color: mine ? "#fff" : dark ? "#e2e8f0" : "#334155",
+                border: `1.5px solid ${mine ? "var(--color-accent)" : dark ? "rgba(255,255,255,.18)" : "rgba(0,0,0,.12)"}`,
+                boxShadow: "0 4px 10px -4px rgba(0,0,0,.4)",
+                opacity: count === 0 && !mine ? 0.7 : 1,
+              }}
+            >
+              <span style={{ fontSize: 13 }}>👍</span>
+              {count > 0 && <span>{count}</span>}
+            </button>
+          </div>
+        );
+      })}
+    </ViewportPortal>
+  );
+}
+
+// Short relative timestamp for comments ("just now" / "5m" / "2h" / "3d").
+function timeAgo(ts) {
+  const s = Math.max(0, Math.floor((Date.now() - (ts || 0)) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
+// Comment indicator badges (top-left of each node), mirroring the vote badges.
+// Shown on any node with comments + the selected node (to start a thread).
+// Clicking toggles the thread open for that node. Comments live in
+// data.comments so they sync + persist like any node data.
+function CommentsOverlay({ nodes, openId, onOpen, dark }) {
+  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const show = nodes.filter(
+    (n) => n.type !== "zone" && n.type !== "frame" &&
+      (n.selected || (n.data?.comments && n.data.comments.length))
+  );
+  if (!show.length) return null;
+  return (
+    <ViewportPortal>
+      {show.map((n) => {
+        const abs = nodeAbsPos(n, byId);
+        const count = n.data?.comments?.length || 0;
+        const open = openId === n.id;
+        const lit = open || count > 0;
+        return (
+          <div
+            key={`cmt-${n.id}`}
+            // Just OUTSIDE the left edge near the top — clear of the Inspector
+            // (above) and the corner resize handles.
+            style={{ position: "absolute", left: abs.x - 8, top: abs.y + 2, transform: "translate(-100%,0)", zIndex: 30 }}
+          >
+            <button
+              type="button"
+              className="nodrag"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onOpen(open ? null : n.id); }}
+              title={count ? `${count} comment${count === 1 ? "" : "s"}` : "Comment"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 12, fontWeight: 800, lineHeight: 1,
+                padding: "3px 8px", borderRadius: 9999, cursor: "pointer",
+                background: open ? "var(--color-accent)" : dark ? "rgba(15,23,42,.86)" : "#fff",
+                color: open ? "#fff" : lit ? (dark ? "#e2e8f0" : "#334155") : "#94a3b8",
+                border: `1.5px solid ${open ? "var(--color-accent)" : dark ? "rgba(255,255,255,.18)" : "rgba(0,0,0,.12)"}`,
+                boxShadow: "0 4px 10px -4px rgba(0,0,0,.4)",
+                opacity: lit ? 1 : 0.7,
+              }}
+            >
+              <MessageSquare style={{ width: 13, height: 13 }} />
+              {count > 0 && <span>{count}</span>}
+            </button>
+          </div>
+        );
+      })}
+    </ViewportPortal>
+  );
+}
+
+// Thread popover (rendered in a NodeToolbar anchored to the node): the comment
+// list + an input. You can delete your own comments. Enter sends, Shift+Enter
+// newlines.
+function CommentThread({ comments, myId, onAdd, onDelete, onClose, dark }) {
+  const [text, setText] = useState("");
+  const submit = () => { const t = text.trim(); if (!t) return; onAdd(t); setText(""); };
+  const surface = dark ? "var(--color-surface)" : "#fff";
+  const border = dark ? "var(--color-border)" : "rgb(226,232,240)";
+  const txt = dark ? "#e2e8f0" : "#334155";
+  const muted = "#94a3b8";
+  return (
+    <div
+      className="nodrag nowheel"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      style={{ width: 264, background: surface, border: `1px solid ${border}`, borderRadius: 14, boxShadow: "0 18px 40px -16px rgba(0,0,0,.5)", overflow: "hidden", color: txt }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: `1px solid ${border}` }}>
+        <span style={{ fontSize: 12, fontWeight: 800 }}>Comments</span>
+        <button type="button" onClick={onClose} title="Close" style={{ display: "flex", color: muted }}><X style={{ width: 14, height: 14 }} /></button>
+      </div>
+      <div style={{ maxHeight: 240, overflowY: "auto", padding: comments.length ? "4px 10px" : 0 }}>
+        {comments.length === 0 && <div style={{ padding: "14px 10px", fontSize: 12, color: muted }}>No comments yet — start the thread.</div>}
+        {comments.map((c) => (
+          <div key={c.id} style={{ padding: "6px 0" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700 }}>{c.author || "Guest"}</span>
+              <span style={{ fontSize: 10, color: muted }}>{timeAgo(c.ts)}</span>
+              {c.authorId && c.authorId === myId && (
+                <button type="button" onClick={() => onDelete(c.id)} title="Delete" style={{ marginLeft: "auto", color: muted, display: "flex" }}>
+                  <X style={{ width: 12, height: 12 }} />
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: 12.5, lineHeight: 1.35, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{c.text}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding: 8, borderTop: `1px solid ${border}`, display: "flex", gap: 6, alignItems: "flex-end" }}>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={1}
+          placeholder="Add a comment…"
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+          className="nowheel"
+          style={{ flex: 1, resize: "none", maxHeight: 90, fontSize: 12.5, padding: "6px 8px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "rgba(255,255,255,.04)" : "#fff", color: txt, outline: "none" }}
+        />
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!text.trim()}
+          style={{ fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 8, background: "var(--color-accent)", color: "#fff", border: "none", opacity: text.trim() ? 1 : 0.5, cursor: text.trim() ? "pointer" : "default" }}
+        >
+          Send
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1694,6 +1872,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   // child (so it moves with the frame); when dragged out, release it.
   const onNodeDragStop = useCallback(
     (_evt, node) => {
+      altCloningRef.current = false; // re-arm alt-drag clone for the next drag
       if (helperShownRef.current) {
         setHelperLines(NO_LINES);
         helperShownRef.current = false;
@@ -1980,6 +2159,73 @@ function WhiteboardEditor({ boardId, embedded = false }) {
   // Ref so the keydown handler (subscribed once) can call the latest clone fn.
   const cloneRef = useRef(null);
   cloneRef.current = cloneNodes;
+
+  // Toggle MY dot-vote on a node (per-user map in data.votes). Syncs/persists
+  // like any node edit; clears the key (and the whole map when empty) to keep
+  // data lean. See VotesOverlay.
+  const toggleVote = useCallback((nodeId) => {
+    const myId = session?.user?.id;
+    if (!myId) return;
+    setNodes((nds) => nds.map((n) => {
+      if (n.id !== nodeId) return n;
+      const votes = { ...(n.data?.votes || {}) };
+      if (votes[myId]) delete votes[myId]; else votes[myId] = 1;
+      return { ...n, data: { ...n.data, votes: Object.keys(votes).length ? votes : undefined } };
+    }));
+  }, [session?.user?.id, setNodes]);
+
+  // Node comments (data.comments — synced/persisted like any node data). One
+  // thread open at a time, anchored to the node via NodeToolbar.
+  const [openCommentId, setOpenCommentId] = useState(null);
+  const addComment = useCallback((nodeId, text) => {
+    setNodes((nds) => nds.map((n) => {
+      if (n.id !== nodeId) return n;
+      const c = { id: freshId("c"), authorId: session?.user?.id, author: myName, text, ts: Date.now() };
+      return { ...n, data: { ...n.data, comments: [...(n.data?.comments || []), c] } };
+    }));
+  }, [session?.user?.id, myName, setNodes]);
+  const deleteComment = useCallback((nodeId, commentId) => {
+    setNodes((nds) => nds.map((n) => {
+      if (n.id !== nodeId) return n;
+      const comments = (n.data?.comments || []).filter((c) => c.id !== commentId);
+      return { ...n, data: { ...n.data, comments: comments.length ? comments : undefined } };
+    }));
+  }, [setNodes]);
+
+  // Alt/Option-drag = clone: at drag start, drop a copy of the dragged node(s)
+  // in place (unselected) and let the ORIGINALS keep dragging — so you pull a
+  // duplicate out, leaving the copy behind. Guarded so we clone once per drag.
+  const altCloningRef = useRef(false);
+  const onNodeDragStartClone = useCallback((event, node) => {
+    const alt = event?.altKey ?? event?.sourceEvent?.altKey;
+    if (!alt || altCloningRef.current) return;
+    altCloningRef.current = true;
+    const all = rf.getNodes();
+    const ids = node.selected
+      ? all.filter((n) => n.selected && n.type !== "zone").map((n) => n.id)
+      : [node.id];
+    const set = new Set(ids);
+    for (const n of all) if (n.parentId && set.has(n.parentId)) set.add(n.id); // frame children ride along
+    const src = all.filter((n) => set.has(n.id) && n.type !== "zone");
+    if (!src.length) return;
+    const idMap = new Map(src.map((n) => [n.id, freshId(n.type || "dup")]));
+    const clones = src.map((n) => {
+      const next = { ...n, id: idMap.get(n.id), data: { ...n.data }, selected: false, dragging: false };
+      if (n.parentId && idMap.has(n.parentId)) next.parentId = idMap.get(n.parentId);
+      next.position = { ...n.position }; // SAME spot — the copy stays put
+      return next;
+    });
+    setNodes((nds) => nds.concat(clones));
+    setEdges((eds) => {
+      const inside = eds.filter((e) => idMap.has(e.source) && idMap.has(e.target));
+      if (!inside.length) return eds;
+      return eds.concat(inside.map((e) => ({
+        ...e, id: freshId("e"), selected: false,
+        source: idMap.get(e.source), target: idMap.get(e.target),
+        data: e.data ? { ...e.data } : e.data,
+      })));
+    });
+  }, [rf, setNodes, setEdges]);
 
   // ── copy / cut / paste ──────────────────────────────────────────────
   // Mirrors cloneNodes' id-remap + frame-children + internal-edges handling,
@@ -2365,6 +2611,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onReconnect={onReconnect}
+        onNodeDragStart={onNodeDragStartClone}
         onNodeDragStop={onNodeDragStop}
         onNodeClick={onNodeClick}
         onDoubleClick={tool === "select" ? onPaneDoubleClick : undefined}
@@ -2423,6 +2670,12 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
+
+        {/* Dot-voting tally badges (per-node, multiplayer). */}
+        <VotesOverlay nodes={nodes} myId={session?.user?.id} onToggle={toggleVote} dark={dark} />
+
+        {/* Comment indicator badges (per-node, multiplayer). */}
+        <CommentsOverlay nodes={nodes} openId={openCommentId} onOpen={setOpenCommentId} dark={dark} />
 
         {/* My own fading laser-ink trail (flow space). */}
         {tool === "laser" && <LaserTrail pointsRef={laserInkRef} color={effectiveLaserColor} />}
@@ -2612,6 +2865,24 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             <Inspector node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
           </NodeToolbar>
         )}
+
+        {/* Comment thread popover, anchored to the right of the open node. */}
+        {openCommentId && (() => {
+          const cn = nodes.find((n) => n.id === openCommentId);
+          if (!cn) return null;
+          return (
+            <NodeToolbar nodeId={openCommentId} isVisible position={Position.Right} align="start" offset={12}>
+              <CommentThread
+                comments={cn.data?.comments || []}
+                myId={session?.user?.id}
+                onAdd={(t) => addComment(openCommentId, t)}
+                onDelete={(cid) => deleteComment(openCommentId, cid)}
+                onClose={() => setOpenCommentId(null)}
+                dark={dark}
+              />
+            </NodeToolbar>
+          );
+        })()}
       </ReactFlow>
 
       {/* My own laser glow (screen space) — only while laser mode is on. */}
