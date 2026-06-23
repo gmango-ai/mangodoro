@@ -29,6 +29,14 @@ import {
   Frame,
   ImagePlus,
   Trash2,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignStartHorizontal,
+  AlignCenterHorizontal,
+  AlignEndHorizontal,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
   ChevronDown,
   Smile,
   Timer,
@@ -1509,6 +1517,61 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     () => (selectedNode ? null : edges.find((e) => e.selected) || null),
     [edges, selectedNode]
   );
+  // Top-level selected nodes (framed children skipped — their coords are
+  // parent-relative). 2+ surfaces the align/distribute toolbar.
+  const multiCount = useMemo(
+    () => nodes.filter((n) => n.selected && n.type !== "zone" && !n.parentId).length,
+    [nodes]
+  );
+
+  // Align / distribute the selected top-level nodes by their bounding boxes.
+  const arrange = useCallback(
+    (op) => {
+      setNodes((nds) => {
+        const sel = nds.filter((n) => n.selected && n.type !== "zone" && !n.parentId);
+        if (sel.length < 2) return nds;
+        const rs = sel.map((n) => ({
+          id: n.id,
+          x: n.position.x,
+          y: n.position.y,
+          w: n.measured?.width ?? n.width ?? 0,
+          h: n.measured?.height ?? n.height ?? 0,
+        }));
+        const minX = Math.min(...rs.map((r) => r.x));
+        const maxR = Math.max(...rs.map((r) => r.x + r.w));
+        const minY = Math.min(...rs.map((r) => r.y));
+        const maxB = Math.max(...rs.map((r) => r.y + r.h));
+        const cX = (minX + maxR) / 2, cY = (minY + maxB) / 2;
+        const pos = new Map();
+        for (const r of rs) {
+          let { x, y } = r;
+          if (op === "left") x = minX;
+          else if (op === "right") x = maxR - r.w;
+          else if (op === "centerH") x = cX - r.w / 2;
+          else if (op === "top") y = minY;
+          else if (op === "bottom") y = maxB - r.h;
+          else if (op === "middleV") y = cY - r.h / 2;
+          pos.set(r.id, { x, y });
+        }
+        if (op === "distH" || op === "distV") {
+          const horiz = op === "distH";
+          const sorted = [...rs].sort((a, b) => (horiz ? a.x - b.x : a.y - b.y));
+          const span = horiz ? maxR - minX : maxB - minY;
+          const used = sorted.reduce((s, r) => s + (horiz ? r.w : r.h), 0);
+          const gap = (span - used) / (sorted.length - 1);
+          let cursor = horiz ? minX : minY;
+          for (const r of sorted) {
+            pos.set(r.id, horiz ? { x: cursor, y: r.y } : { x: r.x, y: cursor });
+            cursor += (horiz ? r.w : r.h) + gap;
+          }
+        }
+        return nds.map((n) =>
+          pos.has(n.id) ? { ...n, position: { ...n.position, ...pos.get(n.id) } } : n
+        );
+      });
+    },
+    [setNodes]
+  );
 
   const patchNodeData = useCallback(
     (patch) => {
@@ -1712,6 +1775,45 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
+
+        {/* Align / distribute toolbar — only with 2+ top-level nodes selected. */}
+        {multiCount >= 2 && (
+          <Panel
+            position="top-center"
+            className={`flex items-center gap-0.5 px-1.5 py-1 rounded-xl border shadow-lg ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}
+          >
+            {[
+              ["left", AlignStartVertical, "Align left"],
+              ["centerH", AlignCenterVertical, "Align centers (horizontal)"],
+              ["right", AlignEndVertical, "Align right"],
+              null,
+              ["top", AlignStartHorizontal, "Align top"],
+              ["middleV", AlignCenterHorizontal, "Align middles (vertical)"],
+              ["bottom", AlignEndHorizontal, "Align bottom"],
+              null,
+              ["distH", AlignHorizontalDistributeCenter, "Distribute horizontally"],
+              ["distV", AlignVerticalDistributeCenter, "Distribute vertically"],
+            ].map((item, i) => {
+              if (!item) return <div key={`d${i}`} className={`w-px h-5 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />;
+              const [op, Icon, title] = item;
+              return (
+                <button
+                  key={op}
+                  type="button"
+                  title={title}
+                  onClick={() => arrange(op)}
+                  className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
+                    dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                </button>
+              );
+            })}
+          </Panel>
+        )}
 
         <Panel
           position="center-left"
