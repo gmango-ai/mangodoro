@@ -806,7 +806,7 @@ function CommentsOverlay({ nodes, openId, onOpen, dark }) {
           >
             <button
               type="button"
-              className="nodrag"
+              className="nodrag wb-comment-badge"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onOpen(open ? null : n.id); }}
               title={count ? `${count} comment${count === 1 ? "" : "s"}` : "Comment"}
@@ -843,7 +843,7 @@ function CommentThread({ comments, myId, onAdd, onDelete, onClose, dark }) {
   const muted = "#94a3b8";
   return (
     <div
-      className="nodrag nowheel"
+      className="nodrag nowheel wb-comment-thread"
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
@@ -2202,6 +2202,23 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       return { ...n, data: { ...n.data, comments: comments.length ? comments : undefined } };
     }));
   }, [setNodes]);
+  // Auto-close the comment thread on click-away (anywhere but the thread or a
+  // comment badge — the badge handles its own toggle/switch) and on Escape.
+  useEffect(() => {
+    if (!openCommentId) return undefined;
+    const onDown = (e) => {
+      const t = e.target;
+      if (t instanceof Element && (t.closest(".wb-comment-thread") || t.closest(".wb-comment-badge"))) return;
+      setOpenCommentId(null);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setOpenCommentId(null); };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [openCommentId]);
 
   // Alt/Option-drag = clone: at drag start, drop a copy of the dragged node(s)
   // in place (unselected) and let the ORIGINALS keep dragging — so you pull a
