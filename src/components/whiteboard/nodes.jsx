@@ -716,12 +716,59 @@ export const ZoneNode = memo(function ZoneNode({ data }) {
   );
 });
 
+// ─── ImageNode ─────────────────────────────────────────────────────
+// An embedded image. The bytes live in Supabase Storage (whiteboard-images
+// bucket); the node only carries the public URL (data.src) + path, so the
+// snapshot and realtime ops stay tiny. Resizes with a locked aspect ratio and
+// connects like any other node (FourHandles + free anchors).
+export const ImageNode = memo(function ImageNode({ id, data, selected }) {
+  const { setNodes } = useReactFlow();
+  const src = data?.src;
+  const stop = (e) => e.stopPropagation();
+  const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
+  return (
+    <div
+      style={{
+        width: "100%", height: "100%", position: "relative",
+        borderRadius: 6, overflow: "hidden", background: "#0b1020",
+        boxShadow: selected
+          ? `0 0 0 2px ${SELECT}, 0 16px 28px -12px rgba(0,0,0,.5)`
+          : "0 14px 26px -12px rgba(0,0,0,.4), 0 3px 7px -3px rgba(0,0,0,.18)",
+      }}
+    >
+      <NodeResizer isVisible={selected} minWidth={48} minHeight={48} keepAspectRatio {...resizer(SELECT)} />
+      {src ? (
+        <img
+          src={src}
+          alt={data?.alt || ""}
+          draggable={false}
+          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", pointerEvents: "none", userSelect: "none" }}
+        />
+      ) : (
+        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12, padding: 8, textAlign: "center" }}>
+          Image unavailable
+        </div>
+      )}
+      <FourHandles />
+      {selected && (
+        <button
+          type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete"
+          style={{ position: "absolute", top: 6, right: 6, display: "flex", color: "#fff", background: "rgba(0,0,0,.45)", borderRadius: 6, padding: 3 }}
+        >
+          <X style={{ width: 13, height: 13 }} />
+        </button>
+      )}
+    </div>
+  );
+});
+
 export const NODE_TYPES = {
   sticky: StickyNode,
   text: TextNode,
   shape: ShapeNode,
   goal: GoalNode,
   frame: FrameNode,
+  image: ImageNode,
   // Legacy aliases — old snapshots store these node types.
   rect: ShapeNode,
   ellipse: ShapeNode,

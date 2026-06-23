@@ -27,6 +27,7 @@ import {
   Type,
   Shapes,
   Frame,
+  ImagePlus,
   Trash2,
   ChevronDown,
   Smile,
@@ -81,6 +82,7 @@ import {
 } from "../components/whiteboard/edges";
 import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
 import { useWhiteboardHistory } from "../components/whiteboard/useWhiteboardHistory";
+import { uploadWhiteboardImage } from "../lib/whiteboardImage";
 import {
   snapToGrid,
   nodeSnaps,
@@ -111,6 +113,7 @@ const DEFAULTS = {
   shape: { w: 180, h: 100 },
   goal: { w: 240, h: 150 },
   frame: { w: 600, h: 840 },
+  image: { w: 240, h: 180 },
 };
 
 const DEFAULT_EDGE_OPTIONS = {
@@ -1087,6 +1090,48 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     [rf, setNodes, myName]
   );
 
+  // Upload an image to Storage, then drop an image node (sized to the image's
+  // aspect ratio, capped) at the visible center. The node holds only the URL,
+  // so it syncs/saves like any other node and is undoable.
+  const fileInputRef = useRef(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const addImageNode = useCallback(
+    async (file) => {
+      if (!file) return;
+      const uid = session?.user?.id;
+      if (!uid) { setError("Sign in to add images."); return; }
+      setUploadingImage(true);
+      const { data, error: err } = await uploadWhiteboardImage(file, uid, board?.id);
+      setUploadingImage(false);
+      if (err || !data) { setError(err?.message || "Couldn't upload image."); return; }
+      // Initial display box: cap the longest edge, keep the image's ratio.
+      const MAX_EDGE = 320;
+      const nw = data.width || DEFAULTS.image.w, nh = data.height || DEFAULTS.image.h;
+      const s = Math.min(1, MAX_EDGE / Math.max(nw, nh));
+      const w = Math.max(48, Math.round(nw * s)), h = Math.max(48, Math.round(nh * s));
+      let center = { x: 200, y: 200 };
+      try {
+        const el = document.querySelector(".react-flow");
+        if (el) {
+          const r = el.getBoundingClientRect();
+          center = rf.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+        }
+      } catch { /* */ }
+      const node = {
+        id: freshId("image"),
+        type: "image",
+        position: { x: center.x - w / 2, y: center.y - h / 2 },
+        width: w,
+        height: h,
+        data: { src: data.url, path: data.path, alt: file.name || "" },
+      };
+      setNodes((nds) =>
+        nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat({ ...node, selected: true })
+      );
+    },
+    [session?.user?.id, board?.id, rf, setNodes]
+  );
+
   const deleteSelected = useCallback(() => {
     const selectedNodeIds = new Set(
       nodes.filter((n) => n.selected).map((n) => n.id)
@@ -1472,6 +1517,25 @@ function WhiteboardEditor({ boardId, embedded = false }) {
           >
             <Frame className="w-4 h-4" />
           </ToolButton>
+          <ToolButton
+            title={uploadingImage ? "Uploading image…" : "Add image"}
+            tone="neutral"
+            dark={dark}
+            onClick={() => !uploadingImage && fileInputRef.current?.click()}
+          >
+            <ImagePlus className={`w-4 h-4 ${uploadingImage ? "animate-pulse opacity-60" : ""}`} />
+          </ToolButton>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = ""; // allow re-picking the same file
+              if (f) addImageNode(f);
+            }}
+          />
           <div
             className={`h-px w-5 my-0.5 ${
               dark ? "bg-[var(--color-border)]" : "bg-slate-200"
