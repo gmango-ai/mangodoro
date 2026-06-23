@@ -18,7 +18,6 @@ import {
   useLocalParticipant,
   useRoomContext,
   useMaybeTrackRefContext,
-  useParticipantAttributes,
 } from "@livekit/components-react";
 import { Track, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
@@ -28,7 +27,7 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack } from "../../lib/livekitModerate";
-import { useRoomCluster, ATTR_CLUSTER, ATTR_LEADER, ATTR_ROOM_DEVICE } from "./useRoomCluster";
+import { useRoomCluster, useClusterRoles } from "./useRoomCluster";
 import { pickBestMicrophone } from "./bestMic";
 
 // LiveKit's client logs at "info" by default, which floods the console with
@@ -158,7 +157,7 @@ function bgToOptions(bg, customBg) {
 function PublishController({ publish, choices }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
-  const { isFollower, isLeader } = useRoomCluster();
+  const { cluster, isMicSource } = useRoomCluster();
   const bestMicAppliedRef = useRef(false);
 
   useEffect(() => {
@@ -167,23 +166,23 @@ function PublishController({ publish, choices }) {
     // instead of giving them a (camera-off) tile in the grid.
     localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
     const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
-    // Followers in a shared physical room go mic-silent: the room leader's mic
-    // already carries everyone in the space, so a second live mic here would
-    // just feed back. Camera is untouched — each person keeps their own tile.
-    const wantAudio = publish && !isFollower && (choices ? choices.audioEnabled !== false : true);
+    // In a shared physical room only the mic SOURCE has a live mic — a second
+    // live mic in the same space would just feed back. Solo participants follow
+    // their own choice. Camera is untouched — each person keeps their own tile.
+    const wantAudio = publish && (cluster ? isMicSource : (choices ? choices.audioEnabled !== false : true));
     localParticipant
       .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
       .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
     localParticipant
       .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
       .catch(() => { /* */ });
-  }, [localParticipant, publish, choices, isFollower]);
+  }, [localParticipant, publish, choices, cluster, isMicSource]);
 
-  // When this device becomes the room speaker, move its mic to the best
-  // available source (a dedicated/USB mic over the built-in). Skip if the user
-  // explicitly picked a mic; run once per leader activation.
+  // When this device becomes the room's mic source, move to the best available
+  // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
+  // picked a mic; run once per activation.
   useEffect(() => {
-    if (!isLeader) {
+    if (!isMicSource) {
       bestMicAppliedRef.current = false;
       return undefined;
     }
@@ -199,7 +198,7 @@ function PublishController({ publish, choices }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [isLeader, publish, room, choices?.audioDeviceId]);
+  }, [isMicSource, publish, room, choices?.audioDeviceId]);
 
   return null;
 }
@@ -211,24 +210,25 @@ function RoomClusterManager() {
   return null;
 }
 
-// Audio playback, suppressed for followers. A follower sits in the same
-// physical room as the leader, whose speakers already play the call aloud —
-// so playing it here too would double up and echo. Leaders and solo
-// participants render audio as normal.
+// Audio playback. In a room only the AUDIO SINK (the device's speakers, or the
+// lone speaker in a device-less room) plays the call aloud — anyone else in the
+// room would double up and echo. Solo participants render normally.
 function ClusterAudioRenderer() {
-  const { isFollower } = useRoomCluster();
-  if (isFollower) return null;
+  const { cluster, isAudioSink } = useRoomCluster();
+  if (cluster && !isAudioSink) return null;
   return <RoomAudioRenderer />;
 }
 
-// Stops audio from even being *sent* to in-room followers. They hear the call
-// through the room speaker (the leader) in person, so they need no audio on
-// their own device — not the leader's mic, not the remotes. Unsubscribing (vs
-// just not playing) means the SFU stops delivering those streams here at all,
-// matching "in-room people only need external audio, via the room speaker".
-// Re-subscribes the moment they stop being a follower.
+// Stops audio from even being *sent* to in-room participants who aren't the
+// sink. They hear the call through the room speaker in person, so they need no
+// audio on their own device. Unsubscribing (vs just not playing) means the SFU
+// stops delivering those streams here at all — matching "in-room people only
+// need external audio, via the room speaker". This also covers a person who
+// took over the mic: they publish, but the device still plays for the room, so
+// they don't subscribe either. Re-subscribes the moment they become the sink.
 function FollowerAudioGate() {
-  const { isFollower } = useRoomCluster();
+  const { cluster, isAudioSink } = useRoomCluster();
+  const suppress = !!cluster && !isAudioSink;
   const audioTracks = useTracks(
     [Track.Source.Microphone, Track.Source.ScreenShareAudio],
     { onlySubscribed: false },
@@ -237,9 +237,9 @@ function FollowerAudioGate() {
     audioTracks.forEach((tr) => {
       const pub = tr.publication;
       if (!pub || tr.participant?.isLocal || typeof pub.setSubscribed !== "function") return;
-      pub.setSubscribed(!isFollower);
+      pub.setSubscribed(!suppress);
     });
-  }, [isFollower, audioTracks]);
+  }, [suppress, audioTracks]);
   return null;
 }
 
@@ -472,7 +472,11 @@ function DeviceSettingsMenu({ kind, label, children }) {
 // one (if a neighbour started it) or starts a new one. In a room → a small
 // popover shows who's together and a Leave action.
 function RoomClusterButton() {
-  const { isLeader, isFollower, members, leaderId, existingCluster, startRoom, joinRoom, leaveRoom } = useRoomCluster();
+  const {
+    cluster, members, isMicSource, existingCluster,
+    startRoom, joinRoom, takeSpeaker, stepDown, leaveRoom,
+  } = useRoomCluster();
+  const roles = useClusterRoles();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -487,9 +491,7 @@ function RoomClusterButton() {
     };
   }, [open]);
 
-  const inRoom = isLeader || isFollower;
-
-  if (!inRoom) {
+  if (!cluster) {
     const joining = !!existingCluster;
     return (
       <button
@@ -508,6 +510,8 @@ function RoomClusterButton() {
     );
   }
 
+  const deviceInRoom = members.some((p) => roles.get(p.identity)?.isDevice);
+
   return (
     <div ref={ref} className="relative">
       <button
@@ -515,27 +519,31 @@ function RoomClusterButton() {
         className="lk-button"
         aria-pressed="true"
         aria-expanded={open}
-        title={isLeader ? "You're the room speaker" : "You're in a shared room (muted)"}
+        title={isMicSource ? "You're the room mic" : "You're in a shared room (muted)"}
         onClick={() => setOpen((v) => !v)}
       >
         <DoorOpen className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-56 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-2 shadow-xl text-[12px]">
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-60 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-2 shadow-xl text-[12px]">
           <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">
-            {isLeader ? "You're the room speaker" : "In this room · muted"}
+            {isMicSource ? "You're the room mic" : "In this room · muted"}
           </div>
           <ul className="max-h-40 overflow-auto mb-1.5">
             {members.map((p) => {
-              const leads = p.identity === leaderId;
+              const r = roles.get(p.identity) || {};
+              const tag = r.isDevice ? "device" : r.isMicSource ? "mic" : null;
               return (
                 <li key={p.identity} className="flex items-center gap-1.5 px-1 py-0.5">
                   <span className="flex-1 min-w-0 truncate">
                     {p.name || p.identity}
                     {p.isLocal && <span className="opacity-60"> (you)</span>}
                   </span>
-                  {leads ? (
-                    <Volume2 className="w-3.5 h-3.5 text-amber-300 shrink-0" title="Room speaker" />
+                  {tag ? (
+                    <span className="inline-flex items-center gap-1 text-amber-300 shrink-0">
+                      <Volume2 className="w-3.5 h-3.5" />
+                      {tag}
+                    </span>
                   ) : (
                     <MicOff className="w-3.5 h-3.5 opacity-50 shrink-0" title="Muted" />
                   )}
@@ -543,13 +551,32 @@ function RoomClusterButton() {
               );
             })}
           </ul>
-          <button
-            type="button"
-            onClick={() => { leaveRoom(); setOpen(false); }}
-            className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
-          >
-            Leave room
-          </button>
+          <div className="space-y-1">
+            {isMicSource ? (
+              <button
+                type="button"
+                onClick={() => { stepDown(); setOpen(false); }}
+                className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
+              >
+                {deviceInRoom ? "Give mic back to room device" : "Step down as room mic"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { takeSpeaker(); setOpen(false); }}
+                className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
+              >
+                Take over the room mic
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { leaveRoom(); setOpen(false); }}
+              className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left"
+            >
+              Leave room
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -788,35 +815,38 @@ function PeoplePanel({ roomId, onClose }) {
 }
 
 // A ParticipantTile with an in-room badge. When a participant is part of a
-// physical-room cluster, their tile gets a small chip — amber "Room speaker"
-// for the one carrying the room's audio, muted "In room" for the followers —
-// so the grouping is visible right in the grid. Reads the tile participant's
-// OWN attributes (reactively, via useParticipantAttributes), so each tile
-// decides its own badge with no cross-tile coordination. Wraps the default
-// tile in a flex box and lets it fill, so the grid layout is unaffected.
+// physical-room cluster, their tile gets a small chip — amber "Room device" /
+// "Room mic" for whoever carries the room's audio, muted "In room" for the
+// rest — so the grouping is visible right in the grid. Looks the tile's role up
+// in the shared cluster-roles map (so it reflects the EFFECTIVE leader, e.g.
+// after a take-over). Wraps the default tile in a flex box and lets it fill, so
+// the grid layout is unaffected.
 function ClusterParticipantTile() {
   const trackRef = useMaybeTrackRefContext();
   const participant = trackRef?.participant;
-  const { attributes } = useParticipantAttributes({ participant });
-  const inRoom = !!attributes?.[ATTR_CLUSTER];
-  const isSpeaker = inRoom && attributes?.[ATTR_LEADER] === participant?.identity;
-  const isDevice = attributes?.[ATTR_ROOM_DEVICE] === "1";
+  const roles = useClusterRoles();
+  const role = participant ? roles.get(participant.identity) : null;
+  const inRoom = !!role?.inRoom;
+  // Amber for whoever carries the room's audio I/O — the device (speakers, and
+  // mic unless overridden) or the current mic source — muted chip for the rest.
+  const active = !!role && (role.isDevice || role.isMicSource);
+  const label = role?.isDevice ? "Room device" : role?.isMicSource ? "Room mic" : "In room";
   return (
     <div style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}>
       <ParticipantTile style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
       {inRoom && (
         <div
           className={`absolute top-1.5 left-1.5 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm pointer-events-none ${
-            isSpeaker ? "bg-amber-500/85 text-white" : "bg-slate-900/70 text-slate-100"
+            active ? "bg-amber-500/85 text-white" : "bg-slate-900/70 text-slate-100"
           }`}
           title={
-            isSpeaker
-              ? `${isDevice ? "Room device" : "Room speaker"} — carries this room's audio`
+            active
+              ? `${label} — carries this room's audio`
               : "In the room · muted here (heard through the room speaker)"
           }
         >
-          {isSpeaker ? <Volume2 className="w-3 h-3 shrink-0" /> : <MicOff className="w-3 h-3 shrink-0" />}
-          {isSpeaker ? (isDevice ? "Room device" : "Room speaker") : "In room"}
+          {active ? <Volume2 className="w-3 h-3 shrink-0" /> : <MicOff className="w-3 h-3 shrink-0" />}
+          {label}
         </div>
       )}
     </div>

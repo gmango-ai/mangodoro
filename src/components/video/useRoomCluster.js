@@ -3,39 +3,102 @@ import { useLocalParticipant, useParticipants, useRoomContext } from "@livekit/c
 import { RoomEvent } from "livekit-client";
 
 // In-room audio clustering — "companion mode" for people who share a physical
-// room. When several participants are together in person, ONE device acts as
-// the room's mic + speaker (the leader) and the others join as muted,
-// video-only "followers". That kills the echo/feedback you'd get from multiple
-// live mics and speakers in the same space, while remote participants still
-// hear the room (via the leader's mic) and see everyone's individual tile.
+// room. When several participants are together in person, the room has ONE
+// mic + ONE set of speakers; everyone else stays muted and silent so the space
+// doesn't echo. Remote participants still hear the room and see every tile.
 //
-// State lives entirely in LiveKit participant attributes — no DB, ephemeral
-// like the call itself (mirrors useRoomCallPresence's reasoning):
-//   cluster          — opaque group id (the founding leader's identity)
-//   clusterLeaderId  — SELF-CLAIM: a member sets this to its own identity to
-//                      lead; followers leave it empty
-//   roomDevice       — "1" on the org device locked to this room; it's the
-//                      canonical, sticky leader (humans never lead its room)
-// setAttributes does a partial merge, so these coexist with the `role`
-// (publisher/spectator) attribute PublishController already sets.
+// Two roles per cluster, deliberately split so a person can upgrade the room's
+// mic without stealing its speakers:
+//   • MIC SOURCE — whose mic represents the room to remotes.
+//   • AUDIO SINK — whose speakers play the call aloud for the room.
+// Default: the locked room DEVICE is both. A person can "take over" the mic
+// (a closer/better mic) — they become the mic source while the device stays the
+// audio sink (keeps its good speakers, mutes its own mic). No device → the one
+// speaker is both. Everyone else: mic off, audio off/unsubscribed.
 //
-// Leadership is SELF-CLAIMED rather than pointed-at: the effective leader is
-// the cluster member whose clusterLeaderId equals its own identity (a present
-// room device wins; otherwise the lowest-identity claimer). Deriving it from
-// each member's own attribute — instead of copying a leader pointer at join
-// time — means handoff can't leave stale pointers behind, and a device's
-// claim always takes precedence.
+// State lives entirely in LiveKit participant attributes (no DB, ephemeral):
+//   cluster         — group id (the founding member / device identity)
+//   clusterLeaderId — SELF-CLAIM for the mic role (set to own identity to claim)
+//   speakerOverride — "1" when a human DELIBERATELY took the mic from the device
+//                     (so an auto-promotion during a device blip doesn't, and
+//                     the device reclaims as default when it returns)
+//   roomDevice      — "1" on the locked device (the sticky default + audio sink)
 //
-// Pass { manage: true } in exactly ONE mounted instance. That instance runs:
-//   • handoff — if no one leads (leader dropped), the lowest-identity survivor
-//     claims leadership;
-//   • yield   — if a room device is present, any human who self-claimed gives
-//     it up, so the device is the sole leader.
-// Read-only callers (suppression checks, UI) omit it.
+// Mic-source priority: an explicit human override > the room device > any other
+// self-claimer (an ad-hoc room's founder, or a lowest-id auto-promotion).
+//
+// Pass { manage: true } in exactly ONE mounted instance. That instance keeps
+// claims tidy: it auto-promotes the lowest-id survivor when no one holds the
+// mic, and drops a stale self-claim when it's been out-ranked (so the device
+// can reclaim and badges stay correct).
 
 export const ATTR_CLUSTER = "cluster";
 export const ATTR_LEADER = "clusterLeaderId";
+export const ATTR_OVERRIDE = "speakerOverride";
 export const ATTR_ROOM_DEVICE = "roomDevice";
+
+// Who carries the room's mic, from a cluster's members. Pure.
+export function pickMicSource(members) {
+  const claimers = members.filter((p) => p.attributes?.[ATTR_LEADER] === p.identity);
+  const overrides = claimers
+    .filter((p) => p.attributes?.[ATTR_OVERRIDE] === "1" && p.attributes?.[ATTR_ROOM_DEVICE] !== "1")
+    .map((p) => p.identity)
+    .sort();
+  if (overrides.length) return overrides[0];
+  const devices = claimers
+    .filter((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1")
+    .map((p) => p.identity)
+    .sort();
+  if (devices.length) return devices[0];
+  return claimers.map((p) => p.identity).sort()[0] || null;
+}
+
+// The sink (speakers) is the device when present, else the mic source. Pure.
+function pickAudioSink(members, micSourceId) {
+  const device = members.find((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
+  return device ? device.identity : micSourceId;
+}
+
+// identity -> { inRoom, isMicSource, isAudioSink, isDevice } for ALL clusters in
+// the call. Used to badge every tile regardless of which cluster it's in. Pure.
+export function clusterRolesOf(participants) {
+  const byCluster = new Map();
+  for (const p of participants) {
+    const c = p.attributes?.[ATTR_CLUSTER];
+    if (!c) continue;
+    if (!byCluster.has(c)) byCluster.set(c, []);
+    byCluster.get(c).push(p);
+  }
+  const roles = new Map();
+  for (const [, members] of byCluster) {
+    const micId = pickMicSource(members);
+    const sinkId = pickAudioSink(members, micId);
+    for (const p of members) {
+      roles.set(p.identity, {
+        inRoom: true,
+        isMicSource: p.identity === micId,
+        isAudioSink: p.identity === sinkId,
+        isDevice: p.attributes?.[ATTR_ROOM_DEVICE] === "1",
+      });
+    }
+  }
+  return roles;
+}
+
+// Reactive version of clusterRolesOf for the current room.
+export function useClusterRoles() {
+  const room = useRoomContext();
+  const participants = useParticipants();
+  const [, bump] = useReducer((n) => (n + 1) % 1e9, 0);
+  useEffect(() => {
+    if (!room) return undefined;
+    room.on(RoomEvent.ParticipantAttributesChanged, bump);
+    return () => {
+      room.off(RoomEvent.ParticipantAttributesChanged, bump);
+    };
+  }, [room]);
+  return clusterRolesOf(participants);
+}
 
 export function useRoomCluster({ manage = false } = {}) {
   const room = useRoomContext();
@@ -43,9 +106,6 @@ export function useRoomCluster({ manage = false } = {}) {
   const participants = useParticipants();
   const [, bump] = useReducer((n) => (n + 1) % 1e9, 0);
 
-  // useParticipants re-renders on roster changes but not on attribute edits, so
-  // membership/leadership would go stale when someone joins/leaves or claims a
-  // room. Bump on every attribute change to keep derived state live.
   useEffect(() => {
     if (!room) return undefined;
     room.on(RoomEvent.ParticipantAttributesChanged, bump);
@@ -63,23 +123,14 @@ export function useRoomCluster({ manage = false } = {}) {
     [participants, cluster],
   );
 
-  // Effective leader of my cluster: a present room device wins; otherwise the
-  // lowest-identity self-claimer. Derived (not stored) so it's always consistent.
-  const leaderId = useMemo(() => {
-    if (!cluster) return null;
-    const claimers = members.filter((p) => p.attributes?.[ATTR_LEADER] === p.identity);
-    const device = claimers.find((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
-    if (device) return device.identity;
-    return claimers.map((p) => p.identity).sort()[0] || null;
-  }, [cluster, members]);
+  const micSourceId = useMemo(() => (cluster ? pickMicSource(members) : null), [cluster, members]);
+  const audioSinkId = useMemo(() => (cluster ? pickAudioSink(members, micSourceId) : null), [cluster, members, micSourceId]);
+  const isMicSource = !!cluster && micSourceId === myId;
+  const isAudioSink = !!cluster && audioSinkId === myId;
+  // A "follower" contributes neither: mic off, audio off.
+  const isFollower = !!cluster && !isMicSource && !isAudioSink;
 
-  const isLeader = !!cluster && leaderId === myId;
-  const isFollower = !!cluster && leaderId !== myId;
-
-  // The room a non-member would join. Prefer the locked device's cluster (the
-  // canonical physical room) over an ad-hoc human one. Covers the common case
-  // of one physical room per call; multiple distinct in-room groups would need
-  // a picker, which we can add later.
+  // The room a non-member would join. Prefer the locked device's cluster.
   const existingCluster = useMemo(() => {
     if (cluster) return null;
     const others = participants.filter((p) => !p.isLocal && p.attributes?.[ATTR_CLUSTER]);
@@ -87,12 +138,11 @@ export function useRoomCluster({ manage = false } = {}) {
     const deviceHost = others.find((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
     const host = deviceHost || others[0];
     const id = host.attributes[ATTR_CLUSTER];
-    const claimers = participants.filter(
-      (p) => p.attributes?.[ATTR_CLUSTER] === id && p.attributes?.[ATTR_LEADER] === p.identity,
-    );
-    const leaderP = claimers.find((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1") || claimers[0] || host;
+    const peers = participants.filter((p) => p.attributes?.[ATTR_CLUSTER] === id);
+    const micId = pickMicSource(peers);
+    const leaderP = participants.find((p) => p.identity === micId) || host;
     const leaderName = (leaderP?.name || leaderP?.identity || "").replace(/\s*·\s*Portal$/i, "");
-    return { id, leaderId: leaderP?.identity || id, leaderName, isDevice: !!deviceHost };
+    return { id, leaderId: micId || id, leaderName, isDevice: !!deviceHost };
   }, [participants, cluster]);
 
   const setAttrs = useCallback(
@@ -100,43 +150,67 @@ export function useRoomCluster({ manage = false } = {}) {
     [localParticipant],
   );
 
-  // Become this room's speaker (claim leadership: mic + audio for everyone here).
+  // Found a room (device-less): become its mic + speakers.
   const startRoom = useCallback(() => {
     if (!myId) return;
-    setAttrs({ [ATTR_CLUSTER]: myId, [ATTR_LEADER]: myId }).then(bump);
+    setAttrs({ [ATTR_CLUSTER]: myId, [ATTR_LEADER]: myId, [ATTR_OVERRIDE]: "" }).then(bump);
   }, [myId, setAttrs]);
 
-  // Join an existing room as a muted follower (no leadership claim).
+  // Join an existing room as a muted, silent follower.
   const joinRoom = useCallback(
     (target) => {
       if (!target?.id) return;
-      setAttrs({ [ATTR_CLUSTER]: target.id, [ATTR_LEADER]: "" }).then(bump);
+      setAttrs({ [ATTR_CLUSTER]: target.id, [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "" }).then(bump);
     },
     [setAttrs],
   );
 
-  // Drop back to solo (empty string deletes the attribute).
-  const leaveRoom = useCallback(() => {
-    setAttrs({ [ATTR_CLUSTER]: "", [ATTR_LEADER]: "" }).then(bump);
+  // Deliberately take over the room mic (overrides the device default).
+  const takeSpeaker = useCallback(() => {
+    if (!myId || !cluster) return;
+    setAttrs({ [ATTR_LEADER]: myId, [ATTR_OVERRIDE]: "1" }).then(bump);
+  }, [myId, cluster, setAttrs]);
+
+  // Give the mic back (to the device / next claimer) but stay in the room.
+  const stepDown = useCallback(() => {
+    setAttrs({ [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "" }).then(bump);
   }, [setAttrs]);
 
-  // Handoff + yield — manager instance only.
+  // Leave the room entirely (back to solo).
+  const leaveRoom = useCallback(() => {
+    setAttrs({ [ATTR_CLUSTER]: "", [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "" }).then(bump);
+  }, [setAttrs]);
+
+  // Tidy claims — manager instance only.
   useEffect(() => {
     if (!manage || !cluster || !myId) return;
-    const deviceMember = members.find((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
     const iClaim = myAttrs[ATTR_LEADER] === myId;
-    if (deviceMember) {
-      // A locked room device is the rightful, sticky leader. If I (a human)
-      // self-claimed — e.g. I was promoted while it was briefly offline — yield.
-      if (iClaim && deviceMember.identity !== myId) setAttrs({ [ATTR_LEADER]: "" }).then(bump);
+    // Drop a stale claim once I've been out-ranked (a returning device, or
+    // someone who took over), so the device reclaims and badges stay correct.
+    if (iClaim && micSourceId !== myId) {
+      setAttrs({ [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "" }).then(bump);
       return;
     }
-    // No device: if nobody leads, the lowest-identity survivor claims it.
-    const someoneLeads = members.some((p) => p.attributes?.[ATTR_LEADER] === p.identity);
-    if (someoneLeads) return;
+    // Nobody holds the mic → the lowest-id survivor claims it (no override, so a
+    // returning device still wins).
+    if (micSourceId) return;
     const heir = members.map((p) => p.identity).sort()[0];
     if (heir === myId) setAttrs({ [ATTR_LEADER]: myId }).then(bump);
-  }, [manage, cluster, myId, members, myAttrs, setAttrs]);
+  }, [manage, cluster, myId, myAttrs, micSourceId, members, setAttrs]);
 
-  return { cluster, leaderId, isLeader, isFollower, members, existingCluster, startRoom, joinRoom, leaveRoom };
+  return {
+    cluster,
+    micSourceId,
+    audioSinkId,
+    isMicSource,
+    isAudioSink,
+    isFollower,
+    members,
+    existingCluster,
+    startRoom,
+    joinRoom,
+    takeSpeaker,
+    stepDown,
+    leaveRoom,
+  };
 }
