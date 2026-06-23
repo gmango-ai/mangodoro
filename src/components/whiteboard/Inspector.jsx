@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Magnet, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Lock, LockOpen } from "lucide-react";
+import { Magnet, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Lock, LockOpen, BringToFront, SendToBack } from "lucide-react";
 import { SHAPES, ShapeSvg, setPreferredStickyColor, STICKY_PALETTE, stickyHex, wrapActiveSelection } from "./nodes";
 import { Pill, ToolDivider, Dropdown, SwatchGrid, Opt } from "./toolbarUI";
 import { nodeSnaps } from "./snapping";
@@ -101,7 +101,7 @@ function StickyPicker({ value, onPick, onLive }) {
 // matching the edge toolbar. Positioned above the node by React Flow's
 // <NodeToolbar> at the call site. Only the controls a given node type
 // supports are shown.
-export default function Inspector({ node, patchNodeData, setLocked }) {
+export default function Inspector({ node, patchNodeData, setLocked, onReorder }) {
   const [open, setOpen] = useState(null);
   if (!node) return null;
 
@@ -402,6 +402,24 @@ export default function Inspector({ node, patchNodeData, setLocked }) {
           </Dropdown>
         )}
 
+        <ToolDivider />
+        {/* Z-order: stacking of overlapping nodes. */}
+        <button
+          type="button"
+          title="Bring to front"
+          onClick={() => onReorder?.(true)}
+          className="h-7 px-1.5 rounded-md flex items-center text-white/60 hover:bg-white/10 transition-colors"
+        >
+          <BringToFront className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          title="Send to back"
+          onClick={() => onReorder?.(false)}
+          className="h-7 px-1.5 rounded-md flex items-center text-white/60 hover:bg-white/10 transition-colors"
+        >
+          <SendToBack className="w-4 h-4" />
+        </button>
         <ToolDivider />
         {/* Per-item snapping toggle (grid + alignment). Stickies default off. */}
         <button

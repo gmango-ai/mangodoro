@@ -1457,6 +1457,23 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     [setNodes]
   );
 
+  // Z-order: stacking follows array order (later = on top). Move the selection
+  // to the end (front) or start (back); sortParentsFirst is a stable sort so it
+  // only re-pins frames ahead of their children, keeping the new order. Persists
+  // in the snapshot; live-syncs on the next reload (order isn't a per-entity op).
+  const reorderSelected = useCallback(
+    (toFront) => {
+      setNodes((nds) => {
+        const selIds = new Set(nds.filter((n) => n.selected && n.type !== "zone").map((n) => n.id));
+        if (!selIds.size) return nds;
+        const sel = nds.filter((n) => selIds.has(n.id));
+        const rest = nds.filter((n) => !selIds.has(n.id));
+        return sortParentsFirst(toFront ? [...rest, ...sel] : [...sel, ...rest]);
+      });
+    },
+    [setNodes]
+  );
+
   // Title / goal / archive — same flow as the prior page, just leaning
   // on the existing setters in lib/whiteboard.
   async function handleSaveTitle() {
@@ -1709,7 +1726,7 @@ function WhiteboardEditor({ boardId, embedded = false }) {
             offset={selectedNode.type === "frame" ? (selectedNode.data?.fontSize ?? 20) + 28 : 14}
             align="center"
           >
-            <Inspector node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} />
+            <Inspector node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} />
           </NodeToolbar>
         )}
       </ReactFlow>
