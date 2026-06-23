@@ -736,7 +736,9 @@ function VotesOverlay({ nodes, myId, onToggle, dark }) {
         return (
           <div
             key={`vote-${n.id}`}
-            style={{ position: "absolute", left: abs.x + w - 14, top: abs.y - 6, transform: "translate(0,-100%)", zIndex: 30 }}
+            // Just OUTSIDE the right edge near the top — clear of the Inspector
+            // (above) and the corner resize handles.
+            style={{ position: "absolute", left: abs.x + w + 8, top: abs.y + 2, zIndex: 30 }}
           >
             <button
               type="button"
@@ -795,7 +797,9 @@ function CommentsOverlay({ nodes, openId, onOpen, dark }) {
         return (
           <div
             key={`cmt-${n.id}`}
-            style={{ position: "absolute", left: abs.x, top: abs.y - 6, transform: "translate(0,-100%)", zIndex: 30 }}
+            // Just OUTSIDE the left edge near the top — clear of the Inspector
+            // (above) and the corner resize handles.
+            style={{ position: "absolute", left: abs.x - 8, top: abs.y + 2, transform: "translate(-100%,0)", zIndex: 30 }}
           >
             <button
               type="button"
