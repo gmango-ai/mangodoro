@@ -21,14 +21,15 @@ import {
 } from "@livekit/components-react";
 import { Track, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, MicOff, UserX, X, DoorOpen, Volume2 } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, MicOff, UserX, X, DoorOpen, Volume2, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack } from "../../lib/livekitModerate";
-import { useRoomCluster, useClusterRoles } from "./useRoomCluster";
+import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { pickBestMicrophone } from "./bestMic";
+import { createVoiceDetector } from "./autoMic";
 
 // LiveKit's client logs at "info" by default, which floods the console with
 // per-connection play-by-play (signal connecting, connection state changes,
@@ -56,7 +57,7 @@ setLogLevel("error");
 // Per-device preferences for the local self-view processors + layout. Kept in
 // localStorage so they persist across calls and apply even in PiP (which has
 // no control bar to toggle them).
-const PREF = { bg: "ql_lk_bg", bgCustom: "ql_lk_bg_custom", noise: "ql_lk_noise", layout: "ql_lk_layout" };
+const PREF = { bg: "ql_lk_bg", bgCustom: "ql_lk_bg_custom", noise: "ql_lk_noise", layout: "ql_lk_layout", autoMic: "ql_lk_automic" };
 function loadPref(key, fallback) {
   try {
     const v = localStorage.getItem(key);
@@ -207,6 +208,47 @@ function PublishController({ publish, choices }) {
 // Mounted exactly once (it owns the `manage` side-effects); renders nothing.
 function RoomClusterManager() {
   useRoomCluster({ manage: true });
+  return null;
+}
+
+// Proximity-style auto mic-switching (experimental, opt-in). Only active in a
+// room that HAS a device — the device stays the stable audio sink (speakers)
+// while the mic moves between people. Each in-room person runs local voice
+// detection: speak → auto-claim the room mic (their close mic beats the device's
+// far one); go quiet → release so the device reclaims. The detector keys on
+// close/loud own-voice over an adaptive floor, so it's cleanest on a headset and
+// best-effort on speakers (an in-room mic also hears the room speaker, which no
+// per-device echo-cancel can remove). Thresholds will want real-world tuning.
+function AutoMicController({ enabled }) {
+  const cl = useRoomCluster();
+  const hasDevice = cl.members.some((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
+  const active = enabled && !!cl.cluster && hasDevice;
+  // Keep the latest claim/release in a ref so the detector isn't torn down and
+  // the mic re-opened on every render.
+  const apiRef = useRef(cl);
+  apiRef.current = cl;
+  const heldRef = useRef(false);
+  useEffect(() => {
+    if (!active) return undefined;
+    const stop = createVoiceDetector({
+      onChange: (speaking) => {
+        if (speaking) {
+          apiRef.current.claimAuto();
+          heldRef.current = true;
+        } else if (heldRef.current) {
+          apiRef.current.releaseAuto();
+          heldRef.current = false;
+        }
+      },
+    });
+    return () => {
+      stop?.();
+      if (heldRef.current) {
+        apiRef.current.releaseAuto();
+        heldRef.current = false;
+      }
+    };
+  }, [active]);
   return null;
 }
 
@@ -471,7 +513,7 @@ function DeviceSettingsMenu({ kind, label, children }) {
 // muted so the room doesn't echo. Not in a room → one click joins an existing
 // one (if a neighbour started it) or starts a new one. In a room → a small
 // popover shows who's together and a Leave action.
-function RoomClusterButton() {
+function RoomClusterButton({ autoMic, onToggleAutoMic }) {
   const {
     cluster, members, isMicSource, existingCluster,
     startRoom, joinRoom, takeSpeaker, stepDown, leaveRoom,
@@ -577,6 +619,22 @@ function RoomClusterButton() {
               Leave room
             </button>
           </div>
+          {deviceInRoom && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={!!autoMic}
+              onClick={() => onToggleAutoMic?.()}
+              className="mt-1.5 pt-1.5 border-t border-white/10 w-full flex items-center gap-2 px-2 py-1 text-left rounded-md hover:bg-white/10"
+              title="Experimental: automatically hand the room mic to whoever's speaking (their closer mic)."
+            >
+              <Sparkles className="w-3.5 h-3.5 opacity-80 shrink-0" />
+              <span className="flex-1">Auto-switch mic to the speaker</span>
+              <span className={`text-[10px] font-bold uppercase tracking-wide ${autoMic ? "text-[var(--lk-accent-bg,#22d3ee)]" : "opacity-50"}`}>
+                {autoMic ? "On" : "Off"}
+              </span>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -597,6 +655,7 @@ function CallControlBar({
   layoutMode, onToggleLayout,
   bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
+  autoMic, onToggleAutoMic,
   peopleOpen, onTogglePeople,
 }) {
   const { theme } = useTheme();
@@ -644,7 +703,7 @@ function CallControlBar({
           )}
           <TrackToggle source={Track.Source.ScreenShare} />
           {/* In-room companion mode: become the room speaker / join muted. */}
-          <RoomClusterButton />
+          <RoomClusterButton autoMic={autoMic} onToggleAutoMic={onToggleAutoMic} />
         </>
       )}
 
@@ -957,10 +1016,13 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
   const [customBg, setCustomBg] = useState(() => loadPref(PREF.bgCustom, "") || null);
   // Noise cancellation defaults ON (the whole point), where supported.
   const [noiseEnabled, setNoiseEnabled] = useState(() => loadPref(PREF.noise, "1") === "1");
+  // Proximity auto mic-switching is experimental → defaults OFF.
+  const [autoMic, setAutoMic] = useState(() => loadPref(PREF.autoMic, "0") === "1");
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.bg, bg), [bg]);
   useEffect(() => savePref(PREF.noise, noiseEnabled ? "1" : "0"), [noiseEnabled]);
+  useEffect(() => savePref(PREF.autoMic, autoMic ? "1" : "0"), [autoMic]);
 
   const onUploadBg = async (file) => {
     try {
@@ -976,6 +1038,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
   return (
     <div ref={rootRef} className="flex flex-col w-full h-full">
       <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
+      <AutoMicController enabled={autoMic} />
       <LayoutContextProvider>
         <Stage
           compact={compact}
@@ -1001,6 +1064,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
             onUploadBg={onUploadBg}
             noiseEnabled={noiseEnabled}
             onToggleNoise={() => setNoiseEnabled((v) => !v)}
+            autoMic={autoMic}
+            onToggleAutoMic={() => setAutoMic((v) => !v)}
             peopleOpen={peopleOpen}
             onTogglePeople={() => setPeopleOpen((v) => !v)}
           />

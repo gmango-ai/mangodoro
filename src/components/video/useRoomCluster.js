@@ -38,19 +38,36 @@ export const ATTR_OVERRIDE = "speakerOverride";
 export const ATTR_ROOM_DEVICE = "roomDevice";
 
 // Who carries the room's mic, from a cluster's members. Pure.
+// Priority: a deliberate manual take-over (sticky) > the most-recent voice-
+// activity (auto) take-over > the room device default > any other plain claimer
+// (a device-less room's founder, or a lowest-id auto-promotion).
+// `speakerOverride` distinguishes them: "manual" | "<timestamp ms>" (auto) | "".
 export function pickMicSource(members) {
-  const claimers = members.filter((p) => p.attributes?.[ATTR_LEADER] === p.identity);
-  const overrides = claimers
-    .filter((p) => p.attributes?.[ATTR_OVERRIDE] === "1" && p.attributes?.[ATTR_ROOM_DEVICE] !== "1")
+  const claims = members.filter((p) => p.attributes?.[ATTR_LEADER] === p.identity);
+  const humans = claims.filter((p) => p.attributes?.[ATTR_ROOM_DEVICE] !== "1");
+
+  const manual = humans
+    .filter((p) => p.attributes?.[ATTR_OVERRIDE] === "manual")
     .map((p) => p.identity)
     .sort();
-  if (overrides.length) return overrides[0];
-  const devices = claimers
+  if (manual.length) return manual[0];
+
+  const auto = humans
+    .map((p) => ({ id: p.identity, ts: Number(p.attributes?.[ATTR_OVERRIDE]) }))
+    .filter((x) => Number.isFinite(x.ts) && x.ts > 0)
+    .sort((a, b) => b.ts - a.ts || (a.id < b.id ? -1 : 1));
+  if (auto.length) return auto[0].id;
+
+  const device = claims
     .filter((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1")
     .map((p) => p.identity)
     .sort();
-  if (devices.length) return devices[0];
-  return claimers.map((p) => p.identity).sort()[0] || null;
+  if (device.length) return device[0];
+
+  return humans
+    .filter((p) => !p.attributes?.[ATTR_OVERRIDE])
+    .map((p) => p.identity)
+    .sort()[0] || null;
 }
 
 // The sink (speakers) is the device when present, else the mic source. Pure.
@@ -165,11 +182,25 @@ export function useRoomCluster({ manage = false } = {}) {
     [setAttrs],
   );
 
-  // Deliberately take over the room mic (overrides the device default).
+  // Deliberately take over the room mic (sticky override of the device default).
   const takeSpeaker = useCallback(() => {
     if (!myId || !cluster) return;
-    setAttrs({ [ATTR_LEADER]: myId, [ATTR_OVERRIDE]: "1" }).then(bump);
+    setAttrs({ [ATTR_LEADER]: myId, [ATTR_OVERRIDE]: "manual" }).then(bump);
   }, [myId, cluster, setAttrs]);
+
+  // Auto mic-switching: claim the mic for the duration of a speaking turn
+  // (timestamped so the most-recent speaker wins), and release on silence. We
+  // never clobber a deliberate manual take-over.
+  const claimAuto = useCallback(() => {
+    if (!myId || !cluster) return;
+    if (localParticipant?.attributes?.[ATTR_OVERRIDE] === "manual") return;
+    setAttrs({ [ATTR_LEADER]: myId, [ATTR_OVERRIDE]: String(Date.now()) }).then(bump);
+  }, [myId, cluster, localParticipant, setAttrs]);
+
+  const releaseAuto = useCallback(() => {
+    if (localParticipant?.attributes?.[ATTR_OVERRIDE] === "manual") return;
+    setAttrs({ [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "" }).then(bump);
+  }, [localParticipant, setAttrs]);
 
   // Give the mic back (to the device / next claimer) but stay in the room.
   const stepDown = useCallback(() => {
@@ -185,10 +216,13 @@ export function useRoomCluster({ manage = false } = {}) {
   useEffect(() => {
     if (!manage || !cluster || !myId) return;
     const iClaim = myAttrs[ATTR_LEADER] === myId;
-    // Drop a stale claim once I've been out-ranked (a returning device, or
-    // someone who took over), so the device reclaims and badges stay correct.
-    if (iClaim && micSourceId !== myId) {
-      setAttrs({ [ATTR_LEADER]: "", [ATTR_OVERRIDE]: "" }).then(bump);
+    const myOverride = myAttrs[ATTR_OVERRIDE];
+    // Drop only a stale PLAIN claim (an auto-promotion) once out-ranked — e.g. a
+    // returning device — so it reclaims and badges stay correct. Manual and auto
+    // (voice) take-overs are owned by their holder; clearing them here would
+    // stomp an active speaker.
+    if (iClaim && !myOverride && micSourceId !== myId) {
+      setAttrs({ [ATTR_LEADER]: "" }).then(bump);
       return;
     }
     // Nobody holds the mic → the lowest-id survivor claims it (no override, so a
@@ -212,5 +246,7 @@ export function useRoomCluster({ manage = false } = {}) {
     takeSpeaker,
     stepDown,
     leaveRoom,
+    claimAuto,
+    releaseAuto,
   };
 }
