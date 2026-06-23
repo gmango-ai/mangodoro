@@ -53,6 +53,7 @@ import {
   Paintbrush,
   Eraser,
   MessageSquare,
+  X,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
