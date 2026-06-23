@@ -16,15 +16,18 @@ import {
   useTracks,
   useParticipants,
   useLocalParticipant,
+  useRoomContext,
 } from "@livekit/components-react";
 import { Track, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, MicOff, UserX, X } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, MicOff, UserX, X, DoorOpen, Volume2 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack } from "../../lib/livekitModerate";
+import { useRoomCluster } from "./useRoomCluster";
+import { pickBestMicrophone } from "./bestMic";
 
 // LiveKit's client logs at "info" by default, which floods the console with
 // per-connection play-by-play (signal connecting, connection state changes,
@@ -152,21 +155,68 @@ function bgToOptions(bg, customBg) {
 
 function PublishController({ publish, choices }) {
   const { localParticipant } = useLocalParticipant();
+  const room = useRoomContext();
+  const { isFollower, isLeader } = useRoomCluster();
+  const bestMicAppliedRef = useRef(false);
+
   useEffect(() => {
     if (!localParticipant) return;
     // Tag our role so every client can render spectators as a name list
     // instead of giving them a (camera-off) tile in the grid.
     localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
     const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
-    const wantAudio = publish && (choices ? choices.audioEnabled !== false : true);
+    // Followers in a shared physical room go mic-silent: the room leader's mic
+    // already carries everyone in the space, so a second live mic here would
+    // just feed back. Camera is untouched — each person keeps their own tile.
+    const wantAudio = publish && !isFollower && (choices ? choices.audioEnabled !== false : true);
     localParticipant
       .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
       .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
     localParticipant
       .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
       .catch(() => { /* */ });
-  }, [localParticipant, publish, choices]);
+  }, [localParticipant, publish, choices, isFollower]);
+
+  // When this device becomes the room speaker, move its mic to the best
+  // available source (a dedicated/USB mic over the built-in). Skip if the user
+  // explicitly picked a mic; run once per leader activation.
+  useEffect(() => {
+    if (!isLeader) {
+      bestMicAppliedRef.current = false;
+      return undefined;
+    }
+    if (!publish || !room || choices?.audioDeviceId || bestMicAppliedRef.current) return undefined;
+    bestMicAppliedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const best = await pickBestMicrophone();
+        if (!cancelled && best?.deviceId) await room.switchActiveDevice("audioinput", best.deviceId);
+      } catch {
+        /* keep the current mic */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isLeader, publish, room, choices?.audioDeviceId]);
+
   return null;
+}
+
+// Manages the in-room cluster: leader handoff when the room speaker drops.
+// Mounted exactly once (it owns the `manage` side-effects); renders nothing.
+function RoomClusterManager() {
+  useRoomCluster({ manage: true });
+  return null;
+}
+
+// Audio playback, suppressed for followers. A follower sits in the same
+// physical room as the leader, whose speakers already play the call aloud —
+// so playing it here too would double up and echo. Leaders and solo
+// participants render audio as normal.
+function ClusterAudioRenderer() {
+  const { isFollower } = useRoomCluster();
+  if (isFollower) return null;
+  return <RoomAudioRenderer />;
 }
 
 // Applies the self-view processors to the LOCAL tracks: our refined background
@@ -392,6 +442,96 @@ function DeviceSettingsMenu({ kind, label, children }) {
   );
 }
 
+// In-room ("companion mode") control. When several people share one physical
+// room, one device becomes the room speaker (mic + audio) and the others join
+// muted so the room doesn't echo. Not in a room → one click joins an existing
+// one (if a neighbour started it) or starts a new one. In a room → a small
+// popover shows who's together and a Leave action.
+function RoomClusterButton() {
+  const { isLeader, isFollower, members, leaderId, existingCluster, startRoom, joinRoom, leaveRoom } = useRoomCluster();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const inRoom = isLeader || isFollower;
+
+  if (!inRoom) {
+    const joining = !!existingCluster;
+    return (
+      <button
+        type="button"
+        className="lk-button"
+        title={
+          joining
+            ? `Join ${existingCluster.leaderName || "the"} room — mutes your mic & call audio (for when you're together in person)`
+            : "Make this the room speaker — others sharing your room join muted so it doesn't echo"
+        }
+        aria-label={joining ? "Join room" : "Make this the room speaker"}
+        onClick={() => (joining ? joinRoom(existingCluster) : startRoom())}
+      >
+        <DoorOpen className="w-5 h-5" />
+      </button>
+    );
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        className="lk-button"
+        aria-pressed="true"
+        aria-expanded={open}
+        title={isLeader ? "You're the room speaker" : "You're in a shared room (muted)"}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <DoorOpen className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-56 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-2 shadow-xl text-[12px]">
+          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">
+            {isLeader ? "You're the room speaker" : "In this room · muted"}
+          </div>
+          <ul className="max-h-40 overflow-auto mb-1.5">
+            {members.map((p) => {
+              const leads = p.identity === leaderId;
+              return (
+                <li key={p.identity} className="flex items-center gap-1.5 px-1 py-0.5">
+                  <span className="flex-1 min-w-0 truncate">
+                    {p.name || p.identity}
+                    {p.isLocal && <span className="opacity-60"> (you)</span>}
+                  </span>
+                  {leads ? (
+                    <Volume2 className="w-3.5 h-3.5 text-amber-300 shrink-0" title="Room speaker" />
+                  ) : (
+                    <MicOff className="w-3.5 h-3.5 opacity-50 shrink-0" title="Muted" />
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            type="button"
+            onClick={() => { leaveRoom(); setOpen(false); }}
+            className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
+          >
+            Leave room
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Custom control bar (replaces LiveKit's <ControlBar>) so reactions + the
 // layout toggle sit where we want and it collapses to icon-only when the tile
 // is narrow — keeping a small video usable rather than forcing a large minimum
@@ -452,6 +592,8 @@ function CallControlBar({
             </DeviceSettingsMenu>
           )}
           <TrackToggle source={Track.Source.ScreenShare} />
+          {/* In-room companion mode: become the room speaker / join muted. */}
+          <RoomClusterButton />
         </>
       )}
 
@@ -841,8 +983,11 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
       >
         <PublishController publish={publish} choices={choices} />
         <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} />
-        {/* Required for participants to be audible. */}
-        <RoomAudioRenderer />
+        {/* Owns in-room cluster management (leader handoff). Mount once. */}
+        <RoomClusterManager />
+        {/* Required for participants to be audible — suppressed for in-room
+            followers so the leader's speakers don't echo back through them. */}
+        <ClusterAudioRenderer />
       </LiveKitRoom>
     </div>
   );
