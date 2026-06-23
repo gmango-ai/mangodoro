@@ -300,6 +300,9 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
   const { setNodes } = useReactFlow();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [allOpen, setAllOpen] = useState(false); // "view all reactions" popover
+  // Grow the note's height to fit its text so nothing clips (width stays
+  // user-controlled, like shapes). Pad covers the 16/12 padding + author line.
+  const growRef = useAutoHeight(id, 28 + (data?.author ? 20 : 0) + 6);
   // Legacy notes were created without an explicit size; give them one (square,
   // from their measured box) so the resizer has real dimensions to work from.
   useEffect(() => {
@@ -354,8 +357,9 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         fontFamily: "inherit",
       }}
     >
-      {/* Resizable but square (keepAspectRatio); no connection handles. */}
-      <NodeResizer isVisible={selected && !data?.locked} minWidth={120} minHeight={120} keepAspectRatio {...resizer(SELECT)} />
+      {/* Free resize; the height also auto-grows to fit the text (see growRef).
+          No connection handles. */}
+      <NodeResizer isVisible={selected && !data?.locked} minWidth={120} minHeight={120} {...resizer(SELECT)} />
       {selected && (
         <button type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete"
           style={{ position: "absolute", top: 6, right: 6, opacity: 0.4, display: "flex", color: ink }}>
@@ -363,17 +367,20 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         </button>
       )}
 
-      {/* Note text — vertical placement, alignment + colour are per-note. */}
+      {/* Note text — vertical placement, alignment + colour are per-note. The
+          inner growRef box is content-height so it can be measured for grow. */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: vAlignFlex(data?.vAlign), justifyContent: "center", overflow: "hidden" }}>
-        <EditableText
-          value={data?.text}
-          onChange={setText}
-          placeholder="Type a note…"
-          nodeId={id}
-          selected={selected}
-          markdown
-          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily) }}
-        />
+        <div ref={growRef} style={{ width: "100%", minWidth: 0 }}>
+          <EditableText
+            value={data?.text}
+            onChange={setText}
+            placeholder="Type a note…"
+            nodeId={id}
+            selected={selected}
+            markdown
+            style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily) }}
+          />
+        </div>
       </div>
 
       {/* Author, bottom-right. */}
