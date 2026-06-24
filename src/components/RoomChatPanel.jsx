@@ -3,6 +3,7 @@ import { Send, Pencil, Trash2, Check, X } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
+import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
 import { emitNotification } from "../lib/notifications";
 import UserAvatar from "./UserAvatar";
@@ -27,7 +28,7 @@ function formatTime(iso) {
 // parent owns the edit state so only one message is editable at a
 // time and Escape / Enter shortcuts are uniform.
 function MessageRow({
-  message, compact, dark, isOwn, isEditing,
+  message, compact, dark, isOwn, isEditing, renderBody, openProfile,
   editDraft, onEditDraftChange, onStartEdit, onCancelEdit, onSaveEdit, onDelete,
 }) {
   const editAreaRef = useRef(null);
@@ -55,19 +56,25 @@ function MessageRow({
     <div className={`group relative flex gap-2 ${compact ? "" : "mt-3"}`}>
       <div className="w-7 shrink-0">
         {!compact && (
-          <UserAvatar
-            url={message.author?.avatar_url || ""}
-            name={message.author?.name || "Member"}
-            size={28}
-          />
+          <button type="button" className="rounded-full" onClick={(e) => openProfile?.(message.user_id, e.currentTarget.getBoundingClientRect())} title="View profile">
+            <UserAvatar
+              url={message.author?.avatar_url || ""}
+              name={message.author?.name || "Member"}
+              size={28}
+            />
+          </button>
         )}
       </div>
       <div className="min-w-0 flex-1">
         {!compact && (
           <div className="flex items-baseline gap-2 mb-0.5">
-            <span className={`text-xs font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>
+            <button
+              type="button"
+              onClick={(e) => openProfile?.(message.user_id, e.currentTarget.getBoundingClientRect())}
+              className={`text-xs font-semibold hover:underline ${dark ? "text-slate-200" : "text-slate-700"}`}
+            >
               {message.author?.name || "Member"}
-            </span>
+            </button>
             <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
               {formatTime(message.created_at)}
               {message.edited_at && " · edited"}
@@ -113,7 +120,7 @@ function MessageRow({
           </div>
         ) : (
           <p className={`text-sm whitespace-pre-wrap break-words ${dark ? "text-slate-100" : "text-slate-800"}`}>
-            {message.body}
+            {renderBody ? renderBody(message) : message.body}
           </p>
         )}
       </div>
@@ -162,7 +169,39 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
   // mentionedRef and fire a `mention` notification on send.
   const { settings } = useApp();
   const { teamMembers } = useTeam();
+  const { openProfile } = useProfileCard();
   const taRef = useRef(null);
+
+  // Render a message body with @mentions linkified to the person's profile.
+  const renderBody = (message) => {
+    const ids = message.mentioned_user_ids || [];
+    const body = message.body || "";
+    if (!ids.length) return body;
+    const mentions = ids
+      .map((id) => ({ id, name: (teamMembers || []).find((m) => m.user_id === id)?.name }))
+      .filter((x) => x.name);
+    if (!mentions.length) return body;
+    const names = [...new Set(mentions.map((m) => m.name))].sort((a, b) => b.length - a.length);
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`@(${names.map(esc).join("|")})`, "g");
+    const out = [];
+    let last = 0, m, k = 0;
+    while ((m = re.exec(body))) {
+      if (m.index > last) out.push(body.slice(last, m.index));
+      const mn = mentions.find((x) => x.name === m[1]);
+      out.push(
+        <button
+          key={`m${k++}`}
+          type="button"
+          onClick={(e) => { e.stopPropagation(); openProfile(mn.id, e.currentTarget.getBoundingClientRect()); }}
+          className="font-semibold text-[var(--color-accent)] hover:underline"
+        >@{m[1]}</button>
+      );
+      last = m.index + m[0].length;
+    }
+    if (last < body.length) out.push(body.slice(last));
+    return out;
+  };
   const mentionedRef = useRef(new Set());
   const [mention, setMention] = useState(null); // { query, index, anchor } | null
   const myName = settings?.name || "Someone";
@@ -217,7 +256,7 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
     setMention(null);
     const mentioned = [...mentionedRef.current];
     mentionedRef.current = new Set();
-    const { error } = await send(body);
+    const { error } = await send(body, mentioned);
     setSending(false);
     if (error) {
       setDraft(body);
@@ -301,6 +340,8 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
                 message={m}
                 compact={compact}
                 dark={dark}
+                renderBody={renderBody}
+                openProfile={openProfile}
                 isOwn={m.user_id === userId}
                 isEditing={editingId === m.id}
                 editDraft={editDraft}

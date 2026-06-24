@@ -114,9 +114,9 @@ export function useRoomChat(roomId, userId) {
   }, [roomId]);
 
   const send = useCallback(
-    async (body) => {
+    async (body, mentionedUserIds = []) => {
       if (!roomId || !userId) return { error: { message: "Not ready" } };
-      return sendMessage(roomId, userId, body);
+      return sendMessage(roomId, userId, body, mentionedUserIds);
     },
     [roomId, userId]
   );

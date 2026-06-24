@@ -25,7 +25,7 @@ export async function fetchRecentMessages(roomId, { before } = {}) {
   if (!roomId) return { data: [], error: null };
   let q = supabase
     .from("chat_messages")
-    .select("id, room_id, user_id, body, created_at, edited_at, deleted_at")
+    .select("id, room_id, user_id, body, created_at, edited_at, deleted_at, mentioned_user_ids")
     .eq("room_id", roomId)
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -49,13 +49,13 @@ export async function fetchAuthorProfile(userId) {
   return { data, error };
 }
 
-export async function sendMessage(roomId, userId, body) {
+export async function sendMessage(roomId, userId, body, mentionedUserIds = []) {
   const trimmed = (body || "").trim();
   if (!trimmed) return { error: { message: "Message is empty" } };
   if (trimmed.length > 4000) return { error: { message: "Message too long" } };
   const { data, error } = await supabase
     .from("chat_messages")
-    .insert({ room_id: roomId, user_id: userId, body: trimmed })
+    .insert({ room_id: roomId, user_id: userId, body: trimmed, mentioned_user_ids: mentionedUserIds || [] })
     .select()
     .single();
   return { data, error };
