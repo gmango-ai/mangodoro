@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Send, Pencil, Trash2, Check, X } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
+import { useApp } from "../context/AppContext";
+import { useTeam } from "../context/TeamContext";
 import { useRoomChat } from "../lib/useRoomChat";
+import { emitNotification } from "../lib/notifications";
 import UserAvatar from "./UserAvatar";
 
 function formatTime(iso) {
@@ -155,6 +158,48 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
   const [editDraft, setEditDraft] = useState("");
   const scrollerRef = useRef(null);
 
+  // @mentions: an autocomplete over teammates; selected user_ids accumulate in
+  // mentionedRef and fire a `mention` notification on send.
+  const { settings } = useApp();
+  const { teamMembers } = useTeam();
+  const taRef = useRef(null);
+  const mentionedRef = useRef(new Set());
+  const [mention, setMention] = useState(null); // { query, index, anchor } | null
+  const myName = settings?.name || "Someone";
+
+  const candidates = mention
+    ? (teamMembers || [])
+        .filter((m) => m.user_id !== userId && (m.name || "").toLowerCase().includes(mention.query.toLowerCase()))
+        .slice(0, 6)
+    : [];
+
+  // Detect an @token immediately before the caret as the user types.
+  const onDraftChange = (e) => {
+    const val = e.target.value;
+    setDraft(val);
+    const caret = e.target.selectionStart ?? val.length;
+    const m = val.slice(0, caret).match(/(^|\s)@(\w*)$/);
+    if (m) setMention({ query: m[2], index: 0, anchor: caret - m[2].length - 1 });
+    else setMention(null);
+  };
+
+  const insertMention = (member) => {
+    if (!member) return;
+    const el = taRef.current;
+    const caret = el?.selectionStart ?? draft.length;
+    const start = mention?.anchor ?? caret;
+    const next = `${draft.slice(0, start)}@${member.name} ${draft.slice(caret)}`;
+    mentionedRef.current.add(member.user_id);
+    setDraft(next);
+    setMention(null);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      const pos = start + (member.name?.length || 0) + 2;
+      el.focus();
+      try { el.setSelectionRange(pos, pos); } catch { /* */ }
+    });
+  };
+
   // Auto-scroll to the bottom whenever the message list grows. We
   // don't try to be clever about "user has scrolled up to read
   // history" yet — this is the MVP behavior.
@@ -169,15 +214,34 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
     if (!body || sending) return;
     setSending(true);
     setDraft("");
+    setMention(null);
+    const mentioned = [...mentionedRef.current];
+    mentionedRef.current = new Set();
     const { error } = await send(body);
     setSending(false);
     if (error) {
       setDraft(body);
       console.warn("send chat:", error.message);
+      return;
+    }
+    // Fire a mention ping per tagged teammate (single-recipient client emit).
+    for (const rid of mentioned) {
+      emitNotification({
+        recipient: rid, type: "mention",
+        title: `${myName} mentioned you`, body: body.slice(0, 140),
+        payload: { room_id: roomId, route: "/office" },
+        actor: userId, entityType: "room", entityId: roomId,
+      });
     }
   };
 
   const onKeyDown = (e) => {
+    if (mention && candidates.length) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setMention((s) => ({ ...s, index: Math.min((s.index ?? 0) + 1, candidates.length - 1) })); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setMention((s) => ({ ...s, index: Math.max((s.index ?? 0) - 1, 0) })); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertMention(candidates[mention.index ?? 0]); return; }
+      if (e.key === "Escape") { e.preventDefault(); setMention(null); return; }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -250,13 +314,32 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
           })
         )}
       </div>
-      <div className="mt-2 flex gap-2">
+      <div className="mt-2 flex gap-2 relative">
+        {mention && candidates.length > 0 && (
+          <div
+            className="absolute bottom-full mb-1 left-0 w-60 rounded-xl border shadow-xl overflow-hidden z-30"
+            style={{ background: dark ? "var(--color-surface)" : "#fff", borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
+          >
+            {candidates.map((m, i) => (
+              <button
+                key={m.user_id}
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
+                className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-sm ${i === (mention.index ?? 0) ? (dark ? "bg-white/10" : "bg-slate-100") : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}
+              >
+                <UserAvatar url={m.avatar_url} name={m.name} size={20} />
+                <span className="truncate">{m.name || "Member"}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
+          ref={taRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={onDraftChange}
           onKeyDown={onKeyDown}
           rows={1}
-          placeholder="Message this room…"
+          placeholder="Message this room…  (@ to mention)"
           className={`flex-1 resize-none rounded-lg border px-3 py-2 text-sm ${
             dark
               ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500"
