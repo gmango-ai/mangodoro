@@ -37,6 +37,7 @@ export function useWeekGoals() {
       const fcDeptIds = new Set();
       const firstClass = (fcRes?.data || [])
         .filter((g) => {
+          if (g.status === "done") return false; // completed goals don't surface
           if (g.owner_type === "user") return g.owner_id === myUserId;
           if (g.owner_type === "department") return !!myOrgTeamIds?.has(g.owner_id);
           return true;

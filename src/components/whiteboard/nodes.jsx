@@ -6,7 +6,7 @@ import { useParams } from "react-router-dom";
 import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
-import { setGoal, clearGoal } from "../../lib/goals";
+import { setGoal, clearGoalNode } from "../../lib/goals";
 import { fontStack } from "../../lib/whiteboardFonts";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -721,7 +721,7 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
   async function toggleSetAsGoal() {
     if (!activeTeamId || !linked) return;
     if (goalActive) {
-      await clearGoal({ teamId: activeTeamId, ownerType: data.linkType, ownerId: data.linkId });
+      await clearGoalNode({ boardId: whiteboardId, nodeId: id });
       patch({ goalActive: false });
     } else {
       if (!(data?.text || "").trim()) return;

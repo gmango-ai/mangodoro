@@ -23,7 +23,32 @@ export async function clearGoal({ teamId, ownerType, ownerId }) {
   return supabase.rpc("clear_goal", { p_team_id: teamId, p_owner_type: ownerType, p_owner_id: ownerId });
 }
 
+// Clear a specific whiteboard node's goal (each goal node now maps to its own).
+export async function clearGoalNode({ boardId, nodeId }) {
+  if (!boardId || !nodeId) return { error: null };
+  return supabase.rpc("clear_goal_node", { p_board: boardId, p_node: nodeId });
+}
+
 export async function listTeamGoals(teamId) {
   if (!teamId) return { data: [], error: null };
   return supabase.rpc("list_team_goals", { p_team_id: teamId });
+}
+
+// ── id-based CRUD for the manage surfaces (profile / team) ──
+export async function createGoal({ teamId, ownerType, ownerId, ownerName, ownerColor, body }) {
+  if (!teamId || !ownerType || !ownerId) return { error: { message: "Missing team/owner" } };
+  return supabase.rpc("create_goal", {
+    p_team_id: teamId, p_owner_type: ownerType, p_owner_id: ownerId,
+    p_owner_name: ownerName || "", p_owner_color: ownerColor || null, p_body: body || "",
+  });
+}
+
+export async function updateGoal({ id, body, status }) {
+  if (!id) return { error: { message: "no id" } };
+  return supabase.rpc("update_goal", { p_id: id, p_body: body ?? null, p_status: status ?? null });
+}
+
+export async function deleteGoal(id) {
+  if (!id) return { error: null };
+  return supabase.rpc("delete_goal", { p_id: id });
 }
