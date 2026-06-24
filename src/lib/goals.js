@@ -35,18 +35,29 @@ export async function listTeamGoals(teamId) {
 }
 
 // ── id-based CRUD for the manage surfaces (profile / team) ──
-export async function createGoal({ teamId, ownerType, ownerId, ownerName, ownerColor, body }) {
+export async function createGoal({ teamId, ownerType, ownerId, ownerName, ownerColor, body, horizon }) {
   if (!teamId || !ownerType || !ownerId) return { error: { message: "Missing team/owner" } };
   return supabase.rpc("create_goal", {
     p_team_id: teamId, p_owner_type: ownerType, p_owner_id: ownerId,
     p_owner_name: ownerName || "", p_owner_color: ownerColor || null, p_body: body || "",
+    p_horizon: horizon || "none",
   });
 }
 
-export async function updateGoal({ id, body, status, isPublic }) {
+export async function updateGoal({ id, body, status, isPublic, horizon }) {
   if (!id) return { error: { message: "no id" } };
-  return supabase.rpc("update_goal", { p_id: id, p_body: body ?? null, p_status: status ?? null, p_is_public: isPublic ?? null });
+  return supabase.rpc("update_goal", { p_id: id, p_body: body ?? null, p_status: status ?? null, p_is_public: isPublic ?? null, p_horizon: horizon ?? null });
 }
+
+// Horizon labels, shared by the manage UIs + chips.
+export const GOAL_HORIZONS = [
+  { value: "none", label: "Ongoing", short: "" },
+  { value: "week", label: "This week", short: "Week" },
+  { value: "month", label: "This month", short: "Month" },
+  { value: "quarter", label: "This quarter", short: "Quarter" },
+  { value: "year", label: "This year", short: "Year" },
+];
+export const horizonShort = (h) => GOAL_HORIZONS.find((x) => x.value === h)?.short || "";
 
 export async function deleteGoal(id) {
   if (!id) return { error: null };

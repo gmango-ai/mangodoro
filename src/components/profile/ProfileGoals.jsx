@@ -3,7 +3,8 @@ import { Plus, Check, X, Target, Lock, Globe } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
-import { listTeamGoals, createGoal, updateGoal, deleteGoal } from "../../lib/goals";
+import { listTeamGoals, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
+import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 
 // A person's goals (team-scoped to the active team). Editable when it's you —
 // add, check off (active/done), remove; read-only for teammates. Used on the
@@ -16,6 +17,7 @@ export default function ProfileGoals({ userId }) {
   const isMe = !!userId && session?.user?.id === userId;
   const [goals, setGoals] = useState([]);
   const [draft, setDraft] = useState("");
+  const [addHorizon, setAddHorizon] = useState("none");
 
   const load = useCallback(async () => {
     if (!activeTeamId || !userId) { setGoals([]); return; }
@@ -28,9 +30,10 @@ export default function ProfileGoals({ userId }) {
     const body = draft.trim();
     if (!body || !isMe) return;
     setDraft("");
-    await createGoal({ teamId: activeTeamId, ownerType: "user", ownerId: userId, ownerName: settings?.name || "", body });
+    await createGoal({ teamId: activeTeamId, ownerType: "user", ownerId: userId, ownerName: settings?.name || "", body, horizon: addHorizon });
     load();
   };
+  const changeHorizon = async (g, h) => { if (!isMe) return; await updateGoal({ id: g.id, horizon: h }); load(); };
   const toggle = async (g) => {
     if (!isMe) return;
     await updateGoal({ id: g.id, status: g.status === "done" ? "active" : "done" });
@@ -83,6 +86,15 @@ export default function ProfileGoals({ userId }) {
             <span className={`text-sm flex-1 break-words ${g.status === "done" ? "line-through opacity-60" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>
               {g.body}
             </span>
+            {isMe ? (
+              <GoalHorizonSelect value={g.horizon} onChange={(h) => changeHorizon(g, h)} dark={dark} />
+            ) : (
+              g.horizon && g.horizon !== "none" && (
+                <span className={`shrink-0 mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${dark ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
+                  {horizonShort(g.horizon)}
+                </span>
+              )
+            )}
             {isMe && (
               <button
                 type="button"
@@ -119,6 +131,7 @@ export default function ProfileGoals({ userId }) {
               dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500" : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
             }`}
           />
+          <GoalHorizonSelect value={addHorizon} onChange={setAddHorizon} dark={dark} />
           <button
             type="button"
             onClick={add}
