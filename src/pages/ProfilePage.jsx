@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import ProfileCard from "../components/profile/ProfileCard";
+import ProfileGoals from "../components/profile/ProfileGoals";
 import { useTheme } from "../context/ThemeContext";
 
 // Full profile page (/u/:userId). For now it frames the shared ProfileCard;
@@ -24,6 +25,12 @@ export default function ProfilePage() {
         style={{ background: dark ? "var(--color-surface)" : "#fff", borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
       >
         <ProfileCard userId={userId} />
+      </div>
+      <div
+        className="rounded-2xl border shadow-sm mt-3 p-3.5"
+        style={{ background: dark ? "var(--color-surface)" : "#fff", borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
+      >
+        <ProfileGoals userId={userId} />
       </div>
     </main>
   );
