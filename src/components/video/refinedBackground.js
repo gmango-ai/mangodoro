@@ -30,18 +30,24 @@ const MODEL_URL =
 // runs it fast enough; otherwise we fall back to the MediaPipe selfie mask.
 const RVM_MODEL_URL =
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_RVM_MODEL_URL) || "";
-// Cap on the frame we send RVM. Measured: 720px = ~158ms/frame in WASM on a
-// typical machine (the full-res DECODER + per-frame RGBA→tensor convert are the
-// cost), which trips the gate. 384 runs smoothly. The ENCODER downscale below is
-// the cheap lever for detail, so keep input modest and lean on that. [TUNE] up
-// only if you've got a fast backend (WebGPU / threaded WASM behind COOP+COEP).
-const RVM_INPUT_WIDTH = 384;
-// RVM's internal ENCODER downscale. Measured on this (single-thread WASM)
-// machine: 0.45 = ~82ms (tripped the gate), 0.25 ran but missed arms. 0.35
-// (~134px encoder) is the compromise that should run AND catch limbs better
-// than 0.25. The real fix here is a GPU backend, not this knob. [TUNE].
-const RVM_DOWNSAMPLE = 0.35;
-const RVM_SLOW_MS = 70;      // [TUNE] disable RVM above this avg (70ms ≈ 14fps floor)
+// Cap on the frame we send RVM — this is the resolution the matte is OUTPUT at
+// (the decoder runs here), so it's the dominant lever for edge sharpness. We ran
+// 384 during the single-thread era purely to survive ~82ms/frame; at 384/0.35 the
+// matte is computed at only ~134px internally — no crisper than MediaPipe's 256px
+// mask, which is why RVM "looked like MediaPipe". Threaded WASM (8 cores on an M4
+// ran 384/0.35 at 27ms) buys the headroom to push this up where RVM's quality
+// actually shows. [TUNE] with the avg-inference log + the gate below.
+const RVM_INPUT_WIDTH = 512;
+// RVM's internal ENCODER downscale (the "where's the person / fine structure"
+// pass). RVM authors target a downsampled long-side of 256–512px; at 512 input,
+// 0.5 → 256px encoder, the bottom of that band — catches hair/fingers far better
+// than the old 0.35 (~134px) without over-spending. [TUNE].
+const RVM_DOWNSAMPLE = 0.5;
+// [TUNE] disable RVM above this avg. Raised from 70 now that threading makes a
+// richer matte affordable: a threaded M4 runs the 512/0.5 config well under this,
+// while a single-thread machine (Safari/iOS, no isolation) blows past it and
+// correctly falls back to MediaPipe. ~95ms ≈ 10fps floor before we bail.
+const RVM_SLOW_MS = 95;
 
 // Sticky, per-page verdict: once RVM proves too slow on this machine we stop
 // even *trying* it. A new processor is built on every camera mute/unmute (the
