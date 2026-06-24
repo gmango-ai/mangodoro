@@ -120,7 +120,7 @@ export default function Nav({ onOpenPomodoro }) {
           </div>
         )}
 
-        <div className="max-w-4xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center gap-3">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center gap-3">
           {/* Mobile: hamburger */}
           <button
             type="button"
