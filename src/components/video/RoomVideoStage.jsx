@@ -29,6 +29,15 @@ function DeviceSelect({ label, devices, value, onChange }) {
   );
 }
 
+// Stable onError for usePreviewTracks — its effect deps are
+// [JSON.stringify(options), onError, mutex], so an INLINE onError (new identity
+// every render) re-runs the effect on every parent re-render, tearing down and
+// rebuilding the preview track → the black↔feed flash. A module-level function
+// is referentially stable, so the track is created once.
+function logPreviewError(e) {
+  console.warn("[greenroom]", e?.message);
+}
+
 // Pre-call "green room": a live camera preview that fills the tile, with mic /
 // camera / device controls overlaid and the Join button PINNED so it's always
 // visible (no scrolling — the old <PreJoin> overflowed a short tile). The
@@ -54,7 +63,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     () => ({ audio: false, video: camOn ? { deviceId: userChoices.videoDeviceId || undefined } : false }),
     [camOn, userChoices.videoDeviceId],
   );
-  const tracks = usePreviewTracks(trackOpts, (e) => console.warn("[greenroom]", e?.message));
+  const tracks = usePreviewTracks(trackOpts, logPreviewError);
   const videoTrack = useMemo(() => tracks?.find((t) => t.kind === "video"), [tracks]);
 
   const videoRef = useRef(null);
