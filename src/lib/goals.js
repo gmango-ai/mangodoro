@@ -126,3 +126,13 @@ export async function reorderGoals(ids) {
   if (!ids || !ids.length) return { error: null };
   return supabase.rpc("reorder_goals", { p_ids: ids });
 }
+
+// Move a goal to a different owner (company / department / user) within the
+// same org — re-org or elevate a personal goal to a team goal.
+export async function reassignGoal({ id, ownerType, ownerId, ownerName, ownerColor }) {
+  if (!id || !ownerType || !ownerId) return { error: { message: "Missing target" } };
+  return supabase.rpc("reassign_goal", {
+    p_id: id, p_owner_type: ownerType, p_owner_id: ownerId,
+    p_owner_name: ownerName ?? null, p_owner_color: ownerColor ?? null,
+  });
+}

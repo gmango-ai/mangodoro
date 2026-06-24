@@ -5,6 +5,7 @@ import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoa
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
 import GoalProgress from "../goals/GoalProgress";
+import GoalMoveMenu from "../goals/GoalMoveMenu";
 import MarkdownText from "../MarkdownText";
 import MarkdownEditor from "../MarkdownEditor";
 
@@ -82,6 +83,13 @@ export default function TeamGoals({ dark }) {
     await updateGoal({ id, body });
     load();
   };
+
+  // All owners a goal can move to (company + every department), minus its own.
+  const allOwners = [
+    ...(activeTeam ? [{ ownerType: "company", ownerId: activeTeamId, ownerName: activeTeam.name, ownerColor: activeTeam.color, label: `${activeTeam.name} · company` }] : []),
+    ...orgTeams.map((d) => ({ ownerType: "department", ownerId: d.id, ownerName: d.name, ownerColor: d.color, label: d.name })),
+  ];
+  const moveTargets = (g) => allOwners.filter((t) => !(t.ownerType === g.owner_type && String(t.ownerId) === String(g.owner_id)));
 
   // One owner's goal list + (when permitted) the add-row.
   const section = (ownerType, owner, manage) => {
@@ -163,6 +171,9 @@ export default function TeamGoals({ dark }) {
               )}
               {manage && (
                 <GoalRoomsButton goalId={g.id} scopedRoomIds={roomMap[g.id] || []} onSaved={load} dark={dark} />
+              )}
+              {manage && (
+                <GoalMoveMenu goal={g} targets={moveTargets(g)} onMoved={load} dark={dark} title="Move to…" />
               )}
               {manage && (
                 <button type="button" onClick={() => startEdit(g)} aria-label="Edit goal" className={`opacity-0 group-hover:opacity-100 shrink-0 mt-0.5 transition-colors ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>

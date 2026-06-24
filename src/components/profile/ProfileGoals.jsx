@@ -7,18 +7,25 @@ import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoa
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
 import GoalProgress from "../goals/GoalProgress";
+import GoalMoveMenu from "../goals/GoalMoveMenu";
 import MarkdownText from "../MarkdownText";
 import MarkdownEditor from "../MarkdownEditor";
+import { ArrowUpFromLine } from "lucide-react";
 
 // A person's goals (team-scoped to the active team). Editable when it's you —
 // add, check off (active/done), remove; read-only for teammates. Used on the
 // profile page.
 export default function ProfileGoals({ userId }) {
   const { session, settings } = useApp();
-  const { activeTeamId } = useTeam();
+  const { activeTeamId, activeTeam, orgTeams = [], isAdmin, myOrgTeamIds } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const isMe = !!userId && session?.user?.id === userId;
+  // Where a personal goal can be elevated: teams you're on + the company (admins).
+  const elevateTargets = [
+    ...(isAdmin && activeTeam ? [{ ownerType: "company", ownerId: activeTeamId, ownerName: activeTeam.name, ownerColor: activeTeam.color, label: `${activeTeam.name} · company` }] : []),
+    ...orgTeams.filter((d) => myOrgTeamIds?.has(d.id)).map((d) => ({ ownerType: "department", ownerId: d.id, ownerName: d.name, ownerColor: d.color, label: d.name })),
+  ];
   const [goals, setGoals] = useState([]);
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState(false);
@@ -175,6 +182,9 @@ export default function ProfileGoals({ userId }) {
             )}
             {isMe && (
               <GoalRoomsButton goalId={g.id} scopedRoomIds={roomMap[g.id] || []} onSaved={load} dark={dark} />
+            )}
+            {isMe && elevateTargets.length > 0 && (
+              <GoalMoveMenu goal={g} targets={elevateTargets} onMoved={load} dark={dark} title="Elevate to team goal" icon={ArrowUpFromLine} />
             )}
             {isMe && (
               <button
