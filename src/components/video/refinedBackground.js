@@ -363,10 +363,9 @@ class RefinedBackgroundProcessor {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, mw, mh, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
   }
 
-  // RVM gives a clean float alpha already — upload it as the mask texture and
-  // let the same refine/composite path run (the bilateral is gentle on a good
-  // alpha; mostly we get its temporal smoothing). [TUNE] could bypass the
-  // bilateral for RVM since its edges are already aligned.
+  // RVM gives a clean float alpha — upload it to the mask texture; _render(false)
+  // composites it directly (no bilateral/temporal refine, which would ghost a
+  // moving hand).
   _uploadAlpha(alpha, w, h) {
     const u8 = this._maskBuf && this._maskBuf.length === alpha.length ? this._maskBuf : (this._maskBuf = new Uint8Array(alpha.length));
     for (let i = 0; i < alpha.length; i++) {
@@ -405,23 +404,35 @@ class RefinedBackgroundProcessor {
     }
   }
 
-  _render() {
+  _render(refineMask = true) {
     const gl = this.gl;
-    const curr = this.alphaA, prev = this.alphaB;
 
-    // 1) refine + temporal → curr (reads raw mask, video guide, prev alpha)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, curr.fbo);
-    gl.viewport(0, 0, this.W, this.H);
-    gl.useProgram(this.pRefine.program);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texMask);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
-    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, prev.tex);
-    gl.uniform1i(uni(gl, this.pRefine, "u_mask"), 0);
-    gl.uniform1i(uni(gl, this.pRefine, "u_guide"), 1);
-    gl.uniform1i(uni(gl, this.pRefine, "u_prev"), 2);
-    gl.uniform2f(uni(gl, this.pRefine, "u_texel"), 1 / this.W, 1 / this.H);
-    gl.uniform1f(uni(gl, this.pRefine, "u_hasPrev"), this._hasPrev);
-    this._drawQuad(this.pRefine);
+    // Alpha source. MediaPipe's rough mask gets the bilateral edge-snap +
+    // temporal refine; RVM's matte is already clean AND temporally stable (its
+    // recurrent state), so we composite it RAW — running our temporal blend on
+    // it ghosts a fast-moving hand (a trailing, see-through hand).
+    let alphaTex;
+    if (refineMask) {
+      const curr = this.alphaA, prev = this.alphaB;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, curr.fbo);
+      gl.viewport(0, 0, this.W, this.H);
+      gl.useProgram(this.pRefine.program);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texMask);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, prev.tex);
+      gl.uniform1i(uni(gl, this.pRefine, "u_mask"), 0);
+      gl.uniform1i(uni(gl, this.pRefine, "u_guide"), 1);
+      gl.uniform1i(uni(gl, this.pRefine, "u_prev"), 2);
+      gl.uniform2f(uni(gl, this.pRefine, "u_texel"), 1 / this.W, 1 / this.H);
+      gl.uniform1f(uni(gl, this.pRefine, "u_hasPrev"), this._hasPrev);
+      this._drawQuad(this.pRefine);
+      alphaTex = curr.tex;
+      this.alphaA = prev;
+      this.alphaB = curr;
+      this._hasPrev = 1;
+    } else {
+      alphaTex = this.texMask; // RVM alpha, used directly
+    }
 
     // 2) background source
     let bgTex;
@@ -460,17 +471,12 @@ class RefinedBackgroundProcessor {
     gl.useProgram(this.pComposite.program);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, bgTex);
-    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, curr.tex);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, alphaTex);
     gl.uniform1i(uni(gl, this.pComposite, "u_video"), 0);
     gl.uniform1i(uni(gl, this.pComposite, "u_bg"), 1);
     gl.uniform1i(uni(gl, this.pComposite, "u_alpha"), 2);
     gl.uniform1f(uni(gl, this.pComposite, "u_lightWrap"), 0.35); // [TUNE] light-wrap strength
     this._drawQuad(this.pComposite);
-
-    // ping-pong the alpha buffers for next frame's temporal blend
-    this.alphaA = prev;
-    this.alphaB = curr;
-    this._hasPrev = 1;
   }
 
   _loop() {
@@ -490,7 +496,7 @@ class RefinedBackgroundProcessor {
         if (!this._running) return;
         if (res) {
           this._trackRvmPerf(res.ms);
-          try { this._uploadAlpha(res.alpha, res.width, res.height); this._uploadVideo(); this._render(); this._setBackend("RVM"); } catch { /* */ }
+          try { this._uploadAlpha(res.alpha, res.width, res.height); this._uploadVideo(); this._render(false); this._setBackend("RVM"); } catch { /* */ }
         } else if (this._rvm?.dead) {
           this._rvm = null; // worker fell over → MediaPipe takes the next frames
         }
