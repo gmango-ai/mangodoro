@@ -16,7 +16,7 @@ export function createRvmMatter({ modelUrl, inputWidth = 384, downsample = 0.25,
     const m = e.data;
     if (m.type === "ready") {
       state.ready = true;
-      onReady?.(m.ep);
+      onReady?.(m.ep, m.threads);
     } else if (m.type === "error") {
       state.dead = true;
       onError?.(m.message);

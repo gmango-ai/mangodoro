@@ -19,7 +19,17 @@
 import * as ort from "onnxruntime-web";
 
 ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
-ort.env.wasm.numThreads = 1; // single-thread: no COOP/COEP cross-origin isolation needed
+// Multi-thread the WASM backend when the page is cross-origin isolated, i.e.
+// SharedArrayBuffer is available (we set COOP/COEP in vite.config + vercel.json).
+// RVM is CPU-bound and single-thread was the wall (~82ms/frame); threads scale it
+// roughly linearly with cores — the whole point of "use the M4". Where isolation
+// is OFF (Safari/iOS ignore COEP: credentialless, or headers missing)
+// crossOriginIsolated is false and we stay single-thread — slower, never broken.
+// Cap a hair below core count so one core stays free for the main/UI thread and
+// we don't oversubscribe (scaling plateaus before this on a small model anyway).
+ort.env.wasm.numThreads = self.crossOriginIsolated
+  ? Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1))
+  : 1;
 
 let session = null;
 let r1, r2, r3, r4, downsample;
@@ -39,11 +49,12 @@ self.onmessage = async (e) => {
         graphOptimizationLevel: "all",
       });
       const ep = "wasm";
+      const threads = ort.env.wasm.numThreads; // surfaced so we can SEE threading is live
       r1 = zeros(); r2 = zeros(); r3 = zeros(); r4 = zeros();
       downsample = new ort.Tensor("float32", new Float32Array([m.downsample || 0.25]), [1]);
       canvas = new OffscreenCanvas(2, 2);
       ctx = canvas.getContext("2d", { willReadFrequently: true });
-      self.postMessage({ type: "ready", ep });
+      self.postMessage({ type: "ready", ep, threads });
     } catch (err) {
       self.postMessage({ type: "error", message: String(err?.message || err) });
     }

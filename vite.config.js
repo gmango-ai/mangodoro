@@ -81,8 +81,24 @@ export default defineConfig({
     },
   },
   server: {
+    // Cross-origin isolation so SharedArrayBuffer is available → onnxruntime-web
+    // can run RVM matting on multiple WASM threads (see rvmWorker.js). COEP
+    // `credentialless` (not `require-corp`) keeps the blast radius small: no-cors
+    // subresources (MediaPipe/ORT CDN wasm, fonts, PostHog) load without
+    // credentials instead of being blocked, and CORS resources (Supabase) still
+    // send their auth headers. Safari/iOS ignore it → they just stay single-thread.
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "credentialless",
+    },
     watch: {
       ignored: ["**/_tmp_AltDesign/**"],
+    },
+  },
+  preview: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "credentialless",
     },
   },
   build: {

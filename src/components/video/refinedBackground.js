@@ -281,7 +281,9 @@ class RefinedBackgroundProcessor {
           modelUrl: RVM_MODEL_URL,
           inputWidth: RVM_INPUT_WIDTH,
           downsample: RVM_DOWNSAMPLE,
-          onReady: (ep) => console.info(`[bg] RVM ready (${ep || "wasm"}) — switching in`),
+          onReady: (ep, threads) => console.info(
+            `[bg] RVM ready (${ep || "wasm"}, ${threads > 1 ? `${threads} threads` : "single-thread"}) — switching in`
+          ),
           onError: (msg) => { console.warn("[bg] RVM unavailable, staying on MediaPipe:", msg); this._rvm = null; },
         });
       } catch (e) {
