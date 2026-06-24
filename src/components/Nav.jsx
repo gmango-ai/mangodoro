@@ -20,6 +20,8 @@ const PRESENCE_DOT_COLOR = {
   heads_down: "bg-violet-500",
   in_meeting: "bg-rose-500",
   away: "bg-amber-500",
+  out_to_lunch: "bg-orange-500",
+  commuting: "bg-cyan-500",
 };
 
 export default function Nav({ onOpenPomodoro }) {

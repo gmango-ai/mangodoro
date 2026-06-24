@@ -11,6 +11,7 @@ const PRESENCE = [
   { key: "in_meeting", label: "Meeting", dotLight: "bg-rose-500", dotDark: "bg-rose-400" },
   { key: "away", label: "Away", dotLight: "bg-amber-500", dotDark: "bg-amber-400" },
   { key: "out_to_lunch", label: "Lunch", dotLight: "bg-orange-500", dotDark: "bg-orange-400" },
+  { key: "commuting", label: "Commuting", dotLight: "bg-cyan-500", dotDark: "bg-cyan-400" },
 ];
 
 // Click-to-expand status editor.

@@ -47,6 +47,7 @@ const PRESENCE_INFO = {
   in_meeting: { label: "In a meeting", light: "bg-rose-500",    dark: "bg-rose-400"    },
   away:       { label: "Away",         light: "bg-amber-500",   dark: "bg-amber-400"   },
   out_to_lunch: { label: "Out to lunch", light: "bg-orange-500", dark: "bg-orange-400" },
+  commuting:  { label: "Commuting",    light: "bg-cyan-500",    dark: "bg-cyan-400"    },
 };
 
 function presenceOf(p) {

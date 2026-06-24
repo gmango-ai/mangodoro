@@ -14,6 +14,7 @@ const PRESENCE_LABEL = {
   in_meeting: "In meeting",
   away: "Away",
   out_to_lunch: "Out to lunch",
+  commuting: "Commuting",
 };
 const PRESENCE_DOT = {
   active: "bg-emerald-500",
@@ -22,6 +23,7 @@ const PRESENCE_DOT = {
   in_meeting: "bg-rose-500",
   away: "bg-amber-500",
   out_to_lunch: "bg-orange-500",
+  commuting: "bg-cyan-500",
 };
 
 // Lists everyone currently in the user's active sync session — i.e.
