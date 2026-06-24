@@ -10,7 +10,8 @@
 //          downsample_ratio [1] (fp32).
 // Outputs: fgr, pha, r1o..r4o.  We use pha (alpha) and feed rXo -> rXi.
 
-import * as ort from "onnxruntime-web";
+// /webgpu build: ships the GPU EP + the jsep wasm (used for the CPU fallback).
+import * as ort from "onnxruntime-web/webgpu";
 
 ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
 ort.env.wasm.numThreads = 1; // single-thread: no COOP/COEP cross-origin isolation needed
@@ -28,15 +29,27 @@ self.onmessage = async (e) => {
 
   if (m.type === "init") {
     try {
-      session = await ort.InferenceSession.create(m.modelUrl, {
-        executionProviders: ["wasm"],
-        graphOptimizationLevel: "all",
-      });
+      // Try the GPU (WebGPU) first; ORT falls back to wasm for any unsupported
+      // ops / if WebGPU is unavailable, so this can't make things worse.
+      let ep = "webgpu+wasm";
+      try {
+        session = await ort.InferenceSession.create(m.modelUrl, {
+          executionProviders: ["webgpu", "wasm"],
+          graphOptimizationLevel: "all",
+        });
+      } catch (gpuErr) {
+        // Some RVM op graphs reject WebGPU session creation outright — retry pure wasm.
+        ep = "wasm";
+        session = await ort.InferenceSession.create(m.modelUrl, {
+          executionProviders: ["wasm"],
+          graphOptimizationLevel: "all",
+        });
+      }
       r1 = zeros(); r2 = zeros(); r3 = zeros(); r4 = zeros();
       downsample = new ort.Tensor("float32", new Float32Array([m.downsample || 0.25]), [1]);
       canvas = new OffscreenCanvas(2, 2);
       ctx = canvas.getContext("2d", { willReadFrequently: true });
-      self.postMessage({ type: "ready" });
+      self.postMessage({ type: "ready", ep });
     } catch (err) {
       self.postMessage({ type: "error", message: String(err?.message || err) });
     }

@@ -271,7 +271,7 @@ class RefinedBackgroundProcessor {
           modelUrl: RVM_MODEL_URL,
           inputWidth: RVM_INPUT_WIDTH,
           downsample: RVM_DOWNSAMPLE,
-          onReady: () => console.info("[bg] RVM model ready — switching in"),
+          onReady: (ep) => console.info(`[bg] RVM ready (${ep || "wasm"}) — switching in`),
           onError: (msg) => { console.warn("[bg] RVM unavailable, staying on MediaPipe:", msg); this._rvm = null; },
         });
       } catch (e) {
@@ -432,6 +432,10 @@ class RefinedBackgroundProcessor {
     if (this._rvmMs.length >= 12) {
       const avg = this._rvmMs.reduce((a, b) => a + b, 0) / this._rvmMs.length;
       this._rvmMs = [];
+      if (!this._rvmLoggedPerf) {
+        this._rvmLoggedPerf = true;
+        console.info(`[bg] RVM avg inference ${avg.toFixed(0)}ms`);
+      }
       if (avg > RVM_SLOW_MS) {
         console.warn(`[rvm] too slow (avg ${avg.toFixed(0)}ms) — falling back to MediaPipe`);
         this._rvmSlow = true;
