@@ -3,6 +3,7 @@ import { Utensils, X } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { useTheme } from "../context/ThemeContext";
+import { emitNotification } from "../lib/notifications";
 
 // "Out to lunch" auto-status.
 //
@@ -23,10 +24,22 @@ const get = (k) => { try { return localStorage.getItem(k); } catch { return null
 const put = (k, v) => { try { localStorage.setItem(k, v); } catch { /* */ } };
 const del = (k) => { try { localStorage.removeItem(k); } catch { /* */ } };
 
-function notify(title, body) {
-  try {
-    if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification(title, { body });
-  } catch { /* */ }
+// Self lunch nudge through the notification layer → inbox + desktop (when the
+// tab is backgrounded), respecting the user's prefs + quiet hours. actor=null
+// so emit_notification's self-guard doesn't drop it. Deduped to once per day
+// across tabs/devices.
+function notifyLunch(userId, title, body) {
+  if (!userId) return;
+  emitNotification({
+    recipient: userId,
+    type: "lunch_reminder",
+    title,
+    body,
+    actor: null,
+    payload: { route: "/office" },
+    dedupeKey: `lunch_reminder:${userId}:${todayKey()}`,
+    dedupeWindowMinutes: 720,
+  });
 }
 
 const FIRE_WINDOW_MIN = 10; // catch a tab opened up to 10 min after lunch time
@@ -88,8 +101,8 @@ export default function LunchReminder() {
       const now = nowMinutes();
       if (target == null || now < target || now >= target + FIRE_WINDOW_MIN) return;
       put(firedKey, "1");
-      if (s.mode === "auto") { s.goToLunch(); notify("Out to lunch", "Status set to Out to lunch — enjoy your break!"); }
-      else { s.setPrompt(true); notify("Lunch time?", "Set your status to Out to lunch."); }
+      if (s.mode === "auto") { s.goToLunch(); notifyLunch(s.userId, "Out to lunch", "Status set to Out to lunch — enjoy your break!"); }
+      else { s.setPrompt(true); notifyLunch(s.userId, "Lunch time?", "Set your status to Out to lunch."); }
     };
     tick();
     const id = setInterval(tick, 30000);

@@ -9,7 +9,9 @@ export const NOTIFICATION_TYPES = [
   { type: "follow_focus", label: "Someone you follow is focusing", description: "A person you follow starts a focus session.", channels: ["inapp", "desktop"] },
   { type: "mention", label: "Mentions", description: "You're @mentioned in room chat or a whiteboard comment.", channels: ["inapp", "desktop"] },
   { type: "room_joined", label: "Someone joined your room", description: "A teammate joins a room you're in.", channels: ["inapp"] },
+  { type: "lunch_start", label: "Teammate went to lunch", description: "Someone on your team heads out to lunch.", channels: ["inapp"] },
   { type: "lunch_return", label: "Back from lunch", description: "A teammate is back from lunch.", channels: ["inapp"] },
+  { type: "lunch_reminder", label: "Lunch reminder", description: "A nudge at your own scheduled lunch time.", channels: ["inapp", "desktop"] },
   { type: "reminder_daily", label: "Daily log reminder", description: "A nudge if you haven't logged hours by your reminder time.", channels: ["inapp", "desktop"] },
 ];
 
