@@ -32,7 +32,10 @@ export default function NotificationBell() {
   const onItem = (n) => {
     if (!n.read_at) markRead(n.id);
     setOpen(false);
-    const route = n.payload?.route;
+    // Prefer the specific room when the payload carries one (the stored route is
+    // the hallway fallback).
+    const rid = n.payload?.room_id;
+    const route = rid ? `/office/r/${rid}` : n.payload?.route;
     if (route) navigate(route);
   };
 

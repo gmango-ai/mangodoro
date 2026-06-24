@@ -272,7 +272,7 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
       emitNotification({
         recipient: rid, type: "mention",
         title: `${myName} mentioned you`, body: body.slice(0, 140),
-        payload: { room_id: roomId, route: "/office" },
+        payload: { room_id: roomId, route: `/office/r/${roomId}` },
         actor: userId, entityType: "room", entityId: roomId,
       });
     }
