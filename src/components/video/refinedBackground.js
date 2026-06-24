@@ -240,9 +240,10 @@ class RefinedBackgroundProcessor {
     this.name = "refined-background";
     this.opts = normalize(opts);
     this._running = false;
-    this._busy = false;
+    this._busy = false;     // an inference (RVM or MediaPipe) is in flight
     this._ts = 0;
-    this._lastSeg = 0;
+    this._lastRender = 0;   // throttles the render loop to ~display rate
+    this._haveMask = 0;     // a matte exists in texMask → safe to composite
     this._hasPrev = 0;
     this._rvm = null;       // RVM matter handle (when available)
     this._rvmSlow = false;  // disabled after the perf gate trips
@@ -299,7 +300,9 @@ class RefinedBackgroundProcessor {
     }
     if (this.opts.imageUrl) await this._loadBg(this.opts.imageUrl);
 
-    this.processedTrack = this.canvas.captureStream(30).getVideoTracks()[0];
+    // 60fps so the decoupled render loop's smoothness reaches the call (capped by
+    // the camera's own rate + LiveKit's adaptive encode; harmless if the source is 30).
+    this.processedTrack = this.canvas.captureStream(60).getVideoTracks()[0];
     this._running = true;
     this._loop();
   }
@@ -466,10 +469,14 @@ class RefinedBackgroundProcessor {
   _render(refineMask = true) {
     const gl = this.gl;
 
-    // Alpha source. MediaPipe's rough mask gets the bilateral edge-snap +
-    // temporal refine; RVM's matte is already clean AND temporally stable (its
-    // recurrent state), so we composite it RAW — running our temporal blend on
-    // it ghosts a fast-moving hand (a trailing, see-through hand).
+    // Alpha source. Both backends now go through the bilateral edge-snap: it
+    // pulls the matte onto the CURRENT frame's edges, which is what re-aligns a
+    // matte that's a few frames stale (inference trails the live video) so the
+    // background can't bleed through a moving edge. The temporal blend used to
+    // ghost a fast hand when it ran at the ~18fps inference rate; now that we
+    // render every frame (~60fps) the inter-frame motion is tiny, so it just
+    // smooths edge shimmer. RVM passes a clean matte in; MediaPipe a rough one —
+    // the same refine suits both.
     let alphaTex;
     if (refineMask) {
       const curr = this.alphaA, prev = this.alphaB;
@@ -550,47 +557,60 @@ class RefinedBackgroundProcessor {
     this._drawQuad(this.pComposite);
   }
 
+  // Render and inference run at INDEPENDENT rates (the Google-Meet trick):
+  //   • Inference (RVM worker / MediaPipe) runs in the background, one in flight,
+  //     and only refreshes the matte texture (texMask) when it finishes.
+  //   • Rendering runs EVERY frame at display rate against the LIVE video, and
+  //     the guided bilateral pass (_render(true)) snaps that slightly-stale matte
+  //     onto the current frame's edges.
+  // Coupling them (the old code) meant the whole output ran at the ~15–20fps
+  // inference rate (the lag) AND composited a frame-N matte over the frame-N+4
+  // live video (the background bleeding through a moving head). Decoupling fixes
+  // both: the picture moves at 60fps and the matte re-aligns to where you are now.
   _loop() {
     if (!this._running) return;
     this._raf = requestAnimationFrame(() => this._loop());
     const v = this.video;
-    if (!v || v.readyState < 2 || this._busy) return;
+    if (!v || v.readyState < 2) return;
     const now = performance.now();
-    if (now - this._lastSeg < 33) return; // ~30fps cap
-    this._lastSeg = now;
 
-    // High-quality matting (RVM, in a worker) when loaded + fast enough.
-    if (this._rvm && this._rvm.ready && !this._rvmSlow) {
-      this._busy = true;
-      this._rvm.infer(v).then((res) => {
-        this._busy = false;
-        if (!this._running) return;
-        if (res) {
-          this._trackRvmPerf(res.ms);
-          try { this._uploadAlpha(res.alpha, res.width, res.height); this._uploadVideo(); this._render(false); this._setBackend("RVM"); } catch { /* */ }
-        } else if (this._rvm?.dead) {
-          this._rvm = null; // worker fell over → MediaPipe takes the next frames
-        }
-      }).catch(() => { this._busy = false; });
-      return;
+    // 1) Kick a fresh matte in the background — only when none is in flight, so
+    //    it runs as fast as the backend allows without ever blocking the render.
+    if (!this._busy) {
+      if (this._rvm && this._rvm.ready && !this._rvmSlow) {
+        this._busy = true;
+        this._rvm.infer(v).then((res) => {
+          this._busy = false;
+          if (!this._running) return;
+          if (res) {
+            this._trackRvmPerf(res.ms);
+            try { this._uploadAlpha(res.alpha, res.width, res.height); this._haveMask = 1; this._setBackend("RVM"); } catch { /* */ }
+          } else if (this._rvm?.dead) {
+            this._rvm = null; // worker fell over → MediaPipe takes over below
+          }
+        }).catch(() => { this._busy = false; });
+      } else if (this.segmenter) {
+        this._busy = true;
+        this._ts = Math.max(this._ts + 1, Math.round(now));
+        try {
+          this.segmenter.segmentForVideo(v, this._ts, (result) => {
+            this._busy = false;
+            try {
+              const mask = result?.confidenceMasks?.[0];
+              if (mask) { this._uploadMask(mask); this._haveMask = 1; this._setBackend("MediaPipe"); }
+            } catch { /* skip */ } finally {
+              try { result?.close?.(); } catch { /* */ }
+            }
+          });
+        } catch { this._busy = false; }
+      }
     }
 
-    this._busy = true;
-    this._ts = Math.max(this._ts + 1, Math.round(now));
-    try {
-      this.segmenter.segmentForVideo(v, this._ts, (result) => {
-        this._busy = false;
-        try {
-          const mask = result?.confidenceMasks?.[0];
-          if (mask) this._uploadMask(mask);
-          this._uploadVideo();
-          if (mask) { this._render(); this._setBackend("MediaPipe"); }
-        } catch { /* skip this frame */ } finally {
-          try { result?.close?.(); } catch { /* */ }
-        }
-      });
-    } catch {
-      this._busy = false;
+    // 2) Render at ~display rate (≤~60fps; guards against 120Hz ProMotion). Live
+    //    video each frame; _render(true) edge-snaps the latest matte onto it.
+    if (this._haveMask && now - this._lastRender >= 15) {
+      this._lastRender = now;
+      try { this._uploadVideo(); this._render(true); } catch { /* skip this frame */ }
     }
   }
 }
