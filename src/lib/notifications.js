@@ -12,6 +12,7 @@ export const NOTIFICATION_TYPES = [
   { type: "lunch_start", label: "Teammate went to lunch", description: "Someone on your team heads out to lunch.", channels: ["inapp"] },
   { type: "lunch_return", label: "Back from lunch", description: "A teammate is back from lunch.", channels: ["inapp"] },
   { type: "lunch_reminder", label: "Lunch reminder", description: "A nudge at your own scheduled lunch time.", channels: ["inapp", "desktop"] },
+  { type: "reminder", label: "Wellbeing & break reminders", description: "Hydration, movement, eye rest and other nudges you turn on.", channels: ["inapp", "desktop"] },
   { type: "reminder_daily", label: "Daily log reminder", description: "A nudge if you haven't logged hours by your reminder time.", channels: ["inapp", "desktop"] },
 ];
 

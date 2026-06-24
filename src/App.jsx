@@ -15,6 +15,7 @@ import { VideoCallProvider } from "./context/VideoCallContext";
 import { NotificationProvider } from "./context/NotificationContext";
 import { ProfileProvider } from "./context/ProfileContext";
 import LunchReminder from "./components/LunchReminder";
+import HealthReminders from "./components/HealthReminders";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
@@ -167,6 +168,8 @@ function AppLayout({ session }) {
     <div>
       {/* Out-to-lunch auto-status nudge (renders a prompt at lunch time). */}
       <LunchReminder />
+      {/* Recurring wellbeing/break reminders (hydration, move, eye rest…). */}
+      <HealthReminders />
       {/* Transient in-app notification toasts. */}
       <NotificationToaster />
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis

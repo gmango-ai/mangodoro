@@ -23,6 +23,7 @@ import { toDisplayTime } from "../lib/utils";
 import { loadPomodoroSoundSettings, savePomodoroSoundSettings, USER_SOUND_PREFIX } from "../lib/pomodoroSound";
 import { clearCachedNotificationSound } from "../lib/nativeNotifications";
 import { NOTIFICATION_TYPES, listPreferences, setPreferenceEnabled } from "../lib/notifications";
+import { REMINDERS, REMINDER_INTERVALS, reminderConfig } from "../lib/reminders";
 
 // Settings as a real page. Left rail of sections, right pane renders
 // the active section. Sections persist on field commit (blur/change)
@@ -1357,6 +1358,53 @@ function NotificationsSection({ dark }) {
               </select>
             </div>
           )}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Wellbeing reminders"
+        hint="Gentle nudges to drink water, move, rest your eyes and more — delivered to your inbox + desktop, only during your active hours."
+        dark={dark}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>Active from</span>
+            <TimeSelect value={settings?.reminderActiveStart || "09:00"} onChange={(v) => updateSettingsField({ reminderActiveStart: v || null })} />
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>to</span>
+            <TimeSelect value={settings?.reminderActiveEnd || "17:00"} onChange={(v) => updateSettingsField({ reminderActiveEnd: v || null })} />
+          </div>
+          <div className={`flex flex-col rounded-xl border divide-y ${dark ? "border-[var(--color-border)] divide-[var(--color-border)]" : "border-slate-200 divide-slate-100"}`}>
+            {REMINDERS.map((r) => {
+              const cfg = reminderConfig(settings?.wellbeingReminders, r.key);
+              const set = (patch) => updateSettingsField({
+                wellbeingReminders: { ...(settings?.wellbeingReminders || {}), [r.key]: { on: cfg.on, every: cfg.every, ...patch } },
+              });
+              return (
+                <div key={r.key} className="flex items-center gap-3 px-3 py-2.5">
+                  <span className="text-lg leading-none">{r.emoji}</span>
+                  <span className={`flex-1 text-sm font-medium ${dark ? "text-slate-200" : "text-slate-700"}`}>{r.label}</span>
+                  {cfg.on && (
+                    <select
+                      value={cfg.every}
+                      onChange={(e) => set({ every: Number(e.target.value) })}
+                      className={`rounded-lg px-2 py-1 text-xs border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`}
+                    >
+                      {REMINDER_INTERVALS.map((m) => <option key={m} value={m}>every {m} min</option>)}
+                    </select>
+                  )}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={cfg.on}
+                    onClick={() => set({ on: !cfg.on })}
+                    className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${cfg.on ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${cfg.on ? "translate-x-4" : ""}`} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </SectionCard>
 

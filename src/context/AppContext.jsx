@@ -1205,6 +1205,9 @@ export function AppProvider({ session, children }) {
     if ("notifQuietStart" in patch) dbPatch.notif_quiet_start = patch.notifQuietStart || null;
     if ("notifQuietEnd" in patch) dbPatch.notif_quiet_end = patch.notifQuietEnd || null;
     if ("notifDesktopEnabled" in patch) dbPatch.notif_desktop_enabled = patch.notifDesktopEnabled;
+    if ("wellbeingReminders" in patch) dbPatch.wellbeing_reminders = patch.wellbeingReminders || {};
+    if ("reminderActiveStart" in patch) dbPatch.reminder_active_start = patch.reminderActiveStart || null;
+    if ("reminderActiveEnd" in patch) dbPatch.reminder_active_end = patch.reminderActiveEnd || null;
     if (Object.keys(dbPatch).length === 0) return;
     if (!session?.user?.id) return;
     await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);
