@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Check, X, Target } from "lucide-react";
+import { Plus, Check, X, Target, Lock, Globe } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -37,6 +37,11 @@ export default function ProfileGoals({ userId }) {
     load();
   };
   const remove = async (g) => { if (!isMe) return; await deleteGoal(g.id); load(); };
+  const togglePublic = async (g) => {
+    if (!isMe) return;
+    await updateGoal({ id: g.id, isPublic: !g.is_public });
+    load();
+  };
 
   if (!activeTeamId) return null;
   const active = goals.filter((g) => g.status !== "done");
@@ -45,10 +50,15 @@ export default function ProfileGoals({ userId }) {
 
   return (
     <div>
-      <div className="flex items-center gap-1.5 mb-2">
+      <div className="flex items-center gap-1.5 mb-1.5">
         <Target className="w-4 h-4 text-[var(--color-accent)]" />
         <span className={`text-sm font-bold ${dark ? "text-slate-200" : "text-slate-700"}`}>Goals</span>
       </div>
+      {isMe && (
+        <p className={`text-[11px] mb-2 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+          Private by default — tap the lock to share a goal with teammates.
+        </p>
+      )}
 
       {ordered.length === 0 && !isMe && (
         <p className={`text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>No goals yet.</p>
@@ -73,6 +83,17 @@ export default function ProfileGoals({ userId }) {
             <span className={`text-sm flex-1 break-words ${g.status === "done" ? "line-through opacity-60" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>
               {g.body}
             </span>
+            {isMe && (
+              <button
+                type="button"
+                onClick={() => togglePublic(g)}
+                title={g.is_public ? "Public — teammates can see this on your profile" : "Private — only you"}
+                className={`shrink-0 transition-colors ${g.is_public ? "text-[var(--color-accent)]" : dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"}`}
+                aria-label={g.is_public ? "Make private" : "Make public"}
+              >
+                {g.is_public ? <Globe className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+              </button>
+            )}
             {isMe && (
               <button
                 type="button"

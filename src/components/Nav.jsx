@@ -5,7 +5,7 @@ import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
-import { Sun, Moon, LogOut, Loader2, Timer, Users, Building2, Settings as SettingsIcon, Menu, X, ChevronDown } from "lucide-react";
+import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
@@ -510,6 +510,19 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
             {dark ? <Sun className="w-4 h-4 opacity-70" /> : <Moon className="w-4 h-4 opacity-70" />}
             {dark ? "Switch to light" : "Switch to dark"}
           </button>
+
+          {/* Profile */}
+          {session?.user?.id && (
+            <NavLink
+              to={`/u/${session.user.id}`}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className={item}
+            >
+              <User className="w-4 h-4 opacity-70" />
+              Profile
+            </NavLink>
+          )}
 
           {/* Settings */}
           <NavLink

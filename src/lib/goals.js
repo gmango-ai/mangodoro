@@ -43,9 +43,9 @@ export async function createGoal({ teamId, ownerType, ownerId, ownerName, ownerC
   });
 }
 
-export async function updateGoal({ id, body, status }) {
+export async function updateGoal({ id, body, status, isPublic }) {
   if (!id) return { error: { message: "no id" } };
-  return supabase.rpc("update_goal", { p_id: id, p_body: body ?? null, p_status: status ?? null });
+  return supabase.rpc("update_goal", { p_id: id, p_body: body ?? null, p_status: status ?? null, p_is_public: isPublic ?? null });
 }
 
 export async function deleteGoal(id) {
