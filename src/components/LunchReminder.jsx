@@ -3,7 +3,7 @@ import { Utensils, X } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { useTheme } from "../context/ThemeContext";
-import { emitNotification } from "../lib/notifications";
+import { emitSelfNotification } from "../lib/notifications";
 
 // "Out to lunch" auto-status.
 //
@@ -25,17 +25,15 @@ const put = (k, v) => { try { localStorage.setItem(k, v); } catch { /* */ } };
 const del = (k) => { try { localStorage.removeItem(k); } catch { /* */ } };
 
 // Self lunch nudge through the notification layer → inbox + desktop (when the
-// tab is backgrounded), respecting the user's prefs + quiet hours. actor=null
-// so emit_notification's self-guard doesn't drop it. Deduped to once per day
-// across tabs/devices.
+// tab is backgrounded), respecting the user's prefs + quiet hours. Recipient is
+// forced to the caller server-side; deduped to once per day across tabs/devices
+// (a partial unique index makes the dedupe race-proof).
 function notifyLunch(userId, title, body) {
   if (!userId) return;
-  emitNotification({
-    recipient: userId,
+  emitSelfNotification({
     type: "lunch_reminder",
     title,
     body,
-    actor: null,
     payload: { route: "/office" },
     dedupeKey: `lunch_reminder:${userId}:${todayKey()}`,
     dedupeWindowMinutes: 720,

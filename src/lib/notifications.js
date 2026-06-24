@@ -18,24 +18,33 @@ export const NOTIFICATION_TYPES = [
 export const typeMeta = (type) => NOTIFICATION_TYPES.find((t) => t.type === type) || null;
 export const typeLabel = (type) => typeMeta(type)?.label || type;
 
-// Client-side emit — for app-open, single-recipient cases (e.g. @mentions, where
-// the sender already knows the recipient). Server triggers cover multi-recipient
-// awareness. Mirrors the emit_notification RPC signature.
-export async function emitNotification(args) {
-  const { error, data } = await supabase.rpc("emit_notification", {
-    p_recipient: args.recipient,
+// Client emit is locked down to two narrow RPCs (the generic emit_notification
+// is server/trigger-only): a SELF nudge (recipient/actor forced to you, type
+// allowlisted) and a MENTION (type/actor forced, recipient must share a team).
+export async function emitSelfNotification(args) {
+  const { error, data } = await supabase.rpc("emit_self_notification", {
     p_type: args.type,
     p_title: args.title,
     p_body: args.body ?? null,
     p_payload: args.payload ?? {},
-    p_actor: args.actor ?? null,
-    p_team_id: args.teamId ?? null,
-    p_entity_type: args.entityType ?? null,
-    p_entity_id: args.entityId ?? null,
     p_dedupe_key: args.dedupeKey ?? null,
     p_dedupe_window_minutes: args.dedupeWindowMinutes ?? 60,
   });
-  if (error) { console.warn("emit_notification:", error.message); return null; }
+  if (error) { console.warn("emit_self_notification:", error.message); return null; }
+  return data;
+}
+
+export async function emitMention(args) {
+  const { error, data } = await supabase.rpc("emit_mention", {
+    p_recipient: args.recipient,
+    p_title: args.title,
+    p_body: args.body ?? null,
+    p_payload: args.payload ?? {},
+    p_entity_type: args.entityType ?? null,
+    p_entity_id: args.entityId ?? null,
+    p_dedupe_key: args.dedupeKey ?? null,
+  });
+  if (error) { console.warn("emit_mention:", error.message); return null; }
   return data;
 }
 

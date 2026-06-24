@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead } from "../lib/notifications";
@@ -34,8 +34,10 @@ export function NotificationProvider({ children }) {
   const userId = session?.user?.id;
 
   const [items, setItems] = useState([]);
-  const [unread, setUnread] = useState(0);
   const [toasts, setToasts] = useState([]);
+  // Single source of truth — derive the badge from items so it can't drift /
+  // double-count across the initial-fetch ↔ realtime race or redelivery.
+  const unread = useMemo(() => items.filter((n) => !n.read_at).length, [items]);
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -45,7 +47,6 @@ export function NotificationProvider({ children }) {
   const handleIncoming = useCallback((n) => {
     if (!n) return;
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
-    if (!n.read_at) setUnread((u) => u + 1);
     const channels = n.channels || [];
     if (channels.includes("inapp")) {
       const id = _toastSeq++;
@@ -65,12 +66,11 @@ export function NotificationProvider({ children }) {
 
   // Initial fetch + realtime subscription per user.
   useEffect(() => {
-    if (!userId) { setItems([]); setUnread(0); setToasts([]); return undefined; }
+    if (!userId) { setItems([]); setToasts([]); return undefined; }
     let cancelled = false;
     listNotifications(40).then((rows) => {
       if (cancelled) return;
       setItems(rows);
-      setUnread(rows.filter((r) => !r.read_at).length);
     });
     const channel = supabase
       .channel(`notifications:${userId}`)
@@ -88,13 +88,11 @@ export function NotificationProvider({ children }) {
 
   const markRead = useCallback(async (id) => {
     setItems((prev) => prev.map((n) => (n.id === id && !n.read_at ? { ...n, read_at: new Date().toISOString() } : n)));
-    setUnread((u) => Math.max(0, u - 1));
     await apiMarkRead(id);
   }, []);
 
   const markAllRead = useCallback(async () => {
     setItems((prev) => prev.map((n) => (n.read_at ? n : { ...n, read_at: new Date().toISOString() })));
-    setUnread(0);
     await apiMarkAllRead();
   }, []);
 

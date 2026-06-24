@@ -5,7 +5,7 @@ import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
-import { emitNotification } from "../lib/notifications";
+import { emitMention } from "../lib/notifications";
 import UserAvatar from "./UserAvatar";
 
 function formatTime(iso) {
@@ -267,13 +267,13 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
       console.warn("send chat:", error.message);
       return;
     }
-    // Fire a mention ping per tagged teammate (single-recipient client emit).
+    // Fire a mention ping per tagged teammate (type/actor forced server-side).
     for (const rid of mentioned) {
-      emitNotification({
-        recipient: rid, type: "mention",
+      emitMention({
+        recipient: rid,
         title: `${myName} mentioned you`, body: body.slice(0, 140),
         payload: { room_id: roomId, route: `/office/r/${roomId}` },
-        actor: userId, entityType: "room", entityId: roomId,
+        entityType: "room", entityId: roomId,
       });
     }
   };
