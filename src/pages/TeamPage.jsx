@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
+import TeamGoals from "../components/team/TeamGoals";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import OrgTeamsCard from "../components/OrgTeamsCard";
 import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
@@ -467,6 +468,9 @@ export default function TeamPage() {
               </div>
             </div>
           )}
+
+          {/* ─── DEPARTMENT GOALS ────────────────────────────────── */}
+          <TeamGoals dark={dark} />
 
           {/* ─── INVITE ──────────────────────────────────────────── */}
           <InviteCard
