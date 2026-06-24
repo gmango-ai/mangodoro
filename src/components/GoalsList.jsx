@@ -24,14 +24,15 @@ export default function GoalsList({ goals, retros, dark, compact = false }) {
   if (!items.length) return null;
   const barBg = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
 
-  // Group by owner label, preserving first-seen order; capture each group's
-  // color + tier. Then order tiers Company → Teams → Personal (stable within).
+  // Group by a STABLE owner key (tier:ownerId), not the display name — two
+  // owners can share a name. Preserve first-seen order; capture color + tier.
   const groups = [];
-  const byLabel = new Map();
+  const byKey = new Map();
   for (const g of items) {
-    const key = g.label || "Goals";
-    if (!byLabel.has(key)) { const grp = { label: key, color: g.color || null, tier: g.tier || "user", items: [] }; byLabel.set(key, grp); groups.push(grp); }
-    byLabel.get(key).items.push(g);
+    const tier = g.tier || "user";
+    const gkey = `${tier}:${g.ownerId ?? g.label ?? "?"}`;
+    if (!byKey.has(gkey)) { const grp = { gkey, label: g.label || "Goals", color: g.color || null, tier, items: [] }; byKey.set(gkey, grp); groups.push(grp); }
+    byKey.get(gkey).items.push(g);
   }
   const tierRank = { company: 0, department: 1, user: 2 };
   const tierLabel = { company: "Company", department: "Teams", user: "Personal" };
@@ -88,11 +89,11 @@ export default function GoalsList({ goals, retros, dark, compact = false }) {
   return (
     <div className={compact ? "space-y-2.5" : "space-y-3"}>
       {groups.map((grp) => {
-        const isCollapsed = collapsed.has(grp.label);
+        const isCollapsed = collapsed.has(grp.gkey);
         const showTier = grp.tier !== prevTier;
         prevTier = grp.tier;
         return (
-          <div key={grp.label} className={showTier && grp !== groups[0] ? `pt-2.5 border-t ${dark ? "border-[var(--color-border)]" : "border-slate-100"}` : ""}>
+          <div key={grp.gkey} className={showTier && grp !== groups[0] ? `pt-2.5 border-t ${dark ? "border-[var(--color-border)]" : "border-slate-100"}` : ""}>
             {showTier && (
               <p className={`text-[8px] uppercase tracking-[0.12em] font-bold mb-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
                 {tierLabel[grp.tier] || "Goals"}
@@ -100,7 +101,7 @@ export default function GoalsList({ goals, retros, dark, compact = false }) {
             )}
             <button
               type="button"
-              onClick={() => toggle(grp.label)}
+              onClick={() => toggle(grp.gkey)}
               title={isCollapsed ? "Show goals" : "Hide goals"}
               className="flex items-center gap-1 w-full text-left uppercase tracking-wider font-bold text-[9px] mb-1"
               style={{ color: grp.color || "var(--color-accent)" }}

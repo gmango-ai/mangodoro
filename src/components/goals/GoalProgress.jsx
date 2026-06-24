@@ -89,6 +89,7 @@ export default function GoalProgress({ goal, krs = [], manage = false, onChange,
               </span>
               {manage ? (
                 <input
+                  key={`${kr.id}:${kr.current}`}
                   type="number"
                   defaultValue={kr.current}
                   onBlur={(e) => setCurrent(kr, e.target.value)}

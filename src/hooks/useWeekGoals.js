@@ -77,6 +77,7 @@ export function useWeekGoals(roomId = null) {
             progress: goalProgress(krByGoal.get(g.id)).pct, // 0-100 or null
             health: g.health && g.health !== "none" ? g.health : null,
             tier: g.owner_type, // company | department | user — for ordering
+            ownerId: g.owner_id, // for a stable group key (labels can collide)
           };
         })
         .filter((g) => g.body.length > 0);
@@ -94,6 +95,7 @@ export function useWeekGoals(roomId = null) {
           label: r.org_team_name || r.department || "Team",
           color: null,
           tier: r.org_team_id ? "department" : "company", // org-wide retro goals sort with company
+          ownerId: r.org_team_id || "team",
           href: `/retros/${r.id}`,
         }))
         .filter((r) => r.body.length > 0);

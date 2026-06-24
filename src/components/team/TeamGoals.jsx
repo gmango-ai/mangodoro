@@ -221,7 +221,7 @@ export default function TeamGoals({ dark }) {
                 </span>
               )}
               {manage && aIdx >= 0 && (
-                <span className="shrink-0 mt-0.5 flex flex-col -my-0.5 opacity-0 group-hover:opacity-100">
+                <span className="shrink-0 mt-0.5 flex flex-col -my-0.5 opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100">
                   <button type="button" onClick={() => moveGoal(ownerType, owner.id, g, "up")} disabled={aIdx === 0} aria-label="Move up" className={`leading-none disabled:opacity-30 ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>
                     <ChevronUp className="w-3 h-3" />
                   </button>
@@ -273,12 +273,12 @@ export default function TeamGoals({ dark }) {
                 <GoalMoveMenu goal={g} targets={moveTargets(g)} onMoved={load} dark={dark} title="Move to…" />
               )}
               {manage && (
-                <button type="button" onClick={() => startEdit(g)} aria-label="Edit goal" className={`opacity-0 group-hover:opacity-100 shrink-0 mt-0.5 transition-colors ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>
+                <button type="button" onClick={() => startEdit(g)} aria-label="Edit goal" className={`opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 shrink-0 mt-0.5 transition-colors ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
               )}
               {manage && (
-                <button type="button" onClick={() => remove(g)} aria-label="Delete goal" className={`opacity-0 group-hover:opacity-100 shrink-0 ${dark ? "text-slate-500 hover:text-red-300" : "text-slate-400 hover:text-red-500"}`}>
+                <button type="button" onClick={() => remove(g)} aria-label="Delete goal" className={`opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 shrink-0 ${dark ? "text-slate-500 hover:text-red-300" : "text-slate-400 hover:text-red-500"}`}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
