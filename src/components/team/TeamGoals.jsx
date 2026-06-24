@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Check, X, Target, Building2, Pin, PinOff } from "lucide-react";
+import { Plus, Check, X, Target, Building2, Pin, PinOff, Pencil } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
 import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
 import GoalProgress from "../goals/GoalProgress";
+import MarkdownText from "../MarkdownText";
+import MarkdownEditor from "../MarkdownEditor";
 
 // Org goals on the Team page. A top-level **Company** goal (the team itself)
 // plus a section per **department** (org_team), each with active/done goals and
@@ -15,6 +17,9 @@ export default function TeamGoals({ dark }) {
   const [goals, setGoals] = useState([]);
   const [drafts, setDrafts] = useState({}); // ownerId → draft body
   const [horizons, setHorizons] = useState({}); // ownerId → add-row horizon
+  const [addingId, setAddingId] = useState(null); // owner.id whose add-editor is open
+  const [editingId, setEditingId] = useState(null); // goal.id being edited
+  const [editDraft, setEditDraft] = useState("");
   const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
   const [krMap, setKrMap] = useState({}); // goalId → [keyResult]
 
@@ -44,6 +49,7 @@ export default function TeamGoals({ dark }) {
     const body = (drafts[owner.id] || "").trim();
     if (!body) return;
     setDrafts((d) => ({ ...d, [owner.id]: "" }));
+    setAddingId(null);
     await createGoal({
       teamId: activeTeamId, ownerType, ownerId: owner.id,
       ownerName: owner.name, ownerColor: owner.color || null, body,
@@ -55,6 +61,15 @@ export default function TeamGoals({ dark }) {
   const remove = async (g) => { await deleteGoal(g.id); load(); };
   const changeHorizon = async (g, h) => { await updateGoal({ id: g.id, horizon: h }); load(); };
   const togglePin = async (g) => { await updateGoal({ id: g.id, pinned: g.pinned === false }); load(); };
+  const startEdit = (g) => { setEditingId(g.id); setEditDraft(g.body || ""); };
+  const saveEdit = async () => {
+    const body = editDraft.trim();
+    if (!body) { setEditingId(null); return; }
+    const id = editingId;
+    setEditingId(null);
+    await updateGoal({ id, body });
+    load();
+  };
 
   // One owner's goal list + (when permitted) the add-row.
   const section = (ownerType, owner, manage) => {
@@ -74,6 +89,16 @@ export default function TeamGoals({ dark }) {
         <ul className="flex flex-col gap-1.5">
           {ordered.map((g) => (
             <li key={g.id} className="group">
+              {editingId === g.id ? (
+                <div>
+                  <MarkdownEditor value={editDraft} onChange={setEditDraft} dark={dark} autoFocus minHeight="64px" placeholder="Edit goal…" />
+                  <div className="flex items-center justify-end gap-2 mt-1.5">
+                    <button type="button" onClick={() => setEditingId(null)} className={`text-xs px-2 py-1 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>Cancel</button>
+                    <button type="button" onClick={saveEdit} disabled={!editDraft.trim()} className="text-sm px-3 py-1.5 rounded-lg bg-[var(--color-accent)] text-white disabled:opacity-40">Save</button>
+                  </div>
+                </div>
+              ) : (
+              <>
               <div className="flex items-start gap-2">
               <button
                 type="button"
@@ -86,7 +111,9 @@ export default function TeamGoals({ dark }) {
               >
                 {g.status === "done" && <Check className="w-3 h-3" />}
               </button>
-              <span className={`text-sm flex-1 break-words ${g.status === "done" ? "line-through opacity-60" : g.pinned === false ? "opacity-50" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>{g.body}</span>
+              <div className={`text-sm flex-1 min-w-0 break-words ${g.status === "done" ? "line-through opacity-60" : g.pinned === false ? "opacity-50" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>
+                <MarkdownText dark={dark} compact>{g.body}</MarkdownText>
+              </div>
               {manage ? (
                 <GoalHorizonSelect value={g.horizon} onChange={(h) => changeHorizon(g, h)} dark={dark} />
               ) : (
@@ -113,38 +140,50 @@ export default function TeamGoals({ dark }) {
                 <GoalRoomsButton goalId={g.id} scopedRoomIds={roomMap[g.id] || []} onSaved={load} dark={dark} />
               )}
               {manage && (
+                <button type="button" onClick={() => startEdit(g)} aria-label="Edit goal" className={`opacity-0 group-hover:opacity-100 shrink-0 mt-0.5 transition-colors ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {manage && (
                 <button type="button" onClick={() => remove(g)} aria-label="Delete goal" className={`opacity-0 group-hover:opacity-100 shrink-0 ${dark ? "text-slate-500 hover:text-red-300" : "text-slate-400 hover:text-red-500"}`}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
               </div>
               <GoalProgress goal={g} krs={krMap[g.id] || []} manage={manage} onChange={load} dark={dark} />
+              </>
+              )}
             </li>
           ))}
         </ul>
-        {manage && (
-          <div className="flex items-center gap-2 mt-1.5">
-            <input
+        {manage && (addingId === owner.id ? (
+          <div className="mt-1.5">
+            <MarkdownEditor
               value={drafts[owner.id] || ""}
-              onChange={(e) => setDrafts((d) => ({ ...d, [owner.id]: e.target.value }))}
-              onKeyDown={(e) => { if (e.key === "Enter") add(ownerType, owner); }}
+              onChange={(v) => setDrafts((d) => ({ ...d, [owner.id]: v }))}
+              dark={dark}
               placeholder={ownerType === "company" ? "Add a company goal…" : `Add a goal for ${owner.name}…`}
-              className={`flex-1 text-sm px-2.5 py-1.5 rounded-lg border outline-none ${
-                dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500" : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
-              }`}
+              minHeight="64px"
+              autoFocus
             />
-            <GoalHorizonSelect value={horizons[owner.id] || "none"} onChange={(h) => setHorizons((s) => ({ ...s, [owner.id]: h }))} dark={dark} />
-            <button
-              type="button"
-              onClick={() => add(ownerType, owner)}
-              disabled={!(drafts[owner.id] || "").trim()}
-              aria-label="Add goal"
-              className="shrink-0 w-8 h-8 rounded-lg bg-[var(--color-accent)] text-white flex items-center justify-center disabled:opacity-40"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
+            <div className="flex items-center justify-between gap-2 mt-1.5">
+              <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>Markdown supported</span>
+              <div className="flex items-center gap-2">
+                <GoalHorizonSelect value={horizons[owner.id] || "none"} onChange={(h) => setHorizons((s) => ({ ...s, [owner.id]: h }))} dark={dark} />
+                <button type="button" onClick={() => { setAddingId(null); setDrafts((d) => ({ ...d, [owner.id]: "" })); }} className={`text-xs px-2 py-1 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                  Cancel
+                </button>
+                <button type="button" onClick={() => add(ownerType, owner)} disabled={!(drafts[owner.id] || "").trim()} className="text-sm px-3 py-1.5 rounded-lg bg-[var(--color-accent)] text-white disabled:opacity-40">
+                  Add goal
+                </button>
+              </div>
+            </div>
           </div>
-        )}
+        ) : (
+          <button type="button" onClick={() => setAddingId(owner.id)} className={`mt-1.5 flex items-center gap-1.5 text-sm ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+            <Plus className="w-4 h-4" /> {ownerType === "company" ? "Add a company goal" : "Add a goal"}
+          </button>
+        ))}
       </div>
     );
   };

@@ -12,7 +12,7 @@ export default function GoalsWidget({ dark }) {
   const { goals } = useWeekGoals(syncSession?.room_id || null);
   if (!goals.length) return null;
   return (
-    <WidgetSection id="goals" icon={Target} title="Goals this week" dark={dark}>
+    <WidgetSection id="goals" icon={Target} title="Current Goals" dark={dark}>
       <GoalsList goals={goals} dark={dark} compact />
     </WidgetSection>
   );

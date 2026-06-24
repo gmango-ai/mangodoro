@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Check, X, Target, Lock, Globe, Pin, PinOff } from "lucide-react";
+import { Plus, Check, X, Target, Lock, Globe, Pin, PinOff, Pencil } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -7,6 +7,8 @@ import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoa
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
 import GoalProgress from "../goals/GoalProgress";
+import MarkdownText from "../MarkdownText";
+import MarkdownEditor from "../MarkdownEditor";
 
 // A person's goals (team-scoped to the active team). Editable when it's you —
 // add, check off (active/done), remove; read-only for teammates. Used on the
@@ -19,7 +21,10 @@ export default function ProfileGoals({ userId }) {
   const isMe = !!userId && session?.user?.id === userId;
   const [goals, setGoals] = useState([]);
   const [draft, setDraft] = useState("");
+  const [adding, setAdding] = useState(false);
   const [addHorizon, setAddHorizon] = useState("none");
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState("");
   const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
   const [krMap, setKrMap] = useState({}); // goalId → [keyResult]
 
@@ -43,12 +48,21 @@ export default function ProfileGoals({ userId }) {
   const add = async () => {
     const body = draft.trim();
     if (!body || !isMe) return;
-    setDraft("");
+    setDraft(""); setAdding(false);
     await createGoal({ teamId: activeTeamId, ownerType: "user", ownerId: userId, ownerName: settings?.name || "", body, horizon: addHorizon });
     load();
   };
   const changeHorizon = async (g, h) => { if (!isMe) return; await updateGoal({ id: g.id, horizon: h }); load(); };
   const togglePin = async (g) => { if (!isMe) return; await updateGoal({ id: g.id, pinned: g.pinned === false }); load(); };
+  const startEdit = (g) => { if (!isMe) return; setEditingId(g.id); setEditDraft(g.body || ""); };
+  const saveEdit = async () => {
+    const body = editDraft.trim();
+    if (!body) { setEditingId(null); return; }
+    const id = editingId;
+    setEditingId(null);
+    await updateGoal({ id, body });
+    load();
+  };
   const toggle = async (g) => {
     if (!isMe) return;
     await updateGoal({ id: g.id, status: g.status === "done" ? "active" : "done" });
@@ -85,6 +99,16 @@ export default function ProfileGoals({ userId }) {
       <ul className="flex flex-col gap-1.5">
         {ordered.map((g) => (
           <li key={g.id} className="group">
+            {editingId === g.id ? (
+              <div>
+                <MarkdownEditor value={editDraft} onChange={setEditDraft} dark={dark} autoFocus minHeight="64px" placeholder="Edit goal…" />
+                <div className="flex items-center justify-end gap-2 mt-1.5">
+                  <button type="button" onClick={() => setEditingId(null)} className={`text-xs px-2 py-1 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>Cancel</button>
+                  <button type="button" onClick={saveEdit} disabled={!editDraft.trim()} className="text-sm px-3 py-1.5 rounded-lg bg-[var(--color-accent)] text-white disabled:opacity-40">Save</button>
+                </div>
+              </div>
+            ) : (
+            <>
             <div className="flex items-start gap-2">
             <button
               type="button"
@@ -99,9 +123,9 @@ export default function ProfileGoals({ userId }) {
             >
               {g.status === "done" && <Check className="w-3 h-3" />}
             </button>
-            <span className={`text-sm flex-1 break-words ${g.status === "done" ? "line-through opacity-60" : g.pinned === false ? "opacity-50" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>
-              {g.body}
-            </span>
+            <div className={`text-sm flex-1 min-w-0 break-words ${g.status === "done" ? "line-through opacity-60" : g.pinned === false ? "opacity-50" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>
+              <MarkdownText dark={dark} compact>{g.body}</MarkdownText>
+            </div>
             {isMe ? (
               <GoalHorizonSelect value={g.horizon} onChange={(h) => changeHorizon(g, h)} dark={dark} />
             ) : (
@@ -130,6 +154,16 @@ export default function ProfileGoals({ userId }) {
             {isMe && (
               <button
                 type="button"
+                onClick={() => startEdit(g)}
+                aria-label="Edit goal"
+                className={`opacity-0 group-hover:opacity-100 shrink-0 mt-0.5 transition-colors ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {isMe && (
+              <button
+                type="button"
                 onClick={() => togglePublic(g)}
                 title={g.is_public ? "Public — teammates can see this on your profile" : "Private — only you"}
                 className={`shrink-0 transition-colors ${g.is_public ? "text-[var(--color-accent)]" : dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"}`}
@@ -150,33 +184,33 @@ export default function ProfileGoals({ userId }) {
             )}
             </div>
             <GoalProgress goal={g} krs={krMap[g.id] || []} manage={isMe} onChange={load} dark={dark} />
+            </>
+            )}
           </li>
         ))}
       </ul>
 
-      {isMe && (
-        <div className="flex items-center gap-2 mt-2.5">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") add(); }}
-            placeholder="Add a goal…"
-            className={`flex-1 text-sm px-2.5 py-1.5 rounded-lg border outline-none ${
-              dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500" : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
-            }`}
-          />
-          <GoalHorizonSelect value={addHorizon} onChange={setAddHorizon} dark={dark} />
-          <button
-            type="button"
-            onClick={add}
-            disabled={!draft.trim()}
-            className="shrink-0 w-8 h-8 rounded-lg bg-[var(--color-accent)] text-white flex items-center justify-center disabled:opacity-40"
-            aria-label="Add goal"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
+      {isMe && (adding ? (
+        <div className="mt-2.5">
+          <MarkdownEditor value={draft} onChange={setDraft} dark={dark} placeholder="Add a goal…" minHeight="64px" autoFocus />
+          <div className="flex items-center justify-between gap-2 mt-1.5">
+            <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>Markdown supported</span>
+            <div className="flex items-center gap-2">
+              <GoalHorizonSelect value={addHorizon} onChange={setAddHorizon} dark={dark} />
+              <button type="button" onClick={() => { setAdding(false); setDraft(""); }} className={`text-xs px-2 py-1 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                Cancel
+              </button>
+              <button type="button" onClick={add} disabled={!draft.trim()} className="text-sm px-3 py-1.5 rounded-lg bg-[var(--color-accent)] text-white disabled:opacity-40">
+                Add goal
+              </button>
+            </div>
+          </div>
         </div>
-      )}
+      ) : (
+        <button type="button" onClick={() => setAdding(true)} className={`mt-2.5 flex items-center gap-1.5 text-sm ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+          <Plus className="w-4 h-4" /> Add a goal
+        </button>
+      ))}
     </div>
   );
 }

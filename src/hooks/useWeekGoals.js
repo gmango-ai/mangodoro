@@ -76,6 +76,7 @@ export function useWeekGoals(roomId = null) {
             href: g.source_board ? `/whiteboards/${g.source_board}` : null,
             progress: goalProgress(krByGoal.get(g.id)).pct, // 0-100 or null
             health: g.health && g.health !== "none" ? g.health : null,
+            tier: g.owner_type, // company | department | user — for ordering
           };
         })
         .filter((g) => g.body.length > 0);
@@ -92,6 +93,7 @@ export function useWeekGoals(roomId = null) {
           body: (r.goal || "").trim(),
           label: r.org_team_name || r.department || "Team",
           color: null,
+          tier: r.org_team_id ? "department" : "company", // org-wide retro goals sort with company
           href: `/retros/${r.id}`,
         }))
         .filter((r) => r.body.length > 0);

@@ -1,70 +1,119 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Target } from "lucide-react";
+import { Target, ChevronDown, ChevronRight } from "lucide-react";
 import MarkdownText from "./MarkdownText";
 import { GOAL_HEALTH } from "../lib/goals";
 
 // Renders normalized goal items from useWeekGoals — each
-// { id, body, label, color, href, progress, health }. The label wears the
-// owner's color (department/person) when one is set, else the accent. A
-// progress bar + health dot show when present. Items with an href link out
-// (retro page, or the source whiteboard); others render inert.
+// { id, body, label, color, href, progress, health }. Goals are GROUPED by
+// owner (PM, SWE, You, …) under a collapsible header — click a header to
+// show/hide that group. A per-goal progress bar + health dot show when set.
+// Items with an href link out (retro page, or the source whiteboard).
 //
 // `goals` is the normalized list; `retros` is accepted as a back-compat
 // alias. `compact` tightens spacing + font sizes for sidebar embedding.
+
+const COLLAPSE_KEY = "mango:goalsCollapsedGroups";
+function loadCollapsed() {
+  try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "[]")); } catch { return new Set(); }
+}
+
 export default function GoalsList({ goals, retros, dark, compact = false }) {
   const items = goals ?? retros ?? [];
+  const [collapsed, setCollapsed] = useState(loadCollapsed);
   if (!items.length) return null;
   const barBg = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  return (
-    <ul className={compact ? "space-y-2" : "space-y-3"}>
-      {items.map((g) => {
-        const health = g.health && GOAL_HEALTH[g.health];
-        const inner = (
-          <>
-            <span
-              className="inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[9px] mb-1"
-              style={{ color: g.color || "var(--color-accent)" }}
-            >
-              <Target className="w-3 h-3" />
-              {g.label}
-              {health && (
-                <span className="inline-flex items-center gap-1 normal-case tracking-normal font-semibold" style={{ color: health.color }}>
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: health.color }} />
-                  {health.label}
-                </span>
-              )}
-            </span>
-            <MarkdownText dark={dark} compact>
-              {g.body}
-            </MarkdownText>
+
+  // Group by owner label, preserving first-seen order; capture each group's
+  // color + tier. Then order tiers Company → Teams → Personal (stable within).
+  const groups = [];
+  const byLabel = new Map();
+  for (const g of items) {
+    const key = g.label || "Goals";
+    if (!byLabel.has(key)) { const grp = { label: key, color: g.color || null, tier: g.tier || "user", items: [] }; byLabel.set(key, grp); groups.push(grp); }
+    byLabel.get(key).items.push(g);
+  }
+  const tierRank = { company: 0, department: 1, user: 2 };
+  const tierLabel = { company: "Company", department: "Teams", user: "Personal" };
+  groups.sort((a, b) => (tierRank[a.tier] ?? 3) - (tierRank[b.tier] ?? 3));
+
+  const toggle = (label) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.has(label) ? next.delete(label) : next.add(label);
+      try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  const itemCls = `${compact ? "text-[11px]" : "text-xs"} ${dark ? "text-slate-200" : "text-slate-700"}`;
+
+  const renderItem = (g) => {
+    const health = g.health && GOAL_HEALTH[g.health];
+    const inner = (
+      <>
+        <MarkdownText dark={dark} compact>{g.body}</MarkdownText>
+        {(g.progress != null || health) && (
+          <span className="flex items-center gap-2 mt-1">
             {g.progress != null && (
-              <span className="flex items-center gap-1.5 mt-1">
+              <span className="flex items-center gap-1.5 flex-1 min-w-0">
                 <span className="h-1 rounded-full flex-1 overflow-hidden block" style={{ background: barBg }}>
                   <span className="block h-full rounded-full" style={{ width: `${g.progress}%`, background: "var(--color-accent)" }} />
                 </span>
                 <span className={`text-[9px] tabular-nums shrink-0 ${dark ? "text-slate-400" : "text-slate-500"}`}>{g.progress}%</span>
               </span>
             )}
-          </>
-        );
-        const cls = `${compact ? "text-[11px]" : "text-xs"} ${
-          dark ? "text-slate-200" : "text-slate-700"
-        }`;
-        return (
-          <li key={g.id} className={cls}>
-            {g.href ? (
-              <Link
-                to={g.href}
-                className={`block ${dark ? "hover:text-slate-50" : "hover:text-slate-900"}`}
-              >
-                {inner}
-              </Link>
-            ) : (
-              <div>{inner}</div>
+            {health && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-semibold shrink-0" style={{ color: health.color }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: health.color }} />
+                {health.label}
+              </span>
             )}
-          </li>
+          </span>
+        )}
+      </>
+    );
+    return (
+      <li key={g.id} className={itemCls}>
+        {g.href ? (
+          <Link to={g.href} className={`block ${dark ? "hover:text-slate-50" : "hover:text-slate-900"}`}>{inner}</Link>
+        ) : (
+          <div>{inner}</div>
+        )}
+      </li>
+    );
+  };
+
+  let prevTier = null;
+  return (
+    <div className={compact ? "space-y-2.5" : "space-y-3"}>
+      {groups.map((grp) => {
+        const isCollapsed = collapsed.has(grp.label);
+        const showTier = grp.tier !== prevTier;
+        prevTier = grp.tier;
+        return (
+          <div key={grp.label} className={showTier && grp !== groups[0] ? `pt-2.5 border-t ${dark ? "border-[var(--color-border)]" : "border-slate-100"}` : ""}>
+            {showTier && (
+              <p className={`text-[8px] uppercase tracking-[0.12em] font-bold mb-1 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                {tierLabel[grp.tier] || "Goals"}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => toggle(grp.label)}
+              title={isCollapsed ? "Show goals" : "Hide goals"}
+              className="flex items-center gap-1 w-full text-left uppercase tracking-wider font-bold text-[9px] mb-1"
+              style={{ color: grp.color || "var(--color-accent)" }}
+            >
+              {isCollapsed ? <ChevronRight className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />}
+              <Target className="w-3 h-3 shrink-0" />
+              <span className="truncate">{grp.label}</span>
+              <span className="opacity-50 font-semibold">{grp.items.length}</span>
+            </button>
+            {!isCollapsed && <ul className={`ml-1 ${compact ? "space-y-2" : "space-y-2.5"}`}>{grp.items.map(renderItem)}</ul>}
+          </div>
         );
       })}
-    </ul>
+    </div>
   );
 }
