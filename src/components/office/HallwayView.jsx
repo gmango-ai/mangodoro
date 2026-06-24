@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useTeam } from "../../context/TeamContext";
+import { useApp } from "../../context/AppContext";
+import { useClockedIn } from "../../hooks/useClockedIn";
 import {
   Users, Timer, Pencil, Search, LayoutGrid, List as ListIcon,
   Hash, Briefcase, MessageSquare, Lock, X,
@@ -52,9 +54,27 @@ export default function HallwayView({
   busy, onEnterRoom, onEditOffice, lockedRooms,
 }) {
   const { theme } = useTheme();
-  const { orgTeams } = useTeam();
+  const { orgTeams, teamMembers = [] } = useTeam();
+  const { session } = useApp();
+  const clocked = useClockedIn();
   const dark = theme === "dark";
   const sessionCount = [...(sessionByRoomId?.values() || [])].length;
+
+  // "In the office" = people in rooms (onlineCount) PLUS clocked-in teammates
+  // standing in the hallway (working/in-office even when remote, no overlap
+  // since hallway excludes anyone in a room). Mirrors OfficePresenceBar.
+  const inOfficeCount = useMemo(() => {
+    const inRoom = new Set();
+    for (const [, sess] of sessionByRoomId?.entries?.() || []) {
+      for (const o of sess.occupants || []) if (o.user_id) inRoom.add(o.user_id);
+    }
+    const myId = session?.user?.id;
+    const memberIds = new Set((teamMembers || []).map((m) => m.user_id));
+    const hallway = (clocked || []).filter(
+      (r) => r.clocked_in_at && !inRoom.has(r.user_id) && (memberIds.has(r.user_id) || r.user_id === myId)
+    ).length;
+    return (onlineCount || 0) + hallway;
+  }, [sessionByRoomId, clocked, teamMembers, session, onlineCount]);
 
   const [viewMode, setViewModeRaw] = useState(loadViewMode);
   const setViewMode = (v) => { setViewModeRaw(v); saveViewMode(v); };
@@ -121,10 +141,10 @@ export default function HallwayView({
             <p className={`text-xs mt-1 inline-flex items-center gap-3 ${dark ? "text-slate-400" : "text-slate-500"}`}>
               <span className="inline-flex items-center gap-1">
                 <Users className="w-3 h-3" />
-                <span className={`font-semibold ${onlineCount > 0 ? "text-[var(--color-accent)]" : ""}`}>
-                  {onlineCount}
+                <span className={`font-semibold ${inOfficeCount > 0 ? "text-[var(--color-accent)]" : ""}`}>
+                  {inOfficeCount}
                 </span>
-                {onlineCount === 1 ? " person" : " people"} in the office
+                {inOfficeCount === 1 ? " person" : " people"} in the office
               </span>
               <span className="inline-flex items-center gap-1">
                 <Timer className="w-3 h-3" />
