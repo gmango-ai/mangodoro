@@ -103,7 +103,11 @@ void main(){
     }
   }
   float refined = wsum > 0.0 ? msum / wsum : texture(u_mask, v_uv).r;
-  refined = clamp((refined - 0.5) * 1.6 + 0.5, 0.0, 1.0);   // crisp-up the ramp
+  // Gentle ramp biased to KEEP the user: a sub-0.5 pivot means low-confidence
+  // edges (hair, a dark shirt on a dark bg) stay foreground instead of being
+  // clipped away. [TUNE] pivot 0.4 / slope 1.2 — raise slope for a crisper edge,
+  // lower the pivot to keep even more of the person.
+  refined = clamp((refined - 0.4) * 1.2 + 0.5, 0.0, 1.0);
   float a = refined;
   if (u_hasPrev > 0.5) a = mix(texture(u_prev, v_uv).r, refined, 0.6); // temporal EMA
   o = vec4(a, 0.0, 0.0, 1.0);
@@ -268,8 +272,11 @@ class RefinedBackgroundProcessor {
 
     this.alphaA = makeFBO(gl, this.W, this.H, gl.R8, gl.RED, gl.UNSIGNED_BYTE);
     this.alphaB = makeFBO(gl, this.W, this.H, gl.R8, gl.RED, gl.UNSIGNED_BYTE);
-    this.bw = Math.max(1, this.W >> 1);
-    this.bh = Math.max(1, this.H >> 1);
+    // Blur at quarter res: the wide blur comes from ITERATING a small-step blur
+    // (below), not from one wide-tap pass, so low res + linear filtering keeps it
+    // smooth and cheap.
+    this.bw = Math.max(1, this.W >> 2);
+    this.bh = Math.max(1, this.H >> 2);
     this.blur1 = makeFBO(gl, this.bw, this.bh, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
     this.blur2 = makeFBO(gl, this.bw, this.bh, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
   }
@@ -347,21 +354,30 @@ class RefinedBackgroundProcessor {
     if (this.opts.mode === "image") {
       bgTex = this.texBg;
     } else {
-      const spread = Math.max(1, this.opts.blurRadius);
-      // blur X: video → blur1
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur1.fbo);
-      gl.viewport(0, 0, this.bw, this.bh);
+      // Smooth wide blur: iterate a SMALL-step separable gaussian at quarter res.
+      // The old single pass used a tap spacing of `blurRadius` texels, so 9 taps
+      // spread far apart undersampled → the blocky banding. Many small blurs
+      // convolve into one big, smooth gaussian (and it's cheaper at 1/4 res).
+      const STEP = 1.25; // texels per tap, fixed and small (dense sampling)
+      const iters = Math.min(12, Math.max(1, Math.round(this.opts.blurRadius / 3)));
       gl.useProgram(this.pBlur.program);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
+      gl.viewport(0, 0, this.bw, this.bh);
       gl.uniform1i(uni(gl, this.pBlur, "u_src"), 0);
-      gl.uniform2f(uni(gl, this.pBlur, "u_dir"), spread / this.W, 0);
-      this._drawQuad(this.pBlur);
-      // blur Y: blur1 → blur2
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur2.fbo);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.blur1.tex);
-      gl.uniform2f(uni(gl, this.pBlur, "u_dir"), 0, spread / this.H);
-      this._drawQuad(this.pBlur);
-      bgTex = this.blur2.tex;
+      let read = this.texVideo; // first pass downsamples full-res video (linear)
+      for (let i = 0; i < iters; i++) {
+        // horizontal: read → blur1
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur1.fbo);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, read);
+        gl.uniform2f(uni(gl, this.pBlur, "u_dir"), STEP / this.bw, 0);
+        this._drawQuad(this.pBlur);
+        // vertical: blur1 → blur2
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur2.fbo);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.blur1.tex);
+        gl.uniform2f(uni(gl, this.pBlur, "u_dir"), 0, STEP / this.bh);
+        this._drawQuad(this.pBlur);
+        read = this.blur2.tex;
+      }
+      bgTex = this.blur2.tex; // composite samples it with LINEAR → smooth upscale
     }
 
     // 3) composite → canvas
