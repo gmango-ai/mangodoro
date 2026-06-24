@@ -264,6 +264,7 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
     setSending(false);
     if (error) {
       setDraft(body);
+      mentionedRef.current = new Set(mentioned);
       console.warn("send chat:", error.message);
       return;
     }

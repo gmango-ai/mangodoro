@@ -34,10 +34,14 @@ export default function FollowButton({ userId, className = "" }) {
   const toggle = async (e) => {
     e?.stopPropagation?.();
     const next = !following;
+    const { error } = next
+      ? await followUser(myId, userId)
+      : await unfollowUser(userId);
+    if (error) return;
     setFollowing(next);
     const s = await ensureFollows();
-    if (next) { s.add(userId); await followUser(myId, userId); }
-    else { s.delete(userId); await unfollowUser(userId); }
+    if (next) s.add(userId);
+    else s.delete(userId);
   };
 
   return (

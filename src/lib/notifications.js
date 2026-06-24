@@ -75,15 +75,17 @@ export async function listFollows(kind = "focus_start") {
 }
 
 export async function followUser(followerId, targetUserId, kind = "focus_start") {
-  if (!followerId || !targetUserId) return;
-  await supabase
+  if (!followerId || !targetUserId) return { error: null };
+  const { error } = await supabase
     .from("notification_follows")
     .upsert({ follower_user_id: followerId, target_user_id: targetUserId, kind }, { onConflict: "follower_user_id,target_user_id,kind", ignoreDuplicates: true });
+  return { error };
 }
 
 export async function unfollowUser(targetUserId, kind = "focus_start") {
-  if (!targetUserId) return;
-  await supabase.from("notification_follows").delete().eq("target_user_id", targetUserId).eq("kind", kind);
+  if (!targetUserId) return { error: null };
+  const { error } = await supabase.from("notification_follows").delete().eq("target_user_id", targetUserId).eq("kind", kind);
+  return { error };
 }
 
 // ── Per-type preferences (sparse overrides; absence = default-enabled) ──
