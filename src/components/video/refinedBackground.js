@@ -142,6 +142,22 @@ void main(){
   o = sum;
 }`;
 
+// Build a premultiplied BACKGROUND for the blur: rgb = video × (1-alpha),
+// a = (1-alpha). Blurring this (then dividing rgb/a in the composite) averages
+// ONLY background pixels, so the foreground's colour doesn't smear into a halo
+// at the edge — the big visible gap vs a true depth blur.
+const FRAG_PREMULT = `#version 300 es
+precision highp float;
+in vec2 v_uv; out vec4 o;
+uniform sampler2D u_video;
+uniform sampler2D u_alpha;
+void main(){
+  vec3 c = texture(u_video, v_uv).rgb;
+  float a = texture(u_alpha, v_uv).r;   // foreground alpha
+  float bgw = 1.0 - a;                  // background weight
+  o = vec4(c * bgw, bgw);
+}`;
+
 // Composite foreground over background with a light wrap at the edge band, and
 // flip vertically so the captured canvas is upright.
 const FRAG_COMPOSITE = `#version 300 es
@@ -154,7 +170,8 @@ uniform float u_lightWrap;
 void main(){
   vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);     // [TUNE] flip for upright output
   vec3 fg = texture(u_video, uv).rgb;
-  vec3 bg = texture(u_bg, uv).rgb;
+  vec4 bgs = texture(u_bg, uv);
+  vec3 bg = bgs.a > 0.001 ? bgs.rgb / bgs.a : bgs.rgb;   // un-premultiply (bleed-free blur)
   float a = texture(u_alpha, uv).r;
   float edge = smoothstep(0.0, 0.5, a) * (1.0 - smoothstep(0.5, 1.0, a)); // mid-alpha band
   fg = mix(fg, bg, edge * u_lightWrap);
@@ -293,6 +310,7 @@ class RefinedBackgroundProcessor {
 
     this.pRefine = makeProgram(gl, VERT, FRAG_REFINE);
     this.pBlur = makeProgram(gl, VERT, FRAG_BLUR);
+    this.pPremult = makeProgram(gl, VERT, FRAG_PREMULT);
     this.pComposite = makeProgram(gl, VERT, FRAG_COMPOSITE);
 
     this.texVideo = makeTex(gl, gl.LINEAR);
@@ -446,16 +464,28 @@ class RefinedBackgroundProcessor {
     if (this.opts.mode === "image") {
       bgTex = this.texBg;
     } else {
-      // Smooth wide blur: iterate a SMALL-step separable gaussian at quarter res.
-      // The old single pass used a tap spacing of `blurRadius` texels, so 9 taps
-      // spread far apart undersampled → the blocky banding. Many small blurs
-      // convolve into one big, smooth gaussian (and it's cheaper at 1/4 res).
-      const STEP = 1.25; // texels per tap, fixed and small (dense sampling)
+      // Bleed-free blur. First build a PREMULTIPLIED background (rgb=video×(1-α),
+      // a=1-α) so the blur averages only background pixels — the foreground's
+      // colour no longer smears into a halo around the person (the main thing
+      // that looked worse than a depth blur). Then iterate a small-step separable
+      // gaussian at quarter res (tap spacing fixed + small + low res = smooth, no
+      // banding; the composite un-premultiplies rgb/a).
+      const STEP = 1.25;
       const iters = Math.min(12, Math.max(1, Math.round(this.opts.blurRadius / 3)));
-      gl.useProgram(this.pBlur.program);
       gl.viewport(0, 0, this.bw, this.bh);
+
+      // premult (video + alpha) → blur2 (1/4 res, downsampled by linear sampling)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur2.fbo);
+      gl.useProgram(this.pPremult.program);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, alphaTex);
+      gl.uniform1i(uni(gl, this.pPremult, "u_video"), 0);
+      gl.uniform1i(uni(gl, this.pPremult, "u_alpha"), 1);
+      this._drawQuad(this.pPremult);
+
+      gl.useProgram(this.pBlur.program);
       gl.uniform1i(uni(gl, this.pBlur, "u_src"), 0);
-      let read = this.texVideo; // first pass downsamples full-res video (linear)
+      let read = this.blur2.tex;
       for (let i = 0; i < iters; i++) {
         // horizontal: read → blur1
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur1.fbo);
@@ -469,7 +499,7 @@ class RefinedBackgroundProcessor {
         this._drawQuad(this.pBlur);
         read = this.blur2.tex;
       }
-      bgTex = this.blur2.tex; // composite samples it with LINEAR → smooth upscale
+      bgTex = this.blur2.tex; // RGBA premultiplied; composite divides rgb/a
     }
 
     // 3) composite → canvas
@@ -482,7 +512,7 @@ class RefinedBackgroundProcessor {
     gl.uniform1i(uni(gl, this.pComposite, "u_video"), 0);
     gl.uniform1i(uni(gl, this.pComposite, "u_bg"), 1);
     gl.uniform1i(uni(gl, this.pComposite, "u_alpha"), 2);
-    gl.uniform1f(uni(gl, this.pComposite, "u_lightWrap"), 0.35); // [TUNE] light-wrap strength
+    gl.uniform1f(uni(gl, this.pComposite, "u_lightWrap"), 0.15); // [TUNE] subtle now the bg is bleed-free
     this._drawQuad(this.pComposite);
   }
 
