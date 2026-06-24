@@ -43,11 +43,12 @@ const RVM_INPUT_WIDTH = 512;
 // 0.5 → 256px encoder, the bottom of that band — catches hair/fingers far better
 // than the old 0.35 (~134px) without over-spending. [TUNE].
 const RVM_DOWNSAMPLE = 0.5;
-// [TUNE] disable RVM above this avg. Raised from 70 now that threading makes a
-// richer matte affordable: a threaded M4 runs the 512/0.5 config well under this,
-// while a single-thread machine (Safari/iOS, no isolation) blows past it and
-// correctly falls back to MediaPipe. ~95ms ≈ 10fps floor before we bail.
-const RVM_SLOW_MS = 95;
+// [TUNE] disable RVM above this avg. Now that rendering is decoupled from
+// inference, this latency only affects matte FRESHNESS (the render stays ~60fps),
+// so it can be lenient: a ~120ms matte snapped onto the live frame still beats
+// MediaPipe. Set well above the threaded 512/0.5 cost so a threaded machine keeps
+// RVM; a single-thread one (Safari/iOS) still blows past it and falls back.
+const RVM_SLOW_MS = 160;
 
 // Sticky, per-page verdict: once RVM proves too slow on this machine we stop
 // even *trying* it. A new processor is built on every camera mute/unmute (the
@@ -139,13 +140,16 @@ void main(){
     }
   }
   float refined = wsum > 0.0 ? msum / wsum : texture(u_mask, v_uv).r;
-  // Gentle ramp biased to KEEP the user: a sub-0.5 pivot means low-confidence
-  // edges (hair, a dark shirt on a dark bg) stay foreground instead of being
-  // clipped away. [TUNE] pivot 0.4 / slope 1.2 — raise slope for a crisper edge,
-  // lower the pivot to keep even more of the person.
-  refined = clamp((refined - 0.4) * 1.2 + 0.5, 0.0, 1.0);
+  // Firm S-curve centred on 0.5: low-confidence background is driven hard to 0 so
+  // the replacement/blur is FULLY OPAQUE (the old 0.4-pivot "keep the user" bias
+  // lifted background haze to ~0.2 → the real room showed through). Background
+  // below ~0.3 → 0, foreground above ~0.7 → 1, soft only across the true edge.
+  // [TUNE] slope 2.5 — lower it if hair/dark-shirt-on-dark-bg starts clipping.
+  refined = clamp((refined - 0.5) * 2.5 + 0.5, 0.0, 1.0);
   float a = refined;
-  if (u_hasPrev > 0.5) a = mix(texture(u_prev, v_uv).r, refined, 0.6); // temporal EMA
+  // Light temporal smoothing (15% history) only — just enough to settle edge
+  // shimmer. The old 40% history trailed a stale matte into a smear on fast motion.
+  if (u_hasPrev > 0.5) a = mix(texture(u_prev, v_uv).r, refined, 0.85);
   o = vec4(a, 0.0, 0.0, 1.0);
 }`;
 
@@ -248,6 +252,8 @@ class RefinedBackgroundProcessor {
     this._rvm = null;       // RVM matter handle (when available)
     this._rvmSlow = false;  // disabled after the perf gate trips
     this._rvmMs = [];       // recent inference timings
+    this._rvmBatches = 0;   // completed perf batches (1st is warmup, ignored)
+    this._rvmSlowStreak = 0;// consecutive over-budget batches (need 2 to bail)
     this._backend = null;   // "RVM" | "MediaPipe" — logged when it changes
   }
 
@@ -454,21 +460,31 @@ class RefinedBackgroundProcessor {
   }
 
   // "Where supported": if RVM is consistently too slow, drop back to MediaPipe.
+  // Guarded against false trips: the FIRST batch is warmup (model load + cold
+  // threads — always slow) and ignored, and it takes TWO consecutive over-budget
+  // batches to bail. A single transient batch used to sticky-disable RVM for the
+  // whole session, which is what dumped us onto MediaPipe.
   _trackRvmPerf(ms) {
     this._rvmMs.push(ms);
-    if (this._rvmMs.length >= 12) {
-      const avg = this._rvmMs.reduce((a, b) => a + b, 0) / this._rvmMs.length;
-      this._rvmMs = [];
-      if (!this._rvmLoggedPerf) {
-        this._rvmLoggedPerf = true;
-        console.info(`[bg] RVM avg inference ${avg.toFixed(0)}ms`);
-      }
-      if (avg > RVM_SLOW_MS) {
-        console.warn(`[rvm] too slow (avg ${avg.toFixed(0)}ms) — MediaPipe for the rest of this session`);
+    if (this._rvmMs.length < 12) return;
+    const avg = this._rvmMs.reduce((a, b) => a + b, 0) / this._rvmMs.length;
+    this._rvmMs = [];
+    this._rvmBatches++;
+    if (this._rvmBatches === 1) return; // warmup batch — don't judge it
+    if (!this._rvmLoggedPerf) {
+      this._rvmLoggedPerf = true;
+      console.info(`[bg] RVM avg inference ${avg.toFixed(0)}ms (render is decoupled — this is matte freshness, not fps)`);
+    }
+    if (avg > RVM_SLOW_MS) {
+      this._rvmSlowStreak++;
+      if (this._rvmSlowStreak >= 2) {
+        console.warn(`[rvm] sustained ${avg.toFixed(0)}ms > ${RVM_SLOW_MS}ms — MediaPipe for the rest of this session`);
         this._rvmSlow = true;
         rvmDisabledForSession = true; // don't re-probe on the next camera toggle
         try { this._rvm?.close(); } catch { /* */ }
       }
+    } else {
+      this._rvmSlowStreak = 0;
     }
   }
 
