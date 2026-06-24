@@ -782,7 +782,10 @@ function CallControlBar({
   useEffect(() => emote?.subscribeRecents?.(setRecents), [emote]);
 
   return (
-    <div className="relative flex items-center justify-center flex-wrap gap-1.5 px-2 py-2">
+    <div
+      className="relative flex items-center justify-center flex-wrap gap-1.5 px-2.5 py-2 rounded-2xl bg-black/45 backdrop-blur-md shadow-xl ring-1 ring-white/10"
+      style={{ "--lk-border-radius": "9999px" }}
+    >
       {reactionsOpen && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setReactionsOpen(false)} />
@@ -1261,7 +1264,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
       {/* Spectator → publisher. Rendered ON the overlay (the app's stage
           placeholder underneath is covered by this call). */}
       {!publish && !compact && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
           <button
             type="button"
             onClick={() => onJoinIn?.()}
@@ -1293,6 +1296,29 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     return () => ro.disconnect();
   }, []);
 
+  // Auto-hiding controls: the bar floats over the video and fades after a few
+  // seconds idle, returning on any pointer activity (Meet / FaceTime style). It
+  // stays put while the pointer is over it (so menus don't vanish mid-use).
+  const [controlsShown, setControlsShown] = useState(true);
+  const hideTimerRef = useRef(null);
+  const overBarRef = useRef(false);
+  const reveal = () => {
+    setControlsShown(true);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    if (!overBarRef.current) hideTimerRef.current = setTimeout(() => setControlsShown(false), 3000);
+  };
+  useEffect(() => {
+    reveal();
+    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const onBarEnter = () => {
+    overBarRef.current = true;
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setControlsShown(true);
+  };
+  const onBarLeave = () => { overBarRef.current = false; reveal(); };
+
   const [layoutMode, setLayoutMode] = useState(() => {
     const v = loadPref(PREF.layout, "grid");
     if (v === "grid" || v === "presenter" || v === "spotlight") return v;
@@ -1323,7 +1349,12 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   };
 
   return (
-    <div ref={rootRef} className="flex flex-col w-full h-full">
+    <div
+      ref={rootRef}
+      className="relative flex flex-col w-full h-full"
+      onPointerMove={compact ? undefined : reveal}
+      onPointerDown={compact ? undefined : reveal}
+    >
       <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
       <AutoMicController enabled={autoMic} />
       <LayoutContextProvider>
@@ -1338,26 +1369,36 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
         />
       </LayoutContextProvider>
       {!compact && (
-        <div className="shrink-0">
-          <CallControlBar
-            publish={publish}
-            tight={tight}
-            emote={emote}
-            layoutMode={layoutMode}
-            onSetLayout={setLayoutMode}
-            bg={bg}
-            onChangeBg={setBg}
-            customBg={customBg}
-            onUploadBg={onUploadBg}
-            noiseEnabled={noiseEnabled}
-            onToggleNoise={() => setNoiseEnabled((v) => !v)}
-            autoMic={autoMic}
-            onToggleAutoMic={() => setAutoMic((v) => !v)}
-            micMuted={micMuted}
-            onToggleMic={onToggleMic}
-            peopleOpen={peopleOpen}
-            onTogglePeople={() => setPeopleOpen((v) => !v)}
-          />
+        <div
+          className={`absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-3 pointer-events-none transition-opacity duration-300 ${
+            controlsShown ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <div
+            className={controlsShown ? "pointer-events-auto" : "pointer-events-none"}
+            onMouseEnter={onBarEnter}
+            onMouseLeave={onBarLeave}
+          >
+            <CallControlBar
+              publish={publish}
+              tight={tight}
+              emote={emote}
+              layoutMode={layoutMode}
+              onSetLayout={setLayoutMode}
+              bg={bg}
+              onChangeBg={setBg}
+              customBg={customBg}
+              onUploadBg={onUploadBg}
+              noiseEnabled={noiseEnabled}
+              onToggleNoise={() => setNoiseEnabled((v) => !v)}
+              autoMic={autoMic}
+              onToggleAutoMic={() => setAutoMic((v) => !v)}
+              micMuted={micMuted}
+              onToggleMic={onToggleMic}
+              peopleOpen={peopleOpen}
+              onTogglePeople={() => setPeopleOpen((v) => !v)}
+            />
+          </div>
         </div>
       )}
     </div>
