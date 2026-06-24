@@ -44,9 +44,24 @@ export async function createGoal({ teamId, ownerType, ownerId, ownerName, ownerC
   });
 }
 
-export async function updateGoal({ id, body, status, isPublic, horizon }) {
+export async function updateGoal({ id, body, status, isPublic, horizon, pinned }) {
   if (!id) return { error: { message: "no id" } };
-  return supabase.rpc("update_goal", { p_id: id, p_body: body ?? null, p_status: status ?? null, p_is_public: isPublic ?? null, p_horizon: horizon ?? null });
+  return supabase.rpc("update_goal", {
+    p_id: id, p_body: body ?? null, p_status: status ?? null,
+    p_is_public: isPublic ?? null, p_horizon: horizon ?? null, p_pinned: pinned ?? null,
+  });
+}
+
+// Replace a goal's room scoping. Empty array = global (shows in every room).
+export async function setGoalRooms({ goalId, roomIds }) {
+  if (!goalId) return { error: { message: "no goal" } };
+  return supabase.rpc("set_goal_rooms", { p_goal_id: goalId, p_room_ids: roomIds || [] });
+}
+
+// (goal_id, room_id) pairs for a team's goals — client maps goal → rooms.
+export async function listGoalRooms(teamId) {
+  if (!teamId) return { data: [], error: null };
+  return supabase.rpc("list_goal_rooms", { p_team_id: teamId });
 }
 
 // Horizon labels, shared by the manage UIs + chips.

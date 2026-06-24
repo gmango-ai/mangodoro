@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Check, X, Target, Lock, Globe } from "lucide-react";
+import { Plus, Check, X, Target, Lock, Globe, Pin, PinOff } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
-import { listTeamGoals, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
+import { listTeamGoals, listGoalRooms, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
+import GoalRoomsButton from "../goals/GoalRoomsButton";
 
 // A person's goals (team-scoped to the active team). Editable when it's you —
 // add, check off (active/done), remove; read-only for teammates. Used on the
@@ -18,11 +19,18 @@ export default function ProfileGoals({ userId }) {
   const [goals, setGoals] = useState([]);
   const [draft, setDraft] = useState("");
   const [addHorizon, setAddHorizon] = useState("none");
+  const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
 
   const load = useCallback(async () => {
-    if (!activeTeamId || !userId) { setGoals([]); return; }
-    const { data } = await listTeamGoals(activeTeamId);
+    if (!activeTeamId || !userId) { setGoals([]); setRoomMap({}); return; }
+    const [{ data }, { data: rooms }] = await Promise.all([
+      listTeamGoals(activeTeamId),
+      listGoalRooms(activeTeamId),
+    ]);
     setGoals((data || []).filter((g) => g.owner_type === "user" && g.owner_id === userId));
+    const map = {};
+    for (const row of rooms || []) (map[row.goal_id] ||= []).push(row.room_id);
+    setRoomMap(map);
   }, [activeTeamId, userId]);
   useEffect(() => { load(); }, [load]);
 
@@ -34,6 +42,7 @@ export default function ProfileGoals({ userId }) {
     load();
   };
   const changeHorizon = async (g, h) => { if (!isMe) return; await updateGoal({ id: g.id, horizon: h }); load(); };
+  const togglePin = async (g) => { if (!isMe) return; await updateGoal({ id: g.id, pinned: g.pinned === false }); load(); };
   const toggle = async (g) => {
     if (!isMe) return;
     await updateGoal({ id: g.id, status: g.status === "done" ? "active" : "done" });
@@ -83,7 +92,7 @@ export default function ProfileGoals({ userId }) {
             >
               {g.status === "done" && <Check className="w-3 h-3" />}
             </button>
-            <span className={`text-sm flex-1 break-words ${g.status === "done" ? "line-through opacity-60" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>
+            <span className={`text-sm flex-1 break-words ${g.status === "done" ? "line-through opacity-60" : g.pinned === false ? "opacity-50" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>
               {g.body}
             </span>
             {isMe ? (
@@ -94,6 +103,22 @@ export default function ProfileGoals({ userId }) {
                   {horizonShort(g.horizon)}
                 </span>
               )
+            )}
+            {isMe && (
+              <button
+                type="button"
+                onClick={() => togglePin(g)}
+                title={g.pinned === false ? "Backgrounded — won't show on the office board" : "Pinned — shows on the office board"}
+                aria-label={g.pinned === false ? "Pin goal" : "Background goal"}
+                className={`shrink-0 mt-0.5 transition-colors ${
+                  g.pinned === false ? (dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600") : "text-[var(--color-accent)]"
+                }`}
+              >
+                {g.pinned === false ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+              </button>
+            )}
+            {isMe && (
+              <GoalRoomsButton goalId={g.id} scopedRoomIds={roomMap[g.id] || []} onSaved={load} dark={dark} />
             )}
             {isMe && (
               <button

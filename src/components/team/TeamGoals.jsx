@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Check, X, Target, Building2 } from "lucide-react";
+import { Plus, Check, X, Target, Building2, Pin, PinOff } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
-import { listTeamGoals, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
+import { listTeamGoals, listGoalRooms, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
+import GoalRoomsButton from "../goals/GoalRoomsButton";
 
 // Org goals on the Team page. A top-level **Company** goal (the team itself)
 // plus a section per **department** (org_team), each with active/done goals and
@@ -13,11 +14,18 @@ export default function TeamGoals({ dark }) {
   const [goals, setGoals] = useState([]);
   const [drafts, setDrafts] = useState({}); // ownerId → draft body
   const [horizons, setHorizons] = useState({}); // ownerId → add-row horizon
+  const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
 
   const load = useCallback(async () => {
-    if (!activeTeamId) { setGoals([]); return; }
-    const { data } = await listTeamGoals(activeTeamId);
+    if (!activeTeamId) { setGoals([]); setRoomMap({}); return; }
+    const [{ data }, { data: rooms }] = await Promise.all([
+      listTeamGoals(activeTeamId),
+      listGoalRooms(activeTeamId),
+    ]);
     setGoals((data || []).filter((g) => g.owner_type === "company" || g.owner_type === "department"));
+    const map = {};
+    for (const row of rooms || []) (map[row.goal_id] ||= []).push(row.room_id);
+    setRoomMap(map);
   }, [activeTeamId]);
   useEffect(() => { load(); }, [load]);
 
@@ -40,6 +48,7 @@ export default function TeamGoals({ dark }) {
   const toggle = async (g) => { await updateGoal({ id: g.id, status: g.status === "done" ? "active" : "done" }); load(); };
   const remove = async (g) => { await deleteGoal(g.id); load(); };
   const changeHorizon = async (g, h) => { await updateGoal({ id: g.id, horizon: h }); load(); };
+  const togglePin = async (g) => { await updateGoal({ id: g.id, pinned: g.pinned === false }); load(); };
 
   // One owner's goal list + (when permitted) the add-row.
   const section = (ownerType, owner, manage) => {
@@ -70,7 +79,7 @@ export default function TeamGoals({ dark }) {
               >
                 {g.status === "done" && <Check className="w-3 h-3" />}
               </button>
-              <span className={`text-sm flex-1 break-words ${g.status === "done" ? "line-through opacity-60" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>{g.body}</span>
+              <span className={`text-sm flex-1 break-words ${g.status === "done" ? "line-through opacity-60" : g.pinned === false ? "opacity-50" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>{g.body}</span>
               {manage ? (
                 <GoalHorizonSelect value={g.horizon} onChange={(h) => changeHorizon(g, h)} dark={dark} />
               ) : (
@@ -79,6 +88,22 @@ export default function TeamGoals({ dark }) {
                     {horizonShort(g.horizon)}
                   </span>
                 )
+              )}
+              {manage && (
+                <button
+                  type="button"
+                  onClick={() => togglePin(g)}
+                  title={g.pinned === false ? "Backgrounded — won't show on the office board" : "Pinned — shows on the office board"}
+                  aria-label={g.pinned === false ? "Pin goal" : "Background goal"}
+                  className={`shrink-0 mt-0.5 transition-colors ${
+                    g.pinned === false ? (dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600") : "text-[var(--color-accent)]"
+                  }`}
+                >
+                  {g.pinned === false ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                </button>
+              )}
+              {manage && (
+                <GoalRoomsButton goalId={g.id} scopedRoomIds={roomMap[g.id] || []} onSaved={load} dark={dark} />
               )}
               {manage && (
                 <button type="button" onClick={() => remove(g)} aria-label="Delete goal" className={`opacity-0 group-hover:opacity-100 shrink-0 ${dark ? "text-slate-500 hover:text-red-300" : "text-slate-400 hover:text-red-500"}`}>
