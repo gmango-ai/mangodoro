@@ -422,14 +422,17 @@ export function AppProvider({ session, children }) {
     });
   }
 
-  function startClockBreak() {
-    updateClockIn({ activeBreak: { start: currentTimeStr() } });
+  // `meta` lets a caller mark the break paid/unpaid + tag its kind (e.g. the
+  // quick "On lunch" button passes { unpaid: !lunchBreakPaid, kind: "lunch" }).
+  function startClockBreak(meta) {
+    updateClockIn({ activeBreak: { start: currentTimeStr(), ...(meta || {}) } });
   }
 
   function endClockBreak() {
     setClockIn((prev) => {
       if (!prev?.activeBreak) return prev;
-      const newBreak = { id: Date.now().toString(), start: prev.activeBreak.start, end: currentTimeStr(), unpaid: true };
+      const ab = prev.activeBreak;
+      const newBreak = { id: Date.now().toString(), start: ab.start, end: currentTimeStr(), unpaid: ab.unpaid ?? true, ...(ab.kind ? { kind: ab.kind } : {}) };
       const updated = { ...prev, breaks: [...(prev.breaks || []), newBreak], activeBreak: null };
       localStorage.setItem("ql_clock_in", JSON.stringify(updated));
       return updated;
@@ -444,7 +447,8 @@ export function AppProvider({ session, children }) {
     let breaks = clockIn.breaks || [];
     // Auto-end any active break
     if (clockIn.activeBreak) {
-      breaks = [...breaks, { id: Date.now().toString(), start: clockIn.activeBreak.start, end: currentTimeStr(), unpaid: true }];
+      const ab = clockIn.activeBreak;
+      breaks = [...breaks, { id: Date.now().toString(), start: ab.start, end: currentTimeStr(), unpaid: ab.unpaid ?? true, ...(ab.kind ? { kind: ab.kind } : {}) }];
     }
     const minutes = calcWorked(clockIn.start, end, breaks);
     // Capture the clock-in moment so we can link only this session's
@@ -1208,6 +1212,9 @@ export function AppProvider({ session, children }) {
     if ("wellbeingReminders" in patch) dbPatch.wellbeing_reminders = patch.wellbeingReminders || {};
     if ("reminderActiveStart" in patch) dbPatch.reminder_active_start = patch.reminderActiveStart || null;
     if ("reminderActiveEnd" in patch) dbPatch.reminder_active_end = patch.reminderActiveEnd || null;
+    if ("workStart" in patch) dbPatch.work_start = patch.workStart || null;
+    if ("workEnd" in patch) dbPatch.work_end = patch.workEnd || null;
+    if ("lunchBreakPaid" in patch) dbPatch.lunch_break_paid = patch.lunchBreakPaid;
     if (Object.keys(dbPatch).length === 0) return;
     if (!session?.user?.id) return;
     await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);

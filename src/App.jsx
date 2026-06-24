@@ -16,6 +16,7 @@ import { NotificationProvider } from "./context/NotificationContext";
 import { ProfileProvider } from "./context/ProfileContext";
 import LunchReminder from "./components/LunchReminder";
 import HealthReminders from "./components/HealthReminders";
+import PresenceSync from "./components/PresenceSync";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
@@ -170,6 +171,8 @@ function AppLayout({ session }) {
       <LunchReminder />
       {/* Recurring wellbeing/break reminders (hydration, move, eye rest…). */}
       <HealthReminders />
+      {/* Mirrors timezone + clock-in into outward presence signals. */}
+      <PresenceSync />
       {/* Transient in-app notification toasts. */}
       <NotificationToaster />
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis

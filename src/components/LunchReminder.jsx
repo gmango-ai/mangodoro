@@ -43,7 +43,7 @@ function notifyLunch(userId, title, body) {
 const FIRE_WINDOW_MIN = 10; // catch a tab opened up to 10 min after lunch time
 
 export default function LunchReminder() {
-  const { settings, session, updateStatus } = useApp();
+  const { settings, session, updateStatus, clockIn, startClockBreak, endClockBreak } = useApp();
   const { syncSession, setStatus: setSyncStatus } = useSyncSession();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -57,6 +57,10 @@ export default function LunchReminder() {
     lunchTime: settings?.lunchTime || "",
     durationMin: settings?.lunchDurationMin ?? 60,
     presence: settings?.presenceState || "active",
+    lunchPaid: settings?.lunchBreakPaid,
+    clockIn,
+    startClockBreak,
+    endClockBreak,
     syncSession,
     setSyncStatus,
     updateStatus,
@@ -72,11 +76,14 @@ export default function LunchReminder() {
   const goToLunch = async () => {
     const s = ref.current;
     await setPresence("out_to_lunch");
+    // If clocked in, log the lunch as a break (paid/unpaid per Settings).
+    if (s.clockIn && !s.clockIn.activeBreak) s.startClockBreak?.({ unpaid: !s.lunchPaid, kind: "lunch" });
     put(`lunch_until:${s.userId}`, String(Date.now() + (s.durationMin || 60) * 60000));
   };
   const backFromLunch = async () => {
     const s = ref.current;
     await setPresence("active");
+    if (s.clockIn?.activeBreak?.kind === "lunch") s.endClockBreak?.();
     del(`lunch_until:${s.userId}`);
   };
   ref.current.goToLunch = goToLunch;
