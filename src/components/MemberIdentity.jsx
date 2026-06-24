@@ -1,6 +1,7 @@
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import UserAvatar from "./UserAvatar";
+import FollowButton from "./FollowButton";
 
 // Shared "this user appeared here" primitive. Renders avatar + name +
 // team chips off TeamContext's teamsByUserId map so we never re-fetch
@@ -18,6 +19,7 @@ export default function MemberIdentity({
   showTeams = true,
   showName = true,
   nameSuffix = null,
+  showFollow = false,
   className = "",
 }) {
   const { teamsByUserId, teamMembers } = useTeam();
@@ -76,6 +78,7 @@ export default function MemberIdentity({
           )}
         </span>
       )}
+      {showFollow && userId && <FollowButton userId={userId} />}
     </span>
   );
 }

@@ -453,6 +453,7 @@ export default function TeamPage() {
                         fallbackName={s.leader_name}
                         fallbackAvatarUrl={s.leader_avatar}
                         size={32}
+                        showFollow
                       />
                       <p className={`text-xs mt-0.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
                         {modeLabel(s.mode)} · {s.participant_count}/{s.max_participants} · {fmtTimeLeft(s)}
