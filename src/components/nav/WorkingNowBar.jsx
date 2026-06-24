@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Briefcase, Coffee } from "lucide-react";
-import { supabase } from "../../supabase";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
-import { listClockedIn } from "../../lib/workStatus";
+import { useClockedIn } from "../../hooks/useClockedIn";
 import UserAvatar from "../UserAvatar";
 import Popover from "../goals/Popover";
 
@@ -19,25 +18,10 @@ function elapsedSince(iso) {
 export default function WorkingNowBar({ dark }) {
   const { session, settings } = useApp();
   const { teamMembers = [] } = useTeam();
-  const [rows, setRows] = useState([]);
+  const rows = useClockedIn();
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
   const userId = session?.user?.id;
-
-  useEffect(() => {
-    let alive = true;
-    const load = () => listClockedIn().then((d) => { if (alive) setRows(d); });
-    load();
-    // Unique per mount — this bar renders twice (desktop + mobile nav groups),
-    // and Supabase reuses a channel by topic, so a shared name would re-add
-    // callbacks to an already-subscribed channel and throw.
-    const ch = supabase
-      .channel(`work_status:bar:${Math.random().toString(36).slice(2)}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "work_status" }, load)
-      .subscribe();
-    const poll = setInterval(load, 60000);
-    return () => { alive = false; supabase.removeChannel(ch); clearInterval(poll); };
-  }, []);
 
   const memberById = new Map((teamMembers || []).map((m) => [m.user_id, m]));
   const people = rows
