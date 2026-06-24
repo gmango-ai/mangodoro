@@ -2,6 +2,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import ProfileCard from "../components/profile/ProfileCard";
 import ProfileGoals from "../components/profile/ProfileGoals";
+import ProfileLunch from "../components/profile/ProfileLunch";
+import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 
 // Full profile page (/u/:userId). For now it frames the shared ProfileCard;
@@ -9,8 +11,11 @@ import { useTheme } from "../context/ThemeContext";
 export default function ProfilePage() {
   const { userId } = useParams();
   const navigate = useNavigate();
+  const { session } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const isMe = session?.user?.id === userId;
+  const cardStyle = { background: dark ? "var(--color-surface)" : "#fff", borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" };
   return (
     <main className="max-w-md mx-auto px-4 pt-6 pb-24">
       <button
@@ -20,18 +25,17 @@ export default function ProfilePage() {
       >
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
-      <div
-        className="rounded-2xl border shadow-sm"
-        style={{ background: dark ? "var(--color-surface)" : "#fff", borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
-      >
+      <div className="rounded-2xl border shadow-sm" style={cardStyle}>
         <ProfileCard userId={userId} />
       </div>
-      <div
-        className="rounded-2xl border shadow-sm mt-3 p-3.5"
-        style={{ background: dark ? "var(--color-surface)" : "#fff", borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)" }}
-      >
+      <div className="rounded-2xl border shadow-sm mt-3 p-3.5" style={cardStyle}>
         <ProfileGoals userId={userId} />
       </div>
+      {isMe && (
+        <div className="rounded-2xl border shadow-sm mt-3 p-3.5" style={cardStyle}>
+          <ProfileLunch />
+        </div>
+      )}
     </main>
   );
 }
