@@ -2,14 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
-  GridLayout,
   ParticipantTile,
   TrackToggle,
   DisconnectButton,
   LayoutContextProvider,
-  FocusLayoutContainer,
-  FocusLayout,
-  CarouselLayout,
   usePinnedTracks,
   useSpeakingParticipants,
   useMediaDeviceSelect,
@@ -21,7 +17,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -698,6 +694,65 @@ function MicButton({ micMuted, onToggleMic }) {
   );
 }
 
+// Layout-mode picker (grid / presenter / spotlight). A small popover keyed off
+// the current mode's icon, replacing the old grid↔speaker toggle.
+function LayoutMenu({ mode, onSet }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  const items = [
+    { id: "grid", label: "Grid", Icon: LayoutGrid },
+    { id: "presenter", label: "Presenter", Icon: Presentation },
+    { id: "spotlight", label: "Spotlight", Icon: Focus },
+  ];
+  const Cur = (items.find((i) => i.id === mode) || items[0]).Icon;
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        className="lk-button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Layout"
+      >
+        <Cur className="w-5 h-5" />
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-40 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1 shadow-xl text-[12px]">
+          {items.map((it) => {
+            const sel = mode === it.id;
+            return (
+              <button
+                key={it.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={sel}
+                onClick={() => { onSet(it.id); setOpen(false); }}
+                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md hover:bg-white/10 ${sel ? "text-[var(--lk-accent-bg,#22d3ee)]" : ""}`}
+              >
+                <it.Icon className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">{it.label}</span>
+                {sel && <Check className="w-3.5 h-3.5 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Custom control bar (replaces LiveKit's <ControlBar>) so reactions + the
 // layout toggle sit where we want and it collapses to icon-only when the tile
 // is narrow — keeping a small video usable rather than forcing a large minimum
@@ -709,7 +764,7 @@ function MicButton({ micMuted, onToggleMic }) {
 // controls flank it.
 function CallControlBar({
   publish, tight, emote,
-  layoutMode, onToggleLayout,
+  layoutMode, onSetLayout,
   bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
   autoMic, onToggleAutoMic,
@@ -765,15 +820,8 @@ function CallControlBar({
         </>
       )}
 
-      {/* Layout toggle (viewing — available whether or not you publish). */}
-      <button
-        type="button"
-        className="lk-button"
-        onClick={onToggleLayout}
-        title={layoutMode === "speaker" ? "Switch to grid view" : "Switch to speaker view"}
-      >
-        {layoutMode === "speaker" ? <LayoutGrid className="w-5 h-5" /> : <SquareUser className="w-5 h-5" />}
-      </button>
+      {/* Layout picker (viewing — available whether or not you publish). */}
+      <LayoutMenu mode={layoutMode} onSet={onSetLayout} />
 
       {/* People / moderation roster. */}
       <button
@@ -1007,8 +1055,11 @@ function PeoplePanel({ roomId, onClose }) {
 // in the shared cluster-roles map (so it reflects the EFFECTIVE leader, e.g.
 // after a take-over). Wraps the default tile in a flex box and lets it fill, so
 // the grid layout is unaffected.
-function ClusterParticipantTile() {
-  const trackRef = useMaybeTrackRefContext();
+function ClusterParticipantTile({ trackRef: trackRefProp }) {
+  // Our layout engine passes the track ref explicitly; inside a LiveKit layout
+  // it comes from context. Either way ParticipantTile gets it as a prop.
+  const ctxTrackRef = useMaybeTrackRefContext();
+  const trackRef = trackRefProp || ctxTrackRef;
   const participant = trackRef?.participant;
   const roles = useClusterRoles();
   const globalPinId = useGlobalPin();
@@ -1029,7 +1080,7 @@ function ClusterParticipantTile() {
           : "In room";
   return (
     <div style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}>
-      <ParticipantTile style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+      <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
       {(isPinned || inRoom) && (
         <div className="absolute top-1.5 left-1.5 z-10 flex flex-col items-start gap-1 pointer-events-none">
           {isPinned && (
@@ -1062,11 +1113,67 @@ function ClusterParticipantTile() {
   );
 }
 
-// The video stage. Renders a grid, or a focus layout (one big tile + a
-// carousel filmstrip) when a tile is pinned, someone is screen-sharing, or
-// speaker view is on. Clicking a tile's focus button pins it (LiveKit's
-// LayoutContextProvider wires that into ParticipantTile for free); speaker
-// view auto-focuses whoever is talking when nothing is manually pinned.
+// Largest uniform tile size (at `aspect`) that fits `n` tiles in W×H. Picks the
+// column count that maximises tile area, so cells are never ultra-wide or
+// skinny-tall — the aspect "clamp" that stops faces from being cropped.
+function bestGrid(n, W, H, aspect, gap) {
+  if (n <= 0 || W <= 0 || H <= 0) return { cols: 1, tileW: 0, tileH: 0 };
+  let best = { cols: 1, tileW: 0, tileH: 0, area: 0 };
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const cw = (W - gap * (cols - 1)) / cols;
+    const ch = (H - gap * (rows - 1)) / rows;
+    if (cw <= 0 || ch <= 0) continue;
+    let tw = cw;
+    let th = cw / aspect;
+    if (th > ch) { th = ch; tw = ch * aspect; }
+    const area = tw * th;
+    if (area > best.area) best = { cols, tileW: tw, tileH: th, area };
+  }
+  return best;
+}
+
+function useSize(ref) {
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const apply = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return size;
+}
+
+// A uniform, aspect-clamped grid of tiles (replaces LiveKit's GridLayout, whose
+// cells filled arbitrary shapes and cropped faces). Every tile is the same
+// ~16:9 box, sized as large as possible to fit them all, centered.
+function VideoGrid({ tracks, aspect = 16 / 9, gap = 8 }) {
+  const ref = useRef(null);
+  const { w, h } = useSize(ref);
+  const { cols, tileW, tileH } = bestGrid(tracks.length, w, h, aspect, gap);
+  return (
+    <div ref={ref} className="absolute inset-0 p-1">
+      <div
+        className="grid w-full h-full place-content-center"
+        style={{ gap, gridTemplateColumns: `repeat(${Math.max(1, cols)}, ${tileW}px)`, gridAutoRows: `${tileH}px` }}
+      >
+        {tracks.map((tr) => (
+          <ClusterParticipantTile key={refKey(tr)} trackRef={tr} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// The video stage. Switches between layout modes — grid (uniform clamped
+// tiles), presenter (one big focus + a strip of the rest), and spotlight (just
+// the focus). An explicit focus (your pin, the admin's global pin, or a screen
+// share) forces a focused layout even in grid; a squished tile collapses to
+// spotlight. Clicking a tile's focus button pins it (LiveKit's
+// LayoutContextProvider wires that into ParticipantTile for free).
 function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onClosePeople }) {
   const tracks = useTracks(
     [
@@ -1079,9 +1186,11 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   const speaking = useSpeakingParticipants();
   const pinned = usePinnedTracks();
   const globalPinId = useGlobalPin();
+  const rootRef = useRef(null);
+  const { w, h } = useSize(rootRef);
 
-  // Keep the last active speaker so speaker view doesn't fall back to the grid
-  // during a silence between turns.
+  // Keep the last active speaker so the focus doesn't fall away during a silence
+  // between turns.
   const [stickySpeaker, setStickySpeaker] = useState(null);
   const topSpeaker = speaking?.[0]?.identity;
   useEffect(() => {
@@ -1099,36 +1208,51 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   });
 
   const screenTrack = shown.find((t) => t.source === Track.Source.ScreenShare);
-  const speakerTrack =
-    layoutMode === "speaker" && stickySpeaker
-      ? shown.find((t) => t.participant?.identity === stickySpeaker && t.source === Track.Source.Camera)
-      : null;
-  // The admin's global pin (room metadata) — focuses this participant for
-  // everyone, unless you've locally pinned someone else for your own view. If
-  // they're screen-sharing, focus the share (the presenter case), else camera.
+  const speakerTrack = stickySpeaker
+    ? shown.find((t) => t.participant?.identity === stickySpeaker && t.source === Track.Source.Camera)
+    : null;
+  // The admin's global pin (room metadata) focuses this participant for everyone,
+  // unless you've locally pinned someone else. Their screen share wins over their
+  // camera (the presenter case).
   const globalPinTrack = globalPinId
     ? shown.find((t) => t.participant?.identity === globalPinId && t.source === Track.Source.ScreenShare)
       || shown.find((t) => t.participant?.identity === globalPinId && t.source === Track.Source.Camera)
     : null;
-  // Your local pin wins for your own view, then the admin's global pin, then an
-  // active screen share, then the active speaker.
-  const focusTrack = (pinned && pinned[0]) || globalPinTrack || screenTrack || speakerTrack || null;
-  const focusKey = refKey(focusTrack);
-  const carousel = focusTrack ? shown.filter((t) => refKey(t) !== focusKey) : shown;
+  // An EXPLICIT focus (your pin > admin global pin > a screen share) forces a
+  // focused layout even in grid mode. The big tile otherwise follows the active
+  // speaker, then the first tile.
+  const forcedFocus = (pinned && pinned[0]) || globalPinTrack || screenTrack || null;
+  const focusTrack = forcedFocus || speakerTrack || shown[0] || null;
+
+  // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
+  const squished = (h > 0 && h < 200) || (w > 0 && w < 220);
+  let mode = layoutMode;
+  if (squished) mode = "spotlight";
+  else if (forcedFocus && layoutMode === "grid") mode = "presenter";
+
+  const others = focusTrack ? shown.filter((t) => refKey(t) !== refKey(focusTrack)) : [];
 
   return (
-    <div className="relative flex-1 min-h-0">
-      {focusTrack ? (
-        <FocusLayoutContainer style={{ height: "100%" }}>
-          <CarouselLayout tracks={carousel}>
-            <ClusterParticipantTile />
-          </CarouselLayout>
-          <FocusLayout trackRef={focusTrack} />
-        </FocusLayoutContainer>
-      ) : (
-        <GridLayout tracks={shown} style={{ height: "100%" }}>
-          <ClusterParticipantTile />
-        </GridLayout>
+    <div ref={rootRef} className="relative flex-1 min-h-0">
+      {mode === "grid" && <VideoGrid tracks={shown} />}
+
+      {mode === "spotlight" && focusTrack && (
+        <div className="absolute inset-0 p-1">
+          <ClusterParticipantTile trackRef={focusTrack} />
+        </div>
+      )}
+
+      {mode === "presenter" && focusTrack && (
+        <div className="absolute inset-0 flex flex-col gap-1.5 p-1">
+          <div className="relative flex-1 min-h-0">
+            <ClusterParticipantTile trackRef={focusTrack} />
+          </div>
+          {others.length > 0 && (
+            <div className="relative shrink-0 h-[22%] min-h-[76px] max-h-[150px]">
+              <VideoGrid tracks={others} />
+            </div>
+          )}
+        </div>
       )}
 
       <SpectatorList spectators={spectators} />
@@ -1169,7 +1293,11 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     return () => ro.disconnect();
   }, []);
 
-  const [layoutMode, setLayoutMode] = useState(() => loadPref(PREF.layout, "grid"));
+  const [layoutMode, setLayoutMode] = useState(() => {
+    const v = loadPref(PREF.layout, "grid");
+    if (v === "grid" || v === "presenter" || v === "spotlight") return v;
+    return v === "speaker" ? "presenter" : "grid"; // migrate the old grid/speaker pref
+  });
   // Background effect descriptor: "none" | "blur:<radius>" | "image:<id|custom>".
   const [bg, setBg] = useState(() => loadPref(PREF.bg, "none"));
   const [customBg, setCustomBg] = useState(() => loadPref(PREF.bgCustom, "") || null);
@@ -1216,7 +1344,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
             tight={tight}
             emote={emote}
             layoutMode={layoutMode}
-            onToggleLayout={() => setLayoutMode((m) => (m === "speaker" ? "grid" : "speaker"))}
+            onSetLayout={setLayoutMode}
             bg={bg}
             onChangeBg={setBg}
             customBg={customBg}
