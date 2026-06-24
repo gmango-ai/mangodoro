@@ -22,6 +22,7 @@ import TimeSelect from "../components/TimeSelect";
 import { toDisplayTime } from "../lib/utils";
 import { loadPomodoroSoundSettings, savePomodoroSoundSettings, USER_SOUND_PREFIX } from "../lib/pomodoroSound";
 import { clearCachedNotificationSound } from "../lib/nativeNotifications";
+import { NOTIFICATION_TYPES, listPreferences, setPreferenceEnabled } from "../lib/notifications";
 
 // Settings as a real page. Left rail of sections, right pane renders
 // the active section. Sections persist on field commit (blur/change)
@@ -1261,6 +1262,16 @@ function NotificationsSection({ dark }) {
   const [permTick, setPermTick] = useState(0);
   void permTick;
 
+  // Per-type notification prefs (sparse; absence = enabled).
+  const [typePrefs, setTypePrefs] = useState({});
+  useEffect(() => { listPreferences().then(setTypePrefs); }, []);
+  const typeEnabled = (type) => typePrefs[type] !== false;
+  const toggleType = async (type) => {
+    const next = !typeEnabled(type);
+    setTypePrefs((p) => ({ ...p, [type]: next }));
+    await setPreferenceEnabled(userId, type, next);
+  };
+
   useEffect(() => { setTime(reminderTime || ""); }, [reminderTime]);
 
   function flashSaved() { setSavingMsg("Saved"); setTimeout(() => setSavingMsg(""), 1500); }
@@ -1367,6 +1378,75 @@ function NotificationsSection({ dark }) {
             <Bell className="w-3.5 h-3.5 mr-1.5" /> Allow notifications
           </Button>
         )}
+      </SectionCard>
+
+      <SectionCard
+        title="What to notify me about"
+        hint="Per-type switches. Awareness pings reach your team by default; turn off any you don't want."
+        dark={dark}
+      >
+        <div className="flex flex-col">
+          {NOTIFICATION_TYPES.map((t, i) => {
+            const on = typeEnabled(t.type);
+            return (
+              <div
+                key={t.type}
+                className={`flex items-center justify-between gap-3 py-2.5 ${i > 0 ? "border-t" : ""}`}
+                style={{ borderColor: dark ? "var(--color-border)" : "rgb(241,245,249)" }}
+              >
+                <div className="min-w-0">
+                  <div className={`text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{t.label}</div>
+                  <div className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>{t.description}</div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={on}
+                  onClick={() => toggleType(t.type)}
+                  className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${on ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${on ? "translate-x-4" : ""}`} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Quiet hours"
+        hint="During quiet hours, desktop pop-ups are silenced — your inbox still collects everything."
+        dark={dark}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings?.notifDesktopEnabled !== false}
+              onClick={() => updateSettingsField({ notifDesktopEnabled: !(settings?.notifDesktopEnabled !== false) })}
+              className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${settings?.notifDesktopEnabled !== false ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${settings?.notifDesktopEnabled !== false ? "translate-x-4" : ""}`} />
+            </button>
+            <span className={`text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>Desktop pop-up notifications</span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>Quiet from</span>
+            <TimeSelect value={settings?.notifQuietStart || ""} onChange={(v) => updateSettingsField({ notifQuietStart: v || null })} />
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>to</span>
+            <TimeSelect value={settings?.notifQuietEnd || ""} onChange={(v) => updateSettingsField({ notifQuietEnd: v || null })} />
+            {(settings?.notifQuietStart || settings?.notifQuietEnd) && (
+              <button
+                type="button"
+                onClick={() => updateSettingsField({ notifQuietStart: null, notifQuietEnd: null })}
+                className={`text-xs ${dark ? "text-slate-400 hover:text-red-300" : "text-slate-500 hover:text-red-500"}`}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
       </SectionCard>
 
       <SectionCard

@@ -73,3 +73,19 @@ export async function unfollowUser(targetUserId, kind = "focus_start") {
   if (!targetUserId) return;
   await supabase.from("notification_follows").delete().eq("target_user_id", targetUserId).eq("kind", kind);
 }
+
+// ── Per-type preferences (sparse overrides; absence = default-enabled) ──
+export async function listPreferences() {
+  const { data } = await supabase.from("notification_preferences").select("type, enabled");
+  const map = {};
+  (data || []).forEach((r) => { map[r.type] = r.enabled; });
+  return map; // { [type]: enabled }
+}
+
+export async function setPreferenceEnabled(userId, type, enabled) {
+  if (!userId || !type) return;
+  await supabase.from("notification_preferences").upsert(
+    { user_id: userId, type, enabled, channels: typeMeta(type)?.channels || ["inapp", "desktop"], updated_at: new Date().toISOString() },
+    { onConflict: "user_id,type" }
+  );
+}
