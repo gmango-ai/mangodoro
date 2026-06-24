@@ -31,6 +31,11 @@ const MODEL_URL =
 const RVM_MODEL_URL =
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_RVM_MODEL_URL) || "";
 const RVM_INPUT_WIDTH = 384; // [TUNE] src width fed to RVM (quality vs speed)
+// RVM's INTERNAL processing ratio. 0.25 is the HD-input default; our input is
+// already small (384px), so 0.25 → ~96px internally = too coarse (missed whole
+// arms). 0.5 → ~192px resolves limbs/fingers far better. [TUNE] up = sharper but
+// slower (watch the perf gate); down = faster but coarser.
+const RVM_DOWNSAMPLE = 0.5;
 const RVM_SLOW_MS = 55;      // [TUNE] disable RVM if average inference exceeds this
 
 const PROC_WIDTH_CAP = 960; // cap the processing resolution for perf
@@ -260,6 +265,7 @@ class RefinedBackgroundProcessor {
         this._rvm = createRvmMatter({
           modelUrl: RVM_MODEL_URL,
           inputWidth: RVM_INPUT_WIDTH,
+          downsample: RVM_DOWNSAMPLE,
           onReady: () => console.info("[bg] RVM model ready — switching in"),
           onError: (msg) => { console.warn("[bg] RVM unavailable, staying on MediaPipe:", msg); this._rvm = null; },
         });
@@ -391,7 +397,7 @@ class RefinedBackgroundProcessor {
     // pushes mid/high alpha to solid while keeping a soft edge, and drops faint
     // halos toward 0. [TUNE] LO/HI — raise LO to kill more halo, lower HI to
     // firm harder (risk: thinning fine hair).
-    const LO = 0.1, HI = 0.55, span = HI - LO;
+    const LO = 0.05, HI = 0.6, span = HI - LO;
     for (let i = 0; i < alpha.length; i++) {
       let a = (alpha[i] - LO) / span;
       a = a <= 0 ? 0 : a >= 1 ? 1 : a * a * (3 - 2 * a); // smoothstep
