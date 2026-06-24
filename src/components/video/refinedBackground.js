@@ -43,6 +43,16 @@ const RVM_INPUT_WIDTH = 384;
 const RVM_DOWNSAMPLE = 0.35;
 const RVM_SLOW_MS = 70;      // [TUNE] disable RVM above this avg (70ms ≈ 14fps floor)
 
+// Sticky, per-page verdict: once RVM proves too slow on this machine we stop
+// even *trying* it. A new processor is built on every camera mute/unmute (the
+// track identity changes — see EffectsController), so a per-instance flag reset
+// every toggle and re-ran the whole probe: re-download the model, 12 slow frames,
+// then flip back to MediaPipe. Hoisting the verdict to the module makes it learn
+// once. (We tested WebGPU — RVM's recurrent ops fall back to CPU on the heavier
+// asyncify build, so it ran *slower*, 113ms vs 82ms. WASM single-thread is the
+// wall; the gate is the right answer.)
+let rvmDisabledForSession = false;
+
 const PROC_WIDTH_CAP = 960; // cap the processing resolution for perf
 
 // ── tiny WebGL helpers ───────────────────────────────────────
@@ -264,7 +274,7 @@ class RefinedBackgroundProcessor {
     this.segmenter = await createSegmenter();
     // High-quality matting in the background; MediaPipe (above) runs immediately
     // and stays as the fallback. We switch to RVM once it's loaded + proven fast.
-    if (RVM_MODEL_URL) {
+    if (RVM_MODEL_URL && !rvmDisabledForSession) {
       try {
         console.info("[bg] RVM model loading…", RVM_MODEL_URL);
         this._rvm = createRvmMatter({
@@ -437,8 +447,9 @@ class RefinedBackgroundProcessor {
         console.info(`[bg] RVM avg inference ${avg.toFixed(0)}ms`);
       }
       if (avg > RVM_SLOW_MS) {
-        console.warn(`[rvm] too slow (avg ${avg.toFixed(0)}ms) — falling back to MediaPipe`);
+        console.warn(`[rvm] too slow (avg ${avg.toFixed(0)}ms) — MediaPipe for the rest of this session`);
         this._rvmSlow = true;
+        rvmDisabledForSession = true; // don't re-probe on the next camera toggle
         try { this._rvm?.close(); } catch { /* */ }
       }
     }

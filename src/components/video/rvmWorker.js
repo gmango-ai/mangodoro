@@ -1,17 +1,22 @@
 // Robust Video Matting (RVM) inference worker.
 //
-// Runs onnxruntime-web (WASM backend — RVM's ops aren't all WebGL/WebGPU
-// supported) OFF the main thread, so matting can't jank the app. It receives a
-// downscaled camera frame as an ImageBitmap, runs RVM, and posts back the alpha
-// matte (`pha`). RVM is a VIDEO model: the recurrent state (r1..r4) lives here
-// and loops back into the next frame for temporal stability.
+// Runs onnxruntime-web (WASM backend) OFF the main thread, so matting can't jank
+// the app. It receives a downscaled camera frame as an ImageBitmap, runs RVM,
+// and posts back the alpha matte (`pha`). RVM is a VIDEO model: the recurrent
+// state (r1..r4) lives here and loops back into the next frame for temporal
+// stability.
+//
+// WASM, not WebGPU, deliberately: we tried the /webgpu build and RVM's recurrent
+// ConvGRU ops aren't WebGPU-eligible, so they fall back to CPU on the heavier
+// *asyncify* wasm that build ships — net ~113ms/frame vs ~82ms on plain wasm.
+// The perf gate in refinedBackground.js drops to MediaPipe when even this is too
+// slow, so the floor is covered; this just keeps the fast path as fast as it gets.
 //
 // Inputs:  src [1,3,H,W] (RGB 0..1), r1i..r4i (recurrent, init [1,1,1,1] zeros),
 //          downsample_ratio [1] (fp32).
 // Outputs: fgr, pha, r1o..r4o.  We use pha (alpha) and feed rXo -> rXi.
 
-// /webgpu build: ships the GPU EP + the jsep wasm (used for the CPU fallback).
-import * as ort from "onnxruntime-web/webgpu";
+import * as ort from "onnxruntime-web";
 
 ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
 ort.env.wasm.numThreads = 1; // single-thread: no COOP/COEP cross-origin isolation needed
@@ -29,22 +34,11 @@ self.onmessage = async (e) => {
 
   if (m.type === "init") {
     try {
-      // Try the GPU (WebGPU) first; ORT falls back to wasm for any unsupported
-      // ops / if WebGPU is unavailable, so this can't make things worse.
-      let ep = "webgpu+wasm";
-      try {
-        session = await ort.InferenceSession.create(m.modelUrl, {
-          executionProviders: ["webgpu", "wasm"],
-          graphOptimizationLevel: "all",
-        });
-      } catch (gpuErr) {
-        // Some RVM op graphs reject WebGPU session creation outright — retry pure wasm.
-        ep = "wasm";
-        session = await ort.InferenceSession.create(m.modelUrl, {
-          executionProviders: ["wasm"],
-          graphOptimizationLevel: "all",
-        });
-      }
+      session = await ort.InferenceSession.create(m.modelUrl, {
+        executionProviders: ["wasm"],
+        graphOptimizationLevel: "all",
+      });
+      const ep = "wasm";
       r1 = zeros(); r2 = zeros(); r3 = zeros(); r4 = zeros();
       downsample = new ort.Tensor("float32", new Float32Array([m.downsample || 0.25]), [1]);
       canvas = new OffscreenCanvas(2, 2);
