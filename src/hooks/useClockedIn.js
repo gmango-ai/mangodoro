@@ -36,6 +36,7 @@ function stop() {
     _refcount = 0;
     if (_channel) { try { supabase.removeChannel(_channel); } catch { /* */ } _channel = null; }
     if (_poll) { clearInterval(_poll); _poll = null; }
+    _rows = [];
   }
 }
 
