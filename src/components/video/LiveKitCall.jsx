@@ -1239,16 +1239,14 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
     <div ref={rootRef} className="relative flex-1 min-h-0">
       {mode === "grid" && <VideoGrid tracks={shown} />}
 
-      {mode === "spotlight" && focusTrack && (
-        <div className="absolute inset-0 p-1">
-          <ClusterParticipantTile trackRef={focusTrack} />
-        </div>
-      )}
+      {/* VideoGrid (even for one tile) applies the aspect clamp, so the focus is
+          letterboxed to ~16:9 instead of object-cover slicing a wide/short tile. */}
+      {mode === "spotlight" && focusTrack && <VideoGrid tracks={[focusTrack]} />}
 
       {mode === "presenter" && focusTrack && (
         <div className="absolute inset-0 flex flex-col gap-1.5 p-1">
           <div className="relative flex-1 min-h-0">
-            <ClusterParticipantTile trackRef={focusTrack} />
+            <VideoGrid tracks={[focusTrack]} />
           </div>
           {others.length > 0 && (
             <div className="relative shrink-0 h-[22%] min-h-[76px] max-h-[150px]">
