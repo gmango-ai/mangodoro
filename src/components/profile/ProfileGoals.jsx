@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Check, X, Target, Lock, Globe, Pin, PinOff, Pencil, ChevronUp, ChevronDown } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
@@ -35,14 +35,17 @@ export default function ProfileGoals({ userId }) {
   const [editDraft, setEditDraft] = useState("");
   const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
   const [krMap, setKrMap] = useState({}); // goalId → [keyResult]
+  const reqRef = useRef(0); // guards a stale load (team/profile switch) landing late
 
   const load = useCallback(async () => {
     if (!activeTeamId || !userId) { setGoals([]); setRoomMap({}); setKrMap({}); return; }
+    const my = ++reqRef.current;
     const [{ data }, { data: rooms }, { data: krs }] = await Promise.all([
       listTeamGoals(activeTeamId),
       listGoalRooms(activeTeamId),
       listGoalKeyResults(activeTeamId),
     ]);
+    if (my !== reqRef.current) return; // superseded by a newer load
     setGoals((data || []).filter((g) => g.owner_type === "user" && g.owner_id === userId));
     const map = {};
     for (const row of rooms || []) (map[row.goal_id] ||= []).push(row.room_id);

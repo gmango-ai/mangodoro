@@ -9,6 +9,18 @@ import GoalMoveMenu from "../goals/GoalMoveMenu";
 import MarkdownText from "../MarkdownText";
 import MarkdownEditor from "../MarkdownEditor";
 
+// Reorder one owner's goals in the flat list without touching other owners —
+// each of that owner's slots is refilled in the new order. Used for optimistic
+// updates so reorder/move feel instant.
+function reorderOwnerInFlat(prev, ownerType, ownerId, orderedIds) {
+  const byId = new Map(prev.map((x) => [x.id, x]));
+  const ordered = orderedIds.map((id) => byId.get(id)).filter(Boolean);
+  let k = 0;
+  return prev.map((x) =>
+    x.owner_type === ownerType && String(x.owner_id) === String(ownerId) && byId.has(x.id) && orderedIds.includes(x.id)
+      ? ordered[k++] : x);
+}
+
 // Org goals on the Team page. A top-level **Company** goal (the team itself)
 // plus a section per **department** (org_team), each with active/done goals and
 // a time horizon. Admins manage the company goal + any department; a
@@ -26,14 +38,17 @@ export default function TeamGoals({ dark }) {
   const dropRef = useRef(null);  // committed drop target: { ownerType, owner, beforeId }
   const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
   const [krMap, setKrMap] = useState({}); // goalId → [keyResult]
+  const reqRef = useRef(0); // guards against a stale load (team switch / rapid reload) landing late
 
   const load = useCallback(async () => {
     if (!activeTeamId) { setGoals([]); setRoomMap({}); setKrMap({}); return; }
+    const my = ++reqRef.current;
     const [{ data }, { data: rooms }, { data: krs }] = await Promise.all([
       listTeamGoals(activeTeamId),
       listGoalRooms(activeTeamId),
       listGoalKeyResults(activeTeamId),
     ]);
+    if (my !== reqRef.current) return; // superseded by a newer load
     setGoals((data || []).filter((g) => g.owner_type === "company" || g.owner_type === "department"));
     const map = {};
     for (const row of rooms || []) (map[row.goal_id] ||= []).push(row.room_id);
@@ -66,7 +81,7 @@ export default function TeamGoals({ dark }) {
   const changeHorizon = async (g, h) => { await updateGoal({ id: g.id, horizon: h }); load(); };
   const togglePin = async (g) => { await updateGoal({ id: g.id, pinned: g.pinned === false }); load(); };
   const moveGoal = async (ownerType, ownerId, g, dir) => {
-    const own = goals.filter((x) => x.owner_type === ownerType && x.owner_id === ownerId);
+    const own = goals.filter((x) => x.owner_type === ownerType && String(x.owner_id) === String(ownerId));
     const act = own.filter((x) => x.status !== "done");
     const dn = own.filter((x) => x.status === "done");
     const i = act.findIndex((x) => x.id === g.id);
@@ -74,8 +89,9 @@ export default function TeamGoals({ dark }) {
     if (i < 0 || j < 0 || j >= act.length) return;
     const next = [...act];
     [next[i], next[j]] = [next[j], next[i]];
-    await reorderGoals([...next.map((x) => x.id), ...dn.map((x) => x.id)]);
-    load();
+    const orderedIds = [...next.map((x) => x.id), ...dn.map((x) => x.id)];
+    setGoals((prev) => reorderOwnerInFlat(prev, ownerType, ownerId, orderedIds)); // optimistic
+    try { await reorderGoals(orderedIds); } finally { load(); }
   };
   const startEdit = (g) => { setEditingId(g.id); setEditDraft(g.body || ""); };
   const saveEdit = async () => {
@@ -119,12 +135,19 @@ export default function TeamGoals({ dark }) {
     const doneIds = tgt.filter((x) => x.status === "done" && x.id !== d.g.id).map((x) => x.id);
     const at = t.beforeId ? activeIds.indexOf(t.beforeId) : -1;
     if (at < 0) activeIds.push(d.g.id); else activeIds.splice(at, 0, d.g.id);
+    const orderedIds = [...activeIds, ...doneIds];
 
-    if (!sameOwner) {
-      await reassignGoal({ id: d.g.id, ownerType: t.ownerType, ownerId: t.owner.id, ownerName: t.owner.name, ownerColor: t.owner.color });
+    // Optimistic for an in-section reorder (cross-owner moves wait for the
+    // reassign, then reload reflects the new owner).
+    if (sameOwner) setGoals((prev) => reorderOwnerInFlat(prev, t.ownerType, t.owner.id, orderedIds));
+    try {
+      if (!sameOwner) {
+        await reassignGoal({ id: d.g.id, ownerType: t.ownerType, ownerId: t.owner.id, ownerName: t.owner.name, ownerColor: t.owner.color });
+      }
+      await reorderGoals(orderedIds);
+    } finally {
+      load();
     }
-    await reorderGoals([...activeIds, ...doneIds]);
-    load();
   };
 
   // One owner's goal list + (when permitted) the add-row.
