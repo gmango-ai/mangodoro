@@ -12,6 +12,7 @@ import OrgSwitcher from "./OrgSwitcher";
 import RunningTimerPill from "./RunningTimerPill";
 import BottomNav from "./BottomNav";
 import MoreSheet from "./MoreSheet";
+import NotificationBell from "./notifications/NotificationBell";
 
 const PRESENCE_DOT_COLOR = {
   active: "bg-emerald-500",
@@ -148,6 +149,11 @@ export default function Nav({ onOpenPomodoro }) {
             </span>
           </NavLink>
 
+          {/* Mobile: notification bell pinned right (desktop has its own below). */}
+          <div className="xl:hidden ml-auto">
+            <NotificationBell />
+          </div>
+
           {/* Desktop: full nav + actions. ml-auto pins it to the right so the
               brand stays left next to the hamburger below the breakpoint (no
               stranded, far-right wordmark). */}
@@ -170,6 +176,8 @@ export default function Nav({ onOpenPomodoro }) {
                 right FAB so the indicator is a Nav citizen and doesn't
                 cover content. */}
             <RunningTimerPill onOpen={onOpenPomodoro} />
+
+            <NotificationBell />
 
             {/* Single user-menu dropdown on the right — replaces the
                 previous strip of Timer / chip / theme / Settings / Sign

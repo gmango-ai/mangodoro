@@ -1202,6 +1202,9 @@ export function AppProvider({ session, children }) {
     if ("lunchTime" in patch) dbPatch.lunch_time = patch.lunchTime || null;
     if ("lunchMode" in patch) dbPatch.lunch_mode = patch.lunchMode || "off";
     if ("lunchDurationMin" in patch) dbPatch.lunch_duration_min = patch.lunchDurationMin ?? 60;
+    if ("notifQuietStart" in patch) dbPatch.notif_quiet_start = patch.notifQuietStart || null;
+    if ("notifQuietEnd" in patch) dbPatch.notif_quiet_end = patch.notifQuietEnd || null;
+    if ("notifDesktopEnabled" in patch) dbPatch.notif_desktop_enabled = patch.notifDesktopEnabled;
     if (Object.keys(dbPatch).length === 0) return;
     if (!session?.user?.id) return;
     await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);

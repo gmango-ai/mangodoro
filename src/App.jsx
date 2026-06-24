@@ -12,7 +12,9 @@ import { TeamProvider } from "./context/TeamContext";
 import { SyncSessionProvider, useSyncSession } from "./context/SyncSessionContext";
 import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import { VideoCallProvider } from "./context/VideoCallContext";
+import { NotificationProvider } from "./context/NotificationContext";
 import LunchReminder from "./components/LunchReminder";
+import NotificationToaster from "./components/notifications/NotificationToaster";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
@@ -163,6 +165,8 @@ function AppLayout({ session }) {
     <div>
       {/* Out-to-lunch auto-status nudge (renders a prompt at lunch time). */}
       <LunchReminder />
+      {/* Transient in-app notification toasts. */}
+      <NotificationToaster />
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis
           here makes this div a scroll container, which traps the sticky
           <header> so it scrolls away and lets content slide under the
@@ -346,7 +350,9 @@ function AuthenticatedApp({ session }) {
         <SyncSessionProvider session={session}>
           <PomodoroProvider userId={session.user.id}>
             <VideoCallProvider>
-              <AppLayout session={session} />
+              <NotificationProvider>
+                <AppLayout session={session} />
+              </NotificationProvider>
             </VideoCallProvider>
           </PomodoroProvider>
         </SyncSessionProvider>
