@@ -254,6 +254,9 @@ class RefinedBackgroundProcessor {
   async init(processorOptions) {
     const track = processorOptions?.track;
     if (!track) throw new Error("no source track");
+    this._haveMask = 0;
+    this._hasPrev = 0;
+    this._busy = false;
     this.source = track;
 
     this.video = document.createElement("video");
@@ -323,6 +326,9 @@ class RefinedBackgroundProcessor {
 
   async destroy() {
     this._running = false;
+    this._haveMask = 0;
+    this._hasPrev = 0;
+    this._busy = false;
     if (this._raf) cancelAnimationFrame(this._raf);
     try { this._rvm?.close(); } catch { /* */ }
     this._rvm = null;
@@ -595,6 +601,7 @@ class RefinedBackgroundProcessor {
         try {
           this.segmenter.segmentForVideo(v, this._ts, (result) => {
             this._busy = false;
+            if (!this._running) return;
             try {
               const mask = result?.confidenceMasks?.[0];
               if (mask) { this._uploadMask(mask); this._haveMask = 1; this._setBackend("MediaPipe"); }
