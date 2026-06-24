@@ -36,10 +36,11 @@ const RVM_MODEL_URL =
 // the cheap lever for detail, so keep input modest and lean on that. [TUNE] up
 // only if you've got a fast backend (WebGPU / threaded WASM behind COOP+COEP).
 const RVM_INPUT_WIDTH = 384;
-// RVM's internal ENCODER downscale — the cheap detail lever (only the small deep
-// pass scales with it, not the full-res decoder). 0.25 (HD default) → ~96px =
-// missed arms; 0.45 → ~173px resolves limbs without much cost. [TUNE].
-const RVM_DOWNSAMPLE = 0.45;
+// RVM's internal ENCODER downscale. Measured on this (single-thread WASM)
+// machine: 0.45 = ~82ms (tripped the gate), 0.25 ran but missed arms. 0.35
+// (~134px encoder) is the compromise that should run AND catch limbs better
+// than 0.25. The real fix here is a GPU backend, not this knob. [TUNE].
+const RVM_DOWNSAMPLE = 0.35;
 const RVM_SLOW_MS = 70;      // [TUNE] disable RVM above this avg (70ms ≈ 14fps floor)
 
 const PROC_WIDTH_CAP = 960; // cap the processing resolution for perf
