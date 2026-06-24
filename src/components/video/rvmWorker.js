@@ -47,7 +47,12 @@ self.onmessage = async (e) => {
     if (!session) { try { m.bitmap?.close?.(); } catch { /* */ } return; }
     const { w, h, id } = m;
     try {
-      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w; canvas.height = h;
+        // Recurrent tensors are resolution-dependent — reset on resize (e.g. WebRTC
+        // mid-call resolution change) so inference doesn't fail on stale shapes.
+        r1 = zeros(); r2 = zeros(); r3 = zeros(); r4 = zeros();
+      }
       ctx.drawImage(m.bitmap, 0, 0, w, h);
       try { m.bitmap.close?.(); } catch { /* */ }
       const img = ctx.getImageData(0, 0, w, h).data; // RGBA
