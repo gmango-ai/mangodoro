@@ -173,27 +173,31 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
   const taRef = useRef(null);
 
   // Render a message body with @mentions linkified to the person's profile.
+  // Match by teammate NAME present in the text (robust to freehand @names and
+  // old messages); the stored mentioned_user_ids is just for notification
+  // fan-out. Self is included so being @-mentioned links to your own profile.
   const renderBody = (message) => {
-    const ids = message.mentioned_user_ids || [];
     const body = message.body || "";
-    if (!ids.length) return body;
-    const mentions = ids
-      .map((id) => ({ id, name: (teamMembers || []).find((m) => m.user_id === id)?.name }))
-      .filter((x) => x.name);
-    if (!mentions.length) return body;
-    const names = [...new Set(mentions.map((m) => m.name))].sort((a, b) => b.length - a.length);
+    if (!body.includes("@")) return body;
+    const byName = new Map(); // "@Name" → user_id (longest names matched first)
+    for (const m of teamMembers || []) {
+      if (m.name && m.user_id && body.includes(`@${m.name}`)) byName.set(m.name, m.user_id);
+    }
+    if (settings?.name && userId && body.includes(`@${settings.name}`)) byName.set(settings.name, userId);
+    if (!byName.size) return body;
+    const names = [...byName.keys()].sort((a, b) => b.length - a.length);
     const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`@(${names.map(esc).join("|")})`, "g");
     const out = [];
     let last = 0, m, k = 0;
     while ((m = re.exec(body))) {
       if (m.index > last) out.push(body.slice(last, m.index));
-      const mn = mentions.find((x) => x.name === m[1]);
+      const id = byName.get(m[1]);
       out.push(
         <button
           key={`m${k++}`}
           type="button"
-          onClick={(e) => { e.stopPropagation(); openProfile(mn.id, e.currentTarget.getBoundingClientRect()); }}
+          onClick={(e) => { e.stopPropagation(); openProfile(id, e.currentTarget.getBoundingClientRect()); }}
           className="font-semibold text-[var(--color-accent)] hover:underline"
         >@{m[1]}</button>
       );
