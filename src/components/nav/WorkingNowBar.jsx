@@ -28,8 +28,11 @@ export default function WorkingNowBar({ dark }) {
     let alive = true;
     const load = () => listClockedIn().then((d) => { if (alive) setRows(d); });
     load();
+    // Unique per mount — this bar renders twice (desktop + mobile nav groups),
+    // and Supabase reuses a channel by topic, so a shared name would re-add
+    // callbacks to an already-subscribed channel and throw.
     const ch = supabase
-      .channel("work_status:bar")
+      .channel(`work_status:bar:${Math.random().toString(36).slice(2)}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "work_status" }, load)
       .subscribe();
     const poll = setInterval(load, 60000);
