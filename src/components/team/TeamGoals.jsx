@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { Plus, Check, X, Target, Building2, Pin, PinOff, Pencil, ChevronUp, ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Plus, Check, X, Target, Building2, Pin, PinOff, Pencil, ChevronUp, ChevronDown, GripVertical } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
-import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, reorderGoals, horizonShort } from "../../lib/goals";
+import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, reorderGoals, reassignGoal, horizonShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
 import GoalProgress from "../goals/GoalProgress";
@@ -21,6 +21,8 @@ export default function TeamGoals({ dark }) {
   const [addingId, setAddingId] = useState(null); // owner.id whose add-editor is open
   const [editingId, setEditingId] = useState(null); // goal.id being edited
   const [editDraft, setEditDraft] = useState("");
+  const [dropKey, setDropKey] = useState(null); // owner key currently dragged over
+  const dragGoal = useRef(null); // { g, ownerType, ownerId } being dragged
   const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
   const [krMap, setKrMap] = useState({}); // goalId → [keyResult]
 
@@ -91,13 +93,32 @@ export default function TeamGoals({ dark }) {
   ];
   const moveTargets = (g) => allOwners.filter((t) => !(t.ownerType === g.owner_type && String(t.ownerId) === String(g.owner_id)));
 
+  // Drag a goal onto another section to reassign it (re-org). Reorder within a
+  // section still uses the up/down controls.
+  const onDropOwner = async (ownerType, owner) => {
+    const d = dragGoal.current;
+    setDropKey(null);
+    dragGoal.current = null;
+    if (!d || (d.ownerType === ownerType && String(d.ownerId) === String(owner.id))) return;
+    await reassignGoal({ id: d.g.id, ownerType, ownerId: owner.id, ownerName: owner.name, ownerColor: owner.color });
+    load();
+  };
+
   // One owner's goal list + (when permitted) the add-row.
   const section = (ownerType, owner, manage) => {
     const own = goals.filter((g) => g.owner_type === ownerType && g.owner_id === owner.id);
     const ownActive = own.filter((g) => g.status !== "done");
     const ordered = [...ownActive, ...own.filter((g) => g.status === "done")];
+    const ownerKey = `${ownerType}:${owner.id}`;
+    const d = dragGoal.current;
+    const isDropTarget = dropKey === ownerKey && d && !(d.ownerType === ownerType && String(d.ownerId) === String(owner.id));
     return (
-      <div key={`${ownerType}:${owner.id}`}>
+      <div
+        key={ownerKey}
+        onDragOver={(e) => { if (dragGoal.current) { e.preventDefault(); if (dropKey !== ownerKey) setDropKey(ownerKey); } }}
+        onDrop={() => onDropOwner(ownerType, owner)}
+        className={isDropTarget ? "rounded-lg -m-1 p-1 ring-2 ring-[var(--color-accent)]/50" : ""}
+      >
         <div className="flex items-center gap-1.5 mb-1.5">
           {ownerType === "company" ? (
             <Building2 className="w-3.5 h-3.5 text-[var(--color-accent)]" />
@@ -123,6 +144,17 @@ export default function TeamGoals({ dark }) {
               ) : (
               <>
               <div className="flex items-start gap-2">
+              {manage && (
+                <span
+                  draggable
+                  onDragStart={(e) => { dragGoal.current = { g, ownerType, ownerId: owner.id }; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", g.id); } catch { /* */ } }}
+                  onDragEnd={() => { dragGoal.current = null; setDropKey(null); }}
+                  title="Drag onto another section to move this goal"
+                  className={`shrink-0 mt-0.5 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 ${dark ? "text-slate-600 hover:text-slate-300" : "text-slate-300 hover:text-slate-500"}`}
+                >
+                  <GripVertical className="w-3.5 h-3.5" />
+                </span>
+              )}
               {manage && aIdx >= 0 && (
                 <span className="shrink-0 mt-0.5 flex flex-col -my-0.5 opacity-0 group-hover:opacity-100">
                   <button type="button" onClick={() => moveGoal(ownerType, owner.id, g, "up")} disabled={aIdx === 0} aria-label="Move up" className={`leading-none disabled:opacity-30 ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>
