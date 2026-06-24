@@ -20,8 +20,8 @@ export default function WorkClockBar({ dark }) {
 
   const applyPresence = async (state) => {
     try {
+      await updateStatus({ presenceState: state });
       if (syncSession && setSyncStatus) await setSyncStatus({ presenceState: state });
-      else await updateStatus({ presenceState: state });
     } catch { /* best-effort */ }
   };
 
@@ -40,7 +40,14 @@ export default function WorkClockBar({ dark }) {
     try { localStorage.removeItem(`lunch_until:${userId}`); } catch { /* */ }
     setOpen(false);
   };
-  const clockOut = () => { clockOutAndFill(); setOpen(false); };
+  const clockOut = async () => {
+    if (onBreak || settings?.presenceState === "out_to_lunch") {
+      await applyPresence("active");
+      try { localStorage.removeItem(`lunch_until:${userId}`); } catch { /* */ }
+    }
+    clockOutAndFill();
+    setOpen(false);
+  };
 
   const item = `w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-left text-xs ${dark ? "text-slate-200 hover:bg-white/5" : "text-slate-700 hover:bg-slate-50"}`;
 
