@@ -2,12 +2,15 @@ import { useEffect, useReducer, useState } from "react";
 import {
   LiveKitRoom,
   GridLayout,
+  FocusLayout,
+  CarouselLayout,
   ParticipantTile,
   RoomAudioRenderer,
   useTracks,
   useRoomContext,
   useParticipants,
   useLocalParticipant,
+  useSpeakingParticipants,
 } from "@livekit/components-react";
 import { Track, RoomEvent } from "livekit-client";
 import "@livekit/components-styles";
@@ -75,18 +78,42 @@ function useDeviceRoles() {
   return { isMicSource: micId === myId, isAudioSink: pickAudioSink(members, micId) === myId };
 }
 
-function PortalGrid() {
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false },
-    ],
-    { onlySubscribed: false },
-  );
+// TV conferencing stage. Small calls use an even grid; once there are 3+
+// cameras or a screen share, it switches to a spotlight (the screen share, else
+// the active speaker, else the first person) with the rest in a filmstrip — the
+// glanceable "who's talking" framing you want on a big communal display.
+function PortalStage() {
+  const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });
+  const screens = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }], { onlySubscribed: false });
+  const speaking = useSpeakingParticipants();
+
+  if (!screens.length && cameras.length <= 2) {
+    return (
+      <GridLayout tracks={cameras} style={{ height: "100%" }}>
+        <ParticipantTile />
+      </GridLayout>
+    );
+  }
+
+  const speakerCam = speaking.length
+    ? cameras.find((t) => t.participant?.identity === speaking[0]?.identity)
+    : null;
+  const focus = screens[0] || speakerCam || cameras[0];
+  const strip = cameras.filter((t) => t !== focus);
+
   return (
-    <GridLayout tracks={tracks} style={{ height: "100%" }}>
-      <ParticipantTile />
-    </GridLayout>
+    <div className="flex flex-col h-full gap-3 p-3">
+      <div className="flex-1 min-h-0 rounded-2xl overflow-hidden bg-black/30">
+        <FocusLayout trackRef={focus} style={{ height: "100%" }} />
+      </div>
+      {strip.length > 0 && (
+        <div className="h-[20%] min-h-[88px]">
+          <CarouselLayout tracks={strip} orientation="horizontal">
+            <ParticipantTile />
+          </CarouselLayout>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -194,7 +221,7 @@ function DevicePortalInner() {
     <>
       <DeviceClusterBeacon />
       {screenOn ? (
-        <PortalGrid />
+        <PortalStage />
       ) : (
         <div className="w-full h-full flex items-center justify-center text-slate-600 text-sm uppercase tracking-widest">
           Display off

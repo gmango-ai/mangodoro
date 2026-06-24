@@ -20,6 +20,7 @@ export default function DeviceKioskPage({ session }) {
   const [sess, setSess] = useState(null);
   const [participants, setParticipants] = useState([]);
   const [now, setNow] = useState(() => Date.now());
+  const [clock, setClock] = useState(() => new Date());
 
   // Kiosk is always dark with the default accent (no member theme to inherit).
   useEffect(() => {
@@ -77,6 +78,12 @@ export default function DeviceKioskPage({ session }) {
     return () => clearInterval(id);
   }, [sess?.is_running]);
 
+  // Always-on wall clock for the communal display.
+  useEffect(() => {
+    const id = setInterval(() => setClock(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const secondsLeft = useMemo(() => {
     if (!sess) return 0;
     if (sess.is_running && sess.ends_at) {
@@ -88,6 +95,8 @@ export default function DeviceKioskPage({ session }) {
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const ss = String(secondsLeft % 60).padStart(2, "0");
   const isBreak = sess && sess.mode !== "work";
+  const clockHHMM = clock.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const clockDate = clock.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 
   const unpair = async () => { await supabase.auth.signOut(); };
 
@@ -105,28 +114,39 @@ export default function DeviceKioskPage({ session }) {
       )}
       {portal && (
         <>
-          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
+          <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
           <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/55 to-transparent pointer-events-none" />
         </>
       )}
 
-      <header className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-5 h-14">
-        <span className="inline-flex items-center gap-2">
-          <span className="text-[var(--color-accent)]"><LogoMark size={22} /></span>
-          <span className="text-sm font-semibold text-white/90 drop-shadow">{room?.name || deviceName}</span>
+      <header className="absolute top-0 inset-x-0 z-10 flex items-start justify-between px-6 pt-4">
+        <span className="inline-flex items-center gap-2.5">
+          <span className="text-[var(--color-accent)]"><LogoMark size={26} /></span>
+          <span className="text-xl font-semibold text-white/95 drop-shadow">{room?.name || deviceName}</span>
+          {portal && participants.length > 0 && (
+            <span className="ml-1 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/85">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> {participants.length} here
+            </span>
+          )}
         </span>
-        <button type="button" onClick={unpair} className="text-[11px] text-white/60 hover:text-white transition-colors drop-shadow">
-          Unpair
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <div className="text-right leading-none">
+            <div className="text-2xl font-bold tabular-nums text-white/95 drop-shadow" style={{ fontFamily: "'Parkinsans', sans-serif" }}>{clockHHMM}</div>
+            <div className="text-[11px] uppercase tracking-wider text-white/55 mt-1">{clockDate}</div>
+          </div>
+          <button type="button" onClick={unpair} className="text-[11px] text-white/45 hover:text-white/80 transition-colors drop-shadow">
+            Unpair
+          </button>
+        </div>
       </header>
 
       {portal ? (
         sess && (
-          <div className="absolute bottom-5 left-5 z-10 rounded-2xl bg-black/45 backdrop-blur px-5 py-3">
+          <div className="absolute top-20 left-6 z-10 rounded-2xl bg-black/45 backdrop-blur px-5 py-3">
             <div className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]"}`}>
               {MODE_LABEL[sess.mode] || "Focus"}{!sess.is_running ? " · Paused" : ""}
             </div>
-            <div className="font-bold tabular-nums leading-none mt-1" style={{ fontSize: "clamp(2.5rem, 8vw, 4.5rem)", fontFamily: "'Parkinsans', sans-serif" }}>
+            <div className="font-bold tabular-nums leading-none mt-1" style={{ fontSize: "clamp(2.5rem, 7vw, 4rem)", fontFamily: "'Parkinsans', sans-serif" }}>
               {mm}:{ss}
             </div>
           </div>
