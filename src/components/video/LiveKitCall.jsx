@@ -19,14 +19,15 @@ import {
   useRoomContext,
   useMaybeTrackRefContext,
 } from "@livekit/components-react";
-import { Track, setLogLevel } from "livekit-client";
+import { Track, RoomEvent, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
+import { useTeam } from "../../context/TeamContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
-import { kickFromCall, muteParticipantTrack } from "../../lib/livekitModerate";
+import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
 import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
@@ -830,15 +831,45 @@ function SpectatorList({ spectators }) {
 // Host moderation roster: lists everyone in the call. The session leader gets
 // mute / remove actions per participant (the action is enforced server-side by
 // the livekit-moderate edge function; this UI gate is just for affordance).
+// The room-level "global pin" — a team admin pins a participant and everyone's
+// view focuses them. Stored in LiveKit room metadata (set by livekit-moderate),
+// so it propagates to every client via RoomMetadataChanged. Returns the pinned
+// participant identity (a user uid) or null.
+function parseGlobalPin(metadata) {
+  if (!metadata) return null;
+  try {
+    return JSON.parse(metadata)?.pinnedIdentity || null;
+  } catch {
+    return null;
+  }
+}
+function useGlobalPin() {
+  const room = useRoomContext();
+  const [pinnedId, setPinnedId] = useState(() => parseGlobalPin(room?.metadata));
+  useEffect(() => {
+    if (!room) return undefined;
+    const update = () => setPinnedId(parseGlobalPin(room.metadata));
+    update();
+    room.on(RoomEvent.RoomMetadataChanged, update);
+    return () => room.off(RoomEvent.RoomMetadataChanged, update);
+  }, [room]);
+  return pinnedId;
+}
+
 function PeoplePanel({ roomId, onClose }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
   const { syncSession } = useSyncSession();
+  const { isAdmin, isOwner } = useTeam();
   const myId = localParticipant?.identity;
   const leaderId = syncSession?.leader_id || null;
   const isHost = !!leaderId && leaderId === myId;
+  // Pinning for everyone is a team admin power (server re-checks against the
+  // room's team; this just gates the affordance).
+  const isOrgAdmin = !!isAdmin || !!isOwner;
+  const globalPinId = useGlobalPin();
   const [busy, setBusy] = useState(null);
   const [confirmKick, setConfirmKick] = useState(null);
 
@@ -856,6 +887,18 @@ function PeoplePanel({ roomId, onClose }) {
     const { error } = await muteParticipantTrack(roomId, p.identity, micPub.trackSid);
     setBusy(null);
     if (error) console.warn("mute:", error.message);
+  };
+  const doPin = async (id) => {
+    setBusy(id);
+    const { error } = await setRoomPin(roomId, id);
+    setBusy(null);
+    if (error) console.warn("pin:", error.message);
+  };
+  const doUnpin = async (id) => {
+    setBusy(id);
+    const { error } = await clearRoomPin(roomId);
+    setBusy(null);
+    if (error) console.warn("unpin:", error.message);
   };
 
   return (
@@ -875,6 +918,7 @@ function PeoplePanel({ roomId, onClose }) {
           const isSelf = p.identity === myId;
           const isLeader = p.identity === leaderId;
           const isSpectator = p.attributes?.role === "spectator";
+          const isPinned = p.identity === globalPinId;
           const micPub = p.getTrackPublication?.(Track.Source.Microphone);
           const micOn = !!micPub && !micPub.isMuted;
           return (
@@ -883,11 +927,35 @@ function PeoplePanel({ roomId, onClose }) {
                 {p.name || p.identity}
                 {isSelf && <span className="opacity-60"> (you)</span>}
                 {isLeader && <span className="text-amber-300"> ★</span>}
+                {isPinned && <Pin className="inline w-3 h-3 text-amber-300 ml-1 -mt-0.5" />}
                 {isSpectator && <span className="opacity-50"> · watching</span>}
               </span>
-              {isHost && !isSelf && (
+              {(isOrgAdmin || (isHost && !isSelf)) && (
                 <span className="flex items-center gap-0.5 shrink-0">
-                  {micOn && (
+                  {isOrgAdmin && (
+                    isPinned ? (
+                      <button
+                        type="button"
+                        title="Unpin for everyone"
+                        disabled={busy === p.identity}
+                        onClick={() => doUnpin(p.identity)}
+                        className="p-1 rounded text-amber-300 hover:bg-white/15 disabled:opacity-40"
+                      >
+                        <PinOff className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        title="Pin for everyone"
+                        disabled={busy === p.identity}
+                        onClick={() => doPin(p.identity)}
+                        className="p-1 rounded hover:bg-white/15 disabled:opacity-40"
+                      >
+                        <Pin className="w-3.5 h-3.5" />
+                      </button>
+                    )
+                  )}
+                  {isHost && !isSelf && micOn && (
                     <button
                       type="button"
                       title="Mute mic"
@@ -898,24 +966,26 @@ function PeoplePanel({ roomId, onClose }) {
                       <MicOff className="w-3.5 h-3.5" />
                     </button>
                   )}
-                  {confirmKick === p.identity ? (
-                    <button
-                      type="button"
-                      disabled={busy === p.identity}
-                      onClick={() => doKick(p.identity)}
-                      className="px-1.5 py-0.5 rounded bg-red-500/80 hover:bg-red-500 text-[10px] font-semibold disabled:opacity-40"
-                    >
-                      Remove?
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      title="Remove from call"
-                      onClick={() => setConfirmKick(p.identity)}
-                      className="p-1 rounded text-red-300 hover:bg-red-500/20"
-                    >
-                      <UserX className="w-3.5 h-3.5" />
-                    </button>
+                  {isHost && !isSelf && (
+                    confirmKick === p.identity ? (
+                      <button
+                        type="button"
+                        disabled={busy === p.identity}
+                        onClick={() => doKick(p.identity)}
+                        className="px-1.5 py-0.5 rounded bg-red-500/80 hover:bg-red-500 text-[10px] font-semibold disabled:opacity-40"
+                      >
+                        Remove?
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        title="Remove from call"
+                        onClick={() => setConfirmKick(p.identity)}
+                        className="p-1 rounded text-red-300 hover:bg-red-500/20"
+                      >
+                        <UserX className="w-3.5 h-3.5" />
+                      </button>
+                    )
                   )}
                 </span>
               )}
@@ -941,7 +1011,9 @@ function ClusterParticipantTile() {
   const trackRef = useMaybeTrackRefContext();
   const participant = trackRef?.participant;
   const roles = useClusterRoles();
+  const globalPinId = useGlobalPin();
   const role = participant ? roles.get(participant.identity) : null;
+  const isPinned = !!participant?.identity && participant.identity === globalPinId;
   const inRoom = !!role?.inRoom;
   // Amber for whoever carries the room's audio I/O — the device, the current mic
   // source, or the speakers — muted chip for the rest.
@@ -958,19 +1030,32 @@ function ClusterParticipantTile() {
   return (
     <div style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}>
       <ParticipantTile style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
-      {inRoom && (
-        <div
-          className={`absolute top-1.5 left-1.5 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm pointer-events-none ${
-            active ? "bg-amber-500/85 text-white" : "bg-slate-900/70 text-slate-100"
-          }`}
-          title={
-            active
-              ? `${label} — carries this room's audio`
-              : "In the room · muted here (heard through the room speaker)"
-          }
-        >
-          {active ? <Volume2 className="w-3 h-3 shrink-0" /> : <MicOff className="w-3 h-3 shrink-0" />}
-          {label}
+      {(isPinned || inRoom) && (
+        <div className="absolute top-1.5 left-1.5 z-10 flex flex-col items-start gap-1 pointer-events-none">
+          {isPinned && (
+            <div
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm bg-amber-500/85 text-white"
+              title="Pinned for everyone by an admin"
+            >
+              <Pin className="w-3 h-3 shrink-0" />
+              Pinned
+            </div>
+          )}
+          {inRoom && (
+            <div
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm ${
+                active ? "bg-amber-500/85 text-white" : "bg-slate-900/70 text-slate-100"
+              }`}
+              title={
+                active
+                  ? `${label} — carries this room's audio`
+                  : "In the room · muted here (heard through the room speaker)"
+              }
+            >
+              {active ? <Volume2 className="w-3 h-3 shrink-0" /> : <MicOff className="w-3 h-3 shrink-0" />}
+              {label}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -993,6 +1078,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   const participants = useParticipants();
   const speaking = useSpeakingParticipants();
   const pinned = usePinnedTracks();
+  const globalPinId = useGlobalPin();
 
   // Keep the last active speaker so speaker view doesn't fall back to the grid
   // during a silence between turns.
@@ -1017,8 +1103,16 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
     layoutMode === "speaker" && stickySpeaker
       ? shown.find((t) => t.participant?.identity === stickySpeaker && t.source === Track.Source.Camera)
       : null;
-  // Manual pin wins, then an active screen share, then the active speaker.
-  const focusTrack = (pinned && pinned[0]) || screenTrack || speakerTrack || null;
+  // The admin's global pin (room metadata) — focuses this participant for
+  // everyone, unless you've locally pinned someone else for your own view. If
+  // they're screen-sharing, focus the share (the presenter case), else camera.
+  const globalPinTrack = globalPinId
+    ? shown.find((t) => t.participant?.identity === globalPinId && t.source === Track.Source.ScreenShare)
+      || shown.find((t) => t.participant?.identity === globalPinId && t.source === Track.Source.Camera)
+    : null;
+  // Your local pin wins for your own view, then the admin's global pin, then an
+  // active screen share, then the active speaker.
+  const focusTrack = (pinned && pinned[0]) || globalPinTrack || screenTrack || speakerTrack || null;
   const focusKey = refKey(focusTrack);
   const carousel = focusTrack ? shown.filter((t) => refKey(t) !== focusKey) : shown;
 

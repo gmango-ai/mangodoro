@@ -18,3 +18,14 @@ export function kickFromCall(roomId, targetUserId) {
 export function muteParticipantTrack(roomId, targetUserId, trackSid) {
   return moderate({ room_id: roomId, action: "mute", target_user_id: targetUserId, track_sid: trackSid });
 }
+
+// Pin a participant for everyone in the call (team/org admin only — enforced
+// server-side; writes the room metadata that all clients read).
+export function setRoomPin(roomId, targetUserId) {
+  return moderate({ room_id: roomId, action: "pin", target_user_id: targetUserId });
+}
+
+// Clear the global pin.
+export function clearRoomPin(roomId) {
+  return moderate({ room_id: roomId, action: "unpin" });
+}
