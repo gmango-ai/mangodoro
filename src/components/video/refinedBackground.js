@@ -19,9 +19,19 @@
 // flagged with [TUNE]: mask polarity (foreground vs background), vertical
 // orientation, blur strength, and the bilateral edge weight.
 
+import { createRvmMatter } from "./rvmMatting";
+
 const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
+
+// Optional high-quality matting (Robust Video Matting). Used when the model is
+// hosted (set VITE_RVM_MODEL_URL to your Supabase Storage URL) AND the device
+// runs it fast enough; otherwise we fall back to the MediaPipe selfie mask.
+const RVM_MODEL_URL =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_RVM_MODEL_URL) || "";
+const RVM_INPUT_WIDTH = 384; // [TUNE] src width fed to RVM (quality vs speed)
+const RVM_SLOW_MS = 55;      // [TUNE] disable RVM if average inference exceeds this
 
 const PROC_WIDTH_CAP = 960; // cap the processing resolution for perf
 
@@ -191,6 +201,9 @@ class RefinedBackgroundProcessor {
     this._ts = 0;
     this._lastSeg = 0;
     this._hasPrev = 0;
+    this._rvm = null;       // RVM matter handle (when available)
+    this._rvmSlow = false;  // disabled after the perf gate trips
+    this._rvmMs = [];       // recent inference timings
   }
 
   async init(processorOptions) {
@@ -221,6 +234,20 @@ class RefinedBackgroundProcessor {
     this._setupGL();
 
     this.segmenter = await createSegmenter();
+    // High-quality matting in the background; MediaPipe (above) runs immediately
+    // and stays as the fallback. We switch to RVM once it's loaded + proven fast.
+    if (RVM_MODEL_URL) {
+      try {
+        this._rvm = createRvmMatter({
+          modelUrl: RVM_MODEL_URL,
+          inputWidth: RVM_INPUT_WIDTH,
+          onError: (msg) => { console.warn("[rvm] unavailable, using MediaPipe:", msg); this._rvm = null; },
+        });
+      } catch (e) {
+        console.warn("[rvm] init failed", e);
+        this._rvm = null;
+      }
+    }
     if (this.opts.imageUrl) await this._loadBg(this.opts.imageUrl);
 
     this.processedTrack = this.canvas.captureStream(30).getVideoTracks()[0];
@@ -245,6 +272,8 @@ class RefinedBackgroundProcessor {
   async destroy() {
     this._running = false;
     if (this._raf) cancelAnimationFrame(this._raf);
+    try { this._rvm?.close(); } catch { /* */ }
+    this._rvm = null;
     try { this.segmenter?.close(); } catch { /* */ }
     try { this.processedTrack?.stop(); } catch { /* */ }
     if (this.video) { this.video.srcObject = null; this.video = null; }
@@ -331,6 +360,36 @@ class RefinedBackgroundProcessor {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, mw, mh, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
   }
 
+  // RVM gives a clean float alpha already — upload it as the mask texture and
+  // let the same refine/composite path run (the bilateral is gentle on a good
+  // alpha; mostly we get its temporal smoothing). [TUNE] could bypass the
+  // bilateral for RVM since its edges are already aligned.
+  _uploadAlpha(alpha, w, h) {
+    const u8 = this._maskBuf && this._maskBuf.length === alpha.length ? this._maskBuf : (this._maskBuf = new Uint8Array(alpha.length));
+    for (let i = 0; i < alpha.length; i++) {
+      const a = alpha[i];
+      u8[i] = a <= 0 ? 0 : a >= 1 ? 255 : (a * 255) | 0;
+    }
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.texMask);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
+  }
+
+  // "Where supported": if RVM is consistently too slow, drop back to MediaPipe.
+  _trackRvmPerf(ms) {
+    this._rvmMs.push(ms);
+    if (this._rvmMs.length >= 12) {
+      const avg = this._rvmMs.reduce((a, b) => a + b, 0) / this._rvmMs.length;
+      this._rvmMs = [];
+      if (avg > RVM_SLOW_MS) {
+        console.warn(`[rvm] too slow (avg ${avg.toFixed(0)}ms) — falling back to MediaPipe`);
+        this._rvmSlow = true;
+        try { this._rvm?.close(); } catch { /* */ }
+      }
+    }
+  }
+
   _render() {
     const gl = this.gl;
     const curr = this.alphaA, prev = this.alphaB;
@@ -407,6 +466,23 @@ class RefinedBackgroundProcessor {
     const now = performance.now();
     if (now - this._lastSeg < 33) return; // ~30fps cap
     this._lastSeg = now;
+
+    // High-quality matting (RVM, in a worker) when loaded + fast enough.
+    if (this._rvm && this._rvm.ready && !this._rvmSlow) {
+      this._busy = true;
+      this._rvm.infer(v).then((res) => {
+        this._busy = false;
+        if (!this._running) return;
+        if (res) {
+          this._trackRvmPerf(res.ms);
+          try { this._uploadAlpha(res.alpha, res.width, res.height); this._uploadVideo(); this._render(); } catch { /* */ }
+        } else if (this._rvm?.dead) {
+          this._rvm = null; // worker fell over → MediaPipe takes the next frames
+        }
+      }).catch(() => { this._busy = false; });
+      return;
+    }
+
     this._busy = true;
     this._ts = Math.max(this._ts + 1, Math.round(now));
     try {
