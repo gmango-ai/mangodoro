@@ -3,9 +3,10 @@ import { Plus, Check, X, Target, Lock, Globe, Pin, PinOff } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
-import { listTeamGoals, listGoalRooms, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
+import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
+import GoalProgress from "../goals/GoalProgress";
 
 // A person's goals (team-scoped to the active team). Editable when it's you —
 // add, check off (active/done), remove; read-only for teammates. Used on the
@@ -20,17 +21,22 @@ export default function ProfileGoals({ userId }) {
   const [draft, setDraft] = useState("");
   const [addHorizon, setAddHorizon] = useState("none");
   const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
+  const [krMap, setKrMap] = useState({}); // goalId → [keyResult]
 
   const load = useCallback(async () => {
-    if (!activeTeamId || !userId) { setGoals([]); setRoomMap({}); return; }
-    const [{ data }, { data: rooms }] = await Promise.all([
+    if (!activeTeamId || !userId) { setGoals([]); setRoomMap({}); setKrMap({}); return; }
+    const [{ data }, { data: rooms }, { data: krs }] = await Promise.all([
       listTeamGoals(activeTeamId),
       listGoalRooms(activeTeamId),
+      listGoalKeyResults(activeTeamId),
     ]);
     setGoals((data || []).filter((g) => g.owner_type === "user" && g.owner_id === userId));
     const map = {};
     for (const row of rooms || []) (map[row.goal_id] ||= []).push(row.room_id);
     setRoomMap(map);
+    const km = {};
+    for (const kr of krs || []) (km[kr.goal_id] ||= []).push(kr);
+    setKrMap(km);
   }, [activeTeamId, userId]);
   useEffect(() => { load(); }, [load]);
 
@@ -78,7 +84,8 @@ export default function ProfileGoals({ userId }) {
 
       <ul className="flex flex-col gap-1.5">
         {ordered.map((g) => (
-          <li key={g.id} className="flex items-start gap-2 group">
+          <li key={g.id} className="group">
+            <div className="flex items-start gap-2">
             <button
               type="button"
               disabled={!isMe}
@@ -141,6 +148,8 @@ export default function ProfileGoals({ userId }) {
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
+            </div>
+            <GoalProgress goal={g} krs={krMap[g.id] || []} manage={isMe} onChange={load} dark={dark} />
           </li>
         ))}
       </ul>

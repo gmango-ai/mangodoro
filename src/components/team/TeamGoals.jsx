@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Check, X, Target, Building2, Pin, PinOff } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
-import { listTeamGoals, listGoalRooms, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
+import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
+import GoalProgress from "../goals/GoalProgress";
 
 // Org goals on the Team page. A top-level **Company** goal (the team itself)
 // plus a section per **department** (org_team), each with active/done goals and
@@ -15,17 +16,22 @@ export default function TeamGoals({ dark }) {
   const [drafts, setDrafts] = useState({}); // ownerId → draft body
   const [horizons, setHorizons] = useState({}); // ownerId → add-row horizon
   const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
+  const [krMap, setKrMap] = useState({}); // goalId → [keyResult]
 
   const load = useCallback(async () => {
-    if (!activeTeamId) { setGoals([]); setRoomMap({}); return; }
-    const [{ data }, { data: rooms }] = await Promise.all([
+    if (!activeTeamId) { setGoals([]); setRoomMap({}); setKrMap({}); return; }
+    const [{ data }, { data: rooms }, { data: krs }] = await Promise.all([
       listTeamGoals(activeTeamId),
       listGoalRooms(activeTeamId),
+      listGoalKeyResults(activeTeamId),
     ]);
     setGoals((data || []).filter((g) => g.owner_type === "company" || g.owner_type === "department"));
     const map = {};
     for (const row of rooms || []) (map[row.goal_id] ||= []).push(row.room_id);
     setRoomMap(map);
+    const km = {};
+    for (const kr of krs || []) (km[kr.goal_id] ||= []).push(kr);
+    setKrMap(km);
   }, [activeTeamId]);
   useEffect(() => { load(); }, [load]);
 
@@ -67,7 +73,8 @@ export default function TeamGoals({ dark }) {
         {ordered.length === 0 && <p className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>No goals yet.</p>}
         <ul className="flex flex-col gap-1.5">
           {ordered.map((g) => (
-            <li key={g.id} className="flex items-start gap-2 group">
+            <li key={g.id} className="group">
+              <div className="flex items-start gap-2">
               <button
                 type="button"
                 disabled={!manage}
@@ -110,6 +117,8 @@ export default function TeamGoals({ dark }) {
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
+              </div>
+              <GoalProgress goal={g} krs={krMap[g.id] || []} manage={manage} onChange={load} dark={dark} />
             </li>
           ))}
         </ul>

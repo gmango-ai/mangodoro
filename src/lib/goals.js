@@ -44,13 +44,54 @@ export async function createGoal({ teamId, ownerType, ownerId, ownerName, ownerC
   });
 }
 
-export async function updateGoal({ id, body, status, isPublic, horizon, pinned }) {
+export async function updateGoal({ id, body, status, isPublic, horizon, pinned, health }) {
   if (!id) return { error: { message: "no id" } };
   return supabase.rpc("update_goal", {
     p_id: id, p_body: body ?? null, p_status: status ?? null,
-    p_is_public: isPublic ?? null, p_horizon: horizon ?? null, p_pinned: pinned ?? null,
+    p_is_public: isPublic ?? null, p_horizon: horizon ?? null,
+    p_pinned: pinned ?? null, p_health: health ?? null,
   });
 }
+
+// ── key results (progress) ──
+export async function addKeyResult({ goalId, body, target, unit }) {
+  if (!goalId) return { error: { message: "no goal" } };
+  return supabase.rpc("add_key_result", { p_goal_id: goalId, p_body: body || "", p_target: target ?? null, p_unit: unit || "" });
+}
+export async function updateKeyResult({ id, body, target, current, unit }) {
+  if (!id) return { error: { message: "no id" } };
+  return supabase.rpc("update_key_result", { p_id: id, p_body: body ?? null, p_target: target ?? null, p_current: current ?? null, p_unit: unit ?? null });
+}
+export async function deleteKeyResult(id) {
+  if (!id) return { error: null };
+  return supabase.rpc("delete_key_result", { p_id: id });
+}
+export async function listGoalKeyResults(teamId) {
+  if (!teamId) return { data: [], error: null };
+  return supabase.rpc("list_goal_key_results", { p_team_id: teamId });
+}
+
+// Fraction done [0,1] for one key result. A KR with a positive target counts
+// proportionally; one with no/zero target is binary (any progress = done).
+export function krFraction(kr) {
+  const cur = Number(kr?.current) || 0;
+  const tgt = Number(kr?.target);
+  if (tgt && tgt > 0) return Math.max(0, Math.min(1, cur / tgt));
+  return cur > 0 ? 1 : 0;
+}
+// Overall goal progress from its KRs → { pct (0-100) | null, total }.
+export function goalProgress(krs) {
+  const list = krs || [];
+  if (!list.length) return { pct: null, total: 0 };
+  const avg = list.reduce((s, kr) => s + krFraction(kr), 0) / list.length;
+  return { pct: Math.round(avg * 100), total: list.length };
+}
+
+export const GOAL_HEALTH = {
+  on_track: { label: "On track", color: "#10b981" },
+  at_risk: { label: "At risk", color: "#f59e0b" },
+  off_track: { label: "Off track", color: "#ef4444" },
+};
 
 // Replace a goal's room scoping. Empty array = global (shows in every room).
 export async function setGoalRooms({ goalId, roomIds }) {

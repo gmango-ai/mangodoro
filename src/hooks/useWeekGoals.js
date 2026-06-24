@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { listShownGoals } from "../lib/retro";
-import { listTeamGoals, listGoalRooms } from "../lib/goals";
+import { listTeamGoals, listGoalRooms, listGoalKeyResults, goalProgress } from "../lib/goals";
 
 // Loads the goals to surface in the office widget + pomodoro, normalized
 // to one shape and scoped to the viewer:
@@ -32,10 +32,11 @@ export function useWeekGoals(roomId = null) {
     async function load() {
       if (!activeTeamId) { setGoals([]); return; }
       setLoading(true);
-      const [retroRes, fcRes, roomsRes] = await Promise.all([
+      const [retroRes, fcRes, roomsRes, krRes] = await Promise.all([
         listShownGoals(activeTeamId),
         listTeamGoals(activeTeamId),
         listGoalRooms(activeTeamId),
+        listGoalKeyResults(activeTeamId),
       ]);
       if (cancelled) return;
 
@@ -44,6 +45,13 @@ export function useWeekGoals(roomId = null) {
       for (const row of roomsRes?.data || []) {
         if (!scopeByGoal.has(row.goal_id)) scopeByGoal.set(row.goal_id, new Set());
         scopeByGoal.get(row.goal_id).add(row.room_id);
+      }
+
+      // goalId → key results, for a progress summary.
+      const krByGoal = new Map();
+      for (const kr of krRes?.data || []) {
+        if (!krByGoal.has(kr.goal_id)) krByGoal.set(kr.goal_id, []);
+        krByGoal.get(kr.goal_id).push(kr);
       }
 
       // First-class goals, scoped to the viewer + pin + room.
@@ -66,6 +74,8 @@ export function useWeekGoals(roomId = null) {
             label: g.owner_name || (g.owner_type === "user" ? "You" : "Team"),
             color: g.owner_color || null,
             href: g.source_board ? `/whiteboards/${g.source_board}` : null,
+            progress: goalProgress(krByGoal.get(g.id)).pct, // 0-100 or null
+            health: g.health && g.health !== "none" ? g.health : null,
           };
         })
         .filter((g) => g.body.length > 0);
