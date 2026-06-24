@@ -87,12 +87,18 @@ export default function TeamGoals({ dark }) {
     load();
   };
 
-  // All owners a goal can move to (company + every department), minus its own.
+  // Owners the current user is allowed to manage (mirrors the RPC authz).
+  const canManageOwner = (ownerType, ownerId) =>
+    ownerType === "company" ? isAdmin : (isAdmin || !!myOrgTeamLeadIds?.has(ownerId));
+
+  // All owners a goal can move to (company + every department), minus its own,
+  // limited to owners the current user can manage.
   const allOwners = [
     ...(activeTeam ? [{ ownerType: "company", ownerId: activeTeamId, ownerName: activeTeam.name, ownerColor: activeTeam.color, label: `${activeTeam.name} · company` }] : []),
     ...orgTeams.map((d) => ({ ownerType: "department", ownerId: d.id, ownerName: d.name, ownerColor: d.color, label: d.name })),
   ];
-  const moveTargets = (g) => allOwners.filter((t) => !(t.ownerType === g.owner_type && String(t.ownerId) === String(g.owner_id)));
+  const moveTargets = (g) => allOwners.filter((t) =>
+    canManageOwner(t.ownerType, t.ownerId) && !(t.ownerType === g.owner_type && String(t.ownerId) === String(g.owner_id)));
 
   // Drag a goal to reorder it within a section, or onto another section to
   // move it (re-org). `beforeId` is the active goal to drop in front of (null =
@@ -105,6 +111,7 @@ export default function TeamGoals({ dark }) {
     if (!d || !t) return;
     const sameOwner = d.ownerType === t.ownerType && String(d.ownerId) === String(t.owner.id);
     if (sameOwner && t.beforeId === d.g.id) return; // dropped on itself
+    if (!sameOwner && !canManageOwner(t.ownerType, t.owner.id)) return; // can't move into a section you don't manage
 
     // Build the target owner's new active order with the dragged goal inserted.
     const tgt = goals.filter((x) => x.owner_type === t.ownerType && String(x.owner_id) === String(t.owner.id));

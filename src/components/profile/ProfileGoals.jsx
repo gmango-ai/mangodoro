@@ -17,14 +17,15 @@ import { ArrowUpFromLine } from "lucide-react";
 // profile page.
 export default function ProfileGoals({ userId }) {
   const { session, settings } = useApp();
-  const { activeTeamId, activeTeam, orgTeams = [], isAdmin, myOrgTeamIds } = useTeam();
+  const { activeTeamId, activeTeam, orgTeams = [], isAdmin, myOrgTeamLeadIds } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const isMe = !!userId && session?.user?.id === userId;
-  // Where a personal goal can be elevated: teams you're on + the company (admins).
+  // Where a personal goal can be elevated — only owners you can manage: the
+  // company (admins) and departments you lead. (The RPC enforces the same.)
   const elevateTargets = [
     ...(isAdmin && activeTeam ? [{ ownerType: "company", ownerId: activeTeamId, ownerName: activeTeam.name, ownerColor: activeTeam.color, label: `${activeTeam.name} · company` }] : []),
-    ...orgTeams.filter((d) => myOrgTeamIds?.has(d.id)).map((d) => ({ ownerType: "department", ownerId: d.id, ownerName: d.name, ownerColor: d.color, label: d.name })),
+    ...orgTeams.filter((d) => isAdmin || myOrgTeamLeadIds?.has(d.id)).map((d) => ({ ownerType: "department", ownerId: d.id, ownerName: d.name, ownerColor: d.color, label: d.name })),
   ];
   const [goals, setGoals] = useState([]);
   const [draft, setDraft] = useState("");
