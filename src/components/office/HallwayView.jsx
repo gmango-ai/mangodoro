@@ -60,9 +60,9 @@ export default function HallwayView({
   const dark = theme === "dark";
   const sessionCount = [...(sessionByRoomId?.values() || [])].length;
 
-  // "In the office" = people in rooms (onlineCount) PLUS clocked-in teammates
-  // standing in the hallway (working/in-office even when remote, no overlap
-  // since hallway excludes anyone in a room). Mirrors OfficePresenceBar.
+  // "In the office" = people in rooms PLUS clocked-in teammates standing in
+  // the hallway (working/in-office even when remote, no overlap since hallway
+  // excludes anyone in a room). Mirrors OfficePresenceBar.
   const inOfficeCount = useMemo(() => {
     const inRoom = new Set();
     for (const [, sess] of sessionByRoomId?.entries?.() || []) {
@@ -73,8 +73,8 @@ export default function HallwayView({
     const hallway = (clocked || []).filter(
       (r) => r.clocked_in_at && !inRoom.has(r.user_id) && (memberIds.has(r.user_id) || r.user_id === myId)
     ).length;
-    return (onlineCount || 0) + hallway;
-  }, [sessionByRoomId, clocked, teamMembers, session, onlineCount]);
+    return inRoom.size + hallway;
+  }, [sessionByRoomId, clocked, teamMembers, session]);
 
   const [viewMode, setViewModeRaw] = useState(loadViewMode);
   const setViewMode = (v) => { setViewModeRaw(v); saveViewMode(v); };
