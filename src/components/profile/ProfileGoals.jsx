@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Check, X, Target, Lock, Globe, Pin, PinOff, Pencil } from "lucide-react";
+import { Plus, Check, X, Target, Lock, Globe, Pin, PinOff, Pencil, ChevronUp, ChevronDown } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
-import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
+import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, reorderGoals, horizonShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
 import GoalProgress from "../goals/GoalProgress";
@@ -54,6 +54,19 @@ export default function ProfileGoals({ userId }) {
   };
   const changeHorizon = async (g, h) => { if (!isMe) return; await updateGoal({ id: g.id, horizon: h }); load(); };
   const togglePin = async (g) => { if (!isMe) return; await updateGoal({ id: g.id, pinned: g.pinned === false }); load(); };
+  const moveGoal = async (g, dir) => {
+    if (!isMe) return;
+    const act = goals.filter((x) => x.status !== "done");
+    const dn = goals.filter((x) => x.status === "done");
+    const i = act.findIndex((x) => x.id === g.id);
+    const j = dir === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= act.length) return;
+    const next = [...act];
+    [next[i], next[j]] = [next[j], next[i]];
+    setGoals([...next, ...dn]); // optimistic
+    await reorderGoals([...next.map((x) => x.id), ...dn.map((x) => x.id)]);
+    load();
+  };
   const startEdit = (g) => { if (!isMe) return; setEditingId(g.id); setEditDraft(g.body || ""); };
   const saveEdit = async () => {
     const body = editDraft.trim();
@@ -97,7 +110,9 @@ export default function ProfileGoals({ userId }) {
       )}
 
       <ul className="flex flex-col gap-1.5">
-        {ordered.map((g) => (
+        {ordered.map((g) => {
+          const aIdx = g.status === "done" ? -1 : active.findIndex((x) => x.id === g.id);
+          return (
           <li key={g.id} className="group">
             {editingId === g.id ? (
               <div>
@@ -110,6 +125,16 @@ export default function ProfileGoals({ userId }) {
             ) : (
             <>
             <div className="flex items-start gap-2">
+            {isMe && aIdx >= 0 && (
+              <span className="shrink-0 mt-0.5 flex flex-col -my-0.5 opacity-0 group-hover:opacity-100">
+                <button type="button" onClick={() => moveGoal(g, "up")} disabled={aIdx === 0} aria-label="Move up" className={`leading-none disabled:opacity-30 ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>
+                  <ChevronUp className="w-3 h-3" />
+                </button>
+                <button type="button" onClick={() => moveGoal(g, "down")} disabled={aIdx === active.length - 1} aria-label="Move down" className={`leading-none disabled:opacity-30 ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+              </span>
+            )}
             <button
               type="button"
               disabled={!isMe}
@@ -187,7 +212,8 @@ export default function ProfileGoals({ userId }) {
             </>
             )}
           </li>
-        ))}
+        );
+        })}
       </ul>
 
       {isMe && (adding ? (

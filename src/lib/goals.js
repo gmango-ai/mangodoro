@@ -119,3 +119,10 @@ export async function deleteGoal(id) {
   if (!id) return { error: null };
   return supabase.rpc("delete_goal", { p_id: id });
 }
+
+// Persist an explicit goal order (position = index). Pass the full set of an
+// owner's goal ids in the desired order.
+export async function reorderGoals(ids) {
+  if (!ids || !ids.length) return { error: null };
+  return supabase.rpc("reorder_goals", { p_ids: ids });
+}

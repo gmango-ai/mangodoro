@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Check, X, Target, Building2, Pin, PinOff, Pencil } from "lucide-react";
+import { Plus, Check, X, Target, Building2, Pin, PinOff, Pencil, ChevronUp, ChevronDown } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
-import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, horizonShort } from "../../lib/goals";
+import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, reorderGoals, horizonShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
 import GoalProgress from "../goals/GoalProgress";
@@ -61,6 +61,18 @@ export default function TeamGoals({ dark }) {
   const remove = async (g) => { await deleteGoal(g.id); load(); };
   const changeHorizon = async (g, h) => { await updateGoal({ id: g.id, horizon: h }); load(); };
   const togglePin = async (g) => { await updateGoal({ id: g.id, pinned: g.pinned === false }); load(); };
+  const moveGoal = async (ownerType, ownerId, g, dir) => {
+    const own = goals.filter((x) => x.owner_type === ownerType && x.owner_id === ownerId);
+    const act = own.filter((x) => x.status !== "done");
+    const dn = own.filter((x) => x.status === "done");
+    const i = act.findIndex((x) => x.id === g.id);
+    const j = dir === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= act.length) return;
+    const next = [...act];
+    [next[i], next[j]] = [next[j], next[i]];
+    await reorderGoals([...next.map((x) => x.id), ...dn.map((x) => x.id)]);
+    load();
+  };
   const startEdit = (g) => { setEditingId(g.id); setEditDraft(g.body || ""); };
   const saveEdit = async () => {
     const body = editDraft.trim();
@@ -74,7 +86,8 @@ export default function TeamGoals({ dark }) {
   // One owner's goal list + (when permitted) the add-row.
   const section = (ownerType, owner, manage) => {
     const own = goals.filter((g) => g.owner_type === ownerType && g.owner_id === owner.id);
-    const ordered = [...own.filter((g) => g.status !== "done"), ...own.filter((g) => g.status === "done")];
+    const ownActive = own.filter((g) => g.status !== "done");
+    const ordered = [...ownActive, ...own.filter((g) => g.status === "done")];
     return (
       <div key={`${ownerType}:${owner.id}`}>
         <div className="flex items-center gap-1.5 mb-1.5">
@@ -87,7 +100,9 @@ export default function TeamGoals({ dark }) {
         </div>
         {ordered.length === 0 && <p className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>No goals yet.</p>}
         <ul className="flex flex-col gap-1.5">
-          {ordered.map((g) => (
+          {ordered.map((g) => {
+            const aIdx = g.status === "done" ? -1 : ownActive.findIndex((x) => x.id === g.id);
+            return (
             <li key={g.id} className="group">
               {editingId === g.id ? (
                 <div>
@@ -100,6 +115,16 @@ export default function TeamGoals({ dark }) {
               ) : (
               <>
               <div className="flex items-start gap-2">
+              {manage && aIdx >= 0 && (
+                <span className="shrink-0 mt-0.5 flex flex-col -my-0.5 opacity-0 group-hover:opacity-100">
+                  <button type="button" onClick={() => moveGoal(ownerType, owner.id, g, "up")} disabled={aIdx === 0} aria-label="Move up" className={`leading-none disabled:opacity-30 ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>
+                    <ChevronUp className="w-3 h-3" />
+                  </button>
+                  <button type="button" onClick={() => moveGoal(ownerType, owner.id, g, "down")} disabled={aIdx === ownActive.length - 1} aria-label="Move down" className={`leading-none disabled:opacity-30 ${dark ? "text-slate-500 hover:text-slate-200" : "text-slate-400 hover:text-slate-700"}`}>
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
               <button
                 type="button"
                 disabled={!manage}
@@ -154,7 +179,8 @@ export default function TeamGoals({ dark }) {
               </>
               )}
             </li>
-          ))}
+          );
+          })}
         </ul>
         {manage && (addingId === owner.id ? (
           <div className="mt-1.5">
