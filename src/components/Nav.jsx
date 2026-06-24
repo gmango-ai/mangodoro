@@ -13,6 +13,8 @@ import RunningTimerPill from "./RunningTimerPill";
 import BottomNav from "./BottomNav";
 import MoreSheet from "./MoreSheet";
 import NotificationBell from "./notifications/NotificationBell";
+import WorkClockBar from "./nav/WorkClockBar";
+import WorkingNowBar from "./nav/WorkingNowBar";
 
 const PRESENCE_DOT_COLOR = {
   active: "bg-emerald-500",
@@ -151,8 +153,10 @@ export default function Nav({ onOpenPomodoro }) {
             </span>
           </NavLink>
 
-          {/* Mobile: notification bell pinned right (desktop has its own below). */}
-          <div className="xl:hidden ml-auto">
+          {/* Mobile: clock + who's-working + notification bell, pinned right. */}
+          <div className="xl:hidden ml-auto flex items-center gap-2">
+            <WorkClockBar dark={darkMode} />
+            <WorkingNowBar dark={darkMode} />
             <NotificationBell />
           </div>
 
@@ -172,6 +176,10 @@ export default function Nav({ onOpenPomodoro }) {
               <NavLink to="/whiteboards" className={desktopNavLink}>Whiteboards</NavLink>
               <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
             </nav>
+
+            {/* Clock in/out + quick On-lunch, and who's working right now. */}
+            <WorkClockBar dark={darkMode} />
+            <WorkingNowBar dark={darkMode} />
 
             {/* Always-visible timer pill — surfaces the live pomodoro
                 state right in the Nav. Replaces the floating bottom-

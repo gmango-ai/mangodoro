@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
-import { Briefcase } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Briefcase, Coffee } from "lucide-react";
 import { supabase } from "../../supabase";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { listClockedIn } from "../../lib/workStatus";
 import UserAvatar from "../UserAvatar";
-import WidgetSection from "./WidgetSection";
+import Popover from "../goals/Popover";
 
 function elapsedSince(iso) {
   if (!iso) return "";
@@ -14,13 +14,14 @@ function elapsedSince(iso) {
   return diff >= 60 ? `${Math.floor(diff / 60)}h ${diff % 60}m` : `${diff}m`;
 }
 
-// Who on the team is clocked in right now — name, what they're on, and how long.
-// Reads the team-visible work_status (RLS = own + teammates), kept live by a
-// realtime subscription + a minute poll (so the elapsed label stays fresh).
-export default function WorkingNowWidget({ dark }) {
+// Compact "who's working now" pill for the top bar — a count that opens a
+// roster of clocked-in teammates (task + elapsed). Hidden when nobody's working.
+export default function WorkingNowBar({ dark }) {
   const { session, settings } = useApp();
   const { teamMembers = [] } = useTeam();
   const [rows, setRows] = useState([]);
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef(null);
   const userId = session?.user?.id;
 
   useEffect(() => {
@@ -28,7 +29,7 @@ export default function WorkingNowWidget({ dark }) {
     const load = () => listClockedIn().then((d) => { if (alive) setRows(d); });
     load();
     const ch = supabase
-      .channel("work_status:list")
+      .channel("work_status:bar")
       .on("postgres_changes", { event: "*", schema: "public", table: "work_status" }, load)
       .subscribe();
     const poll = setInterval(load, 60000);
@@ -41,29 +42,34 @@ export default function WorkingNowWidget({ dark }) {
     .map((r) => ({ ...r, m: memberById.get(r.user_id) }))
     .sort((a, b) => new Date(a.clocked_in_at) - new Date(b.clocked_in_at));
 
+  if (people.length === 0) return null;
+
   const nameFor = (r) => r.m?.name || (r.user_id === userId ? settings?.name : "") || "Member";
   const avatarFor = (r) => r.m?.avatar_url || (r.user_id === userId ? settings?.avatarUrl : "") || "";
 
   return (
-    <WidgetSection
-      id="working-now"
-      icon={Briefcase}
-      title="Working now"
-      dark={dark}
-      action={people.length > 0 ? <span className="text-[10px] font-bold tabular-nums">{people.length}</span> : null}
-    >
-      {people.length === 0 ? (
-        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>No one's clocked in right now.</p>
-      ) : (
-        <ul className="space-y-1.5">
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        title="Who's working now"
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+          dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+        }`}
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        <Briefcase className="w-3.5 h-3.5" />
+        <span className="tabular-nums">{people.length}</span>
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={244} dark={dark}>
+        <p className={`px-2 py-1 text-[10px] uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>Working now</p>
+        <ul className="space-y-0.5">
           {people.map((r) => (
-            <li key={r.user_id} className="flex items-center gap-2">
+            <li key={r.user_id} className="flex items-center gap-2 px-2 py-1.5">
               <span className="relative shrink-0">
                 <UserAvatar url={avatarFor(r)} name={nameFor(r)} size={24} />
-                <span
-                  className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ${r.on_break ? "bg-orange-500" : "bg-emerald-500"} ${dark ? "ring-[var(--color-surface)]" : "ring-white"}`}
-                  aria-hidden
-                />
+                <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ${r.on_break ? "bg-orange-500" : "bg-emerald-500"} ${dark ? "ring-[var(--color-surface-raised)]" : "ring-white"}`} aria-hidden />
               </span>
               <span className="min-w-0 flex-1">
                 <span className={`block text-[11px] font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
@@ -72,7 +78,7 @@ export default function WorkingNowWidget({ dark }) {
                 </span>
                 <span className={`block text-[10px] truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
                   {r.on_break ? (
-                    <span className="text-orange-400">on break</span>
+                    <span className="inline-flex items-center gap-1 text-orange-400"><Coffee className="w-2.5 h-2.5" /> on lunch</span>
                   ) : (
                     <>{r.task?.trim() ? r.task : "working"} · {elapsedSince(r.clocked_in_at)}</>
                   )}
@@ -81,7 +87,7 @@ export default function WorkingNowWidget({ dark }) {
             </li>
           ))}
         </ul>
-      )}
-    </WidgetSection>
+      </Popover>
+    </>
   );
 }

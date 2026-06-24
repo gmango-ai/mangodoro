@@ -8,9 +8,7 @@ const ORDER_KEY = "ql_widget_order";
 // placeholder. (Retro is deprecated — replaced by the whiteboard; the
 // countdown timer now lives inside the whiteboard, not as a widget.)
 export const DEFAULT_WIDGET_ORDER = [
-  "work-clock",
   "pomodoro",
-  "working-now",
   "room-members",
   "goals",
   "whiteboard",

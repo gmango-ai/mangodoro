@@ -14,8 +14,6 @@ import WhiteboardPicker from "./WhiteboardPicker";
 import PomodoroWidget from "./PomodoroWidget";
 import GoalsWidget from "./GoalsWidget";
 import RoomMembersWidget from "./RoomMembersWidget";
-import WorkClockWidget from "./WorkClockWidget";
-import WorkingNowWidget from "./WorkingNowWidget";
 import WidgetSection, { DragHandleProvider } from "./WidgetSection";
 
 // App-wide widgets sidebar. Each widget is a WidgetSection so it can
@@ -47,9 +45,7 @@ export default function WidgetsSidebar() {
   // so an id with no entry (stale localStorage from a removed widget)
   // is harmlessly skipped.
   const widgetById = {
-    "work-clock": () => <WorkClockWidget dark={dark} />,
     pomodoro:     () => <PomodoroWidget dark={dark} />,
-    "working-now": () => <WorkingNowWidget dark={dark} />,
     "room-members": () => <RoomMembersWidget dark={dark} />,
     goals:        () => <GoalsWidget dark={dark} />,
     whiteboard:   () => <WhiteboardWidget dark={dark} />,
