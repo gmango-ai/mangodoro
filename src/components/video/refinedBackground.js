@@ -368,9 +368,16 @@ class RefinedBackgroundProcessor {
   // moving hand).
   _uploadAlpha(alpha, w, h) {
     const u8 = this._maskBuf && this._maskBuf.length === alpha.length ? this._maskBuf : (this._maskBuf = new Uint8Array(alpha.length));
+    // Firm up semi-transparent foreground: RVM can read a hand as ~0.5–0.7 alpha,
+    // so the background bleeds through it ("see-through hand"). A smoothstep
+    // pushes mid/high alpha to solid while keeping a soft edge, and drops faint
+    // halos toward 0. [TUNE] LO/HI — raise LO to kill more halo, lower HI to
+    // firm harder (risk: thinning fine hair).
+    const LO = 0.1, HI = 0.55, span = HI - LO;
     for (let i = 0; i < alpha.length; i++) {
-      const a = alpha[i];
-      u8[i] = a <= 0 ? 0 : a >= 1 ? 255 : (a * 255) | 0;
+      let a = (alpha[i] - LO) / span;
+      a = a <= 0 ? 0 : a >= 1 ? 1 : a * a * (3 - 2 * a); // smoothstep
+      u8[i] = (a * 255) | 0;
     }
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.texMask);
