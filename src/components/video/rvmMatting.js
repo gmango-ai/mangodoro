@@ -38,8 +38,11 @@ export function createRvmMatter({ modelUrl, inputWidth = 384, downsample = 0.25,
     if (!state.ready || state.dead || pending) return null;
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return null;
-    const w = inputWidth;
-    const h = Math.max(2, Math.round((inputWidth * vh) / vw));
+    // Send the native frame up to a cap (don't pre-shrink, and never upscale) —
+    // RVM computes the alpha at this resolution, so more pixels = crisper edges.
+    // RVM's own downsample_ratio handles the cheap encoder downscale.
+    const w = Math.min(inputWidth, vw);
+    const h = Math.max(2, Math.round((w * vh) / vw));
     let bitmap;
     try {
       bitmap = await createImageBitmap(video, { resizeWidth: w, resizeHeight: h, resizeQuality: "low" });

@@ -30,12 +30,14 @@ const MODEL_URL =
 // runs it fast enough; otherwise we fall back to the MediaPipe selfie mask.
 const RVM_MODEL_URL =
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_RVM_MODEL_URL) || "";
-const RVM_INPUT_WIDTH = 384; // [TUNE] src width fed to RVM (quality vs speed)
-// RVM's INTERNAL processing ratio. 0.25 is the HD-input default; our input is
-// already small (384px), so 0.25 → ~96px internally = too coarse (missed whole
-// arms). 0.5 → ~192px resolves limbs/fingers far better. [TUNE] up = sharper but
-// slower (watch the perf gate); down = faster but coarser.
-const RVM_DOWNSAMPLE = 0.5;
+// Cap on the frame we send RVM (native res up to this; we don't pre-shrink).
+// The alpha is computed at this resolution → bigger = crisper edges, but the
+// WASM decoder + per-frame preprocessing both scale with it. [TUNE] up to ~960
+// if the perf gate stays happy; down if it trips.
+const RVM_INPUT_WIDTH = 720;
+// RVM's internal ENCODER downscale. With a ~720px input, 0.35 → ~252px encoder,
+// enough to resolve limbs/fingers without blowing perf. [TUNE].
+const RVM_DOWNSAMPLE = 0.35;
 const RVM_SLOW_MS = 55;      // [TUNE] disable RVM if average inference exceeds this
 
 const PROC_WIDTH_CAP = 960; // cap the processing resolution for perf
