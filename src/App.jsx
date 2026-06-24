@@ -13,6 +13,7 @@ import { SyncSessionProvider, useSyncSession } from "./context/SyncSessionContex
 import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import { VideoCallProvider } from "./context/VideoCallContext";
 import { NotificationProvider } from "./context/NotificationContext";
+import { ProfileProvider } from "./context/ProfileContext";
 import LunchReminder from "./components/LunchReminder";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
@@ -40,6 +41,7 @@ const WhiteboardPage = lazy(() => import("./pages/WhiteboardPage"));
 const OfficePage = lazy(() => import("./pages/OfficePage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const JoinSyncPage = lazy(() => import("./pages/JoinSyncPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const JoinRetroPage = lazy(() => import("./pages/JoinRetroPage"));
 const LocalTimerPage = lazy(() => import("./pages/LocalTimerPage"));
@@ -301,6 +303,7 @@ function AppLayout({ session }) {
             <Route path="/time-tracker" element={<TimeTrackerPage />} />
             <Route path="/time-tracker/:tab" element={<TimeTrackerPage />} />
             <Route path="/team" element={<TeamPage />} />
+            <Route path="/u/:userId" element={<ProfilePage />} />
             <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
             {/* Retros section. /team/retro is the legacy URL — redirect. */}
             <Route path="/team/retro" element={<Navigate to="/retros" replace />} />
@@ -351,7 +354,9 @@ function AuthenticatedApp({ session }) {
           <PomodoroProvider userId={session.user.id}>
             <VideoCallProvider>
               <NotificationProvider>
-                <AppLayout session={session} />
+                <ProfileProvider>
+                  <AppLayout session={session} />
+                </ProfileProvider>
               </NotificationProvider>
             </VideoCallProvider>
           </PomodoroProvider>
