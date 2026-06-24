@@ -18,8 +18,8 @@ export default function WorkClockWidget({ dark }) {
 
   const applyPresence = async (state) => {
     try {
+      await updateStatus({ presenceState: state });
       if (syncSession && setSyncStatus) await setSyncStatus({ presenceState: state });
-      else await updateStatus({ presenceState: state });
     } catch { /* presence is best-effort */ }
   };
 
@@ -36,6 +36,13 @@ export default function WorkClockWidget({ dark }) {
     endClockBreak();
     await applyPresence("active");
     try { localStorage.removeItem(`lunch_until:${userId}`); } catch { /* */ }
+  };
+  const handleClockOut = async () => {
+    if (onBreak || settings?.presenceState === "out_to_lunch") {
+      await applyPresence("active");
+      try { localStorage.removeItem(`lunch_until:${userId}`); } catch { /* */ }
+    }
+    clockOutAndFill();
   };
 
   const btn = "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors";
@@ -71,7 +78,7 @@ export default function WorkClockWidget({ dark }) {
                 <Coffee className="w-3.5 h-3.5" /> On lunch
               </button>
             )}
-            <button type="button" onClick={clockOutAndFill} className={`${btn} flex-1 ${dark ? "bg-[var(--color-surface-raised)] text-slate-200 hover:bg-slate-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
+            <button type="button" onClick={handleClockOut} className={`${btn} flex-1 ${dark ? "bg-[var(--color-surface-raised)] text-slate-200 hover:bg-slate-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
               <LogOut className="w-3.5 h-3.5" /> Clock out
             </button>
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Briefcase, Coffee } from "lucide-react";
+import { Briefcase } from "lucide-react";
 import { supabase } from "../../supabase";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
@@ -72,7 +72,7 @@ export default function WorkingNowWidget({ dark }) {
                 </span>
                 <span className={`block text-[10px] truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
                   {r.on_break ? (
-                    <span className="inline-flex items-center gap-1 text-orange-400"><Coffee className="w-2.5 h-2.5" /> on lunch</span>
+                    <span className="text-orange-400">on break</span>
                   ) : (
                     <>{r.task?.trim() ? r.task : "working"} · {elapsedSince(r.clocked_in_at)}</>
                   )}
