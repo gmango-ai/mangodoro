@@ -204,6 +204,7 @@ class RefinedBackgroundProcessor {
     this._rvm = null;       // RVM matter handle (when available)
     this._rvmSlow = false;  // disabled after the perf gate trips
     this._rvmMs = [];       // recent inference timings
+    this._backend = null;   // "RVM" | "MediaPipe" — logged when it changes
   }
 
   async init(processorOptions) {
@@ -238,10 +239,12 @@ class RefinedBackgroundProcessor {
     // and stays as the fallback. We switch to RVM once it's loaded + proven fast.
     if (RVM_MODEL_URL) {
       try {
+        console.info("[bg] RVM model loading…", RVM_MODEL_URL);
         this._rvm = createRvmMatter({
           modelUrl: RVM_MODEL_URL,
           inputWidth: RVM_INPUT_WIDTH,
-          onError: (msg) => { console.warn("[rvm] unavailable, using MediaPipe:", msg); this._rvm = null; },
+          onReady: () => console.info("[bg] RVM model ready — switching in"),
+          onError: (msg) => { console.warn("[bg] RVM unavailable, staying on MediaPipe:", msg); this._rvm = null; },
         });
       } catch (e) {
         console.warn("[rvm] init failed", e);
@@ -376,6 +379,18 @@ class RefinedBackgroundProcessor {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
   }
 
+  // Which model is actually rendering frames right now. Logs once when it
+  // changes, and is readable as `processor.activeBackend` for any debug UI.
+  _setBackend(name) {
+    if (this._backend === name) return;
+    this._backend = name;
+    console.info(`%c[bg] matting backend → ${name}`, "color:#22d3ee;font-weight:bold");
+  }
+
+  get activeBackend() {
+    return this._backend;
+  }
+
   // "Where supported": if RVM is consistently too slow, drop back to MediaPipe.
   _trackRvmPerf(ms) {
     this._rvmMs.push(ms);
@@ -475,7 +490,7 @@ class RefinedBackgroundProcessor {
         if (!this._running) return;
         if (res) {
           this._trackRvmPerf(res.ms);
-          try { this._uploadAlpha(res.alpha, res.width, res.height); this._uploadVideo(); this._render(); } catch { /* */ }
+          try { this._uploadAlpha(res.alpha, res.width, res.height); this._uploadVideo(); this._render(); this._setBackend("RVM"); } catch { /* */ }
         } else if (this._rvm?.dead) {
           this._rvm = null; // worker fell over → MediaPipe takes the next frames
         }
@@ -492,7 +507,7 @@ class RefinedBackgroundProcessor {
           const mask = result?.confidenceMasks?.[0];
           if (mask) this._uploadMask(mask);
           this._uploadVideo();
-          if (mask) this._render();
+          if (mask) { this._render(); this._setBackend("MediaPipe"); }
         } catch { /* skip this frame */ } finally {
           try { result?.close?.(); } catch { /* */ }
         }
