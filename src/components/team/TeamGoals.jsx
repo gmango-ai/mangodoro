@@ -21,8 +21,9 @@ export default function TeamGoals({ dark }) {
   const [addingId, setAddingId] = useState(null); // owner.id whose add-editor is open
   const [editingId, setEditingId] = useState(null); // goal.id being edited
   const [editDraft, setEditDraft] = useState("");
-  const [dropKey, setDropKey] = useState(null); // owner key currently dragged over
+  const [drop, setDrop] = useState(null); // { ownerKey, beforeId } — drop indicator
   const dragGoal = useRef(null); // { g, ownerType, ownerId } being dragged
+  const dropRef = useRef(null);  // committed drop target: { ownerType, owner, beforeId }
   const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
   const [krMap, setKrMap] = useState({}); // goalId → [keyResult]
 
@@ -93,14 +94,29 @@ export default function TeamGoals({ dark }) {
   ];
   const moveTargets = (g) => allOwners.filter((t) => !(t.ownerType === g.owner_type && String(t.ownerId) === String(g.owner_id)));
 
-  // Drag a goal onto another section to reassign it (re-org). Reorder within a
-  // section still uses the up/down controls.
-  const onDropOwner = async (ownerType, owner) => {
+  // Drag a goal to reorder it within a section, or onto another section to
+  // move it (re-org). `beforeId` is the active goal to drop in front of (null =
+  // append to that owner's active list).
+  const clearDrag = () => { dragGoal.current = null; dropRef.current = null; setDrop(null); };
+  const handleDrop = async () => {
     const d = dragGoal.current;
-    setDropKey(null);
-    dragGoal.current = null;
-    if (!d || (d.ownerType === ownerType && String(d.ownerId) === String(owner.id))) return;
-    await reassignGoal({ id: d.g.id, ownerType, ownerId: owner.id, ownerName: owner.name, ownerColor: owner.color });
+    const t = dropRef.current;
+    clearDrag();
+    if (!d || !t) return;
+    const sameOwner = d.ownerType === t.ownerType && String(d.ownerId) === String(t.owner.id);
+    if (sameOwner && t.beforeId === d.g.id) return; // dropped on itself
+
+    // Build the target owner's new active order with the dragged goal inserted.
+    const tgt = goals.filter((x) => x.owner_type === t.ownerType && String(x.owner_id) === String(t.owner.id));
+    const activeIds = tgt.filter((x) => x.status !== "done" && x.id !== d.g.id).map((x) => x.id);
+    const doneIds = tgt.filter((x) => x.status === "done" && x.id !== d.g.id).map((x) => x.id);
+    const at = t.beforeId ? activeIds.indexOf(t.beforeId) : -1;
+    if (at < 0) activeIds.push(d.g.id); else activeIds.splice(at, 0, d.g.id);
+
+    if (!sameOwner) {
+      await reassignGoal({ id: d.g.id, ownerType: t.ownerType, ownerId: t.owner.id, ownerName: t.owner.name, ownerColor: t.owner.color });
+    }
+    await reorderGoals([...activeIds, ...doneIds]);
     load();
   };
 
@@ -110,14 +126,30 @@ export default function TeamGoals({ dark }) {
     const ownActive = own.filter((g) => g.status !== "done");
     const ordered = [...ownActive, ...own.filter((g) => g.status === "done")];
     const ownerKey = `${ownerType}:${owner.id}`;
-    const d = dragGoal.current;
-    const isDropTarget = dropKey === ownerKey && d && !(d.ownerType === ownerType && String(d.ownerId) === String(owner.id));
+    const isDropTarget = drop?.ownerKey === ownerKey && dragGoal.current;
+    // Drag-over a row's lower/upper half decides which goal we drop in front of.
+    const overRow = (e, g) => {
+      if (!dragGoal.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      let beforeId;
+      if (g.status === "done") {
+        beforeId = null; // dropping by the done pile → append to active end
+      } else {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const after = e.clientY > rect.top + rect.height / 2;
+        const idx = ownActive.findIndex((x) => x.id === g.id);
+        beforeId = after ? (ownActive[idx + 1]?.id ?? null) : g.id;
+      }
+      dropRef.current = { ownerType, owner, beforeId };
+      if (drop?.ownerKey !== ownerKey || drop?.beforeId !== beforeId) setDrop({ ownerKey, beforeId });
+    };
     return (
       <div
         key={ownerKey}
-        onDragOver={(e) => { if (dragGoal.current) { e.preventDefault(); if (dropKey !== ownerKey) setDropKey(ownerKey); } }}
-        onDrop={() => onDropOwner(ownerType, owner)}
-        className={isDropTarget ? "rounded-lg -m-1 p-1 ring-2 ring-[var(--color-accent)]/50" : ""}
+        onDragOver={(e) => { if (dragGoal.current) { e.preventDefault(); dropRef.current = { ownerType, owner, beforeId: null }; if (drop?.ownerKey !== ownerKey || drop?.beforeId != null) setDrop({ ownerKey, beforeId: null }); } }}
+        onDrop={(e) => { e.preventDefault(); handleDrop(); }}
+        className={isDropTarget ? "rounded-lg -m-1 p-1 ring-2 ring-[var(--color-accent)]/40" : ""}
       >
         <div className="flex items-center gap-1.5 mb-1.5">
           {ownerType === "company" ? (
@@ -132,7 +164,10 @@ export default function TeamGoals({ dark }) {
           {ordered.map((g) => {
             const aIdx = g.status === "done" ? -1 : ownActive.findIndex((x) => x.id === g.id);
             return (
-            <li key={g.id} className="group">
+            <li key={g.id} className="group" onDragOver={(e) => overRow(e, g)} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleDrop(); }}>
+              {drop?.ownerKey === ownerKey && drop?.beforeId === g.id && (
+                <div className="h-0.5 -mt-1 mb-0.5 rounded-full bg-[var(--color-accent)]" />
+              )}
               {editingId === g.id ? (
                 <div>
                   <MarkdownEditor value={editDraft} onChange={setEditDraft} dark={dark} autoFocus minHeight="64px" placeholder="Edit goal…" />
@@ -147,9 +182,9 @@ export default function TeamGoals({ dark }) {
               {manage && (
                 <span
                   draggable
-                  onDragStart={(e) => { dragGoal.current = { g, ownerType, ownerId: owner.id }; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", g.id); } catch { /* */ } }}
-                  onDragEnd={() => { dragGoal.current = null; setDropKey(null); }}
-                  title="Drag onto another section to move this goal"
+                  onDragStart={(e) => { dragGoal.current = { g, ownerType, ownerId: owner.id }; setDrop(null); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", g.id); } catch { /* */ } }}
+                  onDragEnd={clearDrag}
+                  title="Drag to reorder, or onto another section to move it"
                   className={`shrink-0 mt-0.5 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 ${dark ? "text-slate-600 hover:text-slate-300" : "text-slate-300 hover:text-slate-500"}`}
                 >
                   <GripVertical className="w-3.5 h-3.5" />
