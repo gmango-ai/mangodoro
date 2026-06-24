@@ -601,8 +601,8 @@ class RefinedBackgroundProcessor {
         try {
           this.segmenter.segmentForVideo(v, this._ts, (result) => {
             this._busy = false;
-            if (!this._running) return;
             try {
+              if (!this._running) return;
               const mask = result?.confidenceMasks?.[0];
               if (mask) { this._uploadMask(mask); this._haveMask = 1; this._setBackend("MediaPipe"); }
             } catch { /* skip */ } finally {
