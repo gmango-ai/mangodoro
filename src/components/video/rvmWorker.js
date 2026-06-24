@@ -17,8 +17,16 @@
 // Outputs: fgr, pha, r1o..r4o.  We use pha (alpha) and feed rXo -> rXi.
 
 import * as ort from "onnxruntime-web";
+// Self-host the threaded WASM runtime SAME-ORIGIN. Multi-threaded ORT spawns
+// pthread sub-workers from the .mjs loader, and a Worker can't be constructed
+// from a cross-origin URL — pointing wasmPaths at the jsdelivr CDN throws a bare
+// "worker error" the instant numThreads > 1 (single-thread tolerated the CDN).
+// Vite's ?url emits these as same-origin hashed assets that pthread workers can
+// spawn from; bonus: no CDN round-trip and it's COEP-clean.
+import ortWasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
+import ortMjsUrl from "onnxruntime-web/ort-wasm-simd-threaded.mjs?url";
 
-ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
+ort.env.wasm.wasmPaths = { wasm: ortWasmUrl, mjs: ortMjsUrl };
 // Multi-thread the WASM backend when the page is cross-origin isolated, i.e.
 // SharedArrayBuffer is available (we set COOP/COEP in vite.config + vercel.json).
 // RVM is CPU-bound and single-thread was the wall (~82ms/frame); threads scale it
@@ -30,6 +38,9 @@ ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/di
 ort.env.wasm.numThreads = self.crossOriginIsolated
   ? Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1))
   : 1;
+// Logged at worker startup (before init can fail) so the isolation state and the
+// chosen thread count are always visible in the console.
+console.info(`[rvm-worker] crossOriginIsolated=${self.crossOriginIsolated} → numThreads=${ort.env.wasm.numThreads}`);
 
 let session = null;
 let r1, r2, r3, r4, downsample;

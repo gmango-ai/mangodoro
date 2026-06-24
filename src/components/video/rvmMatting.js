@@ -30,7 +30,10 @@ export function createRvmMatter({ modelUrl, inputWidth = 384, downsample = 0.25,
   };
   worker.onerror = (err) => {
     state.dead = true;
-    onError?.(String(err?.message || "worker error"));
+    // ErrorEvent.message is sanitized to "" for cross-origin scripts; fall back
+    // to filename:line so a same-origin worker failure is actually debuggable.
+    const detail = err?.message || (err?.filename ? `${err.filename}:${err.lineno || "?"}` : "worker error");
+    onError?.(String(detail));
   };
   worker.postMessage({ type: "init", modelUrl, downsample });
 
