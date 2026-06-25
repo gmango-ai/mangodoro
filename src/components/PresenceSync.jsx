@@ -31,7 +31,7 @@ export default function PresenceSync() {
     if (settings.workStart || settings.workEnd) return; // already set
     const week = Math.floor(Date.now() / (7 * 86400000));
     const k = `whnudge:${userId}:${week}`;
-    try { if (localStorage.getItem(k)) return; localStorage.setItem(k, "1"); } catch { return; }
+    try { if (localStorage.getItem(k)) return; } catch { return; }
     emitSelfNotification({
       type: "reminder",
       title: "Set your working hours",
@@ -39,6 +39,10 @@ export default function PresenceSync() {
       payload: { route: "/settings" },
       dedupeKey: `set_work_hours:${userId}:${week}`,
       dedupeWindowMinutes: 10080, // ~1 week
+    }).then((data) => {
+      if (data != null) {
+        try { localStorage.setItem(k, "1"); } catch { /* */ }
+      }
     });
   }, [userId, settings?.timezone, settings?.workStart, settings?.workEnd]);
 
