@@ -16,8 +16,22 @@ create policy "device reads its room chat"
   on public.chat_messages for select
   using (room_id = public.current_device_room());
 
+-- Chat author profiles: hydrateAuthors / fetchAuthorProfile read name +
+-- avatar_url from user_settings after loading messages; devices have no
+-- team_members row, so grant SELECT only for users who posted in this room.
+drop policy if exists "device reads room chat authors" on public.user_settings;
+create policy "device reads room chat authors"
+  on public.user_settings for select
+  using (
+    user_id in (
+      select distinct user_id
+        from public.chat_messages
+       where room_id = public.current_device_room()
+    )
+  );
+
 -- Whiteboard: a device sees only the whiteboard currently linked to its room's
--- session (sync_sessions.whiteboard_id) — not every board in the org.
+-- active session (sync_sessions.whiteboard_id) — not every board in the org.
 drop policy if exists "device reads its room whiteboard" on public.whiteboards;
 create policy "device reads its room whiteboard"
   on public.whiteboards for select
@@ -26,6 +40,7 @@ create policy "device reads its room whiteboard"
       select whiteboard_id
         from public.sync_sessions
        where room_id = public.current_device_room()
+         and status = 'active'
          and whiteboard_id is not null
     )
   );
