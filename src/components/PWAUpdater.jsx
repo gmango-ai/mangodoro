@@ -3,6 +3,7 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import { useTheme } from "../context/ThemeContext";
 import { isMobileApp } from "../lib/platform";
 import { RefreshCw } from "lucide-react";
+import { PWA_PENDING_RELOAD_KEY } from "./WhatsNew";
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // hourly background check
 
@@ -40,14 +41,15 @@ function PWAUpdaterWeb() {
     },
   });
 
-  // Auto-apply update silently when a new SW is waiting. After the reload, the
-  // WhatsNew watcher surfaces a "What's new" toast if the changelog changed —
-  // so there's no separate "Updated" toast here.
+  // Auto-apply update silently when a new SW is waiting. After the reload,
+  // WhatsNew shows a toast (changelog diff and/or the pending-reload flag).
   useEffect(() => {
     if (!needRefresh || autoAppliedRef.current) return;
     autoAppliedRef.current = true;
+    try { sessionStorage.setItem(PWA_PENDING_RELOAD_KEY, "1"); } catch { /* ignore */ }
     updateServiceWorker(true).catch(() => {
       // If auto-apply fails, fall back to leaving the prompt visible.
+      try { sessionStorage.removeItem(PWA_PENDING_RELOAD_KEY); } catch { /* ignore */ }
       autoAppliedRef.current = false;
     });
   }, [needRefresh, updateServiceWorker]);
