@@ -253,16 +253,33 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   );
 }
 
-// Compact join dock overlaid on a live spectate preview. You watch the call,
-// set your join intent (mic / camera — persisted, shared with the green room),
-// then upgrade to publishing in place. There's deliberately NO live self-camera
-// here: your camera stays OFF while you're only watching, and comes on when you
-// hit Join — so passing through a busy room never flips your webcam on.
+// Join dock overlaid on a live spectate preview. You watch the call, see a live
+// preview of YOUR OWN camera, set your join intent (mic / camera — persisted,
+// shared with the green room), then upgrade to publishing in place. The self
+// camera only spins up when your camera toggle is ON, so it reflects exactly how
+// you'll join — and toggling it off lets you watch with no camera running.
 function JoinDock({ displayName, onJoin, onLeave }) {
   const { userChoices, saveAudioInputEnabled, saveVideoInputEnabled } =
     usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: true, audioEnabled: true } });
   const camOn = userChoices.videoEnabled;
   const micOn = userChoices.audioEnabled;
+
+  // Self-preview track — only requested when the camera toggle is on (video:false
+  // releases it). Same pattern as the green room; logPreviewError is module-stable
+  // so the track isn't rebuilt every render (the black↔feed flash).
+  const trackOpts = useMemo(
+    () => ({ audio: false, video: camOn ? { deviceId: userChoices.videoDeviceId || undefined } : false }),
+    [camOn, userChoices.videoDeviceId],
+  );
+  const tracks = usePreviewTracks(trackOpts, logPreviewError);
+  const videoTrack = useMemo(() => tracks?.find((t) => t.kind === "video"), [tracks]);
+  const videoRef = useRef(null);
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!videoTrack || !el) return undefined;
+    videoTrack.attach(el);
+    return () => { try { videoTrack.detach(el); } catch { /* */ } };
+  }, [videoTrack]);
 
   const join = () => onJoin({
     username: userChoices.username || displayName,
@@ -288,12 +305,24 @@ function JoinDock({ displayName, onJoin, onLeave }) {
 
   return (
     <div className="absolute inset-x-0 bottom-4 z-30 flex justify-center pointer-events-none">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-slate-900/85 backdrop-blur px-2.5 py-2 shadow-xl ring-1 ring-white/10">
-        <span className="hidden sm:inline-flex items-center gap-1 pl-1 pr-0.5 text-[11px] font-semibold text-white/70">
-          <Eye className="w-3.5 h-3.5" /> Watching
-        </span>
+      <div className="pointer-events-auto flex items-center gap-2 rounded-2xl bg-slate-900/85 backdrop-blur px-2 py-2 shadow-xl ring-1 ring-white/10">
+        {/* Your own camera preview — how you'll look when you join. */}
+        <div className="w-24 aspect-video rounded-lg overflow-hidden bg-black/60 flex items-center justify-center shrink-0">
+          {camOn && videoTrack ? (
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+              style={{ transform: "scaleX(-1)" }}
+            />
+          ) : (
+            <UserAvatar url="" name={displayName} size={26} />
+          )}
+        </div>
         {T(micOn, Mic, MicOff, micOn ? "Join with mic on" : "Join muted", () => saveAudioInputEnabled(!micOn))}
-        {T(camOn, Video, VideoOff, camOn ? "Join with camera on" : "Join with camera off", () => saveVideoInputEnabled(!camOn))}
+        {T(camOn, Video, VideoOff, camOn ? "Turn camera off for join" : "Turn camera on for join", () => saveVideoInputEnabled(!camOn))}
         <button
           type="button"
           onClick={join}
