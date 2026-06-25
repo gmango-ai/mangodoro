@@ -24,9 +24,15 @@ export default function WorkClockBar({ dark }) {
   const reqRef = useRef(0);
   void clockedTick; // re-render the elapsed label as it ticks
 
+  // Drop cached projects when the active org changes so reopening the menu
+  // never briefly shows the previous team's list.
+  useEffect(() => {
+    setProjects([]);
+  }, [activeTeamId]);
+
   // Org projects to pick "what you're working on" — fetched only when the menu opens.
   useEffect(() => {
-    if (!activeTeamId) { setProjects([]); return; }
+    if (!activeTeamId) return;
     if (!open) return;
     const my = ++reqRef.current;
     listOrgProjects(activeTeamId).then((data) => {
