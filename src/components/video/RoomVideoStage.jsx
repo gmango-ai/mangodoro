@@ -353,7 +353,14 @@ export default function RoomVideoStage({ roomId, displayName }) {
   // it resets when you move to another room so re-entering previews again.
   const [dismissed, setDismissed] = useState(false);
   const autoRef = useRef(false);
+  const wasInCallRef = useRef(false);
   useEffect(() => { setDismissed(false); autoRef.current = false; }, [roomId]);
+
+  // If a spectate session ends without "Stop watching", allow auto-preview to retry.
+  useEffect(() => {
+    if (wasInCallRef.current && !inCall && !dismissed) autoRef.current = false;
+    wasInCallRef.current = inCall;
+  }, [inCall, dismissed]);
 
   // Spectators announce as "observe" so they don't show up as participants
   // in the room's call-presence; publishers announce as "join".
