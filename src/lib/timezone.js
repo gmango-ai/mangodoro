@@ -25,9 +25,16 @@ export function tzAbbrev(tz) {
 // [start,end] (date strings, inclusive)?
 export function isOutOfOffice(start, end, tz) {
   if (!start && !end) return false;
-  const today = tz
-    ? new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date())
-    : new Date().toLocaleDateString("en-CA");
+  let today;
+  if (tz) {
+    try {
+      today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+    } catch {
+      today = new Date().toLocaleDateString("en-CA");
+    }
+  } else {
+    today = new Date().toLocaleDateString("en-CA");
+  }
   if (start && today < start) return false;
   if (end && today > end) return false;
   return true;
