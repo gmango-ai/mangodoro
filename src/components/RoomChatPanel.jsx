@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { Send, Pencil, Trash2, Check, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Send, Pencil, Trash2, Check, X, Clock } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
 import { emitMention } from "../lib/notifications";
+import { getProfiles } from "../lib/profiles";
+import { availability, isOutOfOffice } from "../lib/timezone";
 import UserAvatar from "./UserAvatar";
 
 function formatTime(iso) {
@@ -210,6 +212,42 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
   const [mention, setMention] = useState(null); // { query, index, anchor } | null
   const myName = settings?.name || "Someone";
 
+  // Heads-up when you're @mentioning someone who's out of office or (if they've
+  // left the warning on) outside their working hours — they may not see it now.
+  const mentionedInDraft = useMemo(() => {
+    const ids = new Set();
+    const body = draft || "";
+    if (!body.includes("@")) return ids;
+    for (const m of teamMembers || []) {
+      if (m.user_id !== userId && m.name && body.includes(`@${m.name}`)) ids.add(m.user_id);
+    }
+    return ids;
+  }, [draft, teamMembers, userId]);
+  const [availMap, setAvailMap] = useState({});
+  const fetchedRef = useRef(new Set());
+  useEffect(() => {
+    const need = [...mentionedInDraft].filter((id) => !fetchedRef.current.has(id));
+    if (!need.length) return;
+    need.forEach((id) => fetchedRef.current.add(id));
+    getProfiles(need).then((map) => setAvailMap((prev) => ({ ...prev, ...map })));
+  }, [mentionedInDraft]);
+  const mentionWarnings = useMemo(() => {
+    const out = [];
+    for (const id of mentionedInDraft) {
+      const p = availMap[id];
+      if (!p) continue;
+      const nm = (teamMembers || []).find((m) => m.user_id === id)?.name || p.display_name || "They";
+      if (isOutOfOffice(p.ooo_start, p.ooo_end)) {
+        const until = p.ooo_end ? ` until ${new Date(`${p.ooo_end}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}` : "";
+        out.push(`${nm} is out of office${until}`);
+      } else if (p.off_hours_warn !== false) {
+        const a = availability(p.timezone, p.work_start, p.work_end);
+        if (a.badge === "off hours") out.push(`it's after hours for ${nm}${a.label ? ` (${a.label} their time)` : ""}`);
+      }
+    }
+    return out;
+  }, [mentionedInDraft, availMap, teamMembers]);
+
   const candidates = mention
     ? (teamMembers || [])
         .filter((m) => m.user_id !== userId && (m.name || "").toLowerCase().includes(mention.query.toLowerCase()))
@@ -360,6 +398,12 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
           })
         )}
       </div>
+      {mentionWarnings.length > 0 && (
+        <div className={`mt-2 flex items-start gap-1.5 text-[11px] rounded-lg px-2.5 py-1.5 ${dark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-700"}`}>
+          <Clock className="w-3 h-3 mt-0.5 shrink-0" />
+          <span>{mentionWarnings.join(" · ")} — they may not see this right away.</span>
+        </div>
+      )}
       <div className="mt-2 flex gap-2 relative">
         {mention && candidates.length > 0 && (
           <div
