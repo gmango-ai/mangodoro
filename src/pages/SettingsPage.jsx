@@ -13,8 +13,10 @@ import {
 import {
   Settings as SettingsIcon, User, Palette, Timer, Clock,
   Briefcase, Bell, Database, Check, Sun, Moon, Sparkles,
-  FileText, Download, Upload, KeyRound, Volume2, CalendarClock, Plus, X,
+  FileText, Download, Upload, KeyRound, Volume2, CalendarClock, Plus, X, Info,
 } from "lucide-react";
+import { openWhatsNew } from "../components/WhatsNew";
+import { appVersion, latestEntryId } from "../lib/changelog";
 import { ACCENTS } from "../lib/accent";
 import AvatarUploader from "../components/AvatarUploader";
 import SoundLibrary from "../components/SoundLibrary";
@@ -41,6 +43,7 @@ const SECTIONS = [
   { key: "projects",      label: "Projects",      Icon: Briefcase },
   { key: "notifications", label: "Notifications", Icon: Bell },
   { key: "data",          label: "Data",          Icon: Database },
+  { key: "about",         label: "About",         Icon: Info },
 ];
 
 const PROJECT_COLORS = ["#14b8a6", "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#ef4444", "#64748b"];
@@ -108,6 +111,7 @@ export default function SettingsPage() {
           {section === "projects" && <ProjectsSection dark={dark} />}
           {section === "notifications" && <NotificationsSection dark={dark} />}
           {section === "data" && <DataSection dark={dark} />}
+          {section === "about" && <AboutSection dark={dark} />}
         </div>
       </div>
     </main>
@@ -1695,6 +1699,25 @@ function NotificationsSection({ dark }) {
 }
 
 // ── Data: exports + invoice + imports ──────────────────────────────
+
+function AboutSection({ dark }) {
+  const latest = latestEntryId();
+  return (
+    <SectionCard title="About" hint="App version and recent changes." dark={dark}>
+      <div className="space-y-3">
+        <div className="text-sm">
+          <div className={`font-semibold ${dark ? "text-slate-200" : "text-slate-800"}`}>Mangodoro</div>
+          <div className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Version {appVersion || "—"}{latest ? ` · Latest update ${latest}` : ""}
+          </div>
+        </div>
+        <Button onClick={openWhatsNew} variant="outline" size="sm">
+          <Sparkles className="w-3.5 h-3.5 mr-1.5" /> What&rsquo;s new
+        </Button>
+      </div>
+    </SectionCard>
+  );
+}
 
 function DataSection({ dark }) {
   const {
