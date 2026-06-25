@@ -15,6 +15,11 @@ function relTime(iso) {
   return `${Math.round(h / 24)}d ago`;
 }
 
+function pinnedRoomOptionLabel(pinnedRooms, roomId) {
+  const pinned = pinnedRooms.find((r) => r.id === roomId);
+  return pinned ? `${pinned.name} (archived)` : "—";
+}
+
 // Pairing code shown once after create / re-issue. Big, copyable, with expiry.
 function PairingCard({ pairing, dark, onDone }) {
   const [copied, setCopied] = useState(false);
@@ -45,6 +50,7 @@ export default function OrgDevicesPanel({ orgId }) {
   const dark = theme === "dark";
   const [devices, setDevices] = useState([]);
   const [rooms, setRooms] = useState([]);
+  const [pinnedRooms, setPinnedRooms] = useState([]); // archived/missing rooms devices still point at
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [roomId, setRoomId] = useState("");
@@ -63,6 +69,14 @@ export default function OrgDevicesPanel({ orgId }) {
     supabase.from("rooms").select("id, name").eq("team_id", orgId).is("archived_at", null).order("name")
       .then(({ data }) => setRooms(data || []));
   }, [orgId]);
+  useEffect(() => {
+    if (!orgId) return;
+    const activeIds = new Set(rooms.map((r) => r.id));
+    const missingIds = [...new Set(devices.map((d) => d.room_id).filter((id) => id && !activeIds.has(id)))];
+    if (!missingIds.length) { setPinnedRooms([]); return; }
+    supabase.from("rooms").select("id, name").eq("team_id", orgId).in("id", missingIds)
+      .then(({ data }) => setPinnedRooms(data || []));
+  }, [orgId, devices, rooms]);
 
   const add = async () => {
     if (!name.trim() || !roomId || busy) return;
@@ -171,6 +185,11 @@ export default function OrgDevicesPanel({ orgId }) {
                         title="Room this device shows"
                         className={`text-[11px] rounded-md px-1.5 py-0.5 outline-none cursor-pointer ${dark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}
                       >
+                        {!rooms.some((r) => r.id === d.room_id) && d.room_id && (
+                          <option value={d.room_id} className="text-slate-900">
+                            {pinnedRoomOptionLabel(pinnedRooms, d.room_id)}
+                          </option>
+                        )}
                         {rooms.map((r) => <option key={r.id} value={r.id} className="text-slate-900">{r.name}</option>)}
                       </select>
                       {/* Whether this device may switch its OWN room at the kiosk. */}
