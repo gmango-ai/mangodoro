@@ -280,7 +280,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
         </div>
       ) : (
         <>
-          <div className="relative flex-1 min-h-0 bg-black flex items-center justify-center">
+          <div className="flex-1 min-h-0 bg-black flex items-center justify-center">
             {camOn && videoTrack ? (
               // Centered box locked to the camera's aspect (letterboxed in the
               // tile) so the preview = what the call publishes, not a tile-shaped crop.
@@ -303,16 +303,21 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
                 <span className="text-white/70 text-sm font-medium">Camera off</span>
               </div>
             )}
+          </div>
 
-            {othersInCall && (
-              <div className="absolute top-2 right-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 text-white text-[11px] font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                {participants?.length || ""} in call
-              </div>
-            )}
+          {othersInCall && (
+            <div className="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 text-white text-[11px] font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              {participants?.length || ""} in call
+            </div>
+          )}
 
-            {/* Overlaid controls — float on the preview, never push the CTA down. */}
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2">
+          {/* Bottom dock — controls + Join, pinned to the tile's bottom edge as an
+              absolute overlay so the CTA is ALWAYS visible. (As a flow sibling the
+              Join row could get pushed below the tile when the aspect-locked
+              preview filled the height — only the top few pixels showed.) */}
+          <div className="absolute bottom-0 left-0 right-0 z-10 flex flex-col gap-2 p-3 bg-gradient-to-t from-black/85 via-black/45 to-transparent">
+            <div className="flex items-center justify-center gap-2">
               {toggles}
               <BgPicker bg={bg} onChange={setBg} />
               <div className="relative">
@@ -333,10 +338,6 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
                 )}
               </div>
             </div>
-          </div>
-
-          {/* Pinned footer — Join is ALWAYS visible. */}
-          <div className="shrink-0 p-3 bg-gradient-to-t from-black/70 via-black/40 to-transparent -mt-px">
             {joinRow}
           </div>
         </>
