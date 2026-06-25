@@ -14,10 +14,10 @@ const WhiteboardBoard = lazy(() =>
 // session has one attached (session.whiteboard_id), otherwise an empty
 // state that lets a leader attach/create one via the same picker the
 // sidebar widget uses.
-export default function RoomWhiteboardPanel({ whiteboardId, canLink, dark }) {
+export default function RoomWhiteboardPanel({ whiteboardId, canLink, dark, readOnly = false }) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const shell = `w-full h-full rounded-xl border overflow-hidden ${
+  const shell = `relative w-full h-full rounded-xl border overflow-hidden ${
     dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-white"
   }`;
 
@@ -25,8 +25,18 @@ export default function RoomWhiteboardPanel({ whiteboardId, canLink, dark }) {
     return (
       <div className={shell}>
         <Suspense fallback={<div className={`w-full h-full flex items-center justify-center text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>Loading board…</div>}>
-          <WhiteboardBoard boardId={whiteboardId} embedded />
+          {/* readOnly (kiosk): pointer-events off → a live, non-interactive view.
+              Realtime snapshot updates still flow; the device can't edit (RLS is
+              SELECT-only anyway, this just stops it LOOKING editable). */}
+          <div className={readOnly ? "w-full h-full pointer-events-none" : "w-full h-full"}>
+            <WhiteboardBoard boardId={whiteboardId} embedded readOnly={readOnly} />
+          </div>
         </Suspense>
+        {readOnly && (
+          <span className="absolute top-2 right-2 z-10 inline-flex items-center rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/80">
+            View only
+          </span>
+        )}
       </div>
     );
   }

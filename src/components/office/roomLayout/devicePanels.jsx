@@ -119,8 +119,9 @@ export const DEVICE_PANELS = {
     title: "Whiteboard",
     icon: PenLine,
     min: 360,
-    // Device can't link or edit (RLS is SELECT-only); shows the room's linked board.
-    render: ({ whiteboardId, dark }) => <RoomWhiteboardPanel whiteboardId={whiteboardId} canLink={false} dark={dark} />,
+    // Device can't link or edit (RLS is SELECT-only); shows the room's linked
+    // board as a live, view-only canvas.
+    render: ({ whiteboardId, dark }) => <RoomWhiteboardPanel whiteboardId={whiteboardId} canLink={false} dark={dark} readOnly />,
   },
 };
 
