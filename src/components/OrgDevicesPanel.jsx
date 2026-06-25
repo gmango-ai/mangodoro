@@ -50,6 +50,7 @@ export default function OrgDevicesPanel({ orgId }) {
   const dark = theme === "dark";
   const [devices, setDevices] = useState([]);
   const [rooms, setRooms] = useState([]);
+  const [roomsLoaded, setRoomsLoaded] = useState(false);
   const [pinnedRooms, setPinnedRooms] = useState([]); // archived/missing rooms devices still point at
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -66,17 +67,28 @@ export default function OrgDevicesPanel({ orgId }) {
   useEffect(() => { if (orgId) reload(); /* eslint-disable-next-line */ }, [orgId]);
   useEffect(() => {
     if (!orgId) return;
+    setRoomsLoaded(false);
     supabase.from("rooms").select("id, name").eq("team_id", orgId).is("archived_at", null).order("name")
-      .then(({ data }) => setRooms(data || []));
+      .then(({ data }) => {
+        setRooms(data || []);
+        setRoomsLoaded(true);
+      });
   }, [orgId]);
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId || !roomsLoaded) {
+      setPinnedRooms([]);
+      return;
+    }
     const activeIds = new Set(rooms.map((r) => r.id));
     const missingIds = [...new Set(devices.map((d) => d.room_id).filter((id) => id && !activeIds.has(id)))];
     if (!missingIds.length) { setPinnedRooms([]); return; }
+    let cancelled = false;
     supabase.from("rooms").select("id, name").eq("team_id", orgId).in("id", missingIds)
-      .then(({ data }) => setPinnedRooms(data || []));
-  }, [orgId, devices, rooms]);
+      .then(({ data }) => {
+        if (!cancelled) setPinnedRooms(data || []);
+      });
+    return () => { cancelled = true; };
+  }, [orgId, devices, rooms, roomsLoaded]);
 
   const add = async () => {
     if (!name.trim() || !roomId || busy) return;
@@ -185,7 +197,7 @@ export default function OrgDevicesPanel({ orgId }) {
                         title="Room this device shows"
                         className={`text-[11px] rounded-md px-1.5 py-0.5 outline-none cursor-pointer ${dark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}
                       >
-                        {!rooms.some((r) => r.id === d.room_id) && d.room_id && (
+                        {roomsLoaded && !rooms.some((r) => r.id === d.room_id) && d.room_id && (
                           <option value={d.room_id} className="text-slate-900">
                             {pinnedRoomOptionLabel(pinnedRooms, d.room_id)}
                           </option>
