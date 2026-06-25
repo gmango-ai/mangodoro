@@ -3,6 +3,10 @@
 Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first.
 
+## 2026-06-25
+
+- What's new: changelog toast/modal + auto-changelog on push to main
+
 ## 2026-06-21 → 2026-06-23 (last 48 hours)
 
 A large burst: a near-complete collaborative whiteboard, a LiveKit video
