@@ -1,66 +1,56 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Maximize2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useVideoCall } from "../../context/VideoCallContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import VideoCall from "./VideoCall";
 
-// Persistent container for the active Jitsi room call. Lives at the
-// AppLayout level so it never unmounts when the user navigates between
-// /office and other pages — the Jitsi iframe stays put in the DOM,
-// the conference stays connected.
+// Persistent container for the active room call. Lives at the AppLayout level so
+// it never unmounts when the user navigates — the LiveKit connection stays up.
 //
-// Positioning has two modes:
-//   • Stage mode  — the current page has provided a stageEl (e.g.
-//                   RoomVideoStage). We continuously sync our fixed-
-//                   position rectangle to that element's bounding
-//                   rect so the call appears "inside" the page chrome.
-//   • PiP mode    — no stageEl. We render a small floating window in
-//                   the bottom-right corner with a header that says
-//                   what room you're still in, a "back to room"
-//                   button, and a leave-call X.
+// Positioning: we portal the call into a STABLE host <div> that we physically
+// move between two parents:
+//   • Stage mode — appended INSIDE the page's stageEl (RoomVideoStage's tile),
+//     position:absolute inset-0, so the call fills that tile and SCROLLS NATIVELY
+//     with the page. (The old code fixed-positioned it to the viewport and chased
+//     the stage rect with a JS scroll handler + React setState, which always
+//     lagged a frame behind native scroll — the "video falls out of its frame".)
+//   • PiP mode  — appended to <body>, position:fixed bottom-right, a floating
+//     window with a back-to-room + leave-call header.
 //
-// We do NOT use a portal because moving an <iframe> between DOM
-// parents triggers a browser reload (Chrome/Safari security behavior).
-// CSS-positioning a single fixed container avoids that entirely.
+// Re-parenting the host node is safe now that the call is LiveKit <video>
+// elements: moving a <video> in the DOM keeps it playing. (The old comment here
+// said we COULDN'T move it — that was the Jitsi <iframe>, which reloads when
+// re-parented. Jitsi is retired, so the constraint, and all the rect-tracking
+// it forced, is gone.)
 
-const PIP_WIDTH = 320;
-const PIP_HEIGHT = 200;
-const PIP_MARGIN = 16;
-
-function pipRect() {
-  // bottom-right at the time we compute. Window-resize is handled via
-  // the effect below — we recompute on every resize.
-  if (typeof window === "undefined") return null;
-  return {
-    top: window.innerHeight - PIP_HEIGHT - PIP_MARGIN,
-    left: window.innerWidth - PIP_WIDTH - PIP_MARGIN,
-    width: PIP_WIDTH,
-    height: PIP_HEIGHT,
-  };
-}
+const PIP_CSS =
+  "position:fixed;bottom:16px;right:16px;width:320px;height:200px;z-index:120;" +
+  "border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.5);" +
+  "background:#0f172a;border:1px solid rgb(51,65,85);";
+// Sits just above the room tiles but below in-room chrome (menus/modals portal to
+// <body> at higher z), so the call never traps a control behind it.
+const STAGE_CSS = "position:absolute;inset:0;z-index:20;";
 
 export default function PersistentVideoCall() {
   const { call, startCall, endCall, updateCall, stageEl } = useVideoCall();
   const { syncSession } = useSyncSession();
   const navigate = useNavigate();
-  const containerRef = useRef(null);
-  const [rect, setRect] = useState(null);
 
-  // Bind the call's lifetime to the room's sync session. The call and
-  // session are otherwise independent: a call would survive the session
-  // ending, leaving a media bridge connected for no reason. When the
-  // session backing our call's room goes away — explicit leave, host
-  // ended it, swept as empty, or we got kicked — clearLocalSession sets
-  // syncSession to null (or to a different room), and we tear the call
-  // down too. Closing a tab is handled separately by VideoCall's
-  // pagehide dispose; the persistent PiP still survives plain in-app
-  // navigation while the session is alive.
-  // Carry-over: when you move from one room to another while in a call, the
-  // call FOLLOWS you into the new room (re-joins it) rather than ending —
-  // this is the only "auto-join" path. Leaving to the hallway (curRoom null)
-  // still tears the call down. A fresh entry from the hallway with no active
-  // call shows the pre-join card instead (see RoomVideoStage).
+  // Stable host node: created once, moved between parents, never unmounted — so
+  // the portaled <VideoCall> (and its LiveKit room) survives navigation.
+  const hostRef = useRef(null);
+  if (hostRef.current === null && typeof document !== "undefined") {
+    hostRef.current = document.createElement("div");
+  }
+  const [inPiP, setInPiP] = useState(false);
+
+  // Bind the call's lifetime to the room's sync session, and handle carry-over:
+  // when you move from one room to another while in a call, the call FOLLOWS you
+  // (re-joins the new room) rather than ending — the only "auto-join" path.
+  // Leaving to the hallway (curRoom null) tears the call down. A fresh entry from
+  // the hallway with no active call shows the pre-join card (see RoomVideoStage).
   const prevSessionRoomRef = useRef(syncSession?.room_id || null);
   useEffect(() => {
     const prevRoom = prevSessionRoomRef.current;
@@ -75,64 +65,30 @@ export default function PersistentVideoCall() {
     }
   }, [syncSession?.room_id, call, startCall, endCall]);
 
-  // Sync rect to stageEl (or PiP) every time stageEl changes, the
-  // stage resizes, or the window resizes. ResizeObserver on the stage
-  // catches splits/resizes inside RoomView; a resize listener catches
-  // window changes.
+  // Place the host: inside the stage (scrolls natively) or floating PiP. No rect
+  // tracking, no scroll/resize listeners — fixed bottom/right auto-tracks window
+  // resize, and absolute inset-0 auto-tracks the tile's scroll/resize.
   useLayoutEffect(() => {
-    if (!call) {
-      setRect(null);
-      return;
+    const host = hostRef.current;
+    if (!host || !call) return undefined;
+    if (stageEl) {
+      host.style.cssText = STAGE_CSS;
+      stageEl.appendChild(host);
+      setInPiP(false);
+    } else {
+      host.style.cssText = PIP_CSS;
+      document.body.appendChild(host);
+      setInPiP(true);
     }
-    let cancelled = false;
-    function update() {
-      if (cancelled) return;
-      if (stageEl) {
-        const r = stageEl.getBoundingClientRect();
-        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-      } else {
-        setRect(pipRect());
-      }
-    }
-    update();
-
-    const ro = stageEl ? new ResizeObserver(update) : null;
-    if (stageEl && ro) ro.observe(stageEl);
-    window.addEventListener("resize", update);
-    // Scroll inside ancestors can also move the stage rect.
-    window.addEventListener("scroll", update, true);
-
-    return () => {
-      cancelled = true;
-      if (ro) ro.disconnect();
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-    };
+    return () => { try { host.remove(); } catch { /* */ } };
   }, [stageEl, call]);
 
-  if (!call || !rect) return null;
-  const inPiP = !stageEl;
+  if (!call || !hostRef.current) return null;
 
-  return (
-    <div
-      ref={containerRef}
-      style={{
-        position: "fixed",
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-        // Stage mode sits just above the room tiles but BELOW in-room chrome
-        // (menus, dropdowns, modals) so the call never traps a control behind
-        // it. PiP is a deliberate floating window, so it rides higher (still
-        // under ESC-able modals at z-[180]+).
-        zIndex: inPiP ? 120 : 20,
-        transition: inPiP ? "top 0.18s ease, left 0.18s ease" : "none",
-      }}
-      className={inPiP ? "rounded-xl shadow-2xl overflow-hidden bg-slate-900 border border-slate-700" : ""}
-    >
-      {/* The actual call. key=roomId so changing rooms re-mounts the
-          iframe (the Jitsi conference name is room-derived). */}
+  return createPortal(
+    <>
+      {/* The actual call. key=roomId so changing rooms re-mounts it (carry-over
+          into a new room is a fresh connection). */}
       <VideoCall
         key={call.roomId}
         roomId={call.roomId}
@@ -144,13 +100,9 @@ export default function PersistentVideoCall() {
         onLeft={() => endCall()}
       />
 
-      {/* PiP-only chrome: a thin header with a "back to room" button
-          and a leave-call X. We overlay it on top of the iframe (the
-          iframe has its own toolbar; this is the app-shell layer). */}
+      {/* PiP-only chrome: a thin header with back-to-room + leave-call. */}
       {inPiP && (
-        <div
-          className="absolute top-0 left-0 right-0 flex items-center justify-between gap-2 px-2 py-1 bg-slate-900/80 backdrop-blur-sm text-white text-[11px] font-semibold pointer-events-none"
-        >
+        <div className="absolute top-0 left-0 right-0 flex items-center justify-between gap-2 px-2 py-1 bg-slate-900/80 backdrop-blur-sm text-white text-[11px] font-semibold pointer-events-none">
           <span className="truncate pointer-events-none">In call</span>
           <div className="flex items-center gap-1 pointer-events-auto">
             <button
@@ -174,6 +126,7 @@ export default function PersistentVideoCall() {
           </div>
         </div>
       )}
-    </div>
+    </>,
+    hostRef.current,
   );
 }

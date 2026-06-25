@@ -67,11 +67,23 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   const videoTrack = useMemo(() => tracks?.find((t) => t.kind === "video"), [tracks]);
 
   const videoRef = useRef(null);
+  // Lock the preview to the camera's NATIVE aspect ratio so it shows the exact
+  // framing you'll publish — object-cover filling an arbitrary tile cropped
+  // differently than the call does, making it a misleading preview.
+  const [previewAspect, setPreviewAspect] = useState(16 / 9);
   useEffect(() => {
     const el = videoRef.current;
     if (!videoTrack || !el) return undefined;
     videoTrack.attach(el);
-    return () => { try { videoTrack.detach(el); } catch { /* */ } };
+    const onMeta = () => {
+      if (el.videoWidth && el.videoHeight) setPreviewAspect(el.videoWidth / el.videoHeight);
+    };
+    el.addEventListener("loadedmetadata", onMeta);
+    onMeta();
+    return () => {
+      el.removeEventListener("loadedmetadata", onMeta);
+      try { videoTrack.detach(el); } catch { /* */ }
+    };
   }, [videoTrack]);
 
   // Device lists (re-enumerate once the camera grant lands so labels show).
@@ -161,9 +173,9 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
       <button
         type="button"
         onClick={onBack}
-        className="absolute top-2 left-2 z-20 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-black/40 text-white/80 hover:text-white text-[11px] font-semibold"
+        className="absolute top-3 left-3 z-20 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/70 hover:bg-black/90 text-white text-[13px] font-semibold shadow-lg ring-1 ring-white/15 transition-colors"
       >
-        <ArrowLeft className="w-3.5 h-3.5" /> Back
+        <ArrowLeft className="w-4 h-4" /> Back
       </button>
 
       {compact ? (
@@ -177,16 +189,23 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
         </div>
       ) : (
         <>
-          <div className="relative flex-1 min-h-0 bg-black">
+          <div className="relative flex-1 min-h-0 bg-black flex items-center justify-center">
             {camOn && videoTrack ? (
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-full h-full object-cover"
-                style={{ transform: "scaleX(-1)" }}
-              />
+              // Centered box locked to the camera's aspect (letterboxed in the
+              // tile) so the preview = what the call publishes, not a tile-shaped crop.
+              <div
+                className="relative max-w-full max-h-full overflow-hidden rounded-md"
+                style={{ aspectRatio: String(previewAspect) }}
+              >
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                  style={{ transform: "scaleX(-1)" }}
+                />
+              </div>
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center gap-2">
                 <UserAvatar url="" name={displayName} size={64} />
