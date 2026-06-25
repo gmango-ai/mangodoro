@@ -24,7 +24,7 @@ export function tzAbbrev(tz) {
 // Is `today` (in the viewer's local date) within an OOO [start,end] (date strings, inclusive)?
 export function isOutOfOffice(start, end) {
   if (!start && !end) return false;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA");
   if (start && today < start) return false;
   if (end && today > end) return false;
   return true;
