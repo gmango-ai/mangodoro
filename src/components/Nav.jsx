@@ -13,6 +13,8 @@ import RunningTimerPill from "./RunningTimerPill";
 import BottomNav from "./BottomNav";
 import MoreSheet from "./MoreSheet";
 import NotificationBell from "./notifications/NotificationBell";
+import { usePomodoro } from "../pomodoro/PomodoroContext";
+import { useSyncSession } from "../context/SyncSessionContext";
 import WorkClockBar from "./nav/WorkClockBar";
 import WorkingNowBar from "./nav/WorkingNowBar";
 
@@ -27,9 +29,15 @@ const PRESENCE_DOT_COLOR = {
 };
 
 export default function Nav({ onOpenPomodoro }) {
-  const { settings, todayMins, exportMsg, dataSyncing, session } = useApp();
+  const { settings, todayMins, exportMsg, dataSyncing, session, clockIn } = useApp();
   const { activeTeamSessions } = useTeam();
+  const { isRunning } = usePomodoro();
+  const { syncSession } = useSyncSession();
   const hasTeamSessions = (activeTeamSessions?.length || 0) > 0;
+  // Pomodoro nav dot: only when a timer is actually running (yours or the team's).
+  const timerActive = isRunning || hasTeamSessions;
+  // Office nav dot: when you're tracking hours (clocked in) or present in a room.
+  const officeActive = !!clockIn || !!syncSession;
   const presenceDot = PRESENCE_DOT_COLOR[settings.presenceState] || PRESENCE_DOT_COLOR.active;
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === "dark";
@@ -167,11 +175,16 @@ export default function Nav({ onOpenPomodoro }) {
             <nav className="flex items-center gap-1">
               <NavLink to="/pomodoro" className={desktopNavLink}>
                 Pomodoro
-                {hasTeamSessions && (
+                {timerActive && (
                   <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse align-middle" />
                 )}
               </NavLink>
-              <NavLink to="/office" className={desktopNavLink}>Office</NavLink>
+              <NavLink to="/office" className={desktopNavLink}>
+                Office
+                {officeActive && (
+                  <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse align-middle" />
+                )}
+              </NavLink>
               <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
               <NavLink to="/whiteboards" className={desktopNavLink}>Whiteboards</NavLink>
               <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
@@ -279,12 +292,15 @@ export default function Nav({ onOpenPomodoro }) {
 
           <NavLink to="/pomodoro" className={sidebarNavLink}>
             <Timer className="w-5 h-5" /> Pomodoro
-            {hasTeamSessions && (
+            {timerActive && (
               <span className="ml-auto w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse" />
             )}
           </NavLink>
           <NavLink to="/office" className={sidebarNavLink}>
             <Building2 className="w-5 h-5" /> Office
+            {officeActive && (
+              <span className="ml-auto w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            )}
           </NavLink>
           <NavLink to="/time-tracker" className={sidebarNavLink}>
             <span className="w-5 text-center">📋</span> Time tracker
