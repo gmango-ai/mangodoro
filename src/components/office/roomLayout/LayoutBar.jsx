@@ -6,10 +6,10 @@ import { PRESETS } from "./presets";
 // reset to the default. `presetId` is "custom" once the layout is edited.
 export default function LayoutBar({
   presetId, onApply, onReset, accent, dark, arranging, onToggleArrange,
-  panels, activePanels, onTogglePanel,
+  panels, activePanels, onTogglePanel, presets = PRESETS,
 }) {
   const [open, setOpen] = useState(false);
-  const current = PRESETS.find((p) => p.id === presetId);
+  const current = presets.find((p) => p.id === presetId);
   const label = current ? current.label : "Custom";
   return (
     <div className="flex items-center gap-1.5">
@@ -74,7 +74,7 @@ export default function LayoutBar({
               dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
             }`}
           >
-            {PRESETS.map((p) => {
+            {presets.map((p) => {
               const active = p.id === presetId;
               return (
                 <button
