@@ -140,16 +140,23 @@ void main(){
     }
   }
   float refined = wsum > 0.0 ? msum / wsum : texture(u_mask, v_uv).r;
-  // Firm S-curve centred on 0.5: low-confidence background is driven hard to 0 so
-  // the replacement/blur is FULLY OPAQUE (the old 0.4-pivot "keep the user" bias
-  // lifted background haze to ~0.2 → the real room showed through). Background
-  // below ~0.3 → 0, foreground above ~0.7 → 1, soft only across the true edge.
-  // [TUNE] slope 2.5 — lower it if hair/dark-shirt-on-dark-bg starts clipping.
-  refined = clamp((refined - 0.5) * 2.5 + 0.5, 0.0, 1.0);
+  // Asymmetric soft curve: background below ~0.30 is forced to 0 so the
+  // replacement stays FULLY OPAQUE, but smoothstep gives a gentle foreground
+  // falloff (vs the old hard linear clamp) so soft detail — hair, glasses arms —
+  // keeps a feathered edge instead of a paper cutout. [TUNE] raise 0.30 if any
+  // background haze returns; lower 0.62 to keep more wispy hair.
+  refined = smoothstep(0.30, 0.62, refined);
   float a = refined;
-  // Light temporal smoothing (15% history) only — just enough to settle edge
-  // shimmer. The old 40% history trailed a stale matte into a smear on fast motion.
-  if (u_hasPrev > 0.5) a = mix(texture(u_prev, v_uv).r, refined, 0.85);
+  // Motion-adaptive temporal. Where the matte is steady (|refined-prev| tiny) we
+  // lean on history to kill the edge shimmer you get standing still; where it's
+  // changing (you moved) we snap to the current matte so a stale frame can't
+  // trail into a smear. One fixed blend can't do both — this picks per-pixel.
+  if (u_hasPrev > 0.5) {
+    float prev = texture(u_prev, v_uv).r;
+    float motion = abs(refined - prev);
+    float k = mix(0.35, 1.0, smoothstep(0.04, 0.25, motion)); // weight on the CURRENT matte
+    a = mix(prev, refined, k);
+  }
   o = vec4(a, 0.0, 0.0, 1.0);
 }`;
 
@@ -425,9 +432,9 @@ class RefinedBackgroundProcessor {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, mw, mh, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
   }
 
-  // RVM gives a clean float alpha — upload it to the mask texture; _render(false)
-  // composites it directly (no bilateral/temporal refine, which would ghost a
-  // moving hand).
+  // RVM gives a clean float alpha — solidify the body here, then it flows through
+  // the same _render(true) refine (bilateral edge-snap + adaptive temporal + the
+  // opacity curve) as the MediaPipe mask.
   _uploadAlpha(alpha, w, h) {
     const u8 = this._maskBuf && this._maskBuf.length === alpha.length ? this._maskBuf : (this._maskBuf = new Uint8Array(alpha.length));
     // Firm up semi-transparent foreground: RVM can read a hand as ~0.5–0.7 alpha,
