@@ -17,6 +17,7 @@ import { ProfileProvider } from "./context/ProfileContext";
 import LunchReminder from "./components/LunchReminder";
 import HealthReminders from "./components/HealthReminders";
 import PresenceSync from "./components/PresenceSync";
+import IdlePresence from "./components/IdlePresence";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
@@ -173,6 +174,8 @@ function AppLayout({ session }) {
       <HealthReminders />
       {/* Mirrors timezone + clock-in into outward presence signals. */}
       <PresenceSync />
+      {/* Auto online/away from tab activity (idle → away, return → restore). */}
+      <IdlePresence />
       {/* Transient in-app notification toasts. */}
       <NotificationToaster />
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis
