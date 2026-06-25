@@ -5,13 +5,18 @@ import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
-import { Sun, Moon, LogOut, Loader2, Timer, Users, Building2, Settings as SettingsIcon, Menu, X, ChevronDown } from "lucide-react";
+import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
 import RunningTimerPill from "./RunningTimerPill";
 import BottomNav from "./BottomNav";
 import MoreSheet from "./MoreSheet";
+import NotificationBell from "./notifications/NotificationBell";
+import { usePomodoro } from "../pomodoro/PomodoroContext";
+import { useSyncSession } from "../context/SyncSessionContext";
+import WorkClockBar from "./nav/WorkClockBar";
+import WorkingNowBar from "./nav/WorkingNowBar";
 
 const PRESENCE_DOT_COLOR = {
   active: "bg-emerald-500",
@@ -19,12 +24,20 @@ const PRESENCE_DOT_COLOR = {
   heads_down: "bg-violet-500",
   in_meeting: "bg-rose-500",
   away: "bg-amber-500",
+  out_to_lunch: "bg-orange-500",
+  commuting: "bg-cyan-500",
 };
 
 export default function Nav({ onOpenPomodoro }) {
-  const { settings, todayMins, exportMsg, dataSyncing, session } = useApp();
+  const { settings, todayMins, exportMsg, dataSyncing, session, clockIn } = useApp();
   const { activeTeamSessions } = useTeam();
+  const { isRunning } = usePomodoro();
+  const { syncSession } = useSyncSession();
   const hasTeamSessions = (activeTeamSessions?.length || 0) > 0;
+  // Pomodoro nav dot: only when a timer is actually running (yours or the team's).
+  const timerActive = isRunning || hasTeamSessions;
+  // Office nav dot: when you're tracking hours (clocked in) or present in a room.
+  const officeActive = !!clockIn || !!syncSession;
   const presenceDot = PRESENCE_DOT_COLOR[settings.presenceState] || PRESENCE_DOT_COLOR.active;
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === "dark";
@@ -115,7 +128,7 @@ export default function Nav({ onOpenPomodoro }) {
           </div>
         )}
 
-        <div className="max-w-4xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center gap-3">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center gap-3">
           {/* Mobile: hamburger */}
           <button
             type="button"
@@ -148,6 +161,13 @@ export default function Nav({ onOpenPomodoro }) {
             </span>
           </NavLink>
 
+          {/* Mobile: clock + who's-working + notification bell, pinned right. */}
+          <div className="xl:hidden ml-auto flex items-center gap-2">
+            <WorkClockBar dark={darkMode} />
+            <WorkingNowBar dark={darkMode} />
+            <NotificationBell />
+          </div>
+
           {/* Desktop: full nav + actions. ml-auto pins it to the right so the
               brand stays left next to the hamburger below the breakpoint (no
               stranded, far-right wordmark). */}
@@ -155,21 +175,32 @@ export default function Nav({ onOpenPomodoro }) {
             <nav className="flex items-center gap-1">
               <NavLink to="/pomodoro" className={desktopNavLink}>
                 Pomodoro
-                {hasTeamSessions && (
+                {timerActive && (
                   <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse align-middle" />
                 )}
               </NavLink>
-              <NavLink to="/office" className={desktopNavLink}>Office</NavLink>
+              <NavLink to="/office" className={desktopNavLink}>
+                Office
+                {officeActive && (
+                  <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse align-middle" />
+                )}
+              </NavLink>
               <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
               <NavLink to="/whiteboards" className={desktopNavLink}>Whiteboards</NavLink>
               <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
             </nav>
+
+            {/* Clock in/out + quick On-lunch, and who's working right now. */}
+            <WorkClockBar dark={darkMode} />
+            <WorkingNowBar dark={darkMode} />
 
             {/* Always-visible timer pill — surfaces the live pomodoro
                 state right in the Nav. Replaces the floating bottom-
                 right FAB so the indicator is a Nav citizen and doesn't
                 cover content. */}
             <RunningTimerPill onOpen={onOpenPomodoro} />
+
+            <NotificationBell />
 
             {/* Single user-menu dropdown on the right — replaces the
                 previous strip of Timer / chip / theme / Settings / Sign
@@ -261,12 +292,15 @@ export default function Nav({ onOpenPomodoro }) {
 
           <NavLink to="/pomodoro" className={sidebarNavLink}>
             <Timer className="w-5 h-5" /> Pomodoro
-            {hasTeamSessions && (
+            {timerActive && (
               <span className="ml-auto w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse" />
             )}
           </NavLink>
           <NavLink to="/office" className={sidebarNavLink}>
             <Building2 className="w-5 h-5" /> Office
+            {officeActive && (
+              <span className="ml-auto w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            )}
           </NavLink>
           <NavLink to="/time-tracker" className={sidebarNavLink}>
             <span className="w-5 text-center">📋</span> Time tracker
@@ -502,6 +536,19 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
             {dark ? <Sun className="w-4 h-4 opacity-70" /> : <Moon className="w-4 h-4 opacity-70" />}
             {dark ? "Switch to light" : "Switch to dark"}
           </button>
+
+          {/* Profile */}
+          {session?.user?.id && (
+            <NavLink
+              to={`/u/${session.user.id}`}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className={item}
+            >
+              <User className="w-4 h-4 opacity-70" />
+              Profile
+            </NavLink>
+          )}
 
           {/* Settings */}
           <NavLink

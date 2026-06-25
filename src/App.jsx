@@ -12,7 +12,14 @@ import { TeamProvider } from "./context/TeamContext";
 import { SyncSessionProvider, useSyncSession } from "./context/SyncSessionContext";
 import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import { VideoCallProvider } from "./context/VideoCallContext";
+import { NotificationProvider } from "./context/NotificationContext";
+import { ProfileProvider } from "./context/ProfileContext";
 import LunchReminder from "./components/LunchReminder";
+import HealthReminders from "./components/HealthReminders";
+import PresenceSync from "./components/PresenceSync";
+import IdlePresence from "./components/IdlePresence";
+import ReflectionPrompt from "./components/ReflectionPrompt";
+import NotificationToaster from "./components/notifications/NotificationToaster";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
@@ -38,6 +45,7 @@ const WhiteboardPage = lazy(() => import("./pages/WhiteboardPage"));
 const OfficePage = lazy(() => import("./pages/OfficePage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const JoinSyncPage = lazy(() => import("./pages/JoinSyncPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
 const JoinRetroPage = lazy(() => import("./pages/JoinRetroPage"));
 const LocalTimerPage = lazy(() => import("./pages/LocalTimerPage"));
@@ -163,6 +171,16 @@ function AppLayout({ session }) {
     <div>
       {/* Out-to-lunch auto-status nudge (renders a prompt at lunch time). */}
       <LunchReminder />
+      {/* Recurring wellbeing/break reminders (hydration, move, eye rest…). */}
+      <HealthReminders />
+      {/* Mirrors timezone + clock-in into outward presence signals. */}
+      <PresenceSync />
+      {/* Auto online/away from tab activity (idle → away, return → restore). */}
+      <IdlePresence />
+      {/* "What did you work on?" capture around pomodoro phases. */}
+      <ReflectionPrompt />
+      {/* Transient in-app notification toasts. */}
+      <NotificationToaster />
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis
           here makes this div a scroll container, which traps the sticky
           <header> so it scrolls away and lets content slide under the
@@ -297,6 +315,7 @@ function AppLayout({ session }) {
             <Route path="/time-tracker" element={<TimeTrackerPage />} />
             <Route path="/time-tracker/:tab" element={<TimeTrackerPage />} />
             <Route path="/team" element={<TeamPage />} />
+            <Route path="/u/:userId" element={<ProfilePage />} />
             <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
             {/* Retros section. /team/retro is the legacy URL — redirect. */}
             <Route path="/team/retro" element={<Navigate to="/retros" replace />} />
@@ -346,7 +365,11 @@ function AuthenticatedApp({ session }) {
         <SyncSessionProvider session={session}>
           <PomodoroProvider userId={session.user.id}>
             <VideoCallProvider>
-              <AppLayout session={session} />
+              <NotificationProvider>
+                <ProfileProvider>
+                  <AppLayout session={session} />
+                </ProfileProvider>
+              </NotificationProvider>
             </VideoCallProvider>
           </PomodoroProvider>
         </SyncSessionProvider>

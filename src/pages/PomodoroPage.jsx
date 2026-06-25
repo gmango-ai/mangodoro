@@ -257,7 +257,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
                   dark ? "text-slate-400" : "text-slate-500"
                 }`}
               >
-                Goals this week
+                Current Goals
               </h3>
               <GoalsList goals={weekGoals} dark={dark} />
             </div>

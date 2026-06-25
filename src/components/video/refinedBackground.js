@@ -19,9 +19,44 @@
 // flagged with [TUNE]: mask polarity (foreground vs background), vertical
 // orientation, blur strength, and the bilateral edge weight.
 
+import { createRvmMatter } from "./rvmMatting";
+
 const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
+
+// Optional high-quality matting (Robust Video Matting). Used when the model is
+// hosted (set VITE_RVM_MODEL_URL to your Supabase Storage URL) AND the device
+// runs it fast enough; otherwise we fall back to the MediaPipe selfie mask.
+const RVM_MODEL_URL =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_RVM_MODEL_URL) || "";
+// Cap on the frame we send RVM. This sets inference COST, which (since render is
+// decoupled) equals matte FRESHNESS, i.e. how far the matte trails you on motion.
+// 384/0.35 ran ~27ms (≈37fps matte) on 8 threads vs 512/0.5's ~60-90ms (≈12-16fps);
+// the lower-lag config is the one that feels responsive when you move. Edge
+// sharpness barely suffers because the bilateral pass re-snaps this matte onto the
+// live 960px frame anyway. [TUNE] up only if you want crisper edges over freshness.
+const RVM_INPUT_WIDTH = 384;
+// RVM's internal ENCODER downscale. 0.35 (~134px encoder) is the floor that still
+// catches limbs (0.25 dropped arms); lower = faster/fresher but starts missing the
+// person. [TUNE].
+const RVM_DOWNSAMPLE = 0.35;
+// [TUNE] disable RVM above this avg. Now that rendering is decoupled from
+// inference, this latency only affects matte FRESHNESS (the render stays ~60fps),
+// so it can be lenient: a ~120ms matte snapped onto the live frame still beats
+// MediaPipe. Set well above the threaded 512/0.5 cost so a threaded machine keeps
+// RVM; a single-thread one (Safari/iOS) still blows past it and falls back.
+const RVM_SLOW_MS = 160;
+
+// Sticky, per-page verdict: once RVM proves too slow on this machine we stop
+// even *trying* it. A new processor is built on every camera mute/unmute (the
+// track identity changes — see EffectsController), so a per-instance flag reset
+// every toggle and re-ran the whole probe: re-download the model, 12 slow frames,
+// then flip back to MediaPipe. Hoisting the verdict to the module makes it learn
+// once. (We tested WebGPU — RVM's recurrent ops fall back to CPU on the heavier
+// asyncify build, so it ran *slower*, 113ms vs 82ms. WASM single-thread is the
+// wall; the gate is the right answer.)
+let rvmDisabledForSession = false;
 
 const PROC_WIDTH_CAP = 960; // cap the processing resolution for perf
 
@@ -103,9 +138,23 @@ void main(){
     }
   }
   float refined = wsum > 0.0 ? msum / wsum : texture(u_mask, v_uv).r;
-  refined = clamp((refined - 0.5) * 1.6 + 0.5, 0.0, 1.0);   // crisp-up the ramp
+  // Asymmetric soft curve: background below ~0.30 is forced to 0 so the
+  // replacement stays FULLY OPAQUE, but smoothstep gives a gentle foreground
+  // falloff (vs the old hard linear clamp) so soft detail — hair, glasses arms —
+  // keeps a feathered edge instead of a paper cutout. [TUNE] raise 0.30 if any
+  // background haze returns; lower 0.62 to keep more wispy hair.
+  refined = smoothstep(0.30, 0.62, refined);
   float a = refined;
-  if (u_hasPrev > 0.5) a = mix(texture(u_prev, v_uv).r, refined, 0.6); // temporal EMA
+  // Motion-adaptive temporal. Where the matte is steady (|refined-prev| tiny) we
+  // lean on history to kill the edge shimmer you get standing still; where it's
+  // changing (you moved) we snap to the current matte so a stale frame can't
+  // trail into a smear. One fixed blend can't do both — this picks per-pixel.
+  if (u_hasPrev > 0.5) {
+    float prev = texture(u_prev, v_uv).r;
+    float motion = abs(refined - prev);
+    float k = mix(0.35, 1.0, smoothstep(0.04, 0.25, motion)); // weight on the CURRENT matte
+    a = mix(prev, refined, k);
+  }
   o = vec4(a, 0.0, 0.0, 1.0);
 }`;
 
@@ -128,6 +177,22 @@ void main(){
   o = sum;
 }`;
 
+// Build a premultiplied BACKGROUND for the blur: rgb = video × (1-alpha),
+// a = (1-alpha). Blurring this (then dividing rgb/a in the composite) averages
+// ONLY background pixels, so the foreground's colour doesn't smear into a halo
+// at the edge — the big visible gap vs a true depth blur.
+const FRAG_PREMULT = `#version 300 es
+precision highp float;
+in vec2 v_uv; out vec4 o;
+uniform sampler2D u_video;
+uniform sampler2D u_alpha;
+void main(){
+  vec3 c = texture(u_video, v_uv).rgb;
+  float a = texture(u_alpha, v_uv).r;   // foreground alpha
+  float bgw = 1.0 - a;                  // background weight
+  o = vec4(c * bgw, bgw);
+}`;
+
 // Composite foreground over background with a light wrap at the edge band, and
 // flip vertically so the captured canvas is upright.
 const FRAG_COMPOSITE = `#version 300 es
@@ -140,7 +205,8 @@ uniform float u_lightWrap;
 void main(){
   vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);     // [TUNE] flip for upright output
   vec3 fg = texture(u_video, uv).rgb;
-  vec3 bg = texture(u_bg, uv).rgb;
+  vec4 bgs = texture(u_bg, uv);
+  vec3 bg = bgs.a > 0.001 ? bgs.rgb / bgs.a : bgs.rgb;   // un-premultiply (bleed-free blur)
   float a = texture(u_alpha, uv).r;
   float edge = smoothstep(0.0, 0.5, a) * (1.0 - smoothstep(0.5, 1.0, a)); // mid-alpha band
   fg = mix(fg, bg, edge * u_lightWrap);
@@ -183,15 +249,25 @@ class RefinedBackgroundProcessor {
     this.name = "refined-background";
     this.opts = normalize(opts);
     this._running = false;
-    this._busy = false;
+    this._busy = false;     // an inference (RVM or MediaPipe) is in flight
     this._ts = 0;
-    this._lastSeg = 0;
+    this._lastRender = 0;   // throttles the render loop to ~display rate
+    this._haveMask = 0;     // a matte exists in texMask → safe to composite
     this._hasPrev = 0;
+    this._rvm = null;       // RVM matter handle (when available)
+    this._rvmSlow = false;  // disabled after the perf gate trips
+    this._rvmMs = [];       // recent inference timings
+    this._rvmBatches = 0;   // completed perf batches (1st is warmup, ignored)
+    this._rvmSlowStreak = 0;// consecutive over-budget batches (need 2 to bail)
+    this._backend = null;   // "RVM" | "MediaPipe" — logged when it changes
   }
 
   async init(processorOptions) {
     const track = processorOptions?.track;
     if (!track) throw new Error("no source track");
+    this._haveMask = 0;
+    this._hasPrev = 0;
+    this._busy = false;
     this.source = track;
 
     this.video = document.createElement("video");
@@ -217,9 +293,30 @@ class RefinedBackgroundProcessor {
     this._setupGL();
 
     this.segmenter = await createSegmenter();
+    // High-quality matting in the background; MediaPipe (above) runs immediately
+    // and stays as the fallback. We switch to RVM once it's loaded + proven fast.
+    if (RVM_MODEL_URL && !rvmDisabledForSession) {
+      try {
+        console.info("[bg] RVM model loading…", RVM_MODEL_URL);
+        this._rvm = createRvmMatter({
+          modelUrl: RVM_MODEL_URL,
+          inputWidth: RVM_INPUT_WIDTH,
+          downsample: RVM_DOWNSAMPLE,
+          onReady: (ep, threads) => console.info(
+            `[bg] RVM ready (${ep || "wasm"}, ${threads > 1 ? `${threads} threads` : "single-thread"}) — switching in`
+          ),
+          onError: (msg) => { console.warn("[bg] RVM unavailable, staying on MediaPipe:", msg); this._rvm = null; },
+        });
+      } catch (e) {
+        console.warn("[rvm] init failed", e);
+        this._rvm = null;
+      }
+    }
     if (this.opts.imageUrl) await this._loadBg(this.opts.imageUrl);
 
-    this.processedTrack = this.canvas.captureStream(30).getVideoTracks()[0];
+    // 60fps so the decoupled render loop's smoothness reaches the call (capped by
+    // the camera's own rate + LiveKit's adaptive encode; harmless if the source is 30).
+    this.processedTrack = this.canvas.captureStream(60).getVideoTracks()[0];
     this._running = true;
     this._loop();
   }
@@ -240,7 +337,12 @@ class RefinedBackgroundProcessor {
 
   async destroy() {
     this._running = false;
+    this._haveMask = 0;
+    this._hasPrev = 0;
+    this._busy = false;
     if (this._raf) cancelAnimationFrame(this._raf);
+    try { this._rvm?.close(); } catch { /* */ }
+    this._rvm = null;
     try { this.segmenter?.close(); } catch { /* */ }
     try { this.processedTrack?.stop(); } catch { /* */ }
     if (this.video) { this.video.srcObject = null; this.video = null; }
@@ -257,6 +359,7 @@ class RefinedBackgroundProcessor {
 
     this.pRefine = makeProgram(gl, VERT, FRAG_REFINE);
     this.pBlur = makeProgram(gl, VERT, FRAG_BLUR);
+    this.pPremult = makeProgram(gl, VERT, FRAG_PREMULT);
     this.pComposite = makeProgram(gl, VERT, FRAG_COMPOSITE);
 
     this.texVideo = makeTex(gl, gl.LINEAR);
@@ -268,8 +371,11 @@ class RefinedBackgroundProcessor {
 
     this.alphaA = makeFBO(gl, this.W, this.H, gl.R8, gl.RED, gl.UNSIGNED_BYTE);
     this.alphaB = makeFBO(gl, this.W, this.H, gl.R8, gl.RED, gl.UNSIGNED_BYTE);
-    this.bw = Math.max(1, this.W >> 1);
-    this.bh = Math.max(1, this.H >> 1);
+    // Blur at quarter res: the wide blur comes from ITERATING a small-step blur
+    // (below), not from one wide-tap pass, so low res + linear filtering keeps it
+    // smooth and cheap.
+    this.bw = Math.max(1, this.W >> 2);
+    this.bh = Math.max(1, this.H >> 2);
     this.blur1 = makeFBO(gl, this.bw, this.bh, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
     this.blur2 = makeFBO(gl, this.bw, this.bh, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
   }
@@ -324,44 +430,144 @@ class RefinedBackgroundProcessor {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, mw, mh, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
   }
 
-  _render() {
+  // RVM gives a clean float alpha — solidify the body here, then it flows through
+  // the same _render(true) refine (bilateral edge-snap + adaptive temporal + the
+  // opacity curve) as the MediaPipe mask.
+  _uploadAlpha(alpha, w, h) {
+    const u8 = this._maskBuf && this._maskBuf.length === alpha.length ? this._maskBuf : (this._maskBuf = new Uint8Array(alpha.length));
+    // Firm up semi-transparent foreground: RVM can read a hand as ~0.5–0.7 alpha,
+    // so the background bleeds through it ("see-through hand"). A smoothstep
+    // pushes mid/high alpha to solid while keeping a soft edge, and drops faint
+    // halos toward 0. [TUNE] LO/HI — raise LO to kill more halo, lower HI to
+    // firm harder (risk: thinning fine hair).
+    const LO = 0.05, HI = 0.6, span = HI - LO;
+    for (let i = 0; i < alpha.length; i++) {
+      let a = (alpha[i] - LO) / span;
+      a = a <= 0 ? 0 : a >= 1 ? 1 : a * a * (3 - 2 * a); // smoothstep
+      u8[i] = (a * 255) | 0;
+    }
     const gl = this.gl;
-    const curr = this.alphaA, prev = this.alphaB;
+    gl.bindTexture(gl.TEXTURE_2D, this.texMask);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
+  }
 
-    // 1) refine + temporal → curr (reads raw mask, video guide, prev alpha)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, curr.fbo);
-    gl.viewport(0, 0, this.W, this.H);
-    gl.useProgram(this.pRefine.program);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texMask);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
-    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, prev.tex);
-    gl.uniform1i(uni(gl, this.pRefine, "u_mask"), 0);
-    gl.uniform1i(uni(gl, this.pRefine, "u_guide"), 1);
-    gl.uniform1i(uni(gl, this.pRefine, "u_prev"), 2);
-    gl.uniform2f(uni(gl, this.pRefine, "u_texel"), 1 / this.W, 1 / this.H);
-    gl.uniform1f(uni(gl, this.pRefine, "u_hasPrev"), this._hasPrev);
-    this._drawQuad(this.pRefine);
+  // Which model is actually rendering frames right now. Logs once when it
+  // changes, and is readable as `processor.activeBackend` for any debug UI.
+  _setBackend(name) {
+    if (this._backend === name) return;
+    this._backend = name;
+    console.info(`%c[bg] matting backend → ${name}`, "color:#22d3ee;font-weight:bold");
+  }
+
+  get activeBackend() {
+    return this._backend;
+  }
+
+  // "Where supported": if RVM is consistently too slow, drop back to MediaPipe.
+  // Guarded against false trips: the FIRST batch is warmup (model load + cold
+  // threads — always slow) and ignored, and it takes TWO consecutive over-budget
+  // batches to bail. A single transient batch used to sticky-disable RVM for the
+  // whole session, which is what dumped us onto MediaPipe.
+  _trackRvmPerf(ms) {
+    this._rvmMs.push(ms);
+    if (this._rvmMs.length < 12) return;
+    const avg = this._rvmMs.reduce((a, b) => a + b, 0) / this._rvmMs.length;
+    this._rvmMs = [];
+    this._rvmBatches++;
+    if (this._rvmBatches === 1) return; // warmup batch — don't judge it
+    if (!this._rvmLoggedPerf) {
+      this._rvmLoggedPerf = true;
+      console.info(`[bg] RVM avg inference ${avg.toFixed(0)}ms (render is decoupled — this is matte freshness, not fps)`);
+    }
+    if (avg > RVM_SLOW_MS) {
+      this._rvmSlowStreak++;
+      if (this._rvmSlowStreak >= 2) {
+        console.warn(`[rvm] sustained ${avg.toFixed(0)}ms > ${RVM_SLOW_MS}ms — MediaPipe for the rest of this session`);
+        this._rvmSlow = true;
+        rvmDisabledForSession = true; // don't re-probe on the next camera toggle
+        try { this._rvm?.close(); } catch { /* */ }
+      }
+    } else {
+      this._rvmSlowStreak = 0;
+    }
+  }
+
+  _render(refineMask = true) {
+    const gl = this.gl;
+
+    // Alpha source. Both backends now go through the bilateral edge-snap: it
+    // pulls the matte onto the CURRENT frame's edges, which is what re-aligns a
+    // matte that's a few frames stale (inference trails the live video) so the
+    // background can't bleed through a moving edge. The temporal blend used to
+    // ghost a fast hand when it ran at the ~18fps inference rate; now that we
+    // render every frame (~60fps) the inter-frame motion is tiny, so it just
+    // smooths edge shimmer. RVM passes a clean matte in; MediaPipe a rough one —
+    // the same refine suits both.
+    let alphaTex;
+    if (refineMask) {
+      const curr = this.alphaA, prev = this.alphaB;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, curr.fbo);
+      gl.viewport(0, 0, this.W, this.H);
+      gl.useProgram(this.pRefine.program);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texMask);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, prev.tex);
+      gl.uniform1i(uni(gl, this.pRefine, "u_mask"), 0);
+      gl.uniform1i(uni(gl, this.pRefine, "u_guide"), 1);
+      gl.uniform1i(uni(gl, this.pRefine, "u_prev"), 2);
+      gl.uniform2f(uni(gl, this.pRefine, "u_texel"), 1 / this.W, 1 / this.H);
+      gl.uniform1f(uni(gl, this.pRefine, "u_hasPrev"), this._hasPrev);
+      this._drawQuad(this.pRefine);
+      alphaTex = curr.tex;
+      this.alphaA = prev;
+      this.alphaB = curr;
+      this._hasPrev = 1;
+    } else {
+      alphaTex = this.texMask; // RVM alpha, used directly
+    }
 
     // 2) background source
     let bgTex;
     if (this.opts.mode === "image") {
       bgTex = this.texBg;
     } else {
-      const spread = Math.max(1, this.opts.blurRadius);
-      // blur X: video → blur1
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur1.fbo);
+      // Bleed-free blur. First build a PREMULTIPLIED background (rgb=video×(1-α),
+      // a=1-α) so the blur averages only background pixels — the foreground's
+      // colour no longer smears into a halo around the person (the main thing
+      // that looked worse than a depth blur). Then iterate a small-step separable
+      // gaussian at quarter res (tap spacing fixed + small + low res = smooth, no
+      // banding; the composite un-premultiplies rgb/a).
+      const STEP = 1.25;
+      const iters = Math.min(12, Math.max(1, Math.round(this.opts.blurRadius / 3)));
       gl.viewport(0, 0, this.bw, this.bh);
-      gl.useProgram(this.pBlur.program);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
-      gl.uniform1i(uni(gl, this.pBlur, "u_src"), 0);
-      gl.uniform2f(uni(gl, this.pBlur, "u_dir"), spread / this.W, 0);
-      this._drawQuad(this.pBlur);
-      // blur Y: blur1 → blur2
+
+      // premult (video + alpha) → blur2 (1/4 res, downsampled by linear sampling)
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur2.fbo);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.blur1.tex);
-      gl.uniform2f(uni(gl, this.pBlur, "u_dir"), 0, spread / this.H);
-      this._drawQuad(this.pBlur);
-      bgTex = this.blur2.tex;
+      gl.useProgram(this.pPremult.program);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, alphaTex);
+      gl.uniform1i(uni(gl, this.pPremult, "u_video"), 0);
+      gl.uniform1i(uni(gl, this.pPremult, "u_alpha"), 1);
+      this._drawQuad(this.pPremult);
+
+      gl.useProgram(this.pBlur.program);
+      gl.uniform1i(uni(gl, this.pBlur, "u_src"), 0);
+      let read = this.blur2.tex;
+      for (let i = 0; i < iters; i++) {
+        // horizontal: read → blur1
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur1.fbo);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, read);
+        gl.uniform2f(uni(gl, this.pBlur, "u_dir"), STEP / this.bw, 0);
+        this._drawQuad(this.pBlur);
+        // vertical: blur1 → blur2
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blur2.fbo);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.blur1.tex);
+        gl.uniform2f(uni(gl, this.pBlur, "u_dir"), 0, STEP / this.bh);
+        this._drawQuad(this.pBlur);
+        read = this.blur2.tex;
+      }
+      bgTex = this.blur2.tex; // RGBA premultiplied; composite divides rgb/a
     }
 
     // 3) composite → canvas
@@ -370,43 +576,69 @@ class RefinedBackgroundProcessor {
     gl.useProgram(this.pComposite.program);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.texVideo);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, bgTex);
-    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, curr.tex);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, alphaTex);
     gl.uniform1i(uni(gl, this.pComposite, "u_video"), 0);
     gl.uniform1i(uni(gl, this.pComposite, "u_bg"), 1);
     gl.uniform1i(uni(gl, this.pComposite, "u_alpha"), 2);
-    gl.uniform1f(uni(gl, this.pComposite, "u_lightWrap"), 0.35); // [TUNE] light-wrap strength
+    gl.uniform1f(uni(gl, this.pComposite, "u_lightWrap"), 0.15); // [TUNE] subtle now the bg is bleed-free
     this._drawQuad(this.pComposite);
-
-    // ping-pong the alpha buffers for next frame's temporal blend
-    this.alphaA = prev;
-    this.alphaB = curr;
-    this._hasPrev = 1;
   }
 
+  // Render and inference run at INDEPENDENT rates (the Google-Meet trick):
+  //   • Inference (RVM worker / MediaPipe) runs in the background, one in flight,
+  //     and only refreshes the matte texture (texMask) when it finishes.
+  //   • Rendering runs EVERY frame at display rate against the LIVE video, and
+  //     the guided bilateral pass (_render(true)) snaps that slightly-stale matte
+  //     onto the current frame's edges.
+  // Coupling them (the old code) meant the whole output ran at the ~15–20fps
+  // inference rate (the lag) AND composited a frame-N matte over the frame-N+4
+  // live video (the background bleeding through a moving head). Decoupling fixes
+  // both: the picture moves at 60fps and the matte re-aligns to where you are now.
   _loop() {
     if (!this._running) return;
     this._raf = requestAnimationFrame(() => this._loop());
     const v = this.video;
-    if (!v || v.readyState < 2 || this._busy) return;
+    if (!v || v.readyState < 2) return;
     const now = performance.now();
-    if (now - this._lastSeg < 33) return; // ~30fps cap
-    this._lastSeg = now;
-    this._busy = true;
-    this._ts = Math.max(this._ts + 1, Math.round(now));
-    try {
-      this.segmenter.segmentForVideo(v, this._ts, (result) => {
-        this._busy = false;
+
+    // 1) Kick a fresh matte in the background — only when none is in flight, so
+    //    it runs as fast as the backend allows without ever blocking the render.
+    if (!this._busy) {
+      if (this._rvm && this._rvm.ready && !this._rvmSlow) {
+        this._busy = true;
+        this._rvm.infer(v).then((res) => {
+          this._busy = false;
+          if (!this._running) return;
+          if (res) {
+            this._trackRvmPerf(res.ms);
+            try { this._uploadAlpha(res.alpha, res.width, res.height); this._haveMask = 1; this._setBackend("RVM"); } catch { /* */ }
+          } else if (this._rvm?.dead) {
+            this._rvm = null; // worker fell over → MediaPipe takes over below
+          }
+        }).catch(() => { this._busy = false; });
+      } else if (this.segmenter) {
+        this._busy = true;
+        this._ts = Math.max(this._ts + 1, Math.round(now));
         try {
-          const mask = result?.confidenceMasks?.[0];
-          if (mask) this._uploadMask(mask);
-          this._uploadVideo();
-          if (mask) this._render();
-        } catch { /* skip this frame */ } finally {
-          try { result?.close?.(); } catch { /* */ }
-        }
-      });
-    } catch {
-      this._busy = false;
+          this.segmenter.segmentForVideo(v, this._ts, (result) => {
+            this._busy = false;
+            try {
+              if (!this._running) return;
+              const mask = result?.confidenceMasks?.[0];
+              if (mask) { this._uploadMask(mask); this._haveMask = 1; this._setBackend("MediaPipe"); }
+            } catch { /* skip */ } finally {
+              try { result?.close?.(); } catch { /* */ }
+            }
+          });
+        } catch { this._busy = false; }
+      }
+    }
+
+    // 2) Render at ~display rate (≤~60fps; guards against 120Hz ProMotion). Live
+    //    video each frame; _render(true) edge-snaps the latest matte onto it.
+    if (this._haveMask && now - this._lastRender >= 15) {
+      this._lastRender = now;
+      try { this._uploadVideo(); this._render(true); } catch { /* skip this frame */ }
     }
   }
 }

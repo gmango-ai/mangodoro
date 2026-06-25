@@ -2,14 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
-  GridLayout,
   ParticipantTile,
   TrackToggle,
   DisconnectButton,
   LayoutContextProvider,
-  FocusLayoutContainer,
-  FocusLayout,
-  CarouselLayout,
   usePinnedTracks,
   useSpeakingParticipants,
   useMediaDeviceSelect,
@@ -19,16 +15,18 @@ import {
   useRoomContext,
   useMaybeTrackRefContext,
 } from "@livekit/components-react";
-import { Track, setLogLevel } from "livekit-client";
+import { Track, RoomEvent, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, SquareUser, Waves, ChevronDown, Check, Plus, Users, MicOff, UserX, X, DoorOpen, Volume2 } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
+import { useTeam } from "../../context/TeamContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
-import { kickFromCall, muteParticipantTrack } from "../../lib/livekitModerate";
-import { useRoomCluster, useClusterRoles } from "./useRoomCluster";
+import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
+import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { pickBestMicrophone } from "./bestMic";
+import { createVoiceDetector } from "./autoMic";
 
 // LiveKit's client logs at "info" by default, which floods the console with
 // per-connection play-by-play (signal connecting, connection state changes,
@@ -56,7 +54,7 @@ setLogLevel("error");
 // Per-device preferences for the local self-view processors + layout. Kept in
 // localStorage so they persist across calls and apply even in PiP (which has
 // no control bar to toggle them).
-const PREF = { bg: "ql_lk_bg", bgCustom: "ql_lk_bg_custom", noise: "ql_lk_noise", layout: "ql_lk_layout" };
+const PREF = { bg: "ql_lk_bg", bgCustom: "ql_lk_bg_custom", noise: "ql_lk_noise", layout: "ql_lk_layout", autoMic: "ql_lk_automic" };
 function loadPref(key, fallback) {
   try {
     const v = localStorage.getItem(key);
@@ -154,7 +152,7 @@ function bgToOptions(bg, customBg) {
   return null;
 }
 
-function PublishController({ publish, choices }) {
+function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
   const { cluster, isMicSource } = useRoomCluster();
@@ -166,17 +164,17 @@ function PublishController({ publish, choices }) {
     // instead of giving them a (camera-off) tile in the grid.
     localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
     const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
-    // In a shared physical room only the mic SOURCE has a live mic — a second
-    // live mic in the same space would just feed back. Solo participants follow
-    // their own choice. Camera is untouched — each person keeps their own tile.
-    const wantAudio = publish && (cluster ? isMicSource : (choices ? choices.audioEnabled !== false : true));
+    // Your mic is live only when YOU haven't muted it AND (solo, or you're the
+    // room's mic source). The in-room gate is the "behind the scenes" auto-mute —
+    // it doesn't flip your personal mute button; that stays your own control.
+    const wantAudio = publish && !micMuted && (cluster ? isMicSource : true);
     localParticipant
       .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
       .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
     localParticipant
       .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
       .catch(() => { /* */ });
-  }, [localParticipant, publish, choices, cluster, isMicSource]);
+  }, [localParticipant, publish, choices, cluster, isMicSource, micMuted]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
@@ -207,6 +205,47 @@ function PublishController({ publish, choices }) {
 // Mounted exactly once (it owns the `manage` side-effects); renders nothing.
 function RoomClusterManager() {
   useRoomCluster({ manage: true });
+  return null;
+}
+
+// Proximity-style auto mic-switching (experimental, opt-in). Only active in a
+// room that HAS a device — the device stays the stable audio sink (speakers)
+// while the mic moves between people. Each in-room person runs local voice
+// detection: speak → auto-claim the room mic (their close mic beats the device's
+// far one); go quiet → release so the device reclaims. The detector keys on
+// close/loud own-voice over an adaptive floor, so it's cleanest on a headset and
+// best-effort on speakers (an in-room mic also hears the room speaker, which no
+// per-device echo-cancel can remove). Thresholds will want real-world tuning.
+function AutoMicController({ enabled }) {
+  const cl = useRoomCluster();
+  const hasDevice = cl.members.some((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
+  const active = enabled && !!cl.cluster && hasDevice;
+  // Keep the latest claim/release in a ref so the detector isn't torn down and
+  // the mic re-opened on every render.
+  const apiRef = useRef(cl);
+  apiRef.current = cl;
+  const heldRef = useRef(false);
+  useEffect(() => {
+    if (!active) return undefined;
+    const stop = createVoiceDetector({
+      onChange: (speaking) => {
+        if (speaking) {
+          apiRef.current.claimAuto();
+          heldRef.current = true;
+        } else if (heldRef.current) {
+          apiRef.current.releaseAuto();
+          heldRef.current = false;
+        }
+      },
+    });
+    return () => {
+      stop?.();
+      if (heldRef.current) {
+        apiRef.current.releaseAuto();
+        heldRef.current = false;
+      }
+    };
+  }, [active]);
   return null;
 }
 
@@ -354,9 +393,9 @@ function BackgroundEffects({ value, onChange, customBg, onUpload }) {
       <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">Background</div>
       <div className="grid grid-cols-2 gap-1 px-1">
         {chip("none", "None")}
-        {chip("blur:6", "Blur · Light")}
-        {chip("blur:12", "Blur · Medium")}
-        {chip("blur:22", "Blur · Strong")}
+        {chip("blur:4", "Blur · Light")}
+        {chip("blur:9", "Blur · Medium")}
+        {chip("blur:18", "Blur · Strong")}
       </div>
       <div className="mt-1.5 px-1 grid grid-cols-5 gap-1">
         {BG_PRESETS.map((p) => (
@@ -471,10 +510,10 @@ function DeviceSettingsMenu({ kind, label, children }) {
 // muted so the room doesn't echo. Not in a room → one click joins an existing
 // one (if a neighbour started it) or starts a new one. In a room → a small
 // popover shows who's together and a Leave action.
-function RoomClusterButton() {
+function RoomClusterButton({ autoMic, onToggleAutoMic }) {
   const {
-    cluster, members, isMicSource, existingCluster,
-    startRoom, joinRoom, takeSpeaker, stepDown, leaveRoom,
+    cluster, members, isMicSource, isAudioSink, existingCluster,
+    startRoom, joinRoom, takeSpeaker, stepDown, takeSink, releaseSink, leaveRoom,
   } = useRoomCluster();
   const roles = useClusterRoles();
   const [open, setOpen] = useState(false);
@@ -532,7 +571,15 @@ function RoomClusterButton() {
           <ul className="max-h-40 overflow-auto mb-1.5">
             {members.map((p) => {
               const r = roles.get(p.identity) || {};
-              const tag = r.isDevice ? "device" : r.isMicSource ? "mic" : null;
+              const tag = r.isDevice
+                ? "device"
+                : r.isMicSource && r.isAudioSink
+                  ? "mic + speaker"
+                  : r.isMicSource
+                    ? "mic"
+                    : r.isAudioSink
+                      ? "speaker"
+                      : null;
               return (
                 <li key={p.identity} className="flex items-center gap-1.5 px-1 py-0.5">
                   <span className="flex-1 min-w-0 truncate">
@@ -569,6 +616,26 @@ function RoomClusterButton() {
                 Take over the room mic
               </button>
             )}
+            {deviceInRoom && (
+              isAudioSink ? (
+                <button
+                  type="button"
+                  onClick={() => { releaseSink(); setOpen(false); }}
+                  className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
+                >
+                  Give room speakers back to device
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { takeSink(); setOpen(false); }}
+                  className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
+                  title="Play the call through this computer's speakers instead of the device's."
+                >
+                  Use my speakers for the room
+                </button>
+              )
+            )}
             <button
               type="button"
               onClick={() => { leaveRoom(); setOpen(false); }}
@@ -577,6 +644,109 @@ function RoomClusterButton() {
               Leave room
             </button>
           </div>
+          {deviceInRoom && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={!!autoMic}
+              onClick={() => onToggleAutoMic?.()}
+              className="mt-1.5 pt-1.5 border-t border-white/10 w-full flex items-center gap-2 px-2 py-1 text-left rounded-md hover:bg-white/10"
+              title="Experimental: automatically hand the room mic to whoever's speaking (their closer mic)."
+            >
+              <Sparkles className="w-3.5 h-3.5 opacity-80 shrink-0" />
+              <span className="flex-1">Auto-switch mic to the speaker</span>
+              <span className={`text-[10px] font-bold uppercase tracking-wide ${autoMic ? "text-[var(--lk-accent-bg,#22d3ee)]" : "opacity-50"}`}>
+                {autoMic ? "On" : "Off"}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Personal mic mute. The icon reflects only what YOU did — not the in-room
+// auto-mute, which happens behind the scenes. When you're in a room and your
+// audio is being carried by the room mic, the icon still shows your own state
+// and the tooltip (plus the "In room" tile badge) explains why you may not be
+// transmitting. So: MicOff = you muted yourself; Mic + "In room" badge = the
+// room is carrying you.
+function MicButton({ micMuted, onToggleMic }) {
+  const { cluster, isMicSource } = useRoomCluster();
+  const carriedByRoom = !!cluster && !isMicSource;
+  const title = micMuted
+    ? "Unmute"
+    : carriedByRoom
+      ? "You're in the room — the room mic carries your audio"
+      : "Mute";
+  return (
+    <button
+      type="button"
+      className="lk-button"
+      aria-pressed={micMuted}
+      aria-label={micMuted ? "Unmute microphone" : "Mute microphone"}
+      title={title}
+      onClick={() => onToggleMic?.()}
+    >
+      {micMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+    </button>
+  );
+}
+
+// Layout-mode picker (grid / presenter / spotlight). A small popover keyed off
+// the current mode's icon, replacing the old grid↔speaker toggle.
+function LayoutMenu({ mode, onSet }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  const items = [
+    { id: "grid", label: "Grid", Icon: LayoutGrid },
+    { id: "presenter", label: "Presenter", Icon: Presentation },
+    { id: "spotlight", label: "Spotlight", Icon: Focus },
+  ];
+  const Cur = (items.find((i) => i.id === mode) || items[0]).Icon;
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        className="lk-button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Layout"
+      >
+        <Cur className="w-5 h-5" />
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-40 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1 shadow-xl text-[12px]">
+          {items.map((it) => {
+            const sel = mode === it.id;
+            return (
+              <button
+                key={it.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={sel}
+                onClick={() => { onSet(it.id); setOpen(false); }}
+                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md hover:bg-white/10 ${sel ? "text-[var(--lk-accent-bg,#22d3ee)]" : ""}`}
+              >
+                <it.Icon className="w-4 h-4 shrink-0" />
+                <span className="flex-1 text-left">{it.label}</span>
+                {sel && <Check className="w-3.5 h-3.5 shrink-0" />}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -594,9 +764,11 @@ function RoomClusterButton() {
 // controls flank it.
 function CallControlBar({
   publish, tight, emote,
-  layoutMode, onToggleLayout,
+  layoutMode, onSetLayout,
   bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
+  autoMic, onToggleAutoMic,
+  micMuted, onToggleMic,
   peopleOpen, onTogglePeople,
 }) {
   const { theme } = useTheme();
@@ -610,7 +782,10 @@ function CallControlBar({
   useEffect(() => emote?.subscribeRecents?.(setRecents), [emote]);
 
   return (
-    <div className="relative flex items-center justify-center flex-wrap gap-1.5 px-2 py-2">
+    <div
+      className="relative flex items-center justify-center flex-wrap gap-1.5 px-2.5 py-2 rounded-2xl bg-black/45 backdrop-blur-md shadow-xl ring-1 ring-white/10"
+      style={{ "--lk-border-radius": "9999px" }}
+    >
       {reactionsOpen && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setReactionsOpen(false)} />
@@ -630,7 +805,7 @@ function CallControlBar({
 
       {publish && (
         <>
-          <TrackToggle source={Track.Source.Microphone} />
+          <MicButton micMuted={micMuted} onToggleMic={onToggleMic} />
           {!tight && (
             <DeviceSettingsMenu kind="audioinput" label="Microphone">
               <SettingRow icon={Waves} label="Noise cancellation" active={noiseEnabled} onClick={onToggleNoise} />
@@ -644,19 +819,12 @@ function CallControlBar({
           )}
           <TrackToggle source={Track.Source.ScreenShare} />
           {/* In-room companion mode: become the room speaker / join muted. */}
-          <RoomClusterButton />
+          <RoomClusterButton autoMic={autoMic} onToggleAutoMic={onToggleAutoMic} />
         </>
       )}
 
-      {/* Layout toggle (viewing — available whether or not you publish). */}
-      <button
-        type="button"
-        className="lk-button"
-        onClick={onToggleLayout}
-        title={layoutMode === "speaker" ? "Switch to grid view" : "Switch to speaker view"}
-      >
-        {layoutMode === "speaker" ? <LayoutGrid className="w-5 h-5" /> : <SquareUser className="w-5 h-5" />}
-      </button>
+      {/* Layout picker (viewing — available whether or not you publish). */}
+      <LayoutMenu mode={layoutMode} onSet={onSetLayout} />
 
       {/* People / moderation roster. */}
       <button
@@ -714,15 +882,45 @@ function SpectatorList({ spectators }) {
 // Host moderation roster: lists everyone in the call. The session leader gets
 // mute / remove actions per participant (the action is enforced server-side by
 // the livekit-moderate edge function; this UI gate is just for affordance).
+// The room-level "global pin" — a team admin pins a participant and everyone's
+// view focuses them. Stored in LiveKit room metadata (set by livekit-moderate),
+// so it propagates to every client via RoomMetadataChanged. Returns the pinned
+// participant identity (a user uid) or null.
+function parseGlobalPin(metadata) {
+  if (!metadata) return null;
+  try {
+    return JSON.parse(metadata)?.pinnedIdentity || null;
+  } catch {
+    return null;
+  }
+}
+function useGlobalPin() {
+  const room = useRoomContext();
+  const [pinnedId, setPinnedId] = useState(() => parseGlobalPin(room?.metadata));
+  useEffect(() => {
+    if (!room) return undefined;
+    const update = () => setPinnedId(parseGlobalPin(room.metadata));
+    update();
+    room.on(RoomEvent.RoomMetadataChanged, update);
+    return () => room.off(RoomEvent.RoomMetadataChanged, update);
+  }, [room]);
+  return pinnedId;
+}
+
 function PeoplePanel({ roomId, onClose }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const participants = useParticipants();
   const { localParticipant } = useLocalParticipant();
   const { syncSession } = useSyncSession();
+  const { isAdmin, isOwner } = useTeam();
   const myId = localParticipant?.identity;
   const leaderId = syncSession?.leader_id || null;
   const isHost = !!leaderId && leaderId === myId;
+  // Pinning for everyone is a team admin power (server re-checks against the
+  // room's team; this just gates the affordance).
+  const isOrgAdmin = !!isAdmin || !!isOwner;
+  const globalPinId = useGlobalPin();
   const [busy, setBusy] = useState(null);
   const [confirmKick, setConfirmKick] = useState(null);
 
@@ -740,6 +938,18 @@ function PeoplePanel({ roomId, onClose }) {
     const { error } = await muteParticipantTrack(roomId, p.identity, micPub.trackSid);
     setBusy(null);
     if (error) console.warn("mute:", error.message);
+  };
+  const doPin = async (id) => {
+    setBusy(id);
+    const { error } = await setRoomPin(roomId, id);
+    setBusy(null);
+    if (error) console.warn("pin:", error.message);
+  };
+  const doUnpin = async (id) => {
+    setBusy(id);
+    const { error } = await clearRoomPin(roomId);
+    setBusy(null);
+    if (error) console.warn("unpin:", error.message);
   };
 
   return (
@@ -759,6 +969,7 @@ function PeoplePanel({ roomId, onClose }) {
           const isSelf = p.identity === myId;
           const isLeader = p.identity === leaderId;
           const isSpectator = p.attributes?.role === "spectator";
+          const isPinned = p.identity === globalPinId;
           const micPub = p.getTrackPublication?.(Track.Source.Microphone);
           const micOn = !!micPub && !micPub.isMuted;
           return (
@@ -767,11 +978,35 @@ function PeoplePanel({ roomId, onClose }) {
                 {p.name || p.identity}
                 {isSelf && <span className="opacity-60"> (you)</span>}
                 {isLeader && <span className="text-amber-300"> ★</span>}
+                {isPinned && <Pin className="inline w-3 h-3 text-amber-300 ml-1 -mt-0.5" />}
                 {isSpectator && <span className="opacity-50"> · watching</span>}
               </span>
-              {isHost && !isSelf && (
+              {(isOrgAdmin || (isHost && !isSelf)) && (
                 <span className="flex items-center gap-0.5 shrink-0">
-                  {micOn && (
+                  {isOrgAdmin && (
+                    isPinned ? (
+                      <button
+                        type="button"
+                        title="Unpin for everyone"
+                        disabled={busy === p.identity}
+                        onClick={() => doUnpin(p.identity)}
+                        className="p-1 rounded text-amber-300 hover:bg-white/15 disabled:opacity-40"
+                      >
+                        <PinOff className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        title="Pin for everyone"
+                        disabled={busy === p.identity}
+                        onClick={() => doPin(p.identity)}
+                        className="p-1 rounded hover:bg-white/15 disabled:opacity-40"
+                      >
+                        <Pin className="w-3.5 h-3.5" />
+                      </button>
+                    )
+                  )}
+                  {isHost && !isSelf && micOn && (
                     <button
                       type="button"
                       title="Mute mic"
@@ -782,24 +1017,26 @@ function PeoplePanel({ roomId, onClose }) {
                       <MicOff className="w-3.5 h-3.5" />
                     </button>
                   )}
-                  {confirmKick === p.identity ? (
-                    <button
-                      type="button"
-                      disabled={busy === p.identity}
-                      onClick={() => doKick(p.identity)}
-                      className="px-1.5 py-0.5 rounded bg-red-500/80 hover:bg-red-500 text-[10px] font-semibold disabled:opacity-40"
-                    >
-                      Remove?
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      title="Remove from call"
-                      onClick={() => setConfirmKick(p.identity)}
-                      className="p-1 rounded text-red-300 hover:bg-red-500/20"
-                    >
-                      <UserX className="w-3.5 h-3.5" />
-                    </button>
+                  {isHost && !isSelf && (
+                    confirmKick === p.identity ? (
+                      <button
+                        type="button"
+                        disabled={busy === p.identity}
+                        onClick={() => doKick(p.identity)}
+                        className="px-1.5 py-0.5 rounded bg-red-500/80 hover:bg-red-500 text-[10px] font-semibold disabled:opacity-40"
+                      >
+                        Remove?
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        title="Remove from call"
+                        onClick={() => setConfirmKick(p.identity)}
+                        className="p-1 rounded text-red-300 hover:bg-red-500/20"
+                      >
+                        <UserX className="w-3.5 h-3.5" />
+                      </button>
+                    )
                   )}
                 </span>
               )}
@@ -821,43 +1058,125 @@ function PeoplePanel({ roomId, onClose }) {
 // in the shared cluster-roles map (so it reflects the EFFECTIVE leader, e.g.
 // after a take-over). Wraps the default tile in a flex box and lets it fill, so
 // the grid layout is unaffected.
-function ClusterParticipantTile() {
-  const trackRef = useMaybeTrackRefContext();
+function ClusterParticipantTile({ trackRef: trackRefProp }) {
+  // Our layout engine passes the track ref explicitly; inside a LiveKit layout
+  // it comes from context. Either way ParticipantTile gets it as a prop.
+  const ctxTrackRef = useMaybeTrackRefContext();
+  const trackRef = trackRefProp || ctxTrackRef;
   const participant = trackRef?.participant;
   const roles = useClusterRoles();
+  const globalPinId = useGlobalPin();
   const role = participant ? roles.get(participant.identity) : null;
+  const isPinned = !!participant?.identity && participant.identity === globalPinId;
   const inRoom = !!role?.inRoom;
-  // Amber for whoever carries the room's audio I/O — the device (speakers, and
-  // mic unless overridden) or the current mic source — muted chip for the rest.
-  const active = !!role && (role.isDevice || role.isMicSource);
-  const label = role?.isDevice ? "Room device" : role?.isMicSource ? "Room mic" : "In room";
+  // Amber for whoever carries the room's audio I/O — the device, the current mic
+  // source, or the speakers — muted chip for the rest.
+  const active = !!role && (role.isDevice || role.isMicSource || role.isAudioSink);
+  const label = role?.isDevice
+    ? "Room device"
+    : role?.isMicSource && role?.isAudioSink
+      ? "Room mic + speaker"
+      : role?.isMicSource
+        ? "Room mic"
+        : role?.isAudioSink
+          ? "Room speaker"
+          : "In room";
   return (
     <div style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}>
-      <ParticipantTile style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
-      {inRoom && (
-        <div
-          className={`absolute top-1.5 left-1.5 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm pointer-events-none ${
-            active ? "bg-amber-500/85 text-white" : "bg-slate-900/70 text-slate-100"
-          }`}
-          title={
-            active
-              ? `${label} — carries this room's audio`
-              : "In the room · muted here (heard through the room speaker)"
-          }
-        >
-          {active ? <Volume2 className="w-3 h-3 shrink-0" /> : <MicOff className="w-3 h-3 shrink-0" />}
-          {label}
+      <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+      {(isPinned || inRoom) && (
+        <div className="absolute top-1.5 left-1.5 z-10 flex flex-col items-start gap-1 pointer-events-none">
+          {isPinned && (
+            <div
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm bg-amber-500/85 text-white"
+              title="Pinned for everyone by an admin"
+            >
+              <Pin className="w-3 h-3 shrink-0" />
+              Pinned
+            </div>
+          )}
+          {inRoom && (
+            <div
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm ${
+                active ? "bg-amber-500/85 text-white" : "bg-slate-900/70 text-slate-100"
+              }`}
+              title={
+                active
+                  ? `${label} — carries this room's audio`
+                  : "In the room · muted here (heard through the room speaker)"
+              }
+            >
+              {active ? <Volume2 className="w-3 h-3 shrink-0" /> : <MicOff className="w-3 h-3 shrink-0" />}
+              {label}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// The video stage. Renders a grid, or a focus layout (one big tile + a
-// carousel filmstrip) when a tile is pinned, someone is screen-sharing, or
-// speaker view is on. Clicking a tile's focus button pins it (LiveKit's
-// LayoutContextProvider wires that into ParticipantTile for free); speaker
-// view auto-focuses whoever is talking when nothing is manually pinned.
+// Largest uniform tile size (at `aspect`) that fits `n` tiles in W×H. Picks the
+// column count that maximises tile area, so cells are never ultra-wide or
+// skinny-tall — the aspect "clamp" that stops faces from being cropped.
+function bestGrid(n, W, H, aspect, gap) {
+  if (n <= 0 || W <= 0 || H <= 0) return { cols: 1, tileW: 0, tileH: 0 };
+  let best = { cols: 1, tileW: 0, tileH: 0, area: 0 };
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const cw = (W - gap * (cols - 1)) / cols;
+    const ch = (H - gap * (rows - 1)) / rows;
+    if (cw <= 0 || ch <= 0) continue;
+    let tw = cw;
+    let th = cw / aspect;
+    if (th > ch) { th = ch; tw = ch * aspect; }
+    const area = tw * th;
+    if (area > best.area) best = { cols, tileW: tw, tileH: th, area };
+  }
+  return best;
+}
+
+function useSize(ref) {
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const apply = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return size;
+}
+
+// A uniform, aspect-clamped grid of tiles (replaces LiveKit's GridLayout, whose
+// cells filled arbitrary shapes and cropped faces). Every tile is the same
+// ~16:9 box, sized as large as possible to fit them all, centered.
+function VideoGrid({ tracks, aspect = 16 / 9, gap = 8 }) {
+  const ref = useRef(null);
+  const { w, h } = useSize(ref);
+  const { cols, tileW, tileH } = bestGrid(tracks.length, w, h, aspect, gap);
+  return (
+    <div ref={ref} className="absolute inset-0 p-1">
+      <div
+        className="grid w-full h-full place-content-center"
+        style={{ gap, gridTemplateColumns: `repeat(${Math.max(1, cols)}, ${tileW}px)`, gridAutoRows: `${tileH}px` }}
+      >
+        {tracks.map((tr) => (
+          <ClusterParticipantTile key={refKey(tr)} trackRef={tr} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// The video stage. Switches between layout modes — grid (uniform clamped
+// tiles), presenter (one big focus + a strip of the rest), and spotlight (just
+// the focus). An explicit focus (your pin, the admin's global pin, or a screen
+// share) forces a focused layout even in grid; a squished tile collapses to
+// spotlight. Clicking a tile's focus button pins it (LiveKit's
+// LayoutContextProvider wires that into ParticipantTile for free).
 function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onClosePeople }) {
   const tracks = useTracks(
     [
@@ -869,9 +1188,12 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   const participants = useParticipants();
   const speaking = useSpeakingParticipants();
   const pinned = usePinnedTracks();
+  const globalPinId = useGlobalPin();
+  const rootRef = useRef(null);
+  const { w, h } = useSize(rootRef);
 
-  // Keep the last active speaker so speaker view doesn't fall back to the grid
-  // during a silence between turns.
+  // Keep the last active speaker so the focus doesn't fall away during a silence
+  // between turns.
   const [stickySpeaker, setStickySpeaker] = useState(null);
   const topSpeaker = speaking?.[0]?.identity;
   useEffect(() => {
@@ -889,53 +1211,63 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   });
 
   const screenTrack = shown.find((t) => t.source === Track.Source.ScreenShare);
-  const speakerTrack =
-    layoutMode === "speaker" && stickySpeaker
-      ? shown.find((t) => t.participant?.identity === stickySpeaker && t.source === Track.Source.Camera)
-      : null;
-  // Manual pin wins, then an active screen share, then the active speaker.
-  const focusTrack = (pinned && pinned[0]) || screenTrack || speakerTrack || null;
-  const focusKey = refKey(focusTrack);
-  const carousel = focusTrack ? shown.filter((t) => refKey(t) !== focusKey) : shown;
+  const speakerTrack = stickySpeaker
+    ? shown.find((t) => t.participant?.identity === stickySpeaker && t.source === Track.Source.Camera)
+    : null;
+  // The admin's global pin (room metadata) focuses this participant for everyone,
+  // unless you've locally pinned someone else. Their screen share wins over their
+  // camera (the presenter case).
+  const globalPinTrack = globalPinId
+    ? shown.find((t) => t.participant?.identity === globalPinId && t.source === Track.Source.ScreenShare)
+      || shown.find((t) => t.participant?.identity === globalPinId && t.source === Track.Source.Camera)
+    : null;
+  // An EXPLICIT focus (your pin > admin global pin > a screen share) forces a
+  // focused layout even in grid mode. The big tile otherwise follows the active
+  // speaker, then the first tile.
+  const forcedFocus = (pinned && pinned[0]) || globalPinTrack || screenTrack || null;
+  const focusTrack = forcedFocus || speakerTrack || shown[0] || null;
+
+  // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
+  const squished = (h > 0 && h < 200) || (w > 0 && w < 220);
+  let mode = layoutMode;
+  if (squished) mode = "spotlight";
+  else if (forcedFocus && layoutMode === "grid") mode = "presenter";
+
+  const others = focusTrack ? shown.filter((t) => refKey(t) !== refKey(focusTrack)) : [];
 
   return (
-    <div className="relative flex-1 min-h-0">
-      {focusTrack ? (
-        <FocusLayoutContainer style={{ height: "100%" }}>
-          <CarouselLayout tracks={carousel}>
-            <ClusterParticipantTile />
-          </CarouselLayout>
-          <FocusLayout trackRef={focusTrack} />
-        </FocusLayoutContainer>
-      ) : (
-        <GridLayout tracks={shown} style={{ height: "100%" }}>
-          <ClusterParticipantTile />
-        </GridLayout>
+    <div ref={rootRef} className="relative flex-1 min-h-0">
+      {mode === "grid" && <VideoGrid tracks={shown} />}
+
+      {/* VideoGrid (even for one tile) applies the aspect clamp, so the focus is
+          letterboxed to ~16:9 instead of object-cover slicing a wide/short tile. */}
+      {mode === "spotlight" && focusTrack && <VideoGrid tracks={[focusTrack]} />}
+
+      {mode === "presenter" && focusTrack && (
+        <div className="absolute inset-0 flex flex-col gap-1.5 p-1">
+          <div className="relative flex-1 min-h-0">
+            <VideoGrid tracks={[focusTrack]} />
+          </div>
+          {others.length > 0 && (
+            <div className="relative shrink-0 h-[22%] min-h-[76px] max-h-[150px]">
+              <VideoGrid tracks={others} />
+            </div>
+          )}
+        </div>
       )}
 
       <SpectatorList spectators={spectators} />
       {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}
 
-      {/* Spectator → publisher. Rendered ON the overlay (the app's stage
-          placeholder underneath is covered by this call). */}
-      {!publish && !compact && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
-          <button
-            type="button"
-            onClick={() => onJoinIn?.()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-[12px] font-semibold shadow-lg"
-          >
-            <Eye className="w-3.5 h-3.5 opacity-90" /> Watching
-            <span className="opacity-60">·</span>
-            <Video className="w-3.5 h-3.5" /> Join in
-          </button>
-        </div>
-      )}
+      {/* The spectator → publisher control lives in RoomVideoStage's JoinDock,
+          overlaid on this call (it owns the persisted mic/camera join intent and
+          the live preview context). PiP has no join affordance — go back to the
+          room to join. onJoinIn is still wired for any future in-call use. */}
     </div>
   );
 }
 
-function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
+function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic }) {
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
   const rootRef = useRef(null);
@@ -951,16 +1283,46 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
     return () => ro.disconnect();
   }, []);
 
-  const [layoutMode, setLayoutMode] = useState(() => loadPref(PREF.layout, "grid"));
+  // Auto-hiding controls: the bar floats over the video and fades after a few
+  // seconds idle, returning on any pointer activity (Meet / FaceTime style). It
+  // stays put while the pointer is over it (so menus don't vanish mid-use).
+  const [controlsShown, setControlsShown] = useState(true);
+  const hideTimerRef = useRef(null);
+  const overBarRef = useRef(false);
+  const reveal = () => {
+    setControlsShown(true);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    if (!overBarRef.current) hideTimerRef.current = setTimeout(() => setControlsShown(false), 3000);
+  };
+  useEffect(() => {
+    reveal();
+    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const onBarEnter = () => {
+    overBarRef.current = true;
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setControlsShown(true);
+  };
+  const onBarLeave = () => { overBarRef.current = false; reveal(); };
+
+  const [layoutMode, setLayoutMode] = useState(() => {
+    const v = loadPref(PREF.layout, "grid");
+    if (v === "grid" || v === "presenter" || v === "spotlight") return v;
+    return v === "speaker" ? "presenter" : "grid"; // migrate the old grid/speaker pref
+  });
   // Background effect descriptor: "none" | "blur:<radius>" | "image:<id|custom>".
   const [bg, setBg] = useState(() => loadPref(PREF.bg, "none"));
   const [customBg, setCustomBg] = useState(() => loadPref(PREF.bgCustom, "") || null);
   // Noise cancellation defaults ON (the whole point), where supported.
   const [noiseEnabled, setNoiseEnabled] = useState(() => loadPref(PREF.noise, "1") === "1");
+  // Proximity auto mic-switching is experimental → defaults OFF.
+  const [autoMic, setAutoMic] = useState(() => loadPref(PREF.autoMic, "0") === "1");
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.bg, bg), [bg]);
   useEffect(() => savePref(PREF.noise, noiseEnabled ? "1" : "0"), [noiseEnabled]);
+  useEffect(() => savePref(PREF.autoMic, autoMic ? "1" : "0"), [autoMic]);
 
   const onUploadBg = async (file) => {
     try {
@@ -974,8 +1336,14 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
   };
 
   return (
-    <div ref={rootRef} className="flex flex-col w-full h-full">
+    <div
+      ref={rootRef}
+      className="relative flex flex-col w-full h-full"
+      onPointerMove={compact ? undefined : reveal}
+      onPointerDown={compact ? undefined : reveal}
+    >
       <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
+      <AutoMicController enabled={autoMic} />
       <LayoutContextProvider>
         <Stage
           compact={compact}
@@ -988,32 +1356,50 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId }) {
         />
       </LayoutContextProvider>
       {!compact && (
-        <div className="shrink-0">
-          <CallControlBar
-            publish={publish}
-            tight={tight}
-            emote={emote}
-            layoutMode={layoutMode}
-            onToggleLayout={() => setLayoutMode((m) => (m === "speaker" ? "grid" : "speaker"))}
-            bg={bg}
-            onChangeBg={setBg}
-            customBg={customBg}
-            onUploadBg={onUploadBg}
-            noiseEnabled={noiseEnabled}
-            onToggleNoise={() => setNoiseEnabled((v) => !v)}
-            peopleOpen={peopleOpen}
-            onTogglePeople={() => setPeopleOpen((v) => !v)}
-          />
+        <div
+          className={`absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-3 pointer-events-none transition-opacity duration-300 ${
+            controlsShown ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <div
+            className={controlsShown ? "pointer-events-auto" : "pointer-events-none"}
+            onMouseEnter={onBarEnter}
+            onMouseLeave={onBarLeave}
+          >
+            <CallControlBar
+              publish={publish}
+              tight={tight}
+              emote={emote}
+              layoutMode={layoutMode}
+              onSetLayout={setLayoutMode}
+              bg={bg}
+              onChangeBg={setBg}
+              customBg={customBg}
+              onUploadBg={onUploadBg}
+              noiseEnabled={noiseEnabled}
+              onToggleNoise={() => setNoiseEnabled((v) => !v)}
+              autoMic={autoMic}
+              onToggleAutoMic={() => setAutoMic((v) => !v)}
+              micMuted={micMuted}
+              onToggleMic={onToggleMic}
+              peopleOpen={peopleOpen}
+              onTogglePeople={() => setPeopleOpen((v) => !v)}
+            />
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-export default function LiveKitCall({ roomId, displayName, compact, publish = true, choices, onJoinIn, emote, onJoined, onLeft, onError }) {
+export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, onJoinIn, emote, onJoined, onLeft, onError }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [token, setToken] = useState(null);
+  // Personal mic mute — your own control, kept separate from the room's
+  // behind-the-scenes auto-mute. Seeded from the join choice.
+  const [micMuted, setMicMuted] = useState(choices?.audioEnabled === false);
+  const toggleMic = () => setMicMuted((v) => !v);
 
   useEffect(() => {
     let cancelled = false;
@@ -1071,16 +1457,20 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         onDisconnected={() => onLeft?.()}
         onError={(e) => onError?.(e?.message || "LiveKit connection error")}
       >
-        <PublishController publish={publish} choices={choices} />
-        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} />
+        <PublishController publish={publish} choices={choices} micMuted={micMuted} />
+        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} />
         {/* Owns in-room cluster management (leader handoff). Mount once. */}
         <RoomClusterManager />
         {/* In-room followers receive no audio at all (the room speaker carries
             it for them); everyone else plays normally. */}
         <FollowerAudioGate />
         {/* Required for participants to be audible — suppressed for in-room
-            followers so the leader's speakers don't echo back through them. */}
-        <ClusterAudioRenderer />
+            followers so the leader's speakers don't echo back through them. Also
+            gated on `listen`: a silent auto-preview spectator plays NOTHING, so
+            walking up to a room can't blast the call through your speakers and
+            (if a live participant is nearby) feed back into the room. Publishers
+            always hear; explicit watchers and join always have listen=true. */}
+        {(publish || listen) && <ClusterAudioRenderer />}
       </LiveKitRoom>
     </div>
   );

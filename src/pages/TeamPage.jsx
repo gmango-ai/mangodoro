@@ -18,6 +18,9 @@ import {
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
+import TeamGoals from "../components/team/TeamGoals";
+import OrgProjects from "../components/team/OrgProjects";
+import OrgChart from "../components/team/OrgChart";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import OrgTeamsCard from "../components/OrgTeamsCard";
 import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
@@ -453,6 +456,7 @@ export default function TeamPage() {
                         fallbackName={s.leader_name}
                         fallbackAvatarUrl={s.leader_avatar}
                         size={32}
+                        showFollow
                       />
                       <p className={`text-xs mt-0.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
                         {modeLabel(s.mode)} · {s.participant_count}/{s.max_participants} · {fmtTimeLeft(s)}
@@ -466,6 +470,15 @@ export default function TeamPage() {
               </div>
             </div>
           )}
+
+          {/* ─── ORG CHART ───────────────────────────────────────── */}
+          <OrgChart dark={dark} />
+
+          {/* ─── ORG PROJECTS ────────────────────────────────────── */}
+          <OrgProjects dark={dark} />
+
+          {/* ─── DEPARTMENT GOALS ────────────────────────────────── */}
+          <TeamGoals dark={dark} />
 
           {/* ─── INVITE ──────────────────────────────────────────── */}
           <InviteCard

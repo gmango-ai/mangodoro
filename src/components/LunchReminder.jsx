@@ -3,6 +3,7 @@ import { Utensils, X } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { useTheme } from "../context/ThemeContext";
+import { emitSelfNotification } from "../lib/notifications";
 
 // "Out to lunch" auto-status.
 //
@@ -23,16 +24,26 @@ const get = (k) => { try { return localStorage.getItem(k); } catch { return null
 const put = (k, v) => { try { localStorage.setItem(k, v); } catch { /* */ } };
 const del = (k) => { try { localStorage.removeItem(k); } catch { /* */ } };
 
-function notify(title, body) {
-  try {
-    if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification(title, { body });
-  } catch { /* */ }
+// Self lunch nudge through the notification layer → inbox + desktop (when the
+// tab is backgrounded), respecting the user's prefs + quiet hours. Recipient is
+// forced to the caller server-side; deduped to once per day across tabs/devices
+// (a partial unique index makes the dedupe race-proof).
+function notifyLunch(userId, title, body) {
+  if (!userId) return;
+  emitSelfNotification({
+    type: "lunch_reminder",
+    title,
+    body,
+    payload: { route: "/office" },
+    dedupeKey: `lunch_reminder:${userId}:${todayKey()}`,
+    dedupeWindowMinutes: 720,
+  });
 }
 
 const FIRE_WINDOW_MIN = 10; // catch a tab opened up to 10 min after lunch time
 
 export default function LunchReminder() {
-  const { settings, session, updateStatus } = useApp();
+  const { settings, session, updateStatus, clockIn, startClockBreak, endClockBreak } = useApp();
   const { syncSession, setStatus: setSyncStatus } = useSyncSession();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -46,6 +57,10 @@ export default function LunchReminder() {
     lunchTime: settings?.lunchTime || "",
     durationMin: settings?.lunchDurationMin ?? 60,
     presence: settings?.presenceState || "active",
+    lunchPaid: settings?.lunchBreakPaid,
+    clockIn,
+    startClockBreak,
+    endClockBreak,
     syncSession,
     setSyncStatus,
     updateStatus,
@@ -61,11 +76,14 @@ export default function LunchReminder() {
   const goToLunch = async () => {
     const s = ref.current;
     await setPresence("out_to_lunch");
+    // If clocked in, log the lunch as a break (paid/unpaid per Settings).
+    if (s.clockIn && !s.clockIn.activeBreak) s.startClockBreak?.({ unpaid: !s.lunchPaid, kind: "lunch" });
     put(`lunch_until:${s.userId}`, String(Date.now() + (s.durationMin || 60) * 60000));
   };
   const backFromLunch = async () => {
     const s = ref.current;
     await setPresence("active");
+    if (s.clockIn?.activeBreak?.kind === "lunch") s.endClockBreak?.();
     del(`lunch_until:${s.userId}`);
   };
   ref.current.goToLunch = goToLunch;
@@ -88,8 +106,8 @@ export default function LunchReminder() {
       const now = nowMinutes();
       if (target == null || now < target || now >= target + FIRE_WINDOW_MIN) return;
       put(firedKey, "1");
-      if (s.mode === "auto") { s.goToLunch(); notify("Out to lunch", "Status set to Out to lunch — enjoy your break!"); }
-      else { s.setPrompt(true); notify("Lunch time?", "Set your status to Out to lunch."); }
+      if (s.mode === "auto") { s.goToLunch(); notifyLunch(s.userId, "Out to lunch", "Status set to Out to lunch — enjoy your break!"); }
+      else { s.setPrompt(true); notifyLunch(s.userId, "Lunch time?", "Set your status to Out to lunch."); }
     };
     tick();
     const id = setInterval(tick, 30000);

@@ -422,14 +422,17 @@ export function AppProvider({ session, children }) {
     });
   }
 
-  function startClockBreak() {
-    updateClockIn({ activeBreak: { start: currentTimeStr() } });
+  // `meta` lets a caller mark the break paid/unpaid + tag its kind (e.g. the
+  // quick "On lunch" button passes { unpaid: !lunchBreakPaid, kind: "lunch" }).
+  function startClockBreak(meta) {
+    updateClockIn({ activeBreak: { start: currentTimeStr(), ...(meta || {}) } });
   }
 
   function endClockBreak() {
     setClockIn((prev) => {
       if (!prev?.activeBreak) return prev;
-      const newBreak = { id: Date.now().toString(), start: prev.activeBreak.start, end: currentTimeStr(), unpaid: true };
+      const ab = prev.activeBreak;
+      const newBreak = { id: Date.now().toString(), start: ab.start, end: currentTimeStr(), unpaid: ab.unpaid ?? true, ...(ab.kind ? { kind: ab.kind } : {}) };
       const updated = { ...prev, breaks: [...(prev.breaks || []), newBreak], activeBreak: null };
       localStorage.setItem("ql_clock_in", JSON.stringify(updated));
       return updated;
@@ -444,7 +447,8 @@ export function AppProvider({ session, children }) {
     let breaks = clockIn.breaks || [];
     // Auto-end any active break
     if (clockIn.activeBreak) {
-      breaks = [...breaks, { id: Date.now().toString(), start: clockIn.activeBreak.start, end: currentTimeStr(), unpaid: true }];
+      const ab = clockIn.activeBreak;
+      breaks = [...breaks, { id: Date.now().toString(), start: ab.start, end: currentTimeStr(), unpaid: ab.unpaid ?? true, ...(ab.kind ? { kind: ab.kind } : {}) }];
     }
     const minutes = calcWorked(clockIn.start, end, breaks);
     // Capture the clock-in moment so we can link only this session's
@@ -1195,6 +1199,7 @@ export function AppProvider({ session, children }) {
   async function updateSettingsField(patch) {
     setSettings((prev) => ({ ...prev, ...patch }));
     const dbPatch = {};
+    if ("jobTitle" in patch) dbPatch.job_title = patch.jobTitle || null;
     if ("accentColor" in patch) dbPatch.accent_color = patch.accentColor;
     if ("name" in patch) dbPatch.name = patch.name || null;
     if ("status" in patch) dbPatch.status = patch.status ?? null;
@@ -1202,6 +1207,27 @@ export function AppProvider({ session, children }) {
     if ("lunchTime" in patch) dbPatch.lunch_time = patch.lunchTime || null;
     if ("lunchMode" in patch) dbPatch.lunch_mode = patch.lunchMode || "off";
     if ("lunchDurationMin" in patch) dbPatch.lunch_duration_min = patch.lunchDurationMin ?? 60;
+    if ("notifQuietStart" in patch) dbPatch.notif_quiet_start = patch.notifQuietStart || null;
+    if ("notifQuietEnd" in patch) dbPatch.notif_quiet_end = patch.notifQuietEnd || null;
+    if ("notifDesktopEnabled" in patch) dbPatch.notif_desktop_enabled = patch.notifDesktopEnabled;
+    if ("wellbeingReminders" in patch) dbPatch.wellbeing_reminders = patch.wellbeingReminders || {};
+    if ("reminderActiveStart" in patch) dbPatch.reminder_active_start = patch.reminderActiveStart || null;
+    if ("reminderActiveEnd" in patch) dbPatch.reminder_active_end = patch.reminderActiveEnd || null;
+    if ("workStart" in patch) dbPatch.work_start = patch.workStart || null;
+    if ("workEnd" in patch) dbPatch.work_end = patch.workEnd || null;
+    if ("workDays" in patch) dbPatch.work_days = patch.workDays && patch.workDays.length ? patch.workDays : null;
+    if ("workSchedule" in patch) dbPatch.work_schedule = patch.workSchedule || {};
+    if ("oooRanges" in patch) dbPatch.ooo_ranges = patch.oooRanges || [];
+    if ("lunchBreakPaid" in patch) dbPatch.lunch_break_paid = patch.lunchBreakPaid;
+    if ("reflectWhen" in patch) dbPatch.reflect_when = patch.reflectWhen || "off";
+    if ("timezone" in patch) dbPatch.timezone = patch.timezone || null;
+    if ("timezoneManual" in patch) dbPatch.timezone_manual = patch.timezoneManual;
+    if ("wageMode" in patch) dbPatch.wage_mode = patch.wageMode || "hourly";
+    if ("annualSalary" in patch) dbPatch.annual_salary = patch.annualSalary ?? null;
+    if ("offHoursWarn" in patch) dbPatch.off_hours_warn = patch.offHoursWarn;
+    if ("oooStart" in patch) dbPatch.ooo_start = patch.oooStart || null;
+    if ("oooEnd" in patch) dbPatch.ooo_end = patch.oooEnd || null;
+    if ("oooNote" in patch) dbPatch.ooo_note = patch.oooNote || null;
     if (Object.keys(dbPatch).length === 0) return;
     if (!session?.user?.id) return;
     await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);

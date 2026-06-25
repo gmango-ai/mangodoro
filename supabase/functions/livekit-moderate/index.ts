@@ -1,17 +1,21 @@
 // livekit-moderate
 //
-// Host moderation for a room's video call: remove a participant, or mute one of
-// their tracks. Authority is the room's sync-session LEADER — verified
-// server-side here, never trusted from the client. Calls the LiveKit RoomService
-// (Twirp/HTTP) with a short-lived roomAdmin token so the API secret never
-// touches the browser. Counterpart to mint-livekit-token.
+// Moderation + layout control for a room's video call. Calls the LiveKit
+// RoomService (Twirp/HTTP) with a short-lived roomAdmin token so the API secret
+// never touches the browser. Counterpart to mint-livekit-token.
+//
+// Two authority models, both verified server-side, never trusted from client:
+//   • kick / mute / unmute  → the room's active sync-session LEADER.
+//   • pin / unpin (global)  → an ADMIN/OWNER of the room's team. Sets the room
+//     metadata { pinnedIdentity } so every client focuses the same participant.
 //
 // Body:
-//   { room_id: uuid, action: "kick" | "mute" | "unmute",
-//     target_user_id: uuid, track_sid?: string }   // track_sid required for mute/unmute
+//   { room_id, action: "kick", target_user_id }
+//   { room_id, action: "mute" | "unmute", target_user_id, track_sid }
+//   { room_id, action: "pin", target_user_id }   // pin for everyone
+//   { room_id, action: "unpin" }                  // clear the global pin
 //
-// Auth: requires a Supabase user JWT (the caller). The caller must be the
-// leader_id of the active sync_session for room_id.
+// Auth: requires a Supabase user JWT (the caller).
 //
 // Secrets (set via `supabase secrets set`):
 //   LIVEKIT_API_KEY, LIVEKIT_API_SECRET  — LiveKit API credentials
@@ -109,29 +113,60 @@ Deno.serve(async (req) => {
   const targetUserId = (body.target_user_id || "").trim();
   const trackSid = (body.track_sid || "").trim();
 
-  if (!roomId || !targetUserId) return json(400, { error: "room_id and target_user_id are required" });
-  if (!["kick", "mute", "unmute"].includes(action)) return json(400, { error: "Invalid action" });
+  if (!roomId) return json(400, { error: "room_id is required" });
+  if (!["kick", "mute", "unmute", "pin", "unpin"].includes(action)) return json(400, { error: "Invalid action" });
+  const isPin = action === "pin" || action === "unpin";
+  // unpin needs no target (it clears); everything else targets a participant.
+  if (!isPin && !targetUserId) return json(400, { error: "target_user_id is required" });
+  if (action === "pin" && !targetUserId) return json(400, { error: "target_user_id is required to pin" });
   if ((action === "mute" || action === "unmute") && !trackSid) {
     return json(400, { error: "track_sid is required to mute/unmute" });
   }
 
-  // ── authorize: caller must be the active session's leader for this room ──
+  // ── authorize ──
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-  const { data: sess, error: sessErr } = await admin
-    .from("sync_sessions")
-    .select("leader_id")
-    .eq("room_id", roomId)
-    .eq("status", "active")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (sessErr) {
-    console.error("[livekit-moderate] session lookup failed", sessErr);
-    return json(500, { error: "Could not verify session" });
-  }
-  if (!sess) return json(404, { error: "No active session for this room" });
-  if (sess.leader_id !== caller.id) {
-    return json(403, { error: "Only the session leader can moderate this call" });
+  if (isPin) {
+    // Pinning the view for everyone is a team/org admin action.
+    const { data: roomRow, error: roomErr } = await admin
+      .from("rooms")
+      .select("team_id")
+      .eq("id", roomId)
+      .maybeSingle();
+    if (roomErr) {
+      console.error("[livekit-moderate] room lookup failed", roomErr);
+      return json(500, { error: "Could not verify room" });
+    }
+    if (!roomRow) return json(404, { error: "Room not found" });
+    const { data: membership, error: memErr } = await admin
+      .from("team_members")
+      .select("role, is_owner")
+      .eq("team_id", roomRow.team_id)
+      .eq("user_id", caller.id)
+      .maybeSingle();
+    if (memErr) {
+      console.error("[livekit-moderate] membership lookup failed", memErr);
+      return json(500, { error: "Could not verify membership" });
+    }
+    const isOrgAdmin = !!membership && (membership.role === "admin" || membership.is_owner === true);
+    if (!isOrgAdmin) return json(403, { error: "Only a team admin can pin for everyone" });
+  } else {
+    // Mute/kick is the active session's leader.
+    const { data: sess, error: sessErr } = await admin
+      .from("sync_sessions")
+      .select("leader_id")
+      .eq("room_id", roomId)
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (sessErr) {
+      console.error("[livekit-moderate] session lookup failed", sessErr);
+      return json(500, { error: "Could not verify session" });
+    }
+    if (!sess) return json(404, { error: "No active session for this room" });
+    if (sess.leader_id !== caller.id) {
+      return json(403, { error: "Only the session leader can moderate this call" });
+    }
   }
 
   // ── act ──
@@ -143,7 +178,12 @@ Deno.serve(async (req) => {
       room,
     });
     const host = httpHost(LIVEKIT_URL);
-    if (action === "kick") {
+    if (isPin) {
+      // Room metadata is the shared focus everyone reads. Overwrite (the pin is
+      // the only room-level state we keep today).
+      const metadata = JSON.stringify({ pinnedIdentity: action === "pin" ? targetUserId : null });
+      await roomService(host, token, "UpdateRoomMetadata", { room, metadata });
+    } else if (action === "kick") {
       await roomService(host, token, "RemoveParticipant", { room, identity: targetUserId });
     } else {
       await roomService(host, token, "MutePublishedTrack", {

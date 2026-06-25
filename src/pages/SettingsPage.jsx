@@ -13,7 +13,7 @@ import {
 import {
   Settings as SettingsIcon, User, Palette, Timer, Clock,
   Briefcase, Bell, Database, Check, Sun, Moon, Sparkles,
-  FileText, Download, Upload, KeyRound,
+  FileText, Download, Upload, KeyRound, Volume2, CalendarClock, Plus, X,
 } from "lucide-react";
 import { ACCENTS } from "../lib/accent";
 import AvatarUploader from "../components/AvatarUploader";
@@ -22,6 +22,9 @@ import TimeSelect from "../components/TimeSelect";
 import { toDisplayTime } from "../lib/utils";
 import { loadPomodoroSoundSettings, savePomodoroSoundSettings, USER_SOUND_PREFIX } from "../lib/pomodoroSound";
 import { clearCachedNotificationSound } from "../lib/nativeNotifications";
+import { NOTIFICATION_TYPES, listPreferences, setPreferenceEnabled } from "../lib/notifications";
+import { REMINDERS, REMINDER_INTERVALS, reminderConfig } from "../lib/reminders";
+import { TIMEZONES, browserTimezone, localTimeLabel } from "../lib/timezone";
 
 // Settings as a real page. Left rail of sections, right pane renders
 // the active section. Sections persist on field commit (blur/change)
@@ -30,8 +33,10 @@ import { clearCachedNotificationSound } from "../lib/nativeNotifications";
 
 const SECTIONS = [
   { key: "profile",       label: "Profile",       Icon: User },
+  { key: "availability",  label: "Availability",  Icon: CalendarClock },
   { key: "appearance",    label: "Appearance",    Icon: Palette },
   { key: "pomodoro",      label: "Pomodoro",      Icon: Timer },
+  { key: "sounds",        label: "Sounds",        Icon: Volume2 },
   { key: "tracker",       label: "Time tracker",  Icon: Clock },
   { key: "projects",      label: "Projects",      Icon: Briefcase },
   { key: "notifications", label: "Notifications", Icon: Bell },
@@ -95,7 +100,9 @@ export default function SettingsPage() {
 
         <div className="min-w-0">
           {section === "profile" && <ProfileSection dark={dark} />}
+          {section === "availability" && <AvailabilitySection dark={dark} />}
           {section === "appearance" && <AppearanceSection dark={dark} />}
+          {section === "sounds" && <SoundsSection dark={dark} />}
           {section === "pomodoro" && <PomodoroSection dark={dark} />}
           {section === "tracker" && <TimeTrackerSection dark={dark} />}
           {section === "projects" && <ProjectsSection dark={dark} />}
@@ -202,14 +209,21 @@ function ProfileSection({ dark }) {
   const [status, setStatus] = useState(settings.status || "");
   const [presenceState, setPresenceState] = useState(settings.presenceState || "active");
   const [rateDraft, setRateDraft] = useState(hourlyRate ? String(hourlyRate) : "");
+  const [annualDraft, setAnnualDraft] = useState("");
   const [error, setError] = useState("");
+  const HOURS_PER_YEAR = 2080; // 40h × 52w — standard salary↔hourly basis
   const [savingMsg, setSavingMsg] = useState("");
 
+  const [jobTitle, setJobTitle] = useState(settings.jobTitle || "");
+  useEffect(() => { setJobTitle(settings.jobTitle || ""); }, [settings.jobTitle]);
   useEffect(() => { setName(settings.name || ""); }, [settings.name]);
   useEffect(() => { setAvatarUrl(settings.avatarUrl || ""); }, [settings.avatarUrl]);
   useEffect(() => { setStatus(settings.status || ""); }, [settings.status]);
   useEffect(() => { setPresenceState(settings.presenceState || "active"); }, [settings.presenceState]);
   useEffect(() => { setRateDraft(hourlyRate ? String(hourlyRate) : ""); }, [hourlyRate]);
+  useEffect(() => {
+    setAnnualDraft(settings?.annualSalary != null ? String(settings.annualSalary) : (hourlyRate ? String(Math.round(hourlyRate * HOURS_PER_YEAR)) : ""));
+  }, [settings?.annualSalary, hourlyRate]);
 
   function flashSaved() {
     setSavingMsg("Saved");
@@ -261,6 +275,18 @@ function ProfileSection({ dark }) {
     const { error: err } = await persistUserSettings(userId, { hourly_rate: clean });
     if (err) { setError(err.message); return; }
     setHourlyRate(clean);
+    updateSettingsField({ wageMode: "hourly", annualSalary: clean ? Math.round(clean * HOURS_PER_YEAR) : null });
+    flashSaved();
+  }
+
+  async function onAnnualBlur() {
+    const annual = parseFloat(annualDraft);
+    const clean = Number.isFinite(annual) && annual >= 0 ? annual : 0;
+    const hourly = clean ? Math.round((clean / HOURS_PER_YEAR) * 100) / 100 : 0;
+    const { error: err } = await persistUserSettings(userId, { hourly_rate: hourly });
+    if (err) { setError(err.message); return; }
+    setHourlyRate(hourly);
+    updateSettingsField({ wageMode: "yearly", annualSalary: clean || null });
     flashSaved();
   }
 
@@ -288,6 +314,17 @@ function ProfileSection({ dark }) {
               placeholder="e.g. Jacob"
               className="max-w-sm"
               maxLength={60}
+            />
+          </div>
+          <div>
+            <FieldLabel dark={dark}>Job title</FieldLabel>
+            <Input
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value.slice(0, 80))}
+              onBlur={() => { const v = jobTitle.trim(); if (v !== (settings.jobTitle || "")) { updateSettingsField({ jobTitle: v || null }); flashSaved(); } }}
+              placeholder="e.g. Product Engineer"
+              className="max-w-sm"
+              maxLength={80}
             />
           </div>
           <div>
@@ -339,23 +376,62 @@ function ProfileSection({ dark }) {
         </div>
       </SectionCard>
 
-      <SectionCard title="Hourly rate" hint="Used to calculate earnings on the Overview page." dark={dark}>
-        <div className="flex items-center gap-2">
-          <span className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>$</span>
-          <Input
-            type="number"
-            min="0"
-            step="0.01"
-            value={rateDraft}
-            onChange={(e) => setRateDraft(e.target.value)}
-            onBlur={onRateBlur}
-            placeholder="0.00"
-            className="w-28"
-          />
-          <span className={`text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>/ hr</span>
-        </div>
+      <SectionCard title="Pay rate" hint="Used to calculate earnings on the Overview page. Enter it hourly or yearly — we convert (assuming ~2,080 work hours a year)." dark={dark}>
+        {(() => {
+          const yearly = (settings?.wageMode || "hourly") === "yearly";
+          return (
+            <div className="flex flex-col gap-2.5">
+              <div className="flex gap-1.5">
+                {[["hourly", "Hourly"], ["yearly", "Yearly"]].map(([v, l]) => {
+                  const on = (settings?.wageMode || "hourly") === v;
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => updateSettingsField({ wageMode: v })}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                        on ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]" : dark ? "text-slate-400 hover:bg-white/5" : "text-slate-500 hover:bg-slate-100"
+                      }`}
+                    >{l}</button>
+                  );
+                })}
+              </div>
+              {yearly ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>$</span>
+                  <Input type="number" min="0" step="1000" value={annualDraft} onChange={(e) => setAnnualDraft(e.target.value)} onBlur={onAnnualBlur} placeholder="80,000" className="w-32" />
+                  <span className={`text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>/ yr</span>
+                  {hourlyRate > 0 && <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>≈ ${hourlyRate.toFixed(2)}/hr</span>}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>$</span>
+                  <Input type="number" min="0" step="0.01" value={rateDraft} onChange={(e) => setRateDraft(e.target.value)} onBlur={onRateBlur} placeholder="0.00" className="w-28" />
+                  <span className={`text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>/ hr</span>
+                  {hourlyRate > 0 && <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>≈ ${Math.round(hourlyRate * HOURS_PER_YEAR).toLocaleString()}/yr</span>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </SectionCard>
 
+    </>
+  );
+}
+
+// ── Sounds: pomodoro alarms (its own section; room to grow) ─────────
+function SoundsSection({ dark }) {
+  const { settings, addCustomSound, renameCustomSound, removeCustomSound } = useApp();
+  const { teamSounds } = useTeam();
+  const [soundSettings, setSoundSettings] = useState(() => loadPomodoroSoundSettings());
+  const [error, setError] = useState("");
+  function updateSound(patch) {
+    setSoundSettings((prev) => { const next = { ...prev, ...patch }; savePomodoroSoundSettings(next); return next; });
+  }
+  return (
+    <>
+      {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
       <SectionCard
         title="Pomodoro sounds"
         hint="Upload your own alarms or pick from the built-in library. Tap a card to preview; the Focus / Break pills assign it as the alarm for that phase."
@@ -366,31 +442,149 @@ function ProfileSection({ dark }) {
           userSounds={settings.customSounds || []}
           teamSounds={teamSounds || []}
           soundSettings={soundSettings}
-          onSelectFocus={(presetId) => { updateSound({ workEndPreset: presetId }); flashSaved(); }}
-          onSelectBreak={(presetId) => { updateSound({ breakEndPreset: presetId }); flashSaved(); }}
+          onSelectFocus={(presetId) => { updateSound({ workEndPreset: presetId }); }}
+          onSelectBreak={(presetId) => { updateSound({ breakEndPreset: presetId }); }}
           onUpdateSettings={updateSound}
-          onAddSound={async (file) => {
-            const r = await addCustomSound(file);
-            if (r.error) setError(r.error.message || "Upload failed");
-            else flashSaved();
-          }}
-          onRenameSound={async (id, name) => {
-            const r = await renameCustomSound(id, name);
-            if (r.error) setError(r.error.message); else flashSaved();
-          }}
+          onAddSound={async (file) => { const r = await addCustomSound(file); if (r.error) setError(r.error.message || "Upload failed"); }}
+          onRenameSound={async (id, name) => { const r = await renameCustomSound(id, name); if (r.error) setError(r.error.message); }}
           onRemoveSound={async (sound) => {
             const r = await removeCustomSound(sound.id);
             if (r.error) { setError(r.error.message); return; }
-            // Drop the cached copy from Library/Sounds so we don't
-            // leak a stale MP3 if the user uploads a new one with
-            // the same name later.
             clearCachedNotificationSound(`${USER_SOUND_PREFIX}${sound.id}`);
-            flashSaved();
           }}
           onError={setError}
         />
       </SectionCard>
+    </>
+  );
+}
 
+// ── Availability: timezone, per-day hours + location, lunch, out of office ─
+function AvailabilitySection({ dark }) {
+  const { settings, updateSettingsField } = useApp();
+  const [saved, setSaved] = useState(false);
+  const muted = dark ? "text-slate-400" : "text-slate-500";
+  const commit = (patch) => { updateSettingsField(patch); setSaved(true); setTimeout(() => setSaved(false), 1500); };
+
+  const sched = settings?.workSchedule && typeof settings.workSchedule === "object" ? settings.workSchedule : {};
+  const DAYS = [["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4], ["Fri", 5], ["Sat", 6], ["Sun", 0]];
+  const toggleDay = (d) => {
+    const next = { ...sched };
+    if (next[d]) delete next[d]; else next[d] = { start: "09:00", end: "17:00", loc: "office" };
+    commit({ workSchedule: next });
+  };
+  const setDay = (d, patch) => commit({ workSchedule: { ...sched, [d]: { ...sched[d], ...patch } } });
+
+  const ranges = Array.isArray(settings?.oooRanges) ? settings.oooRanges : [];
+  const newId = () => Math.random().toString(36).slice(2);
+  const addRange = () => commit({ oooRanges: [...ranges, { id: newId(), start: "", end: "", note: "" }] });
+  const setRange = (id, patch) => commit({ oooRanges: ranges.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+  const removeRange = (id) => commit({ oooRanges: ranges.filter((r) => r.id !== id) });
+
+  const mode = settings?.lunchMode || "off";
+  const fieldCls = `rounded-lg px-2 py-1.5 text-sm border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`;
+  const pill = (on) => `px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${on ? "bg-[var(--color-accent)] text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-400 hover:text-slate-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`;
+
+  return (
+    <>
+      <div className="h-4">
+        {saved && <span className={`text-xs inline-flex items-center gap-1 ${dark ? "text-emerald-300" : "text-emerald-600"}`}><Check className="w-3.5 h-3.5" /> Saved</span>}
+      </div>
+
+      <SectionCard title="Timezone" hint="Shown on your profile so teammates know your local time. Auto-detected from your device unless you set it." dark={dark}>
+        <div className="flex items-center gap-2 flex-wrap text-sm">
+          <select
+            value={settings?.timezoneManual ? (settings?.timezone || "") : ""}
+            onChange={(e) => { const v = e.target.value; if (!v) commit({ timezoneManual: false, timezone: browserTimezone() }); else commit({ timezoneManual: true, timezone: v }); }}
+            className={`${fieldCls} max-w-[18rem]`}
+          >
+            <option value="">Auto-detect ({browserTimezone() || "?"})</option>
+            {TIMEZONES.map((z) => <option key={z} value={z}>{z}</option>)}
+          </select>
+          {settings?.timezone && <span className={`text-xs ${muted}`}>{localTimeLabel(settings.timezone)} now</span>}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Working schedule" hint="Set hours per day and where you're working. Toggle a day off to mark it non-working. Shown on your profile + used for the off-hours @mention warning." dark={dark}>
+        <div className="flex flex-col gap-2">
+          {DAYS.map(([label, d]) => {
+            const day = sched[d];
+            const on = !!day;
+            return (
+              <div key={d} className="flex items-center gap-2 flex-wrap text-sm">
+                <button type="button" onClick={() => toggleDay(d)} aria-pressed={on} className={`w-14 text-center ${pill(on)}`}>{label}</button>
+                {on ? (
+                  <>
+                    <TimeSelect value={day.start || ""} onChange={(v) => setDay(d, { start: v || "" })} />
+                    <span className={muted}>–</span>
+                    <TimeSelect value={day.end || ""} onChange={(v) => setDay(d, { end: v || "" })} />
+                    <button type="button" onClick={() => setDay(d, { loc: day.loc === "home" ? "office" : "home" })} className={`${fieldCls} cursor-pointer`}>
+                      {day.loc === "home" ? "🏠 Home" : "🏢 Office"}
+                    </button>
+                  </>
+                ) : (
+                  <span className={`text-xs ${muted}`}>Off</span>
+                )}
+              </div>
+            );
+          })}
+          <div className="flex items-center gap-2.5 mt-1">
+            <button type="button" role="switch" aria-checked={settings?.offHoursWarn !== false}
+              onClick={() => commit({ offHoursWarn: !(settings?.offHoursWarn !== false) })}
+              className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${settings?.offHoursWarn !== false ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}>
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${settings?.offHoursWarn !== false ? "translate-x-4" : ""}`} />
+            </button>
+            <span className={`text-sm ${dark ? "text-slate-300" : "text-slate-700"}`}>Warn teammates who @mention me outside these hours</span>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Lunch break" hint="At your lunch time, flip your status to Out to lunch — automatically or after a prompt. Logs a break (paid/unpaid below)." dark={dark}>
+        <div className="flex flex-col gap-3">
+          <div className="flex gap-1.5">
+            {[["off", "Off"], ["ask", "Ask me"], ["auto", "Automatic"]].map(([v, l]) => (
+              <button key={v} type="button" onClick={() => commit({ lunchMode: v })}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${mode === v ? (dark ? "bg-orange-500/25 text-orange-200" : "bg-orange-100 text-orange-700") : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}>{l}</button>
+            ))}
+          </div>
+          {mode !== "off" && (
+            <div className="flex items-center gap-2 flex-wrap text-sm">
+              <span className={muted}>At</span>
+              <TimeSelect value={settings?.lunchTime || ""} onChange={(v) => commit({ lunchTime: v || null })} />
+              <span className={muted}>for</span>
+              <select value={settings?.lunchDurationMin ?? 60} onChange={(e) => commit({ lunchDurationMin: Number(e.target.value) })} className={fieldCls}>
+                {[30, 45, 60, 90].map((m) => <option key={m} value={m}>{m} min</option>)}
+              </select>
+            </div>
+          )}
+          <div className="flex items-center gap-2.5">
+            <button type="button" role="switch" aria-checked={!!settings?.lunchBreakPaid}
+              onClick={() => commit({ lunchBreakPaid: !settings?.lunchBreakPaid })}
+              className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${settings?.lunchBreakPaid ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}>
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${settings?.lunchBreakPaid ? "translate-x-4" : ""}`} />
+            </button>
+            <span className={`text-sm ${dark ? "text-slate-300" : "text-slate-700"}`}>Lunch break is paid (counts toward logged time)</span>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Out of office" hint="Add the days you'll be away — vacations, conferences. Each change saves automatically (watch for ✓ Saved up top)." dark={dark}>
+        <div className="flex flex-col gap-2">
+          {ranges.length === 0 && <p className={`text-xs ${muted}`}>No out-of-office dates set.</p>}
+          {ranges.map((r) => (
+            <div key={r.id} className="flex items-center gap-2 flex-wrap text-sm">
+              <input type="date" value={r.start || ""} onChange={(e) => setRange(r.id, { start: e.target.value })} className={fieldCls} />
+              <span className={muted}>to</span>
+              <input type="date" value={r.end || ""} onChange={(e) => setRange(r.id, { end: e.target.value })} className={fieldCls} />
+              <input type="text" maxLength={60} value={r.note || ""} onChange={(e) => setRange(r.id, { note: e.target.value })} placeholder="Note" className={`flex-1 min-w-[7rem] ${fieldCls}`} />
+              <button type="button" onClick={() => removeRange(r.id)} aria-label="Remove" className={`shrink-0 ${dark ? "text-slate-500 hover:text-red-300" : "text-slate-400 hover:text-red-500"}`}><X className="w-4 h-4" /></button>
+            </div>
+          ))}
+          <button type="button" onClick={addRange} className={`self-start inline-flex items-center gap-1.5 text-sm mt-1 ${dark ? "text-slate-300 hover:text-slate-100" : "text-slate-600 hover:text-slate-800"}`}>
+            <Plus className="w-4 h-4" /> Add dates
+          </button>
+        </div>
+      </SectionCard>
     </>
   );
 }
@@ -519,6 +713,7 @@ function PomodoroSection({ dark }) {
     session,
     defaultLandingPage, setDefaultLandingPage,
     deepseekKey, setDeepseekKey,
+    settings, updateSettingsField,
   } = useApp();
   const userId = session?.user?.id;
 
@@ -567,6 +762,22 @@ function PomodoroSection({ dark }) {
           <SelectContent>
             <SelectItem value="pomodoro">Pomodoro</SelectItem>
             <SelectItem value="log">Time tracker</SelectItem>
+          </SelectContent>
+        </Select>
+      </SectionCard>
+
+      <SectionCard
+        title="Session reflections"
+        hint="Pop a quick 'what did you work on?' note around your focus blocks — it sets your current task so the work is captured as you go."
+        dark={dark}
+      >
+        <Select value={settings?.reflectWhen || "off"} onValueChange={(v) => { updateSettingsField({ reflectWhen: v }); flashSaved(); }}>
+          <SelectTrigger className="h-10 w-56"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="off">Off</SelectItem>
+            <SelectItem value="after_focus">After each focus block</SelectItem>
+            <SelectItem value="before_focus">Before the next focus</SelectItem>
+            <SelectItem value="both">Both</SelectItem>
           </SelectContent>
         </Select>
       </SectionCard>
@@ -1261,6 +1472,16 @@ function NotificationsSection({ dark }) {
   const [permTick, setPermTick] = useState(0);
   void permTick;
 
+  // Per-type notification prefs (sparse; absence = enabled).
+  const [typePrefs, setTypePrefs] = useState({});
+  useEffect(() => { listPreferences().then(setTypePrefs); }, []);
+  const typeEnabled = (type) => typePrefs[type] !== false;
+  const toggleType = async (type) => {
+    const next = !typeEnabled(type);
+    setTypePrefs((p) => ({ ...p, [type]: next }));
+    await setPreferenceEnabled(userId, type, next);
+  };
+
   useEffect(() => { setTime(reminderTime || ""); }, [reminderTime]);
 
   function flashSaved() { setSavingMsg("Saved"); setTimeout(() => setSavingMsg(""), 1500); }
@@ -1310,42 +1531,49 @@ function NotificationsSection({ dark }) {
       </SectionCard>
 
       <SectionCard
-        title="Lunch break"
-        hint="At your lunch time, flip your status to Out to lunch — automatically, or after a quick prompt. It flips back when the break is over."
+        title="Wellbeing reminders"
+        hint="Gentle nudges to drink water, move, rest your eyes and more — delivered to your inbox + desktop, only during your active hours."
         dark={dark}
       >
         <div className="flex flex-col gap-3">
-          <div className="flex gap-1.5">
-            {[["off", "Off"], ["ask", "Ask me"], ["auto", "Automatic"]].map(([v, l]) => {
-              const on = (settings?.lunchMode || "off") === v;
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>Active from</span>
+            <TimeSelect value={settings?.reminderActiveStart || "09:00"} onChange={(v) => updateSettingsField({ reminderActiveStart: v || null })} />
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>to</span>
+            <TimeSelect value={settings?.reminderActiveEnd || "17:00"} onChange={(v) => updateSettingsField({ reminderActiveEnd: v || null })} />
+          </div>
+          <div className={`flex flex-col rounded-xl border divide-y ${dark ? "border-[var(--color-border)] divide-[var(--color-border)]" : "border-slate-200 divide-slate-100"}`}>
+            {REMINDERS.map((r) => {
+              const cfg = reminderConfig(settings?.wellbeingReminders, r.key);
+              const set = (patch) => updateSettingsField({
+                wellbeingReminders: { ...(settings?.wellbeingReminders || {}), [r.key]: { on: cfg.on, every: cfg.every, ...patch } },
+              });
               return (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => updateSettingsField({ lunchMode: v })}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                    on
-                      ? dark ? "bg-orange-500/25 text-orange-200" : "bg-orange-100 text-orange-700"
-                      : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
-                  }`}
-                >{l}</button>
+                <div key={r.key} className="flex items-center gap-3 px-3 py-2.5">
+                  <span className="text-lg leading-none">{r.emoji}</span>
+                  <span className={`flex-1 text-sm font-medium ${dark ? "text-slate-200" : "text-slate-700"}`}>{r.label}</span>
+                  {cfg.on && (
+                    <select
+                      value={cfg.every}
+                      onChange={(e) => set({ every: Number(e.target.value) })}
+                      className={`rounded-lg px-2 py-1 text-xs border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`}
+                    >
+                      {REMINDER_INTERVALS.map((m) => <option key={m} value={m}>every {m} min</option>)}
+                    </select>
+                  )}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={cfg.on}
+                    onClick={() => set({ on: !cfg.on })}
+                    className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${cfg.on ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${cfg.on ? "translate-x-4" : ""}`} />
+                  </button>
+                </div>
               );
             })}
           </div>
-          {(settings?.lunchMode || "off") !== "off" && (
-            <div className="flex items-center gap-2 flex-wrap text-sm">
-              <span className={dark ? "text-slate-400" : "text-slate-500"}>At</span>
-              <TimeSelect value={settings?.lunchTime || ""} onChange={(v) => updateSettingsField({ lunchTime: v || null })} />
-              <span className={dark ? "text-slate-400" : "text-slate-500"}>for</span>
-              <select
-                value={settings?.lunchDurationMin ?? 60}
-                onChange={(e) => updateSettingsField({ lunchDurationMin: Number(e.target.value) })}
-                className={`rounded-lg px-2 py-1.5 text-sm border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`}
-              >
-                {[30, 45, 60, 90].map((m) => <option key={m} value={m}>{m} min</option>)}
-              </select>
-            </div>
-          )}
         </div>
       </SectionCard>
 
@@ -1367,6 +1595,75 @@ function NotificationsSection({ dark }) {
             <Bell className="w-3.5 h-3.5 mr-1.5" /> Allow notifications
           </Button>
         )}
+      </SectionCard>
+
+      <SectionCard
+        title="What to notify me about"
+        hint="Per-type switches. Awareness pings reach your team by default; turn off any you don't want."
+        dark={dark}
+      >
+        <div className="flex flex-col">
+          {NOTIFICATION_TYPES.map((t, i) => {
+            const on = typeEnabled(t.type);
+            return (
+              <div
+                key={t.type}
+                className={`flex items-center justify-between gap-3 py-2.5 ${i > 0 ? "border-t" : ""}`}
+                style={{ borderColor: dark ? "var(--color-border)" : "rgb(241,245,249)" }}
+              >
+                <div className="min-w-0">
+                  <div className={`text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{t.label}</div>
+                  <div className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>{t.description}</div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={on}
+                  onClick={() => toggleType(t.type)}
+                  className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${on ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${on ? "translate-x-4" : ""}`} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Quiet hours"
+        hint="During quiet hours, desktop pop-ups are silenced — your inbox still collects everything."
+        dark={dark}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings?.notifDesktopEnabled !== false}
+              onClick={() => updateSettingsField({ notifDesktopEnabled: !(settings?.notifDesktopEnabled !== false) })}
+              className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${settings?.notifDesktopEnabled !== false ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${settings?.notifDesktopEnabled !== false ? "translate-x-4" : ""}`} />
+            </button>
+            <span className={`text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>Desktop pop-up notifications</span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>Quiet from</span>
+            <TimeSelect value={settings?.notifQuietStart || ""} onChange={(v) => updateSettingsField({ notifQuietStart: v || null })} />
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>to</span>
+            <TimeSelect value={settings?.notifQuietEnd || ""} onChange={(v) => updateSettingsField({ notifQuietEnd: v || null })} />
+            {(settings?.notifQuietStart || settings?.notifQuietEnd) && (
+              <button
+                type="button"
+                onClick={() => updateSettingsField({ notifQuietStart: null, notifQuietEnd: null })}
+                className={`text-xs ${dark ? "text-slate-400 hover:text-red-300" : "text-slate-500 hover:text-red-500"}`}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
       </SectionCard>
 
       <SectionCard

@@ -74,10 +74,9 @@ export default function RunningTimerPill({ onOpen }) {
           </span>
         </>
       ) : (
-        <>
-          <Play className="w-3.5 h-3.5" fill="currentColor" />
-          Start
-        </>
+        // Idle: icon-only so it stays compact next to the clock + working-now
+        // pills; the running state still shows the full "FOCUS · 24:13".
+        <Play className="w-3.5 h-3.5" fill="currentColor" />
       )}
     </button>
   );

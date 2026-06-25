@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Trash2, GripVertical } from "lucide-react";
+import { X, Trash2, GripVertical, Maximize2, Minimize2 } from "lucide-react";
 import { useTheme } from "../../../context/ThemeContext";
 import { ROOM_PANELS } from "./panels";
 import { computeLayout, MIN_PX } from "./layoutTree";
@@ -56,6 +56,52 @@ function hits(rect, px, py) {
   return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
 }
 
+// Integrated "window chrome" for a tile: a slim title bar that IS the drag
+// handle (grab anywhere), with the panel icon + title and right-aligned window
+// controls (maximize/restore, close, plus any per-panel `extra`). Replaces the
+// old floating grip — being a child of the tile, it can't overlap content or
+// "fall off". Buttons stop pointer propagation so a click doesn't start a drag.
+function PanelHeader({ dark, icon: Icon, title, narrow, maximized, draggable, onDragStart, onToggleMax, onClose, extra }) {
+  const btn = `p-1 rounded-md transition-colors ${
+    dark ? "text-slate-400 hover:text-slate-100 hover:bg-white/10" : "text-slate-500 hover:text-slate-800 hover:bg-black/5"
+  }`;
+  return (
+    <div
+      onPointerDown={draggable ? onDragStart : undefined}
+      title={draggable ? "Drag to move" : undefined}
+      className={`group/hdr shrink-0 flex items-center gap-1.5 h-8 pl-2 pr-1 select-none border-b ${
+        draggable ? "touch-none cursor-grab active:cursor-grabbing" : ""
+      } ${dark ? "bg-[var(--color-surface-raised)]/70 border-[var(--color-border)] text-slate-300" : "bg-slate-50 border-slate-200 text-slate-500"}`}
+    >
+      <GripVertical
+        className={`w-3.5 h-3.5 shrink-0 ${draggable ? "" : "opacity-0"} ${
+          dark ? "text-slate-600 group-hover/hdr:text-slate-400" : "text-slate-300 group-hover/hdr:text-slate-500"
+        }`}
+      />
+      {Icon && <Icon className="w-3.5 h-3.5 shrink-0 text-[var(--color-accent)]" />}
+      {!narrow && <span className="text-[11px] font-semibold truncate">{title}</span>}
+      <span className="flex-1" />
+      <div className="flex items-center gap-0.5 shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+        {extra}
+        <button
+          type="button"
+          className={btn}
+          title={maximized ? "Restore" : "Maximize"}
+          aria-label={maximized ? "Restore panel" : "Maximize panel"}
+          onClick={onToggleMax}
+        >
+          {maximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+        </button>
+        {onClose && (
+          <button type="button" className={btn} title="Close panel" aria-label="Close panel" onClick={onClose}>
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Renders a room layout tree as absolutely-positioned tiles.
 //
 // Tiles are KEYED BY PANEL ID and never change DOM parent, so React never
@@ -78,6 +124,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
   const [moving, setMoving] = useState(null); // drag: { panel, fromToolbox }
   const [drop, setDrop] = useState(null);     // { kind:"tile", panel, zone } | { kind:"toolbox" }
   const [pointer, setPointer] = useState(null);
+  const [maximized, setMaximized] = useState(null); // panel id rendered full-tile
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -109,6 +156,8 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
   const shown = new Set(leaves.map((l) => l.panel));
   const hidden = Object.keys(ROOM_PANELS).filter((id) => !shown.has(id));
   const canClose = leaves.length > 1;
+  // Ignore a stale maximize if that panel was since closed.
+  const maximizedPanel = maximized && shown.has(maximized) ? maximized : null;
   const animate = settled && !drag && !moving;
 
   const leavesRef = useRef(leaves);
@@ -225,16 +274,40 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
     <div ref={containerRef} className="relative w-full h-full min-h-0 overflow-hidden">
       {leaves.map((l) => {
         const panel = ROOM_PANELS[l.panel];
+        const Icon = panel?.icon;
+        const isMax = maximizedPanel === l.panel;
+        const r = isMax ? { x: 0, y: 0, w: rect.w, h: rect.h } : l.rect;
+        const narrow = r.w < 200;
+        // The video is a fixed overlay at z-20 glued to its content area. A
+        // maximized VIDEO tile must sit BELOW it (z 10) so the video shows
+        // through; any other maximized tile sits ABOVE it (z 30) to cover it.
+        const z = isMax ? (l.panel === "video" ? 10 : 30) : undefined;
         return (
           <div
             key={l.panel}
-            className="absolute overflow-hidden rounded-xl shadow-sm"
+            className={`absolute flex flex-col overflow-hidden rounded-xl shadow-sm border ${
+              dark ? "border-[var(--color-border)]" : "border-slate-200"
+            }`}
             style={{
-              left: l.rect.x, top: l.rect.y, width: l.rect.w, height: l.rect.h,
+              left: r.x, top: r.y, width: r.w, height: r.h, zIndex: z,
               transition: animate ? TILE_TRANSITION : "none",
             }}
           >
-            {panel ? panel.render(ctx) : null}
+            <PanelHeader
+              dark={dark}
+              icon={Icon}
+              title={panel?.title || l.panel}
+              narrow={narrow}
+              maximized={isMax}
+              draggable={!maximizedPanel}
+              onDragStart={(e) => startTileDrag(l.panel, e)}
+              onToggleMax={() => setMaximized(isMax ? null : l.panel)}
+              onClose={canClose ? () => { if (isMax) setMaximized(null); onClose?.(l.panel); } : undefined}
+              extra={panel?.headerActions ? panel.headerActions(ctx) : null}
+            />
+            <div className="relative flex-1 min-h-0">
+              {panel ? panel.render(ctx) : null}
+            </div>
           </div>
         );
       })}
@@ -242,7 +315,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
       {/* Resize handles — available in normal AND arrange mode. They sit in
           the gaps between tiles; the arrange overlay passes pointer events
           through there, so dragging a divider still resizes while arranging. */}
-      {dividers.map((d) => {
+      {!maximizedPanel && dividers.map((d) => {
         const horiz = d.dir === "row";
         return (
           <div
@@ -404,35 +477,16 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
         document.body,
       )}
 
-      {/* Quick-move layer (OUTSIDE Arrange) — a small grab handle per tile and
-          a live drop hint, portalled above the video so a panel can be grabbed
-          and dropped even over the call. Arrange keeps the richer overlay
+      {/* Quick-move feedback (OUTSIDE Arrange) — the live drop hint + cursor
+          ghost while a tile is dragged by its header, portalled above the video
+          so the panel can be dropped even over the call. The drag is started
+          from each tile's header (PanelHeader); Arrange keeps the richer overlay
           (toolbox / add / remove). */}
       {!arranging && rect.w > 0 && createPortal(
         <div
           className="fixed z-[100]"
           style={{ top: rect.top, left: rect.left, width: rect.w, height: rect.h, pointerEvents: "none" }}
         >
-          {leaves.length > 1 && leaves.map((l) => {
-            const panel = ROOM_PANELS[l.panel];
-            const isMoving = moving?.panel === l.panel;
-            return (
-              <button
-                key={`grip:${l.panel}`}
-                type="button"
-                onPointerDown={(e) => startTileDrag(l.panel, e)}
-                title={`Move ${panel?.title || l.panel}`}
-                aria-label={`Move ${panel?.title || l.panel}`}
-                className={`absolute w-7 h-7 rounded-full inline-flex items-center justify-center cursor-grab active:cursor-grabbing touch-none transition-opacity ${
-                  dark ? "bg-slate-900/70 text-slate-200 hover:bg-slate-900/95" : "bg-white/85 text-slate-600 hover:bg-white"
-                } ${isMoving ? "opacity-100 ring-2 ring-[var(--color-accent)]" : "opacity-60 hover:opacity-100"}`}
-                style={{ left: l.rect.x + 6, top: l.rect.y + 6, pointerEvents: "auto" }}
-              >
-                <GripVertical className="w-4 h-4" />
-              </button>
-            );
-          })}
-
           {moving && dropTarget && (() => {
             const full = drop.zone === "center";
             const r = full ? dropTarget.rect : zoneRect(dropTarget.rect, drop.zone);

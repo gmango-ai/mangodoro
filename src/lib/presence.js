@@ -12,6 +12,7 @@ export const PRESENCE_DOT = {
   in_meeting: "bg-rose-500",
   away: "bg-amber-500",
   out_to_lunch: "bg-orange-500",
+  commuting: "bg-cyan-500",
 };
 
 export const PRESENCE_RING = {
@@ -21,6 +22,7 @@ export const PRESENCE_RING = {
   in_meeting: "ring-rose-500",
   away: "ring-amber-500",
   out_to_lunch: "ring-orange-500",
+  commuting: "ring-cyan-500",
 };
 
 export const PRESENCE_LABEL = {
@@ -30,6 +32,7 @@ export const PRESENCE_LABEL = {
   in_meeting: "In a meeting",
   away: "Away",
   out_to_lunch: "Out to lunch",
+  commuting: "Commuting",
 };
 
 // Unknown / missing states fall back to "active" — the neutral

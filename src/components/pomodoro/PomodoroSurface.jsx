@@ -219,7 +219,7 @@ export default function PomodoroSurface({
           <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${
             dark ? "text-slate-500" : "text-slate-400"
           }`}>
-            Goals this week
+            Current Goals
           </p>
           <GoalsList goals={weekGoals} dark={dark} compact />
         </div>
