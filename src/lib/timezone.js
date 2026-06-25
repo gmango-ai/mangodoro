@@ -21,10 +21,13 @@ export function tzAbbrev(tz) {
   } catch { return null; }
 }
 
-// Is `today` (in the viewer's local date) within an OOO [start,end] (date strings, inclusive)?
-export function isOutOfOffice(start, end) {
+// Is `today` (in `tz`, or the viewer's local date when omitted) within an OOO
+// [start,end] (date strings, inclusive)?
+export function isOutOfOffice(start, end, tz) {
   if (!start && !end) return false;
-  const today = new Date().toLocaleDateString("en-CA");
+  const today = tz
+    ? new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date())
+    : new Date().toLocaleDateString("en-CA");
   if (start && today < start) return false;
   if (end && today > end) return false;
   return true;

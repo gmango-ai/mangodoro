@@ -218,8 +218,16 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
     const ids = new Set();
     const body = draft || "";
     if (!body.includes("@")) return ids;
-    for (const m of teamMembers || []) {
-      if (m.user_id !== userId && m.name && body.includes(`@${m.name}`)) ids.add(m.user_id);
+    const members = (teamMembers || []).filter((m) => m.user_id !== userId && m.name);
+    const names = members.map((m) => m.name).sort((a, b) => b.length - a.length);
+    if (!names.length) return ids;
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`@(${names.map(esc).join("|")})`, "g");
+    const matched = new Set();
+    let m;
+    while ((m = re.exec(body))) matched.add(m[1]);
+    for (const tm of members) {
+      if (matched.has(tm.name)) ids.add(tm.user_id);
     }
     return ids;
   }, [draft, teamMembers, userId]);
@@ -237,7 +245,7 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
       const p = availMap[id];
       if (!p) continue;
       const nm = (teamMembers || []).find((m) => m.user_id === id)?.name || p.display_name || "They";
-      if (isOutOfOffice(p.ooo_start, p.ooo_end)) {
+      if (isOutOfOffice(p.ooo_start, p.ooo_end, p.timezone)) {
         const until = p.ooo_end ? ` until ${new Date(`${p.ooo_end}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}` : "";
         out.push(`${nm} is out of office${until}`);
       } else if (p.off_hours_warn !== false) {
