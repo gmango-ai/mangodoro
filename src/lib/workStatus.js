@@ -19,6 +19,15 @@ export async function setWorkStatus({ userId, teamId = null, clockedInAt, onBrea
   );
 }
 
+// A user's work summary (today/week/month/streak/avg-start) — RPC-gated to self
+// or a team admin of the target; returns null when not permitted.
+export async function getUserWorkSummary(userId) {
+  if (!userId) return null;
+  const { data, error } = await supabase.rpc("get_user_work_summary", { p_user_id: userId });
+  if (error) return null; // not permitted / no row
+  return data;
+}
+
 // Everyone currently clocked in that I'm allowed to see (RLS = own + teammates).
 export async function listClockedIn() {
   const { data, error } = await supabase

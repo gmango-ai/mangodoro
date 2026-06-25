@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import ProfileCard from "../components/profile/ProfileCard";
 import ProfileGoals from "../components/profile/ProfileGoals";
 import ProfileLunch from "../components/profile/ProfileLunch";
+import ProfileWorkSummary from "../components/profile/ProfileWorkSummary";
 import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 
@@ -28,6 +29,8 @@ export default function ProfilePage() {
       <div className="rounded-2xl border shadow-sm" style={cardStyle}>
         <ProfileCard userId={userId} />
       </div>
+      {/* Work summary — renders only when permitted (self or a team admin). */}
+      <ProfileWorkSummary userId={userId} cardStyle={cardStyle} />
       <div className="rounded-2xl border shadow-sm mt-3 p-3.5" style={cardStyle}>
         <ProfileGoals userId={userId} />
       </div>

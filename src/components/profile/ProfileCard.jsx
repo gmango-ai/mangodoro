@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import { Clock } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
 import UserAvatar from "../UserAvatar";
 import FollowButton from "../FollowButton";
 import { presenceDot, presenceLabel } from "../../lib/presence";
 import { getProfile } from "../../lib/profiles";
+import { getUserWorkSummary } from "../../lib/workStatus";
+import { formatDuration } from "../../lib/utils";
 
 // Shared identity block — used by the click popover and the full profile page.
 // Identity (name/avatar/handle/bio) comes from `profiles`; presence/status/teams
@@ -15,10 +18,12 @@ export default function ProfileCard({ userId, onOpenFull }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [profile, setProfile] = useState(null);
+  const [sum, setSum] = useState(null);
 
   useEffect(() => {
     let on = true;
     getProfile(userId).then((p) => { if (on) setProfile(p); });
+    getUserWorkSummary(userId).then((s) => { if (on) setSum(s); }); // null unless self/admin
     return () => { on = false; };
   }, [userId]);
 
@@ -48,6 +53,13 @@ export default function ProfileCard({ userId, onOpenFull }) {
 
       {status && <div className={`text-[13px] mt-2.5 ${dark ? "text-slate-300" : "text-slate-600"}`}>{status}</div>}
       {profile?.bio && <div className={`text-xs mt-1.5 leading-snug ${dark ? "text-slate-400" : "text-slate-500"}`}>{profile.bio}</div>}
+
+      {sum && (
+        <div className={`flex items-center gap-1.5 mt-2.5 text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          <Clock className="w-3 h-3 shrink-0" />
+          <span><span className={`font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{formatDuration(sum.today_minutes)}</span> today · {formatDuration(sum.week_minutes)} this week</span>
+        </div>
+      )}
 
       {teams.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-2.5">
