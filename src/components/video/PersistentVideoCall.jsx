@@ -82,7 +82,7 @@ export default function PersistentVideoCall() {
     prevSessionRoomRef.current = curRoom;
     if (call && prevRoom && curRoom !== prevRoom && call.roomId === prevRoom) {
       if (curRoom) {
-        startCall(curRoom, call.displayName, { mode: call.mode, choices: call.choices });
+        startCall(curRoom, call.displayName, { mode: call.mode, choices: call.choices, listen: call.listen });
       } else {
         endCall();
       }
@@ -153,6 +153,7 @@ export default function PersistentVideoCall() {
         displayName={call.displayName}
         compact={compact}
         publish={call.mode !== "spectate"}
+        listen={call.listen !== false}
         choices={call.choices}
         onJoinIn={() => updateCall({ mode: "join" })}
         onLeft={() => endCall()}

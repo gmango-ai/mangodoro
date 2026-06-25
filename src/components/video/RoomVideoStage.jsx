@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles } from "lucide-react";
+import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles, Volume2, VolumeX } from "lucide-react";
 import { usePreviewTracks, usePersistentUserChoices } from "@livekit/components-react";
 import "@livekit/components-styles";
 import { useTheme } from "../../context/ThemeContext";
@@ -352,7 +352,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
 // processed self-view. Join upgrades spectate→publish in place with these AV +
 // background choices. Returns a fragment (hero + control dock) so the parent can
 // keep the live-call corner as a stable sibling.
-function SpectatePreJoin({ displayName, onJoin, onLeave }) {
+function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave }) {
   const { userChoices, saveAudioInputEnabled, saveVideoInputEnabled } =
     usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: false, audioEnabled: true } });
   const camOn = userChoices.videoEnabled;
@@ -439,6 +439,19 @@ function SpectatePreJoin({ displayName, onJoin, onLeave }) {
             setCamPreview(next);
             saveVideoInputEnabled(next);
           })}
+          {/* Listen — OFF by default so auto-preview is silent (no in-room
+              feedback). Neutral (not alarming) styling since muted is the safe state. */}
+          <button
+            type="button"
+            onClick={onToggleListen}
+            title={listen ? "Mute the call preview" : "Listen to the call"}
+            aria-label={listen ? "Mute the call preview" : "Listen to the call"}
+            className={`inline-flex items-center justify-center w-10 h-10 rounded-full shrink-0 transition-colors ${
+              listen ? "bg-white/15 text-white hover:bg-white/25" : "bg-white/10 text-white/55 hover:bg-white/20"
+            }`}
+          >
+            {listen ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+          </button>
           <BgPicker bg={bg} onChange={setBg} />
           <button
             type="button"
@@ -521,13 +534,15 @@ export default function RoomVideoStage({ roomId, displayName }) {
   const watch = () => startCall(roomId, displayName, { mode: "spectate" });
 
   // Auto-preview: when others are already in the call, drop straight into a live
-  // subscribe-only spectate (camera off) so you SEE/HEAR the room before deciding,
-  // instead of a static card. `autoRef` makes it fire once per room visit;
-  // `dismissed` respects an explicit "Stop watching".
+  // subscribe-only spectate so you SEE the room before deciding, instead of a
+  // static card. SILENT by default (listen:false) — auto-playing the call audio
+  // the moment you walk up risks an in-room feedback loop (your speaker replaying
+  // the call into a nearby participant's mic). Tap Listen in the dock to hear.
+  // `autoRef` fires it once per room visit; `dismissed` respects "Stop watching".
   useEffect(() => {
     if (othersInCall && !inCall && !inAnotherCall && !setupOpen && !dismissed && !autoRef.current) {
       autoRef.current = true;
-      startCall(roomId, displayName, { mode: "spectate" });
+      startCall(roomId, displayName, { mode: "spectate", listen: false });
     }
   }, [othersInCall, inCall, inAnotherCall, setupOpen, dismissed, roomId, displayName, startCall]);
 
@@ -551,6 +566,8 @@ export default function RoomVideoStage({ roomId, displayName }) {
         {spectating && (
           <SpectatePreJoin
             displayName={displayName}
+            listen={call?.listen === true}
+            onToggleListen={() => updateCall({ listen: !(call?.listen === true) })}
             onJoin={(choices) => updateCall({ mode: "join", choices })}
             onLeave={() => { setDismissed(true); endCall(); }}
           />

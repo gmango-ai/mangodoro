@@ -25,9 +25,12 @@ export function VideoCallProvider({ children }) {
   const [stageEl, setStageElRaw] = useState(null);
 
   // opts.mode: "join" (publish camera/mic) | "spectate" (subscribe-only —
-  // see/hear everyone without publishing). opts.choices: device prefs from
-  // the pre-join card ({ videoEnabled, audioEnabled, videoDeviceId,
-  // audioDeviceId }).
+  // see everyone without publishing). opts.choices: device prefs from the
+  // pre-join card ({ videoEnabled, audioEnabled, videoDeviceId, audioDeviceId }).
+  // opts.listen: whether a spectator HEARS the call. Defaults true; a silent
+  // auto-preview passes false so walking up to a room doesn't blast its audio
+  // (and can't feed back through a nearby participant's mic). Ignored once you
+  // publish — joining always hears.
   const startCall = useCallback((roomId, displayName, opts = {}) => {
     if (!roomId) return;
     setCall({
@@ -35,6 +38,7 @@ export function VideoCallProvider({ children }) {
       displayName: displayName || "",
       mode: opts.mode || "join",
       choices: opts.choices || null,
+      listen: opts.listen !== false,
     });
   }, []);
 

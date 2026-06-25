@@ -20,7 +20,7 @@ import EmoteOverlay from "../emotes/EmoteOverlay";
 //                   life; PersistentVideoCall keys us by roomId).
 // displayName     — what other participants see.
 // onJoined/onLeft — fired when the local participant joins / leaves.
-export default function VideoCall({ roomId, displayName, compact, publish, choices, onJoinIn, onJoined, onLeft }) {
+export default function VideoCall({ roomId, displayName, compact, publish, listen, choices, onJoinIn, onJoined, onLeft }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [error, setError] = useState(null);
@@ -108,6 +108,7 @@ export default function VideoCall({ roomId, displayName, compact, publish, choic
             displayName={displayName}
             compact={compact}
             publish={publish}
+            listen={listen}
             choices={choices}
             onJoinIn={onJoinIn}
             emote={emoteApiRef.current}

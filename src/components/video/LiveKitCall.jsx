@@ -1392,7 +1392,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   );
 }
 
-export default function LiveKitCall({ roomId, displayName, compact, publish = true, choices, onJoinIn, emote, onJoined, onLeft, onError }) {
+export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, onJoinIn, emote, onJoined, onLeft, onError }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [token, setToken] = useState(null);
@@ -1465,8 +1465,12 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
             it for them); everyone else plays normally. */}
         <FollowerAudioGate />
         {/* Required for participants to be audible — suppressed for in-room
-            followers so the leader's speakers don't echo back through them. */}
-        <ClusterAudioRenderer />
+            followers so the leader's speakers don't echo back through them. Also
+            gated on `listen`: a silent auto-preview spectator plays NOTHING, so
+            walking up to a room can't blast the call through your speakers and
+            (if a live participant is nearby) feed back into the room. Publishers
+            always hear; explicit watchers and join always have listen=true. */}
+        {(publish || listen) && <ClusterAudioRenderer />}
       </LiveKitRoom>
     </div>
   );
