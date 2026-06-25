@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, X, FolderKanban } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
 import { listOrgProjects, createOrgProject, updateOrgProject, archiveOrgProject } from "../../lib/orgProjects";
@@ -11,10 +11,14 @@ export default function OrgProjects({ dark }) {
   const [projects, setProjects] = useState([]);
   const [draft, setDraft] = useState("");
   const [color, setColor] = useState("#14b8a6");
+  const reqRef = useRef(0);
 
   const load = useCallback(async () => {
     if (!activeTeamId) { setProjects([]); return; }
-    setProjects(await listOrgProjects(activeTeamId));
+    const my = ++reqRef.current;
+    const data = await listOrgProjects(activeTeamId);
+    if (my !== reqRef.current) return;
+    setProjects(data);
   }, [activeTeamId]);
   useEffect(() => { load(); }, [load]);
 
@@ -25,8 +29,9 @@ export default function OrgProjects({ dark }) {
   const add = async () => {
     const name = draft.trim();
     if (!name) return;
+    const { error } = await createOrgProject({ teamId: activeTeamId, name, color });
+    if (error) return;
     setDraft("");
-    await createOrgProject({ teamId: activeTeamId, name, color });
     load();
   };
   const rename = async (p, name) => { if (name.trim() && name.trim() !== p.name) { await updateOrgProject(p.id, { name: name.trim() }); load(); } };

@@ -21,12 +21,17 @@ export default function WorkClockBar({ dark }) {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState([]);
   const anchorRef = useRef(null);
+  const reqRef = useRef(0);
   void clockedTick; // re-render the elapsed label as it ticks
 
   // Org projects to pick "what you're working on" — fetched only when the menu opens.
   useEffect(() => {
-    if (!open || !activeTeamId) return;
-    listOrgProjects(activeTeamId).then(setProjects);
+    if (!open || !activeTeamId) { setProjects([]); return; }
+    const my = ++reqRef.current;
+    listOrgProjects(activeTeamId).then((data) => {
+      if (my !== reqRef.current) return;
+      setProjects(data);
+    });
   }, [open, activeTeamId]);
 
   const setProject = (p) => {
@@ -119,8 +124,12 @@ export default function WorkClockBar({ dark }) {
             <div className={`my-1 h-px ${dark ? "bg-white/10" : "bg-slate-200"}`} />
           </>
         )}
-        {clockIn.description?.trim() && projects.length === 0 && (
-          <p className={`px-2.5 py-1.5 text-xs truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>{clockIn.description}</p>
+        {clockIn.description?.trim() && !projects.some((p) => p.name === clockIn.description.trim()) && (
+          <>
+            <p className={`px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>Working on</p>
+            <p className={`px-2.5 py-1.5 text-xs truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>{clockIn.description}</p>
+            <div className={`my-1 h-px ${dark ? "bg-white/10" : "bg-slate-200"}`} />
+          </>
         )}
         {onBreak ? (
           <button type="button" onClick={backFromLunch} className={item}><Undo2 className="w-3.5 h-3.5" /> Back from lunch</button>
