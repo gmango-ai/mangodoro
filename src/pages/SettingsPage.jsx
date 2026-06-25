@@ -1362,6 +1362,28 @@ function NotificationsSection({ dark }) {
       </SectionCard>
 
       <SectionCard
+        title="Working hours"
+        hint="Your typical hours — shown on your profile so teammates in other timezones know when you're around (and get a heads-up before pinging you at clock-off)."
+        dark={dark}
+      >
+        <div className="flex items-center gap-2 flex-wrap text-sm">
+          <span className={dark ? "text-slate-400" : "text-slate-500"}>From</span>
+          <TimeSelect value={settings?.workStart || ""} onChange={(v) => updateSettingsField({ workStart: v || null })} />
+          <span className={dark ? "text-slate-400" : "text-slate-500"}>to</span>
+          <TimeSelect value={settings?.workEnd || ""} onChange={(v) => updateSettingsField({ workEnd: v || null })} />
+          {(settings?.workStart || settings?.workEnd) && (
+            <button
+              type="button"
+              onClick={() => updateSettingsField({ workStart: null, workEnd: null })}
+              className={`text-xs px-2 py-1 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </SectionCard>
+
+      <SectionCard
         title="Wellbeing reminders"
         hint="Gentle nudges to drink water, move, rest your eyes and more — delivered to your inbox + desktop, only during your active hours."
         dark={dark}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Clock } from "lucide-react";
+import { Clock, Globe } from "lucide-react";
+import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
 import UserAvatar from "../UserAvatar";
@@ -7,6 +8,7 @@ import FollowButton from "../FollowButton";
 import { presenceDot, presenceLabel } from "../../lib/presence";
 import { getProfile } from "../../lib/profiles";
 import { getUserWorkSummary } from "../../lib/workStatus";
+import { availability } from "../../lib/timezone";
 import { formatDuration } from "../../lib/utils";
 
 // Shared identity block — used by the click popover and the full profile page.
@@ -14,11 +16,13 @@ import { formatDuration } from "../../lib/utils";
 // come from the already-loaded team data (TeamContext) when the person is a
 // teammate.
 export default function ProfileCard({ userId, onOpenFull }) {
+  const { session } = useApp();
   const { teamMembers, teamsByUserId } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [profile, setProfile] = useState(null);
   const [sum, setSum] = useState(null);
+  const [, force] = useState(0); // re-render to keep the local clock fresh
 
   useEffect(() => {
     let on = true;
@@ -27,6 +31,14 @@ export default function ProfileCard({ userId, onOpenFull }) {
     getUserWorkSummary(userId).then((s) => { if (on) setSum(s); }); // null unless self/admin
     return () => { on = false; };
   }, [userId]);
+
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const isMe = session?.user?.id === userId;
+  const { label: localTime, badge: hoursBadge } = availability(profile?.timezone, profile?.work_start, profile?.work_end);
 
   const member = (teamMembers || []).find((m) => m.user_id === userId);
   const name = profile?.display_name || member?.name || "Member";
@@ -55,8 +67,22 @@ export default function ProfileCard({ userId, onOpenFull }) {
       {status && <div className={`text-[13px] mt-2.5 ${dark ? "text-slate-300" : "text-slate-600"}`}>{status}</div>}
       {profile?.bio && <div className={`text-xs mt-1.5 leading-snug ${dark ? "text-slate-400" : "text-slate-500"}`}>{profile.bio}</div>}
 
-      {sum && (
+      {!isMe && localTime && (
         <div className={`flex items-center gap-1.5 mt-2.5 text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          <Globe className="w-3 h-3 shrink-0" />
+          <span>
+            <span className={`font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{localTime}</span> their time
+            {hoursBadge && (
+              <span className={hoursBadge === "off hours" ? (dark ? " text-amber-300" : " text-amber-600") : (dark ? " text-slate-400" : " text-slate-500")}>
+                {" · "}{hoursBadge}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
+      {sum && (
+        <div className={`flex items-center gap-1.5 mt-1.5 text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
           <Clock className="w-3 h-3 shrink-0" />
           <span><span className={`font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{formatDuration(sum.today_minutes)}</span> today · {formatDuration(sum.week_minutes)} this week</span>
         </div>
