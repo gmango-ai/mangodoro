@@ -50,6 +50,8 @@ export function normalizeSettings(row) {
     lunchBreakPaid: row.lunch_break_paid ?? false,
     timezone: row.timezone || "",
     timezoneManual: row.timezone_manual ?? false,
+    wageMode: row.wage_mode || "hourly",
+    annualSalary: row.annual_salary ?? null,
     offHoursWarn: row.off_hours_warn ?? true,
     oooStart: row.ooo_start || null,
     oooEnd: row.ooo_end || null,

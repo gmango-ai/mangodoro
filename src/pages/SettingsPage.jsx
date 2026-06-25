@@ -205,7 +205,9 @@ function ProfileSection({ dark }) {
   const [status, setStatus] = useState(settings.status || "");
   const [presenceState, setPresenceState] = useState(settings.presenceState || "active");
   const [rateDraft, setRateDraft] = useState(hourlyRate ? String(hourlyRate) : "");
+  const [annualDraft, setAnnualDraft] = useState("");
   const [error, setError] = useState("");
+  const HOURS_PER_YEAR = 2080; // 40h × 52w — standard salary↔hourly basis
   const [savingMsg, setSavingMsg] = useState("");
 
   useEffect(() => { setName(settings.name || ""); }, [settings.name]);
@@ -213,6 +215,9 @@ function ProfileSection({ dark }) {
   useEffect(() => { setStatus(settings.status || ""); }, [settings.status]);
   useEffect(() => { setPresenceState(settings.presenceState || "active"); }, [settings.presenceState]);
   useEffect(() => { setRateDraft(hourlyRate ? String(hourlyRate) : ""); }, [hourlyRate]);
+  useEffect(() => {
+    setAnnualDraft(settings?.annualSalary != null ? String(settings.annualSalary) : (hourlyRate ? String(Math.round(hourlyRate * HOURS_PER_YEAR)) : ""));
+  }, [settings?.annualSalary, hourlyRate]);
 
   function flashSaved() {
     setSavingMsg("Saved");
@@ -264,6 +269,18 @@ function ProfileSection({ dark }) {
     const { error: err } = await persistUserSettings(userId, { hourly_rate: clean });
     if (err) { setError(err.message); return; }
     setHourlyRate(clean);
+    updateSettingsField({ wageMode: "hourly", annualSalary: clean ? Math.round(clean * HOURS_PER_YEAR) : null });
+    flashSaved();
+  }
+
+  async function onAnnualBlur() {
+    const annual = parseFloat(annualDraft);
+    const clean = Number.isFinite(annual) && annual >= 0 ? annual : 0;
+    const hourly = clean ? Math.round((clean / HOURS_PER_YEAR) * 100) / 100 : 0;
+    const { error: err } = await persistUserSettings(userId, { hourly_rate: hourly });
+    if (err) { setError(err.message); return; }
+    setHourlyRate(hourly);
+    updateSettingsField({ wageMode: "yearly", annualSalary: clean || null });
     flashSaved();
   }
 
@@ -342,21 +359,44 @@ function ProfileSection({ dark }) {
         </div>
       </SectionCard>
 
-      <SectionCard title="Hourly rate" hint="Used to calculate earnings on the Overview page." dark={dark}>
-        <div className="flex items-center gap-2">
-          <span className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>$</span>
-          <Input
-            type="number"
-            min="0"
-            step="0.01"
-            value={rateDraft}
-            onChange={(e) => setRateDraft(e.target.value)}
-            onBlur={onRateBlur}
-            placeholder="0.00"
-            className="w-28"
-          />
-          <span className={`text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>/ hr</span>
-        </div>
+      <SectionCard title="Pay rate" hint="Used to calculate earnings on the Overview page. Enter it hourly or yearly — we convert (assuming ~2,080 work hours a year)." dark={dark}>
+        {(() => {
+          const yearly = (settings?.wageMode || "hourly") === "yearly";
+          return (
+            <div className="flex flex-col gap-2.5">
+              <div className="flex gap-1.5">
+                {[["hourly", "Hourly"], ["yearly", "Yearly"]].map(([v, l]) => {
+                  const on = (settings?.wageMode || "hourly") === v;
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => updateSettingsField({ wageMode: v })}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                        on ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]" : dark ? "text-slate-400 hover:bg-white/5" : "text-slate-500 hover:bg-slate-100"
+                      }`}
+                    >{l}</button>
+                  );
+                })}
+              </div>
+              {yearly ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>$</span>
+                  <Input type="number" min="0" step="1000" value={annualDraft} onChange={(e) => setAnnualDraft(e.target.value)} onBlur={onAnnualBlur} placeholder="80,000" className="w-32" />
+                  <span className={`text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>/ yr</span>
+                  {hourlyRate > 0 && <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>≈ ${hourlyRate.toFixed(2)}/hr</span>}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>$</span>
+                  <Input type="number" min="0" step="0.01" value={rateDraft} onChange={(e) => setRateDraft(e.target.value)} onBlur={onRateBlur} placeholder="0.00" className="w-28" />
+                  <span className={`text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>/ hr</span>
+                  {hourlyRate > 0 && <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>≈ ${Math.round(hourlyRate * HOURS_PER_YEAR).toLocaleString()}/yr</span>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </SectionCard>
 
       <SectionCard
