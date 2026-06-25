@@ -20,6 +20,7 @@ import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
 import TeamGoals from "../components/team/TeamGoals";
 import OrgProjects from "../components/team/OrgProjects";
+import OrgChart from "../components/team/OrgChart";
 import { Skeleton, SkeletonCard, SkeletonCircle } from "../components/Skeleton";
 import OrgTeamsCard from "../components/OrgTeamsCard";
 import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
@@ -469,6 +470,9 @@ export default function TeamPage() {
               </div>
             </div>
           )}
+
+          {/* ─── ORG CHART ───────────────────────────────────────── */}
+          <OrgChart dark={dark} />
 
           {/* ─── ORG PROJECTS ────────────────────────────────────── */}
           <OrgProjects dark={dark} />
