@@ -13,7 +13,7 @@ import {
 import {
   Settings as SettingsIcon, User, Palette, Timer, Clock,
   Briefcase, Bell, Database, Check, Sun, Moon, Sparkles,
-  FileText, Download, Upload, KeyRound, Volume2, CalendarClock,
+  FileText, Download, Upload, KeyRound, Volume2, CalendarClock, Plus, X,
 } from "lucide-react";
 import { ACCENTS } from "../lib/accent";
 import AvatarUploader from "../components/AvatarUploader";
@@ -446,59 +446,78 @@ function SoundsSection({ dark }) {
   );
 }
 
-// ── Availability: timezone, working hours/days, lunch, out of office ─
+// ── Availability: timezone, per-day hours + location, lunch, out of office ─
 function AvailabilitySection({ dark }) {
   const { settings, updateSettingsField } = useApp();
-  const wd = settings?.workDays || [];
-  const DAYS = [["S", 0], ["M", 1], ["T", 2], ["W", 3], ["T", 4], ["F", 5], ["S", 6]];
-  const toggleDay = (d) => {
-    const set = new Set(wd);
-    set.has(d) ? set.delete(d) : set.add(d);
-    updateSettingsField({ workDays: [...set].sort((a, b) => a - b) });
-  };
-  const mode = settings?.lunchMode || "off";
+  const [saved, setSaved] = useState(false);
   const muted = dark ? "text-slate-400" : "text-slate-500";
+  const commit = (patch) => { updateSettingsField(patch); setSaved(true); setTimeout(() => setSaved(false), 1500); };
+
+  const sched = settings?.workSchedule && typeof settings.workSchedule === "object" ? settings.workSchedule : {};
+  const DAYS = [["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4], ["Fri", 5], ["Sat", 6], ["Sun", 0]];
+  const toggleDay = (d) => {
+    const next = { ...sched };
+    if (next[d]) delete next[d]; else next[d] = { start: "09:00", end: "17:00", loc: "office" };
+    commit({ workSchedule: next });
+  };
+  const setDay = (d, patch) => commit({ workSchedule: { ...sched, [d]: { ...sched[d], ...patch } } });
+
+  const ranges = Array.isArray(settings?.oooRanges) ? settings.oooRanges : [];
+  const newId = () => Math.random().toString(36).slice(2);
+  const addRange = () => commit({ oooRanges: [...ranges, { id: newId(), start: "", end: "", note: "" }] });
+  const setRange = (id, patch) => commit({ oooRanges: ranges.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+  const removeRange = (id) => commit({ oooRanges: ranges.filter((r) => r.id !== id) });
+
+  const mode = settings?.lunchMode || "off";
+  const fieldCls = `rounded-lg px-2 py-1.5 text-sm border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`;
+  const pill = (on) => `px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${on ? "bg-[var(--color-accent)] text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-400 hover:text-slate-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`;
 
   return (
     <>
-      <SectionCard title="Working hours & timezone" hint="Your timezone + typical hours/days — shown on your profile so teammates in other timezones know when you're around (and get a heads-up before pinging you off-hours)." dark={dark}>
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2 flex-wrap text-sm">
-            <span className={muted}>Timezone</span>
-            <select
-              value={settings?.timezoneManual ? (settings?.timezone || "") : ""}
-              onChange={(e) => { const v = e.target.value; if (!v) updateSettingsField({ timezoneManual: false, timezone: browserTimezone() }); else updateSettingsField({ timezoneManual: true, timezone: v }); }}
-              className={`rounded-lg px-2 py-1.5 text-sm border max-w-[16rem] ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`}
-            >
-              <option value="">Auto-detect ({browserTimezone() || "?"})</option>
-              {TIMEZONES.map((z) => <option key={z} value={z}>{z}</option>)}
-            </select>
-            {settings?.timezone && <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>{localTimeLabel(settings.timezone)} now</span>}
-          </div>
-          <div className="flex items-center gap-2 flex-wrap text-sm">
-            <span className={muted}>From</span>
-            <TimeSelect value={settings?.workStart || ""} onChange={(v) => updateSettingsField({ workStart: v || null })} />
-            <span className={muted}>to</span>
-            <TimeSelect value={settings?.workEnd || ""} onChange={(v) => updateSettingsField({ workEnd: v || null })} />
-            {(settings?.workStart || settings?.workEnd) && (
-              <button type="button" onClick={() => updateSettingsField({ workStart: null, workEnd: null })} className={`text-xs px-2 py-1 rounded-md ${muted}`}>Clear</button>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className={`${muted} text-sm mr-1`}>Days</span>
-            {DAYS.map(([label, d], i) => {
-              const on = wd.includes(d);
-              return (
-                <button key={i} type="button" onClick={() => toggleDay(d)} aria-pressed={on}
-                  className={`w-7 h-7 rounded-full text-xs font-semibold transition-colors ${on ? "bg-[var(--color-accent)] text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-400 hover:text-slate-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex items-center gap-2.5">
+      <div className="h-4">
+        {saved && <span className={`text-xs inline-flex items-center gap-1 ${dark ? "text-emerald-300" : "text-emerald-600"}`}><Check className="w-3.5 h-3.5" /> Saved</span>}
+      </div>
+
+      <SectionCard title="Timezone" hint="Shown on your profile so teammates know your local time. Auto-detected from your device unless you set it." dark={dark}>
+        <div className="flex items-center gap-2 flex-wrap text-sm">
+          <select
+            value={settings?.timezoneManual ? (settings?.timezone || "") : ""}
+            onChange={(e) => { const v = e.target.value; if (!v) commit({ timezoneManual: false, timezone: browserTimezone() }); else commit({ timezoneManual: true, timezone: v }); }}
+            className={`${fieldCls} max-w-[18rem]`}
+          >
+            <option value="">Auto-detect ({browserTimezone() || "?"})</option>
+            {TIMEZONES.map((z) => <option key={z} value={z}>{z}</option>)}
+          </select>
+          {settings?.timezone && <span className={`text-xs ${muted}`}>{localTimeLabel(settings.timezone)} now</span>}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Working schedule" hint="Set hours per day and where you're working. Toggle a day off to mark it non-working. Shown on your profile + used for the off-hours @mention warning." dark={dark}>
+        <div className="flex flex-col gap-2">
+          {DAYS.map(([label, d]) => {
+            const day = sched[d];
+            const on = !!day;
+            return (
+              <div key={d} className="flex items-center gap-2 flex-wrap text-sm">
+                <button type="button" onClick={() => toggleDay(d)} aria-pressed={on} className={`w-14 text-center ${pill(on)}`}>{label}</button>
+                {on ? (
+                  <>
+                    <TimeSelect value={day.start || ""} onChange={(v) => setDay(d, { start: v || "" })} />
+                    <span className={muted}>–</span>
+                    <TimeSelect value={day.end || ""} onChange={(v) => setDay(d, { end: v || "" })} />
+                    <button type="button" onClick={() => setDay(d, { loc: day.loc === "home" ? "office" : "home" })} className={`${fieldCls} cursor-pointer`}>
+                      {day.loc === "home" ? "🏠 Home" : "🏢 Office"}
+                    </button>
+                  </>
+                ) : (
+                  <span className={`text-xs ${muted}`}>Off</span>
+                )}
+              </div>
+            );
+          })}
+          <div className="flex items-center gap-2.5 mt-1">
             <button type="button" role="switch" aria-checked={settings?.offHoursWarn !== false}
-              onClick={() => updateSettingsField({ offHoursWarn: !(settings?.offHoursWarn !== false) })}
+              onClick={() => commit({ offHoursWarn: !(settings?.offHoursWarn !== false) })}
               className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${settings?.offHoursWarn !== false ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}>
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${settings?.offHoursWarn !== false ? "translate-x-4" : ""}`} />
             </button>
@@ -507,31 +526,27 @@ function AvailabilitySection({ dark }) {
         </div>
       </SectionCard>
 
-      <SectionCard title="Lunch break" hint="At your lunch time, flip your status to Out to lunch — automatically, or after a quick prompt. It flips back when the break is over and logs a break (paid/unpaid below)." dark={dark}>
+      <SectionCard title="Lunch break" hint="At your lunch time, flip your status to Out to lunch — automatically or after a prompt. Logs a break (paid/unpaid below)." dark={dark}>
         <div className="flex flex-col gap-3">
           <div className="flex gap-1.5">
-            {[["off", "Off"], ["ask", "Ask me"], ["auto", "Automatic"]].map(([v, l]) => {
-              const on = mode === v;
-              return (
-                <button key={v} type="button" onClick={() => updateSettingsField({ lunchMode: v })}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${on ? (dark ? "bg-orange-500/25 text-orange-200" : "bg-orange-100 text-orange-700") : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}>{l}</button>
-              );
-            })}
+            {[["off", "Off"], ["ask", "Ask me"], ["auto", "Automatic"]].map(([v, l]) => (
+              <button key={v} type="button" onClick={() => commit({ lunchMode: v })}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${mode === v ? (dark ? "bg-orange-500/25 text-orange-200" : "bg-orange-100 text-orange-700") : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}>{l}</button>
+            ))}
           </div>
           {mode !== "off" && (
             <div className="flex items-center gap-2 flex-wrap text-sm">
               <span className={muted}>At</span>
-              <TimeSelect value={settings?.lunchTime || ""} onChange={(v) => updateSettingsField({ lunchTime: v || null })} />
+              <TimeSelect value={settings?.lunchTime || ""} onChange={(v) => commit({ lunchTime: v || null })} />
               <span className={muted}>for</span>
-              <select value={settings?.lunchDurationMin ?? 60} onChange={(e) => updateSettingsField({ lunchDurationMin: Number(e.target.value) })}
-                className={`rounded-lg px-2 py-1.5 text-sm border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`}>
+              <select value={settings?.lunchDurationMin ?? 60} onChange={(e) => commit({ lunchDurationMin: Number(e.target.value) })} className={fieldCls}>
                 {[30, 45, 60, 90].map((m) => <option key={m} value={m}>{m} min</option>)}
               </select>
             </div>
           )}
           <div className="flex items-center gap-2.5">
             <button type="button" role="switch" aria-checked={!!settings?.lunchBreakPaid}
-              onClick={() => updateSettingsField({ lunchBreakPaid: !settings?.lunchBreakPaid })}
+              onClick={() => commit({ lunchBreakPaid: !settings?.lunchBreakPaid })}
               className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${settings?.lunchBreakPaid ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}>
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${settings?.lunchBreakPaid ? "translate-x-4" : ""}`} />
             </button>
@@ -540,22 +555,21 @@ function AvailabilitySection({ dark }) {
         </div>
       </SectionCard>
 
-      <SectionCard title="Out of office" hint="Mark yourself away for a stretch — it shows on your profile + hover card so teammates know not to expect a reply." dark={dark}>
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2 flex-wrap text-sm">
-            <span className={muted}>From</span>
-            <input type="date" value={settings?.oooStart || ""} onChange={(e) => updateSettingsField({ oooStart: e.target.value || null })}
-              className={`rounded-lg px-2 py-1.5 text-sm border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`} />
-            <span className={muted}>to</span>
-            <input type="date" value={settings?.oooEnd || ""} onChange={(e) => updateSettingsField({ oooEnd: e.target.value || null })}
-              className={`rounded-lg px-2 py-1.5 text-sm border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`} />
-            {(settings?.oooStart || settings?.oooEnd || settings?.oooNote) && (
-              <button type="button" onClick={() => updateSettingsField({ oooStart: null, oooEnd: null, oooNote: "" })} className={`text-xs px-2 py-1 rounded-md ${muted}`}>Clear</button>
-            )}
-          </div>
-          <input type="text" maxLength={80} value={settings?.oooNote || ""} onChange={(e) => updateSettingsField({ oooNote: e.target.value })}
-            placeholder="Note (optional) — e.g. Vacation, conference"
-            className={`text-sm px-2.5 py-1.5 rounded-lg border outline-none ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500" : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"}`} />
+      <SectionCard title="Out of office" hint="Add the days you'll be away — vacations, conferences. Each change saves automatically (watch for ✓ Saved up top)." dark={dark}>
+        <div className="flex flex-col gap-2">
+          {ranges.length === 0 && <p className={`text-xs ${muted}`}>No out-of-office dates set.</p>}
+          {ranges.map((r) => (
+            <div key={r.id} className="flex items-center gap-2 flex-wrap text-sm">
+              <input type="date" value={r.start || ""} onChange={(e) => setRange(r.id, { start: e.target.value })} className={fieldCls} />
+              <span className={muted}>to</span>
+              <input type="date" value={r.end || ""} onChange={(e) => setRange(r.id, { end: e.target.value })} className={fieldCls} />
+              <input type="text" maxLength={60} value={r.note || ""} onChange={(e) => setRange(r.id, { note: e.target.value })} placeholder="Note" className={`flex-1 min-w-[7rem] ${fieldCls}`} />
+              <button type="button" onClick={() => removeRange(r.id)} aria-label="Remove" className={`shrink-0 ${dark ? "text-slate-500 hover:text-red-300" : "text-slate-400 hover:text-red-500"}`}><X className="w-4 h-4" /></button>
+            </div>
+          ))}
+          <button type="button" onClick={addRange} className={`self-start inline-flex items-center gap-1.5 text-sm mt-1 ${dark ? "text-slate-300 hover:text-slate-100" : "text-slate-600 hover:text-slate-800"}`}>
+            <Plus className="w-4 h-4" /> Add dates
+          </button>
         </div>
       </SectionCard>
     </>

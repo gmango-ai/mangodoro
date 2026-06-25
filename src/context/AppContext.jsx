@@ -1215,6 +1215,8 @@ export function AppProvider({ session, children }) {
     if ("workStart" in patch) dbPatch.work_start = patch.workStart || null;
     if ("workEnd" in patch) dbPatch.work_end = patch.workEnd || null;
     if ("workDays" in patch) dbPatch.work_days = patch.workDays && patch.workDays.length ? patch.workDays : null;
+    if ("workSchedule" in patch) dbPatch.work_schedule = patch.workSchedule || {};
+    if ("oooRanges" in patch) dbPatch.ooo_ranges = patch.oooRanges || [];
     if ("lunchBreakPaid" in patch) dbPatch.lunch_break_paid = patch.lunchBreakPaid;
     if ("timezone" in patch) dbPatch.timezone = patch.timezone || null;
     if ("timezoneManual" in patch) dbPatch.timezone_manual = patch.timezoneManual;

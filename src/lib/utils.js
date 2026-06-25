@@ -48,6 +48,8 @@ export function normalizeSettings(row) {
     workStart: normalizeTime(row.work_start),
     workEnd: normalizeTime(row.work_end),
     workDays: Array.isArray(row.work_days) ? row.work_days : null,
+    workSchedule: row.work_schedule && typeof row.work_schedule === "object" ? row.work_schedule : {},
+    oooRanges: Array.isArray(row.ooo_ranges) ? row.ooo_ranges : [],
     lunchBreakPaid: row.lunch_break_paid ?? false,
     timezone: row.timezone || "",
     timezoneManual: row.timezone_manual ?? false,

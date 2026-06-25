@@ -7,7 +7,7 @@ import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
 import { emitMention } from "../lib/notifications";
 import { getProfiles } from "../lib/profiles";
-import { availability, isOutOfOffice } from "../lib/timezone";
+import { availability, isOutOfOfficeAny } from "../lib/timezone";
 import UserAvatar from "./UserAvatar";
 
 function formatTime(iso) {
@@ -245,11 +245,12 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
       const p = availMap[id];
       if (!p) continue;
       const nm = (teamMembers || []).find((m) => m.user_id === id)?.name || p.display_name || "They";
-      if (isOutOfOffice(p.ooo_start, p.ooo_end, p.timezone)) {
-        const until = p.ooo_end ? ` until ${new Date(`${p.ooo_end}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}` : "";
+      const oooR = isOutOfOfficeAny(p);
+      if (oooR) {
+        const until = oooR.end ? ` until ${new Date(`${oooR.end}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}` : "";
         out.push(`${nm} is out of office${until}`);
       } else if (p.off_hours_warn !== false) {
-        const a = availability(p.timezone, p.work_start, p.work_end, p.work_days);
+        const a = availability(p);
         if (a.badge === "off hours") out.push(`it's after hours for ${nm}${a.label ? ` (${a.label} their time)` : ""}`);
       }
     }

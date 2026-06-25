@@ -8,7 +8,7 @@ import FollowButton from "../FollowButton";
 import { presenceDot, presenceLabel } from "../../lib/presence";
 import { getProfile } from "../../lib/profiles";
 import { getUserWorkSummary } from "../../lib/workStatus";
-import { availability, isOutOfOffice, tzAbbrev } from "../../lib/timezone";
+import { availability, isOutOfOfficeAny, tzAbbrev } from "../../lib/timezone";
 import { formatDuration } from "../../lib/utils";
 
 // Shared identity block — used by the click popover and the full profile page.
@@ -38,11 +38,13 @@ export default function ProfileCard({ userId, onOpenFull }) {
   }, []);
 
   const isMe = session?.user?.id === userId;
-  const { label: localTime, badge: hoursBadge } = availability(profile?.timezone, profile?.work_start, profile?.work_end, profile?.work_days);
+  const { label: localTime, badge: hoursBadge, loc } = availability(profile || {});
   const tzab = tzAbbrev(profile?.timezone);
-  const ooo = isOutOfOffice(profile?.ooo_start, profile?.ooo_end);
-  const oooUntil = profile?.ooo_end
-    ? new Date(`${profile.ooo_end}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" })
+  const oooRange = isOutOfOfficeAny(profile || {});
+  const ooo = !!oooRange;
+  const oooNote = oooRange?.note || "";
+  const oooUntil = oooRange?.end
+    ? new Date(`${oooRange.end}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" })
     : null;
 
   const member = (teamMembers || []).find((m) => m.user_id === userId);
@@ -75,7 +77,7 @@ export default function ProfileCard({ userId, onOpenFull }) {
       {ooo && (
         <div className={`flex items-center gap-1.5 mt-2.5 text-[11px] font-semibold ${dark ? "text-amber-300" : "text-amber-600"}`}>
           <Palmtree className="w-3.5 h-3.5 shrink-0" />
-          <span>Out of office{profile?.ooo_note ? ` · ${profile.ooo_note}` : ""}{oooUntil ? ` · until ${oooUntil}` : ""}</span>
+          <span>Out of office{oooNote ? ` · ${oooNote}` : ""}{oooUntil ? ` · until ${oooUntil}` : ""}</span>
         </div>
       )}
 
@@ -85,6 +87,7 @@ export default function ProfileCard({ userId, onOpenFull }) {
           <span>
             <span className={`font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{localTime}</span>
             {tzab ? ` ${tzab}` : ""} their time
+            {!ooo && loc && <span>{" · "}{loc === "home" ? "🏠 WFH" : "🏢 in office"}</span>}
             {!ooo && hoursBadge && (
               <span className={hoursBadge === "off hours" ? (dark ? " text-amber-300" : " text-amber-600") : (dark ? " text-slate-400" : " text-slate-500")}>
                 {" · "}{hoursBadge}

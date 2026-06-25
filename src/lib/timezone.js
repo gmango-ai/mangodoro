@@ -75,25 +75,52 @@ export function localWeekday(tz) {
   } catch { return null; }
 }
 
-// { label, badge } — badge is "off hours" | "wrapping up" | null. Off-hours if
-// today isn't a working day (when workDays is set) or local time is outside
-// working hours. workDays = array of 0–6, or null = no day filter.
-export function availability(tz, workStart, workEnd, workDays) {
-  const label = localTimeLabel(tz);
-  const lm = localMinutes(tz);
-  const ws = parseHm(workStart);
-  const we = parseHm(workEnd);
-
-  if (Array.isArray(workDays) && workDays.length) {
-    const wd = localWeekday(tz);
-    if (wd != null && !workDays.includes(wd)) return { label, badge: "off hours" };
+// Today's schedule entry for a profile: { start, end, loc } if a work day,
+// null if a day off, or undefined if no schedule is configured at all.
+// Prefers the per-day work_schedule; falls back to the legacy single hours+days.
+function scheduleForToday(p) {
+  const tz = p?.timezone;
+  const wd = localWeekday(tz);
+  const sched = p?.work_schedule;
+  if (sched && typeof sched === "object" && Object.keys(sched).length) {
+    if (wd == null) return undefined;
+    return sched[String(wd)] || null;
   }
+  const ws = p?.work_start, we = p?.work_end, days = p?.work_days;
+  if (!ws && !we && (!days || !days.length)) return undefined;
+  if (Array.isArray(days) && days.length && wd != null && !days.includes(wd)) return null;
+  if (ws || we) return { start: ws, end: we, loc: null };
+  return undefined;
+}
 
+// Availability for a profile-like object (timezone + work_schedule|legacy hours).
+// { label, badge, loc } — badge is "off hours" | "wrapping up" | null; loc is
+// "office" | "home" | null for today.
+export function availability(p) {
+  const tz = p?.timezone;
+  const label = localTimeLabel(tz);
+  const today = scheduleForToday(p);
+  if (today === undefined) return { label, badge: null, loc: null };
+  if (today === null) return { label, badge: "off hours", loc: null }; // day off
+  const lm = localMinutes(tz);
+  const ws = parseHm(today.start), we = parseHm(today.end);
   let badge = null;
   if (lm != null && ws != null && we != null && ws !== we) {
-    const off = ws < we ? (lm < ws || lm >= we) : (lm < ws && lm >= we); // overnight-safe
+    const off = ws < we ? (lm < ws || lm >= we) : (lm < ws && lm >= we);
     if (off) badge = "off hours";
     else if (we - lm > 0 && we - lm <= 30) badge = "wrapping up";
   }
-  return { label, badge };
+  return { label, badge, loc: today.loc || null };
+}
+
+// The OOO range covering today (from the ranges list, else the legacy single), or null.
+export function isOutOfOfficeAny(p) {
+  const today = new Date().toLocaleDateString("en-CA");
+  const ranges = Array.isArray(p?.ooo_ranges) ? p.ooo_ranges : [];
+  for (const r of ranges) {
+    if (!r) continue;
+    if ((!r.start || today >= r.start) && (!r.end || today <= r.end)) return r;
+  }
+  if (isOutOfOffice(p?.ooo_start, p?.ooo_end)) return { start: p?.ooo_start, end: p?.ooo_end, note: p?.ooo_note };
+  return null;
 }
