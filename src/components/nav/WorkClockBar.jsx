@@ -26,7 +26,8 @@ export default function WorkClockBar({ dark }) {
 
   // Org projects to pick "what you're working on" — fetched only when the menu opens.
   useEffect(() => {
-    if (!open || !activeTeamId) { setProjects([]); return; }
+    if (!activeTeamId) { setProjects([]); return; }
+    if (!open) return;
     const my = ++reqRef.current;
     listOrgProjects(activeTeamId).then((data) => {
       if (my !== reqRef.current) return;
