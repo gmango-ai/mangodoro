@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { setWorkStatus } from "../lib/workStatus";
+import { emitSelfNotification } from "../lib/notifications";
 
 // Mirrors this user's outward presence signals (no UI):
 //  • auto-detects the browser timezone into user_settings (mirrored to the
@@ -22,6 +23,24 @@ export default function PresenceSync() {
     if (!tz || tz === settings?.timezone) return;
     updateSettingsField({ timezone: tz });
   }, [userId, settings?.timezoneManual, settings?.timezone, updateSettingsField]);
+
+  // Nudge once a week (until set) to fill in working hours, so teammates know
+  // your availability. Gated on settings being loaded (timezone present).
+  useEffect(() => {
+    if (!userId || !settings?.timezone) return; // wait for settings to load
+    if (settings.workStart || settings.workEnd) return; // already set
+    const week = Math.floor(Date.now() / (7 * 86400000));
+    const k = `whnudge:${userId}:${week}`;
+    try { if (localStorage.getItem(k)) return; localStorage.setItem(k, "1"); } catch { return; }
+    emitSelfNotification({
+      type: "reminder",
+      title: "Set your working hours",
+      body: "Add your usual hours so teammates in other timezones know when you're around.",
+      payload: { route: "/settings" },
+      dedupeKey: `set_work_hours:${userId}:${week}`,
+      dedupeWindowMinutes: 10080, // ~1 week
+    });
+  }, [userId, settings?.timezone, settings?.workStart, settings?.workEnd]);
 
   // Clock → work_status (debounced, deduped on a signature).
   const lastRef = useRef("");
