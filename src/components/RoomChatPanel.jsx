@@ -30,7 +30,7 @@ function formatTime(iso) {
 // parent owns the edit state so only one message is editable at a
 // time and Escape / Enter shortcuts are uniform.
 function MessageRow({
-  message, compact, dark, isOwn, isEditing, renderBody, openProfile,
+  message, compact, dark, isOwn, isEditing, renderBody, openProfile, readOnly,
   editDraft, onEditDraftChange, onStartEdit, onCancelEdit, onSaveEdit, onDelete,
 }) {
   const editAreaRef = useRef(null);
@@ -128,8 +128,8 @@ function MessageRow({
       </div>
 
       {/* Hover actions for own messages — absolute so they sit above
-          the bubble without reflowing the row. */}
-      {isOwn && !isEditing && (
+          the bubble without reflowing the row. Hidden in read-only (kiosk). */}
+      {isOwn && !isEditing && !readOnly && (
         <div
           className={`absolute -top-2 right-1 hidden group-hover:flex items-center gap-0.5 rounded-md border shadow-sm ${
             dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
@@ -157,7 +157,7 @@ function MessageRow({
   );
 }
 
-export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
+export default function RoomChatPanel({ roomId, userId, fillHeight = false, readOnly = false }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { messages, loading, send, edit, remove } = useRoomChat(roomId, userId);
@@ -395,6 +395,7 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
                 renderBody={renderBody}
                 openProfile={openProfile}
                 isOwn={m.user_id === userId}
+                readOnly={readOnly}
                 isEditing={editingId === m.id}
                 editDraft={editDraft}
                 onEditDraftChange={setEditDraft}
@@ -407,12 +408,18 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
           })
         )}
       </div>
-      {mentionWarnings.length > 0 && (
+      {!readOnly && mentionWarnings.length > 0 && (
         <div className={`mt-2 flex items-start gap-1.5 text-[11px] rounded-lg px-2.5 py-1.5 ${dark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-700"}`}>
           <Clock className="w-3 h-3 mt-0.5 shrink-0" />
           <span>{mentionWarnings.join(" · ")} — they may not see this right away.</span>
         </div>
       )}
+      {/* Read-only (kiosk): show messages, no composer. */}
+      {readOnly ? (
+        <div className={`mt-2 text-center text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+          View only
+        </div>
+      ) : (
       <div className="mt-2 flex gap-2 relative">
         {mention && candidates.length > 0 && (
           <div
@@ -455,6 +462,7 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
           <Send className="w-4 h-4" />
         </button>
       </div>
+      )}
     </div>
   );
 }

@@ -1,26 +1,126 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, DoorOpen } from "lucide-react";
 import { supabase } from "../supabase";
 import { applyAccent } from "../lib/accent";
-import { LIVEKIT_URL } from "../lib/livekit";
-import UserAvatar from "../components/UserAvatar";
+import { currentDeviceRoom, setDeviceRoom } from "../lib/orgDevices";
 import LogoMark from "../components/LogoMark";
-import DevicePortalCall from "../components/video/DevicePortalCall";
+import RoomLayout from "../components/office/roomLayout/RoomLayout";
+import LayoutBar from "../components/office/roomLayout/LayoutBar";
+import { useRoomLayout } from "../components/office/roomLayout/useRoomLayout";
+import { DEVICE_PANELS, DEVICE_PANEL_IDS } from "../components/office/roomLayout/devicePanels";
+import { DEVICE_PRESETS, DEVICE_DEFAULT_PRESET } from "../components/office/roomLayout/devicePresets";
+import { panelsIn } from "../components/office/roomLayout/layoutTree";
 
-// Full-screen read-only room display for a paired device account. Shows the
-// room's active pomodoro timer + who's present, driven by the device's
-// least-privilege RLS access (its pinned room only). No controls — a kiosk.
-const MODE_LABEL = { work: "Focus", shortBreak: "Short break", longBreak: "Long break" };
+// Self-ticking wall clock — its own component so the per-second tick re-renders
+// only this, not the whole kiosk (which would churn the video/whiteboard panels).
+function WallClock() {
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setClock(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="text-right leading-none">
+      <div className="text-xl font-bold tabular-nums text-white/95" style={{ fontFamily: "'Parkinsans', sans-serif" }}>
+        {clock.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+      </div>
+      <div className="text-[10px] uppercase tracking-wider text-white/55 mt-0.5">
+        {clock.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
+      </div>
+    </div>
+  );
+}
 
+// Room switcher for a MOVABLE device — switch which room this kiosk shows.
+// `rooms` comes from RLS: a movable device reads all its org's rooms, a fixed
+// one reads only its pinned room, so if there's nothing else to switch to we
+// render nothing (non-movable devices never see a switcher).
+function RoomSwitcher({ currentRoomId, currentName, rooms, onSwitch }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const others = (rooms || []).filter((r) => r.id !== currentRoomId);
+  if (others.length === 0) return null;
+  const pick = async (id) => {
+    setBusy(true);
+    await onSwitch(id);
+    setBusy(false);
+    setOpen(false);
+  };
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-semibold text-white/90 transition-colors disabled:opacity-50"
+        title="Switch this device to another room"
+      >
+        <DoorOpen className="w-3.5 h-3.5" />
+        <span className="max-w-[140px] truncate">{currentName || "Room"}</span>
+        <ChevronDown className="w-3 h-3 opacity-60" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-9 z-40 w-56 max-h-[60vh] overflow-auto p-1 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl">
+            <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/50">Move this device to…</div>
+            {others.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => pick(r.id)}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] text-white/85 hover:bg-white/10"
+              >
+                {r.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Paired-device kiosk. Now a configurable room display: the same modular BSP
+// layout members use (RoomLayout + useRoomLayout) but with the DEVICE panel set
+// (portal video, read-only chat, embedded whiteboard, timer, presence) and
+// device-local persistence. You can't leave the room — there's no leave; you
+// arrange panels and unpair. Read-only throughout (device RLS is SELECT-only).
 export default function DeviceKioskPage({ session }) {
   const meta = session?.user?.user_metadata || {};
-  const roomId = meta.room_id || null;
   const deviceName = meta.name || "Device";
+  const userId = session?.user?.id || null;
 
+  // Live pinned room (authoritative — survives a room switch, unlike the JWT's
+  // user_metadata.room_id). Seed from the JWT for a fast first paint, confirm via
+  // current_device_room().
+  const [roomId, setRoomId] = useState(meta.room_id || null);
   const [room, setRoom] = useState(null);
   const [sess, setSess] = useState(null);
   const [participants, setParticipants] = useState([]);
-  const [now, setNow] = useState(() => Date.now());
-  const [clock, setClock] = useState(() => new Date());
+  const [rooms, setRooms] = useState([]); // org rooms readable here (>1 ⇒ movable)
+  const [arranging, setArranging] = useState(false);
+
+  // Confirm the live room + load switch targets, and re-poll so an admin's
+  // remote reassign is picked up. RLS does the gating: a fixed device only ever
+  // sees its one room here, so RoomSwitcher renders nothing for it.
+  useEffect(() => {
+    let alive = true;
+    const sync = async () => {
+      const { data: live } = await currentDeviceRoom();
+      if (alive && live) setRoomId(live);
+      const { data: rs } = await supabase.from("rooms").select("id, name").order("name");
+      if (alive) setRooms(rs || []);
+    };
+    sync();
+    const poll = setInterval(sync, 20000);
+    return () => { alive = false; clearInterval(poll); };
+  }, []);
+
+  const handleSwitch = async (newRoomId) => {
+    const { error } = await setDeviceRoom(newRoomId);
+    if (!error) setRoomId(newRoomId); // re-points session query, layout key, portal
+  };
 
   // Kiosk is always dark with the default accent (no member theme to inherit).
   useEffect(() => {
@@ -29,6 +129,8 @@ export default function DeviceKioskPage({ session }) {
     return () => document.documentElement.classList.remove("dark");
   }, []);
 
+  // Room + active session (incl. its linked whiteboard) + participants, kept
+  // live by realtime; RLS scopes everything to this device's pinned room.
   useEffect(() => {
     if (!roomId) return undefined;
     let alive = true;
@@ -39,7 +141,7 @@ export default function DeviceKioskPage({ session }) {
     const loadSession = async () => {
       const { data } = await supabase
         .from("sync_sessions")
-        .select("id, mode, is_running, remaining_seconds, ends_at, status")
+        .select("id, mode, is_running, remaining_seconds, ends_at, status, whiteboard_id")
         .eq("room_id", roomId)
         .eq("status", "active")
         .order("created_at", { ascending: false })
@@ -61,7 +163,6 @@ export default function DeviceKioskPage({ session }) {
     };
     loadSession();
 
-    // Realtime keeps the display live; RLS scopes events to this room only.
     const ch = supabase
       .channel(`kiosk:${roomId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "sync_sessions", filter: `room_id=eq.${roomId}` }, loadSession)
@@ -71,119 +172,88 @@ export default function DeviceKioskPage({ session }) {
     return () => { alive = false; supabase.removeChannel(ch); clearInterval(poll); };
   }, [roomId]);
 
-  // Tick the countdown while running.
-  useEffect(() => {
-    if (!sess?.is_running) return undefined;
-    const id = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(id);
-  }, [sess?.is_running]);
+  // Device-local modular layout (own preset set + storage key prefix).
+  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel, togglePanel } =
+    useRoomLayout(roomId, DEVICE_PANEL_IDS, {
+      presets: DEVICE_PRESETS,
+      defaultPreset: DEVICE_DEFAULT_PRESET,
+      keyPrefix: "ql_device_layout",
+    });
 
-  // Always-on wall clock for the communal display.
-  useEffect(() => {
-    const id = setInterval(() => setClock(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const activePanels = panelsIn(tree);
+  const quickPanels = DEVICE_PANEL_IDS.map((id) => ({ id, title: DEVICE_PANELS[id].title, Icon: DEVICE_PANELS[id].icon }));
 
-  const secondsLeft = useMemo(() => {
-    if (!sess) return 0;
-    if (sess.is_running && sess.ends_at) {
-      return Math.max(0, Math.ceil((new Date(sess.ends_at).getTime() - now) / 1000));
-    }
-    return Math.max(0, sess.remaining_seconds || 0);
-  }, [sess, now]);
-
-  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
-  const ss = String(secondsLeft % 60).padStart(2, "0");
-  const isBreak = sess && sess.mode !== "work";
-  const clockHHMM = clock.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const clockDate = clock.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+  // Memoized so the per-second WallClock tick (separate component) never churns
+  // the layout — ctx identity changes only on real room/session/participant data.
+  const ctx = useMemo(() => ({
+    room: room || { id: roomId },
+    userId,
+    displayName: `${room?.name || deviceName} · Portal`,
+    dark: true,
+    sess,
+    participants,
+    whiteboardId: sess?.whiteboard_id || null,
+  }), [room, roomId, userId, deviceName, sess, participants]);
 
   const unpair = async () => { await supabase.auth.signOut(); };
 
-  // When LiveKit is configured the kiosk is a two-way video portal (camera + mic
-  // published; remote members can drop in). The timer then rides as a compact
-  // overlay. With no LiveKit, fall back to the big centered timer display.
-  const portal = !!LIVEKIT_URL && !!roomId;
+  if (!roomId) {
+    return (
+      <main className="min-h-[100dvh] flex items-center justify-center bg-[var(--color-bg)] text-slate-300">
+        <div className="text-center">
+          <p className="text-lg font-semibold">{deviceName}</p>
+          <p className="mt-2 text-slate-500">This device isn't paired to a room.</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="relative min-h-[100dvh] bg-[var(--color-bg)] text-slate-100 overflow-hidden select-none">
-      {portal && (
-        <div className="absolute inset-0">
-          <DevicePortalCall roomId={roomId} displayName={`${room?.name || deviceName} · Portal`} />
-        </div>
-      )}
-      {portal && (
-        <>
-          <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
-          <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/55 to-transparent pointer-events-none" />
-        </>
-      )}
-
-      <header className="absolute top-0 inset-x-0 z-10 flex items-start justify-between px-6 pt-4">
-        <span className="inline-flex items-center gap-2.5">
-          <span className="text-[var(--color-accent)]"><LogoMark size={26} /></span>
-          <span className="text-xl font-semibold text-white/95 drop-shadow">{room?.name || deviceName}</span>
-          {portal && participants.length > 0 && (
-            <span className="ml-1 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/85">
+    <main className="relative h-[100dvh] flex flex-col bg-[var(--color-bg)] text-slate-100 overflow-hidden select-none">
+      <header className="shrink-0 flex items-center justify-between gap-3 px-5 py-2.5 border-b border-[var(--color-border)]">
+        <span className="inline-flex items-center gap-2.5 min-w-0">
+          <span className="text-[var(--color-accent)] shrink-0"><LogoMark size={24} /></span>
+          <span className="text-lg font-semibold text-white/95 truncate">{room?.name || deviceName}</span>
+          {participants.length > 0 && (
+            <span className="ml-1 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/85 shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> {participants.length} here
             </span>
           )}
         </span>
-        <div className="flex flex-col items-end gap-1">
-          <div className="text-right leading-none">
-            <div className="text-2xl font-bold tabular-nums text-white/95 drop-shadow" style={{ fontFamily: "'Parkinsans', sans-serif" }}>{clockHHMM}</div>
-            <div className="text-[11px] uppercase tracking-wider text-white/55 mt-1">{clockDate}</div>
-          </div>
-          <button type="button" onClick={unpair} className="text-[11px] text-white/45 hover:text-white/80 transition-colors drop-shadow">
+        <div className="flex items-center gap-3 shrink-0">
+          <RoomSwitcher currentRoomId={roomId} currentName={room?.name} rooms={rooms} onSwitch={handleSwitch} />
+          <LayoutBar
+            presetId={presetId}
+            onApply={applyPreset}
+            onReset={reset}
+            accent="var(--color-accent)"
+            dark
+            arranging={arranging}
+            onToggleArrange={() => setArranging((v) => !v)}
+            panels={quickPanels}
+            activePanels={activePanels}
+            onTogglePanel={togglePanel}
+            presets={DEVICE_PRESETS}
+          />
+          <WallClock />
+          <button type="button" onClick={unpair} className="text-[11px] text-white/45 hover:text-white/80 transition-colors">
             Unpair
           </button>
         </div>
       </header>
 
-      {portal ? (
-        sess && (
-          <div className="absolute top-20 left-6 z-10 rounded-2xl bg-black/45 backdrop-blur px-5 py-3">
-            <div className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]"}`}>
-              {MODE_LABEL[sess.mode] || "Focus"}{!sess.is_running ? " · Paused" : ""}
-            </div>
-            <div className="font-bold tabular-nums leading-none mt-1" style={{ fontSize: "clamp(2.5rem, 7vw, 4rem)", fontFamily: "'Parkinsans', sans-serif" }}>
-              {mm}:{ss}
-            </div>
-          </div>
-        )
-      ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center px-6">
-          {sess ? (
-            <>
-              <div className={`text-[11px] font-semibold uppercase tracking-[0.25em] mb-3 ${isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]"}`}>
-                {MODE_LABEL[sess.mode] || "Focus"}
-              </div>
-              <div
-                className="font-bold tabular-nums leading-none"
-                style={{ fontSize: "clamp(5rem, 22vw, 15rem)", fontFamily: "'Parkinsans', sans-serif", letterSpacing: "0.01em" }}
-              >
-                {mm}:{ss}
-              </div>
-              {!sess.is_running && <div className="mt-3 text-sm uppercase tracking-widest text-slate-500">Paused</div>}
-              {participants.length > 0 && (
-                <div className="mt-12 flex items-center gap-4 flex-wrap justify-center max-w-3xl">
-                  {participants.map((p) => (
-                    <div key={p.user_id} className="flex flex-col items-center gap-1.5">
-                      <UserAvatar url={p.avatar_url || ""} name={p.display_name || "Member"} size={44} />
-                      <span className="text-[11px] text-slate-400 max-w-[88px] truncate">{p.display_name || "Member"}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="text-center">
-              <div className="text-3xl font-semibold text-slate-200">{room?.name || deviceName}</div>
-              <p className="mt-4 text-slate-500">No active session. Waiting for someone to start the timer…</p>
-            </div>
-          )}
-        </div>
-      )}
+      <div className="flex-1 min-h-0 p-3 overflow-hidden">
+        <RoomLayout
+          tree={tree}
+          ctx={ctx}
+          panels={DEVICE_PANELS}
+          onRatioChange={setRatio}
+          arranging={arranging}
+          onMove={movePanel}
+          onAddAt={addPanelAt}
+          onClose={closePanel}
+        />
+      </div>
     </main>
   );
 }

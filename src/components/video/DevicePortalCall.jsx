@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import {
   LiveKitRoom,
   GridLayout,
@@ -11,10 +11,53 @@ import {
   useParticipants,
   useLocalParticipant,
   useSpeakingParticipants,
+  useMediaDeviceSelect,
 } from "@livekit/components-react";
 import { Track, RoomEvent } from "livekit-client";
 import "@livekit/components-styles";
-import { Mic, MicOff, Video, VideoOff, Volume2, VolumeX, Monitor, MonitorOff } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, VolumeX, Monitor, MonitorOff, Settings } from "lucide-react";
+
+// Per-device audio/camera choices persist locally (the kiosk is read-only, so no
+// DB) — applied on connect so a paired display keeps its mic/speaker across restarts.
+const DEV_PREF = { mic: "ql_device_mic", speaker: "ql_device_speaker", camera: "ql_device_camera" };
+
+// One device <select> backed by LiveKit's device manager. Switching a kind calls
+// room.switchActiveDevice under the hood (incl. setSinkId for the speaker), and we
+// remember the choice per-device + re-apply it once the device list resolves.
+function DeviceMediaPicker({ kind, label, storageKey }) {
+  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind });
+  const appliedRef = useRef(false);
+  useEffect(() => {
+    if (appliedRef.current || !devices.length) return;
+    let saved = null;
+    try { saved = localStorage.getItem(storageKey); } catch { /* */ }
+    if (saved && devices.some((d) => d.deviceId === saved)) {
+      appliedRef.current = true;
+      Promise.resolve(setActiveMediaDevice(saved)).catch(() => {});
+    }
+  }, [devices, setActiveMediaDevice, storageKey]);
+  const onChange = (id) => {
+    Promise.resolve(setActiveMediaDevice(id)).catch(() => {});
+    try { localStorage.setItem(storageKey, id); } catch { /* */ }
+  };
+  return (
+    <label className="block mb-2 last:mb-0">
+      <span className="block text-[10px] uppercase tracking-wider opacity-60 mb-1">{label}</span>
+      <select
+        value={activeDeviceId || ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-md bg-white/10 px-2 py-1.5 text-[12px] text-white outline-none cursor-pointer"
+      >
+        {devices.length === 0 && <option value="">System default</option>}
+        {devices.map((d, i) => (
+          <option key={d.deviceId || i} value={d.deviceId} className="text-slate-900">
+            {d.label || `${label} ${i + 1}`}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { ATTR_CLUSTER, ATTR_LEADER, ATTR_ROOM_DEVICE, pickMicSource, pickAudioSink } from "./useRoomCluster";
 
@@ -151,6 +194,7 @@ function DeviceControls({
   soundOn, soundOverridden, onToggleSound,
   screenOn, onToggleScreen,
 }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-stretch gap-0.5 rounded-2xl bg-black/55 backdrop-blur px-2 py-1.5 opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity">
       <CtrlButton
@@ -192,6 +236,31 @@ function DeviceControls({
         title={screenOn ? "Hide the call video on this display" : "Show the call video on this display"}
         onClick={onToggleScreen}
       />
+      <span className="self-stretch w-px bg-white/15 mx-1.5" aria-hidden="true" />
+      {/* Device picker — set which mic / speaker / camera this kiosk uses. */}
+      <div className="relative flex items-center">
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((v) => !v)}
+          title="Choose microphone, speaker, and camera"
+          aria-label="Device settings"
+          aria-expanded={settingsOpen}
+          className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-lg transition-colors ${
+            settingsOpen ? "text-white bg-white/15" : "text-white hover:bg-white/10"
+          }`}
+        >
+          <Settings className="w-5 h-5" />
+          <span className="text-[9px] font-medium leading-none">Devices</span>
+        </button>
+        {settingsOpen && (
+          <div className="absolute bottom-full right-0 mb-2 w-64 rounded-xl bg-slate-900/95 backdrop-blur p-3 shadow-2xl ring-1 ring-white/10 text-left">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-2">Devices</div>
+            <DeviceMediaPicker kind="audioinput" label="Microphone" storageKey={DEV_PREF.mic} />
+            <DeviceMediaPicker kind="audiooutput" label="Speaker" storageKey={DEV_PREF.speaker} />
+            <DeviceMediaPicker kind="videoinput" label="Camera" storageKey={DEV_PREF.camera} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

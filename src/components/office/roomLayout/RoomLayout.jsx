@@ -8,10 +8,10 @@ import { computeLayout, MIN_PX } from "./layoutTree";
 // Smallest comfortable size for a node: a leaf uses its panel-type `min`
 // (panels.jsx); a split uses the larger of its children so the bigger panel
 // still fits. Lets the resize clamp give whiteboard/video more room than chat.
-function nodeMin(node) {
+function nodeMin(node, panels) {
   if (!node) return MIN_PX;
-  if (node.t === "leaf") return ROOM_PANELS[node.panel]?.min || MIN_PX;
-  return Math.max(nodeMin(node.a), nodeMin(node.b));
+  if (node.t === "leaf") return panels[node.panel]?.min || MIN_PX;
+  return Math.max(nodeMin(node.a, panels), nodeMin(node.b, panels));
 }
 function nodeAt(node, path) {
   let n = node;
@@ -113,7 +113,7 @@ function PanelHeader({ dark, icon: Icon, title, narrow, maximized, draggable, on
 // above the fixed video iframe). In it you can: drag a tile onto another's
 // edge to split / center to swap; drag a tile into the toolbox to remove
 // it; or drag a panel out of the toolbox onto a tile edge to add it.
-export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove, onAddAt, onClose }) {
+export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioChange, arranging, onMove, onAddAt, onClose }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const containerRef = useRef(null);
@@ -154,7 +154,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
 
   const { leaves, dividers } = computeLayout(tree, { x: 0, y: 0, w: rect.w, h: rect.h });
   const shown = new Set(leaves.map((l) => l.panel));
-  const hidden = Object.keys(ROOM_PANELS).filter((id) => !shown.has(id));
+  const hidden = Object.keys(panels).filter((id) => !shown.has(id));
   const canClose = leaves.length > 1;
   // Ignore a stale maximize if that panel was since closed.
   const maximizedPanel = maximized && shown.has(maximized) ? maximized : null;
@@ -273,7 +273,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
   return (
     <div ref={containerRef} className="relative w-full h-full min-h-0 overflow-hidden">
       {leaves.map((l) => {
-        const panel = ROOM_PANELS[l.panel];
+        const panel = panels[l.panel];
         const Icon = panel?.icon;
         const isMax = maximizedPanel === l.panel;
         const r = isMax ? { x: 0, y: 0, w: rect.w, h: rect.h } : l.rect;
@@ -338,7 +338,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
                 e.preventDefault();
                 e.currentTarget.setPointerCapture?.(e.pointerId);
                 const node = nodeAt(tree, d.path);
-                setDrag({ path: d.path, dir: d.dir, splitRect: d.splitRect, minA: nodeMin(node?.a), minB: nodeMin(node?.b) });
+                setDrag({ path: d.path, dir: d.dir, splitRect: d.splitRect, minA: nodeMin(node?.a, panels), minB: nodeMin(node?.b, panels) });
               }}
               className={`absolute touch-none ${horiz ? "-inset-x-2 inset-y-0 cursor-col-resize" : "-inset-y-2 inset-x-0 cursor-row-resize"}`}
             />
@@ -360,7 +360,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
           style={{ top: rect.top, left: rect.left, width: rect.w, height: rect.h, pointerEvents: "none" }}
         >
           {leaves.map((l) => {
-            const panel = ROOM_PANELS[l.panel];
+            const panel = panels[l.panel];
             const Icon = panel?.icon;
             const isMoving = moving?.panel === l.panel && !moving.fromToolbox;
             return (
@@ -427,8 +427,8 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
               className="absolute flex items-center gap-1.5 px-2.5 py-1 rounded-full shadow-lg text-[11px] font-semibold text-white"
               style={{ left: pointer.x + 12, top: pointer.y + 12, background: "var(--color-accent)", pointerEvents: "none" }}
             >
-              {(() => { const Icon = ROOM_PANELS[moving.panel]?.icon; return Icon ? <Icon className="w-3.5 h-3.5" /> : null; })()}
-              {ROOM_PANELS[moving.panel]?.title || moving.panel}
+              {(() => { const Icon = panels[moving.panel]?.icon; return Icon ? <Icon className="w-3.5 h-3.5" /> : null; })()}
+              {panels[moving.panel]?.title || moving.panel}
             </div>
           )}
 
@@ -452,7 +452,7 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
                     All in use · drag a tile here to remove
                   </span>
                 ) : hidden.map((id) => {
-                  const p = ROOM_PANELS[id];
+                  const p = panels[id];
                   const Icon = p?.icon;
                   const lifted = moving?.fromToolbox && moving.panel === id;
                   return (
@@ -512,8 +512,8 @@ export default function RoomLayout({ tree, ctx, onRatioChange, arranging, onMove
               className="absolute flex items-center gap-1.5 px-2.5 py-1 rounded-full shadow-lg text-[11px] font-semibold text-white"
               style={{ left: pointer.x + 12, top: pointer.y + 12, background: "var(--color-accent)", pointerEvents: "none" }}
             >
-              {(() => { const Icon = ROOM_PANELS[moving.panel]?.icon; return Icon ? <Icon className="w-3.5 h-3.5" /> : null; })()}
-              {ROOM_PANELS[moving.panel]?.title || moving.panel}
+              {(() => { const Icon = panels[moving.panel]?.icon; return Icon ? <Icon className="w-3.5 h-3.5" /> : null; })()}
+              {panels[moving.panel]?.title || moving.panel}
             </div>
           )}
         </div>,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { presetTree, DEFAULT_PRESET } from "./presets";
+import { PRESETS, DEFAULT_PRESET } from "./presets";
 import { leaf, split, setRatioAt, sanitize, movePanelInTree, addPanelToTree, addPanelAtTree, removeAt, findPath, panelsIn, placementOf, restorePlacement } from "./layoutTree";
 
 // Where a quick-added panel prefers to enter, given what's already shown.
@@ -27,14 +27,22 @@ function placeBySide(tree, panelId, side, frac) {
   }
 }
 
-// Per-user, per-room layout. Mirrors how the old view-mode preference was
-// stored (localStorage, not synced) — a "present my layout to everyone"
-// option via the session controller is a later phase.
-const keyFor = (roomId) => `ql_room_layout:${roomId}`;
+// Resolve a preset id to a fresh tree from the given preset set (member or
+// device). Falls back to the set's default.
+function presetTreeFrom(presets, id, defaultPreset) {
+  const p = presets.find((x) => x.id === id) || presets.find((x) => x.id === defaultPreset);
+  return p ? p.tree() : null;
+}
 
-function load(roomId, available) {
+// Per-user/per-device, per-room layout. Mirrors how the old view-mode preference
+// was stored (localStorage, not synced). The preset set + storage key prefix are
+// configurable so the kiosk can reuse this with its own panels (see
+// deviceLayout/devicePresets) without colliding with the member layout.
+const keyFor = (prefix, roomId) => `${prefix}:${roomId}`;
+
+function load(roomId, available, presets, defaultPreset, prefix) {
   try {
-    const raw = roomId ? localStorage.getItem(keyFor(roomId)) : null;
+    const raw = roomId ? localStorage.getItem(keyFor(prefix, roomId)) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
       const tree = sanitize(parsed.tree, available);
@@ -43,28 +51,34 @@ function load(roomId, available) {
       if (tree) return { tree, presetId: parsed.presetId || "custom", placements: parsed.placements || {} };
     }
   } catch { /* */ }
-  return { tree: presetTree(DEFAULT_PRESET), presetId: DEFAULT_PRESET, placements: {} };
+  return { tree: presetTreeFrom(presets, defaultPreset, defaultPreset), presetId: defaultPreset, placements: {} };
 }
 
-export function useRoomLayout(roomId, available) {
+// opts: { presets, defaultPreset, keyPrefix } — all optional; default to the
+// member room's preset set + key, so existing callers (RoomView) are unchanged.
+export function useRoomLayout(roomId, available, opts = {}) {
+  const presets = opts.presets || PRESETS;
+  const defaultPreset = opts.defaultPreset || DEFAULT_PRESET;
+  const keyPrefix = opts.keyPrefix || "ql_room_layout";
+
   // `available` changes identity every render; read the latest via a ref so
   // it never retriggers the room-change reload.
   const availRef = useRef(available);
   availRef.current = available;
 
-  const [state, setState] = useState(() => load(roomId, available));
+  const [state, setState] = useState(() => load(roomId, available, presets, defaultPreset, keyPrefix));
 
   // Reload when switching rooms.
   useEffect(() => {
-    setState(load(roomId, availRef.current));
-  }, [roomId]);
+    setState(load(roomId, availRef.current, presets, defaultPreset, keyPrefix));
+  }, [roomId, presets, defaultPreset, keyPrefix]);
 
   // Persist.
   useEffect(() => {
     try {
-      if (roomId) localStorage.setItem(keyFor(roomId), JSON.stringify(state));
+      if (roomId) localStorage.setItem(keyFor(keyPrefix, roomId), JSON.stringify(state));
     } catch { /* */ }
-  }, [roomId, state]);
+  }, [roomId, keyPrefix, state]);
 
   // Remember a panel's current spot before it leaves the tree, so toggling
   // it back on can restore that position.
@@ -73,8 +87,8 @@ export function useRoomLayout(roomId, available) {
     return placement ? { ...s.placements, [panel]: placement } : s.placements;
   };
 
-  const applyPreset = useCallback((id) => setState((s) => ({ ...s, tree: presetTree(id), presetId: id })), []);
-  const reset = useCallback(() => setState((s) => ({ ...s, tree: presetTree(DEFAULT_PRESET), presetId: DEFAULT_PRESET })), []);
+  const applyPreset = useCallback((id) => setState((s) => ({ ...s, tree: presetTreeFrom(presets, id, defaultPreset), presetId: id })), [presets, defaultPreset]);
+  const reset = useCallback(() => setState((s) => ({ ...s, tree: presetTreeFrom(presets, defaultPreset, defaultPreset), presetId: defaultPreset })), [presets, defaultPreset]);
   const setRatio = useCallback((path, ratio) => {
     setState((s) => ({ ...s, tree: setRatioAt(s.tree, path, ratio), presetId: "custom" }));
   }, []);

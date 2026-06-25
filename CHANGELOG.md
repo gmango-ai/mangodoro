@@ -5,6 +5,11 @@ semantic versions. Newest first.
 
 ## 2026-06-25
 
+- Docs: plan to reduce DB calls / Supabase load
+- Video: surface the LiveKit disconnect reason (diagnose silent green-room bounce)
+- Device: Phase B1 — read-only RLS so a kiosk can view room chat + whiteboard
+- Device: Phase A — mic / speaker / camera pickers on the kiosk
+- Fix What's new toast for same-day changelog merges and PWA reloads
 - What's new: changelog toast/modal + auto-changelog on push to main
 
 ## 2026-06-21 → 2026-06-23 (last 48 hours)

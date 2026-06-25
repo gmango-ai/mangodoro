@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { Sparkles, X } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import MarkdownText from "./MarkdownText";
-import { changelogBody, latestEntryId, appVersion } from "../lib/changelog";
+import { changelogBody, latestReleaseMarker, appVersion } from "../lib/changelog";
 
 const SEEN_KEY = "mango:seenChangelog";
+export const PWA_PENDING_RELOAD_KEY = "mango:pwaPendingReload";
 const WHATS_NEW_EVENT = "mangodoro:whatsnew";
 
 // Open the "What's new" modal from anywhere (Settings link, nav menu, a toast).
@@ -13,32 +14,38 @@ export function openWhatsNew() {
 }
 
 // Surfaces the changelog: a one-time "What's new" toast after an update lands,
-// and an on-demand modal. The release marker is the newest CHANGELOG heading
+// and an on-demand modal. The release marker is the newest CHANGELOG section
 // (bundled at build time); when it differs from what the user last saw we nudge
-// once. First run seeds silently so we don't replay the whole backlog.
+// once. PWA auto-reloads also set a session flag so code-only deploys still
+// get feedback. First run seeds silently so we don't replay the whole backlog.
 export default function WhatsNew() {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState(false);
 
-  const latest = latestEntryId();
+  const marker = latestReleaseMarker();
 
   useEffect(() => {
     const embed = new URLSearchParams(window.location.search).get("embed") === "1";
-    if (embed || !latest) return;
+    if (embed || !marker) return;
     let seen = null;
     try { seen = localStorage.getItem(SEEN_KEY); } catch { /* ignore */ }
     if (seen == null) {
-      try { localStorage.setItem(SEEN_KEY, latest); } catch { /* ignore */ }
+      try { localStorage.setItem(SEEN_KEY, marker); } catch { /* ignore */ }
       return;
     }
-    if (seen !== latest) {
+    let pendingReload = false;
+    try {
+      pendingReload = sessionStorage.getItem(PWA_PENDING_RELOAD_KEY) === "1";
+      if (pendingReload) sessionStorage.removeItem(PWA_PENDING_RELOAD_KEY);
+    } catch { /* ignore */ }
+    if (seen !== marker || pendingReload) {
       setToast(true);
       const t = setTimeout(() => setToast(false), 12000);
       return () => clearTimeout(t);
     }
-  }, [latest]);
+  }, [marker]);
 
   useEffect(() => {
     const onOpen = () => setOpen(true);
@@ -47,7 +54,7 @@ export default function WhatsNew() {
   }, []);
 
   const markSeen = () => {
-    try { localStorage.setItem(SEEN_KEY, latest); } catch { /* ignore */ }
+    try { localStorage.setItem(SEEN_KEY, marker); } catch { /* ignore */ }
   };
   const openModal = () => { setToast(false); setOpen(true); markSeen(); };
   const close = () => { setOpen(false); markSeen(); };
