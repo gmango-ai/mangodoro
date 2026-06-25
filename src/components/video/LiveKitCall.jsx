@@ -393,9 +393,9 @@ function BackgroundEffects({ value, onChange, customBg, onUpload }) {
       <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">Background</div>
       <div className="grid grid-cols-2 gap-1 px-1">
         {chip("none", "None")}
-        {chip("blur:6", "Blur · Light")}
-        {chip("blur:12", "Blur · Medium")}
-        {chip("blur:22", "Blur · Strong")}
+        {chip("blur:4", "Blur · Light")}
+        {chip("blur:9", "Blur · Medium")}
+        {chip("blur:18", "Blur · Strong")}
       </div>
       <div className="mt-1.5 px-1 grid grid-cols-5 gap-1">
         {BG_PRESETS.map((p) => (
