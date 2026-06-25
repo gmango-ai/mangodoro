@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, DoorOpen } from "lucide-react";
 import { supabase } from "../supabase";
 import { applyAccent } from "../lib/accent";
+import { currentDeviceRoom, setDeviceRoom } from "../lib/orgDevices";
 import LogoMark from "../components/LogoMark";
 import RoomLayout from "../components/office/roomLayout/RoomLayout";
 import LayoutBar from "../components/office/roomLayout/LayoutBar";
@@ -29,6 +31,56 @@ function WallClock() {
   );
 }
 
+// Room switcher for a MOVABLE device — switch which room this kiosk shows.
+// `rooms` comes from RLS: a movable device reads all its org's rooms, a fixed
+// one reads only its pinned room, so if there's nothing else to switch to we
+// render nothing (non-movable devices never see a switcher).
+function RoomSwitcher({ currentRoomId, currentName, rooms, onSwitch }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const others = (rooms || []).filter((r) => r.id !== currentRoomId);
+  if (others.length === 0) return null;
+  const pick = async (id) => {
+    setBusy(true);
+    await onSwitch(id);
+    setBusy(false);
+    setOpen(false);
+  };
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-semibold text-white/90 transition-colors disabled:opacity-50"
+        title="Switch this device to another room"
+      >
+        <DoorOpen className="w-3.5 h-3.5" />
+        <span className="max-w-[140px] truncate">{currentName || "Room"}</span>
+        <ChevronDown className="w-3 h-3 opacity-60" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-9 z-40 w-56 max-h-[60vh] overflow-auto p-1 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl">
+            <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/50">Move this device to…</div>
+            {others.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => pick(r.id)}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] text-white/85 hover:bg-white/10"
+              >
+                {r.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Paired-device kiosk. Now a configurable room display: the same modular BSP
 // layout members use (RoomLayout + useRoomLayout) but with the DEVICE panel set
 // (portal video, read-only chat, embedded whiteboard, timer, presence) and
@@ -36,14 +88,39 @@ function WallClock() {
 // arrange panels and unpair. Read-only throughout (device RLS is SELECT-only).
 export default function DeviceKioskPage({ session }) {
   const meta = session?.user?.user_metadata || {};
-  const roomId = meta.room_id || null;
   const deviceName = meta.name || "Device";
   const userId = session?.user?.id || null;
 
+  // Live pinned room (authoritative — survives a room switch, unlike the JWT's
+  // user_metadata.room_id). Seed from the JWT for a fast first paint, confirm via
+  // current_device_room().
+  const [roomId, setRoomId] = useState(meta.room_id || null);
   const [room, setRoom] = useState(null);
   const [sess, setSess] = useState(null);
   const [participants, setParticipants] = useState([]);
+  const [rooms, setRooms] = useState([]); // org rooms readable here (>1 ⇒ movable)
   const [arranging, setArranging] = useState(false);
+
+  // Confirm the live room + load switch targets, and re-poll so an admin's
+  // remote reassign is picked up. RLS does the gating: a fixed device only ever
+  // sees its one room here, so RoomSwitcher renders nothing for it.
+  useEffect(() => {
+    let alive = true;
+    const sync = async () => {
+      const { data: live } = await currentDeviceRoom();
+      if (alive && live) setRoomId(live);
+      const { data: rs } = await supabase.from("rooms").select("id, name").order("name");
+      if (alive) setRooms(rs || []);
+    };
+    sync();
+    const poll = setInterval(sync, 20000);
+    return () => { alive = false; clearInterval(poll); };
+  }, []);
+
+  const handleSwitch = async (newRoomId) => {
+    const { error } = await setDeviceRoom(newRoomId);
+    if (!error) setRoomId(newRoomId); // re-points session query, layout key, portal
+  };
 
   // Kiosk is always dark with the default accent (no member theme to inherit).
   useEffect(() => {
@@ -144,6 +221,7 @@ export default function DeviceKioskPage({ session }) {
           )}
         </span>
         <div className="flex items-center gap-3 shrink-0">
+          <RoomSwitcher currentRoomId={roomId} currentName={room?.name} rooms={rooms} onSwitch={handleSwitch} />
           <LayoutBar
             presetId={presetId}
             onApply={applyPreset}

@@ -91,7 +91,9 @@ export const DEVICE_PANELS = {
     title: "Video",
     icon: Video,
     min: 280,
-    render: ({ room, displayName }) => <DevicePortalCall roomId={room.id} displayName={displayName} />,
+    // key by room.id so a room switch cleanly remounts the call (fresh LiveKit
+    // connection to the new room) rather than trying to reuse the old one.
+    render: ({ room, displayName }) => <DevicePortalCall key={room.id} roomId={room.id} displayName={displayName} />,
   },
   timer: {
     id: "timer",

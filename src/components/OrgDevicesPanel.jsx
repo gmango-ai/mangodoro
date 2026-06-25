@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { Tablet, Plus, Trash2, RefreshCw, Copy, Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Tablet, Plus, Trash2, RefreshCw, Copy, Check, DoorOpen } from "lucide-react";
 import { supabase } from "../supabase";
 import { useTheme } from "../context/ThemeContext";
-import { listOrgDevices, provisionDevice, reissueDeviceCode, revokeDevice } from "../lib/orgDevices";
+import { listOrgDevices, provisionDevice, reissueDeviceCode, revokeDevice, adminSetDeviceRoom, adminSetDeviceMovable } from "../lib/orgDevices";
 import ConfirmRow from "./ConfirmRow";
 
 function relTime(iso) {
@@ -53,11 +53,6 @@ export default function OrgDevicesPanel({ orgId }) {
   const [pairing, setPairing] = useState(null); // { code, expires_at, name }
   const [confirmRemove, setConfirmRemove] = useState(null);
 
-  const roomName = useMemo(() => {
-    const m = new Map(rooms.map((r) => [r.id, r.name]));
-    return (id) => m.get(id) || "—";
-  }, [rooms]);
-
   const reload = async () => {
     const { data } = await listOrgDevices(orgId);
     setDevices(data);
@@ -88,6 +83,18 @@ export default function OrgDevicesPanel({ orgId }) {
     setConfirmRemove(null);
     const { error } = await revokeDevice(id);
     if (error) { setErr(error.message || "Could not remove device"); return; }
+    reload();
+  };
+  const reassign = async (id, newRoomId) => {
+    setErr("");
+    const { error } = await adminSetDeviceRoom(id, newRoomId);
+    if (error) { setErr(error.message || "Could not move device"); return; }
+    reload();
+  };
+  const toggleMovable = async (d) => {
+    setErr("");
+    const { error } = await adminSetDeviceMovable(d.id, !d.movable);
+    if (error) { setErr(error.message || "Could not update device"); return; }
     reload();
   };
 
@@ -156,9 +163,31 @@ export default function OrgDevicesPanel({ orgId }) {
                 <div className="flex items-center gap-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">{d.name}</p>
-                    <p className="text-[11px] text-[var(--color-muted)] truncate">
-                      {roomName(d.room_id)} · seen {relTime(d.last_seen_at)}
-                    </p>
+                    <div className="mt-1 flex items-center gap-2 flex-wrap">
+                      {/* Reassign the device's room (admin). */}
+                      <select
+                        value={d.room_id}
+                        onChange={(e) => reassign(d.id, e.target.value)}
+                        title="Room this device shows"
+                        className={`text-[11px] rounded-md px-1.5 py-0.5 outline-none cursor-pointer ${dark ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-700"}`}
+                      >
+                        {rooms.map((r) => <option key={r.id} value={r.id} className="text-slate-900">{r.name}</option>)}
+                      </select>
+                      {/* Whether this device may switch its OWN room at the kiosk. */}
+                      <button
+                        type="button"
+                        onClick={() => toggleMovable(d)}
+                        title={d.movable ? "Movable — this device can switch its own room" : "Fixed — only admins can move it"}
+                        className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full transition-colors ${
+                          d.movable
+                            ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
+                            : dark ? "bg-white/10 text-slate-400 hover:text-slate-200" : "bg-slate-100 text-slate-500 hover:text-slate-700"
+                        }`}
+                      >
+                        <DoorOpen className="w-3 h-3" /> {d.movable ? "Movable" : "Fixed"}
+                      </button>
+                      <span className="text-[11px] text-[var(--color-muted)]">seen {relTime(d.last_seen_at)}</span>
+                    </div>
                   </div>
                   <button type="button" onClick={() => reissue(d.id, d.name)} title="New pairing code" className="p-1.5 rounded-md text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-light)]">
                     <RefreshCw className="w-3.5 h-3.5" />
