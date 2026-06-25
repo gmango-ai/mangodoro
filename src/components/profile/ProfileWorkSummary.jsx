@@ -20,7 +20,8 @@ export default function ProfileWorkSummary({ userId, cardStyle }) {
 
   useEffect(() => {
     let alive = true;
-    if (!userId) { setSum(null); return undefined; }
+    setSum(null);
+    if (!userId) return undefined;
     getUserWorkSummary(userId).then((d) => { if (alive) setSum(d); });
     return () => { alive = false; };
   }, [userId]);

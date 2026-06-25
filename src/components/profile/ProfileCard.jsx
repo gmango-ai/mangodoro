@@ -22,6 +22,7 @@ export default function ProfileCard({ userId, onOpenFull }) {
 
   useEffect(() => {
     let on = true;
+    setSum(null);
     getProfile(userId).then((p) => { if (on) setProfile(p); });
     getUserWorkSummary(userId).then((s) => { if (on) setSum(s); }); // null unless self/admin
     return () => { on = false; };
