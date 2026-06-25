@@ -1,0 +1,48 @@
+name: Changelog
+
+# On every push to main, append a dated section to CHANGELOG.md generated from
+# the commits in that push, then commit it back. The in-app "What's new" reads
+# CHANGELOG.md, so users see the new entry after the next deploy.
+
+on:
+  push:
+    branches: [main]
+    # The bot's commit only touches CHANGELOG.md — ignoring it here prevents an
+    # infinite loop (this workflow re-triggering on its own commit).
+    paths-ignore:
+      - "CHANGELOG.md"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: changelog-main
+  cancel-in-progress: false
+
+jobs:
+  changelog:
+    # Extra belt-and-suspenders against self-triggering.
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the push range resolves
+
+      - name: Generate changelog section
+        run: node scripts/gen-changelog.mjs
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+
+      - name: Commit and push
+        run: |
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "No changelog changes — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): update for ${GITHUB_SHA:0:7} [skip ci]"
+          git push

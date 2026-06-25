@@ -20,6 +20,7 @@ import PresenceSync from "./components/PresenceSync";
 import IdlePresence from "./components/IdlePresence";
 import ReflectionPrompt from "./components/ReflectionPrompt";
 import NotificationToaster from "./components/notifications/NotificationToaster";
+import WhatsNew from "./components/WhatsNew";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
@@ -181,6 +182,8 @@ function AppLayout({ session }) {
       <ReflectionPrompt />
       {/* Transient in-app notification toasts. */}
       <NotificationToaster />
+      {/* "What's new" toast + changelog modal (reads CHANGELOG.md). */}
+      <WhatsNew />
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis
           here makes this div a scroll container, which traps the sticky
           <header> so it scrolls away and lets content slide under the
