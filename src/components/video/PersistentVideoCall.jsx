@@ -116,13 +116,13 @@ export default function PersistentVideoCall() {
     const ro = stageEl ? new ResizeObserver(update) : null;
     if (stageEl && ro) ro.observe(stageEl);
     window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
+    if (stageEl) window.addEventListener("scroll", update, true);
 
     return () => {
       cancelled = true;
       if (ro) ro.disconnect();
       window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
+      if (stageEl) window.removeEventListener("scroll", update, true);
     };
   }, [stageEl, call, reparentSafe]);
 
