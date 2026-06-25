@@ -75,7 +75,7 @@ export default function IdlePresence() {
       } else if (flag) {
         del(AWAY_KEY);
         // Only undo our own auto-away — if they've since set a real status, leave it.
-        if (s.presence === "away" || AUTO_FROM.has(s.presence)) await apply(flag.prev || "active");
+        if (s.presence === "away") await apply(flag.prev || "active");
       }
     };
     tick();
