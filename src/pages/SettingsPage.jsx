@@ -713,6 +713,7 @@ function PomodoroSection({ dark }) {
     session,
     defaultLandingPage, setDefaultLandingPage,
     deepseekKey, setDeepseekKey,
+    settings, updateSettingsField,
   } = useApp();
   const userId = session?.user?.id;
 
@@ -761,6 +762,22 @@ function PomodoroSection({ dark }) {
           <SelectContent>
             <SelectItem value="pomodoro">Pomodoro</SelectItem>
             <SelectItem value="log">Time tracker</SelectItem>
+          </SelectContent>
+        </Select>
+      </SectionCard>
+
+      <SectionCard
+        title="Session reflections"
+        hint="Pop a quick 'what did you work on?' note around your focus blocks — it sets your current task so the work is captured as you go."
+        dark={dark}
+      >
+        <Select value={settings?.reflectWhen || "off"} onValueChange={(v) => { updateSettingsField({ reflectWhen: v }); flashSaved(); }}>
+          <SelectTrigger className="h-10 w-56"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="off">Off</SelectItem>
+            <SelectItem value="after_focus">After each focus block</SelectItem>
+            <SelectItem value="before_focus">Before the next focus</SelectItem>
+            <SelectItem value="both">Both</SelectItem>
           </SelectContent>
         </Select>
       </SectionCard>

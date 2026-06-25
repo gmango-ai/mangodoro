@@ -1219,6 +1219,7 @@ export function AppProvider({ session, children }) {
     if ("workSchedule" in patch) dbPatch.work_schedule = patch.workSchedule || {};
     if ("oooRanges" in patch) dbPatch.ooo_ranges = patch.oooRanges || [];
     if ("lunchBreakPaid" in patch) dbPatch.lunch_break_paid = patch.lunchBreakPaid;
+    if ("reflectWhen" in patch) dbPatch.reflect_when = patch.reflectWhen || "off";
     if ("timezone" in patch) dbPatch.timezone = patch.timezone || null;
     if ("timezoneManual" in patch) dbPatch.timezone_manual = patch.timezoneManual;
     if ("wageMode" in patch) dbPatch.wage_mode = patch.wageMode || "hourly";

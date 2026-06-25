@@ -18,6 +18,7 @@ import LunchReminder from "./components/LunchReminder";
 import HealthReminders from "./components/HealthReminders";
 import PresenceSync from "./components/PresenceSync";
 import IdlePresence from "./components/IdlePresence";
+import ReflectionPrompt from "./components/ReflectionPrompt";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
@@ -176,6 +177,8 @@ function AppLayout({ session }) {
       <PresenceSync />
       {/* Auto online/away from tab activity (idle → away, return → restore). */}
       <IdlePresence />
+      {/* "What did you work on?" capture around pomodoro phases. */}
+      <ReflectionPrompt />
       {/* Transient in-app notification toasts. */}
       <NotificationToaster />
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis

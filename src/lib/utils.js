@@ -52,6 +52,7 @@ export function normalizeSettings(row) {
     workSchedule: row.work_schedule && typeof row.work_schedule === "object" ? row.work_schedule : {},
     oooRanges: Array.isArray(row.ooo_ranges) ? row.ooo_ranges : [],
     lunchBreakPaid: row.lunch_break_paid ?? false,
+    reflectWhen: row.reflect_when || "off",
     timezone: row.timezone || "",
     timezoneManual: row.timezone_manual ?? false,
     wageMode: row.wage_mode || "hourly",
