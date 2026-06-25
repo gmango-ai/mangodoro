@@ -24,6 +24,7 @@ export function normalizeTemplate(row) {
 export function normalizeSettings(row) {
   return {
     name: row.name || "",
+    jobTitle: row.job_title || "",
     defaultStart: normalizeTime(row.default_start),
     defaultEnd: normalizeTime(row.default_end),
     defaultTemplateId: row.default_template_id || undefined,

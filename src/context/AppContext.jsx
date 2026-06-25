@@ -1199,6 +1199,7 @@ export function AppProvider({ session, children }) {
   async function updateSettingsField(patch) {
     setSettings((prev) => ({ ...prev, ...patch }));
     const dbPatch = {};
+    if ("jobTitle" in patch) dbPatch.job_title = patch.jobTitle || null;
     if ("accentColor" in patch) dbPatch.accent_color = patch.accentColor;
     if ("name" in patch) dbPatch.name = patch.name || null;
     if ("status" in patch) dbPatch.status = patch.status ?? null;

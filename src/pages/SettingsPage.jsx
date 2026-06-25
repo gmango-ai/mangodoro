@@ -214,6 +214,8 @@ function ProfileSection({ dark }) {
   const HOURS_PER_YEAR = 2080; // 40h × 52w — standard salary↔hourly basis
   const [savingMsg, setSavingMsg] = useState("");
 
+  const [jobTitle, setJobTitle] = useState(settings.jobTitle || "");
+  useEffect(() => { setJobTitle(settings.jobTitle || ""); }, [settings.jobTitle]);
   useEffect(() => { setName(settings.name || ""); }, [settings.name]);
   useEffect(() => { setAvatarUrl(settings.avatarUrl || ""); }, [settings.avatarUrl]);
   useEffect(() => { setStatus(settings.status || ""); }, [settings.status]);
@@ -312,6 +314,17 @@ function ProfileSection({ dark }) {
               placeholder="e.g. Jacob"
               className="max-w-sm"
               maxLength={60}
+            />
+          </div>
+          <div>
+            <FieldLabel dark={dark}>Job title</FieldLabel>
+            <Input
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value.slice(0, 80))}
+              onBlur={() => { const v = jobTitle.trim(); if (v !== (settings.jobTitle || "")) { updateSettingsField({ jobTitle: v || null }); flashSaved(); } }}
+              placeholder="e.g. Product Engineer"
+              className="max-w-sm"
+              maxLength={80}
             />
           </div>
           <div>

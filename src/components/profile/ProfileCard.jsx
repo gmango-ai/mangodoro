@@ -60,6 +60,7 @@ export default function ProfileCard({ userId, onOpenFull }) {
         <UserAvatar url={avatar} name={name} size={48} />
         <div className="min-w-0 flex-1">
           <div className={`text-sm font-bold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>{name}</div>
+          {profile?.job_title && <div className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>{profile.job_title}</div>}
           {presence && (
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className={`w-2 h-2 rounded-full ${presenceDot(presence)}`} />
