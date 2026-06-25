@@ -1,7 +1,9 @@
-import { useRef, useState } from "react";
-import { Coffee, LogOut, Play, Undo2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Coffee, LogOut, Play, Undo2, Check } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
+import { useTeam } from "../../context/TeamContext";
+import { listOrgProjects } from "../../lib/orgProjects";
 import Popover from "../goals/Popover";
 
 // Compact clock-in control for the top bar. Not clocked in → a "Clock in" pill;
@@ -11,12 +13,27 @@ export default function WorkClockBar({ dark }) {
   const {
     clockIn, clockedTick, handleClockIn, clockOutAndFill,
     startClockBreak, endClockBreak, clockedElapsed, settings, updateStatus, session,
+    updateClockIn, renameCurrentTask,
   } = useApp();
   const { syncSession, setStatus: setSyncStatus } = useSyncSession();
+  const { activeTeamId } = useTeam();
   const userId = session?.user?.id;
   const [open, setOpen] = useState(false);
+  const [projects, setProjects] = useState([]);
   const anchorRef = useRef(null);
   void clockedTick; // re-render the elapsed label as it ticks
+
+  // Org projects to pick "what you're working on" — fetched only when the menu opens.
+  useEffect(() => {
+    if (!open || !activeTeamId) return;
+    listOrgProjects(activeTeamId).then(setProjects);
+  }, [open, activeTeamId]);
+
+  const setProject = (p) => {
+    updateClockIn({ description: p.name });
+    renameCurrentTask?.(p.name);
+    setOpen(false);
+  };
 
   const applyPresence = async (state) => {
     try {
@@ -83,8 +100,26 @@ export default function WorkClockBar({ dark }) {
         <span className={`w-1.5 h-1.5 rounded-full ${onBreak ? "bg-orange-400" : "bg-emerald-500"}`} />
         <span className="tabular-nums">{clockedElapsed() || "0m"}</span>
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={208} dark={dark}>
-        {clockIn.description?.trim() && (
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={224} dark={dark}>
+        {projects.length > 0 && (
+          <>
+            <p className={`px-2.5 pt-1 pb-0.5 text-[10px] uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>Working on</p>
+            <div className="max-h-44 overflow-y-auto">
+              {projects.map((p) => {
+                const on = (clockIn.description || "").trim() === p.name;
+                return (
+                  <button key={p.id} type="button" onClick={() => setProject(p)} className={item}>
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color || "#14b8a6" }} />
+                    <span className="flex-1 truncate">{p.name}</span>
+                    {on && <Check className="w-3.5 h-3.5 text-[var(--color-accent)] shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+            <div className={`my-1 h-px ${dark ? "bg-white/10" : "bg-slate-200"}`} />
+          </>
+        )}
+        {clockIn.description?.trim() && projects.length === 0 && (
           <p className={`px-2.5 py-1.5 text-xs truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>{clockIn.description}</p>
         )}
         {onBreak ? (
