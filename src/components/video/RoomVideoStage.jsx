@@ -384,7 +384,7 @@ function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave 
 
   const join = () => onJoin({
     username: userChoices.username || displayName,
-    videoEnabled: camOn,
+    videoEnabled: camPreview,
     audioEnabled: micOn,
     videoDeviceId: userChoices.videoDeviceId,
     audioDeviceId: userChoices.audioDeviceId,
