@@ -30,19 +30,17 @@ const MODEL_URL =
 // runs it fast enough; otherwise we fall back to the MediaPipe selfie mask.
 const RVM_MODEL_URL =
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_RVM_MODEL_URL) || "";
-// Cap on the frame we send RVM — this is the resolution the matte is OUTPUT at
-// (the decoder runs here), so it's the dominant lever for edge sharpness. We ran
-// 384 during the single-thread era purely to survive ~82ms/frame; at 384/0.35 the
-// matte is computed at only ~134px internally — no crisper than MediaPipe's 256px
-// mask, which is why RVM "looked like MediaPipe". Threaded WASM (8 cores on an M4
-// ran 384/0.35 at 27ms) buys the headroom to push this up where RVM's quality
-// actually shows. [TUNE] with the avg-inference log + the gate below.
-const RVM_INPUT_WIDTH = 512;
-// RVM's internal ENCODER downscale (the "where's the person / fine structure"
-// pass). RVM authors target a downsampled long-side of 256–512px; at 512 input,
-// 0.5 → 256px encoder, the bottom of that band — catches hair/fingers far better
-// than the old 0.35 (~134px) without over-spending. [TUNE].
-const RVM_DOWNSAMPLE = 0.5;
+// Cap on the frame we send RVM. This sets inference COST, which (since render is
+// decoupled) equals matte FRESHNESS, i.e. how far the matte trails you on motion.
+// 384/0.35 ran ~27ms (≈37fps matte) on 8 threads vs 512/0.5's ~60-90ms (≈12-16fps);
+// the lower-lag config is the one that feels responsive when you move. Edge
+// sharpness barely suffers because the bilateral pass re-snaps this matte onto the
+// live 960px frame anyway. [TUNE] up only if you want crisper edges over freshness.
+const RVM_INPUT_WIDTH = 384;
+// RVM's internal ENCODER downscale. 0.35 (~134px encoder) is the floor that still
+// catches limbs (0.25 dropped arms); lower = faster/fresher but starts missing the
+// person. [TUNE].
+const RVM_DOWNSAMPLE = 0.35;
 // [TUNE] disable RVM above this avg. Now that rendering is decoupled from
 // inference, this latency only affects matte FRESHNESS (the render stays ~60fps),
 // so it can be lenient: a ~120ms matte snapped onto the live frame still beats
