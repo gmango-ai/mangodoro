@@ -37,6 +37,29 @@ import { createVoiceDetector } from "./autoMic";
 // failures surface. Module-level so it runs once, before any room connects.
 setLogLevel("error");
 
+// LiveKit's DisconnectReason is a numeric enum on the wire; map it to a legible
+// name. A silent "bounced back to the green room with no console error" is almost
+// always a CLEAN server-side disconnect (no JS exception, so nothing logs) — most
+// often DUPLICATE_IDENTITY (the same account connected from another tab/device,
+// which kicks the older session). We log + report the reason so it stops being
+// invisible. (Values mirror livekit-client's DisconnectReason.)
+const LK_DISCONNECT_REASON = {
+  0: "unknown",
+  1: "client_initiated",       // normal leave (we called disconnect)
+  2: "duplicate_identity",     // same identity connected elsewhere → this one kicked
+  3: "server_shutdown",
+  4: "participant_removed",    // moderation kick
+  5: "room_deleted",
+  6: "state_mismatch",
+  7: "join_failure",           // couldn't establish the session (often publisher ICE)
+  8: "migration",
+  9: "signal_close",
+  10: "room_closed",
+  11: "user_unavailable",
+  12: "user_rejected",
+  13: "sip_trunk_failure",
+};
+
 // LiveKit provider — the A/B counterpart to <JitsiCall>.
 //
 // We compose LiveKit's primitives (Grid/Focus/Carousel layouts +
@@ -1454,7 +1477,15 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         audio={false}
         style={{ height: "100%" }}
         onConnected={() => onJoined?.()}
-        onDisconnected={() => onLeft?.()}
+        onDisconnected={(reason) => {
+          const name = LK_DISCONNECT_REASON[reason] ?? `code_${reason ?? "none"}`;
+          // Anything other than our own leave is unexpected — make it loud so a
+          // silent bounce becomes diagnosable, and pass the reason up for analytics.
+          if (reason !== undefined && reason !== 1) {
+            console.warn(`[livekit] disconnected: ${name} (room ${roomId})`);
+          }
+          onLeft?.(name);
+        }}
         onError={(e) => onError?.(e?.message || "LiveKit connection error")}
       >
         <PublishController publish={publish} choices={choices} micMuted={micMuted} />

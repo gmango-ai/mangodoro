@@ -78,6 +78,23 @@ export default function VideoCall({ roomId, displayName, compact, publish, liste
     onJoined?.();
   };
 
+  // Capture WHY a call dropped (the LiveKit DisconnectReason) so we can see it
+  // for real prod sessions in PostHog — a disconnect that isn't our own leave
+  // (e.g. duplicate_identity, join_failure) is the "bounced back to green room"
+  // bug. Then bubble up so the call actually tears down.
+  const handleLeft = (reason) => {
+    if (connectedAtRef.current && reason && reason !== "client_initiated") {
+      track("video_call_disconnected", {
+        provider,
+        room_id: roomId,
+        is_mobile: isMobileClient(),
+        reason,
+        duration_s: Math.round((Date.now() - connectedAtRef.current) / 1000),
+      });
+    }
+    onLeft?.();
+  };
+
   const handleError = (message) => {
     setError(message);
     track("video_call_failed", {
@@ -113,7 +130,7 @@ export default function VideoCall({ roomId, displayName, compact, publish, liste
             onJoinIn={onJoinIn}
             emote={emoteApiRef.current}
             onJoined={handleJoined}
-            onLeft={onLeft}
+            onLeft={handleLeft}
             onError={handleError}
           />
           {/* Reaction particles, scoped by roomId so everyone sees each
