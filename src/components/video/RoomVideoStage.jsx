@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft } from "lucide-react";
+import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X } from "lucide-react";
 import { usePreviewTracks, usePersistentUserChoices } from "@livekit/components-react";
 import "@livekit/components-styles";
 import { useTheme } from "../../context/ThemeContext";
@@ -253,6 +253,68 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   );
 }
 
+// Compact join dock overlaid on a live spectate preview. You watch the call,
+// set your join intent (mic / camera — persisted, shared with the green room),
+// then upgrade to publishing in place. There's deliberately NO live self-camera
+// here: your camera stays OFF while you're only watching, and comes on when you
+// hit Join — so passing through a busy room never flips your webcam on.
+function JoinDock({ displayName, onJoin, onLeave }) {
+  const { userChoices, saveAudioInputEnabled, saveVideoInputEnabled } =
+    usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: true, audioEnabled: true } });
+  const camOn = userChoices.videoEnabled;
+  const micOn = userChoices.audioEnabled;
+
+  const join = () => onJoin({
+    username: userChoices.username || displayName,
+    videoEnabled: camOn,
+    audioEnabled: micOn,
+    videoDeviceId: userChoices.videoDeviceId,
+    audioDeviceId: userChoices.audioDeviceId,
+  });
+
+  const T = (active, OnIcon, OffIcon, title, onClick) => (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className={`inline-flex items-center justify-center w-9 h-9 rounded-full shrink-0 transition-colors ${
+        active ? "bg-white/15 text-white hover:bg-white/25" : "bg-rose-500/90 text-white hover:bg-rose-500"
+      }`}
+    >
+      {active ? <OnIcon className="w-4 h-4" /> : <OffIcon className="w-4 h-4" />}
+    </button>
+  );
+
+  return (
+    <div className="absolute inset-x-0 bottom-4 z-30 flex justify-center pointer-events-none">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-slate-900/85 backdrop-blur px-2.5 py-2 shadow-xl ring-1 ring-white/10">
+        <span className="hidden sm:inline-flex items-center gap-1 pl-1 pr-0.5 text-[11px] font-semibold text-white/70">
+          <Eye className="w-3.5 h-3.5" /> Watching
+        </span>
+        {T(micOn, Mic, MicOff, micOn ? "Join with mic on" : "Join muted", () => saveAudioInputEnabled(!micOn))}
+        {T(camOn, Video, VideoOff, camOn ? "Join with camera on" : "Join with camera off", () => saveVideoInputEnabled(!camOn))}
+        <button
+          type="button"
+          onClick={join}
+          className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-[13px] font-semibold"
+        >
+          <LogIn className="w-4 h-4" /> Join call
+        </button>
+        <button
+          type="button"
+          onClick={onLeave}
+          title="Stop watching"
+          aria-label="Stop watching"
+          className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // What goes in the room view's video tile.
 //
 // Join model (deliberately NOT auto-join from the hallway):
@@ -273,7 +335,7 @@ export default function RoomVideoStage({ roomId, displayName }) {
   const userId = session?.user?.id;
   const [setupOpen, setSetupOpen] = useState(false);
 
-  const { call, startCall, setStageEl } = useVideoCall();
+  const { call, startCall, setStageEl, updateCall, endCall } = useVideoCall();
   const inCall = call?.roomId === roomId;
   const spectating = inCall && call?.mode === "spectate";
   // In a call somewhere else → carry-over is about to move it here; show a
@@ -287,6 +349,12 @@ export default function RoomVideoStage({ roomId, displayName }) {
     return () => setStageEl(null);
   }, [inCall, setStageEl]);
 
+  // `dismissed` (set when you Stop watching) stops us immediately re-spectating;
+  // it resets when you move to another room so re-entering previews again.
+  const [dismissed, setDismissed] = useState(false);
+  const autoRef = useRef(false);
+  useEffect(() => { setDismissed(false); autoRef.current = false; }, [roomId]);
+
   // Spectators announce as "observe" so they don't show up as participants
   // in the room's call-presence; publishers announce as "join".
   const observed = useRoomCallPresence({
@@ -298,19 +366,39 @@ export default function RoomVideoStage({ roomId, displayName }) {
   const join = (choices) => startCall(roomId, displayName, { mode: "join", choices });
   const watch = () => startCall(roomId, displayName, { mode: "spectate" });
 
+  // Auto-preview: when others are already in the call, drop straight into a live
+  // subscribe-only spectate (camera off) so you SEE/HEAR the room before deciding,
+  // instead of a static card. `autoRef` makes it fire once per room visit;
+  // `dismissed` respects an explicit "Stop watching".
+  useEffect(() => {
+    if (othersInCall && !inCall && !inAnotherCall && !setupOpen && !dismissed && !autoRef.current) {
+      autoRef.current = true;
+      startCall(roomId, displayName, { mode: "spectate" });
+    }
+  }, [othersInCall, inCall, inAnotherCall, setupOpen, dismissed, roomId, displayName, startCall]);
+
   // ── In the call ──────────────────────────────────────────────
-  // The persistent overlay covers this rect; we keep a neutral fill plus,
-  // for spectators, a "Join in" affordance.
+  // The persistent call (LiveKitCall) is portaled INTO stageRef and fills it.
+  // The JoinDock is a SIBLING overlay (z-30), not a child of stageRef — so we
+  // never mix React-managed children with the manually-appended call host in the
+  // same parent. For spectators it floats over the live preview: watch, set your
+  // AV, join in place.
   if (inCall) {
-    // The persistent call overlay (LiveKitCall) covers this rect and now owns
-    // the spectate "Join in" affordance, since anything rendered here is
-    // behind the overlay. We just provide the rect to position over.
     return (
-      <div
-        ref={stageRef}
-        className="relative w-full h-full rounded-xl overflow-hidden"
-        style={{ background: "#0f172a" }}
-      />
+      <div className="relative w-full h-full">
+        <div
+          ref={stageRef}
+          className="absolute inset-0 rounded-xl overflow-hidden"
+          style={{ background: "#0f172a" }}
+        />
+        {spectating && (
+          <JoinDock
+            displayName={displayName}
+            onJoin={(choices) => updateCall({ mode: "join", choices })}
+            onLeave={() => { setDismissed(true); endCall(); }}
+          />
+        )}
+      </div>
     );
   }
 
@@ -338,7 +426,19 @@ export default function RoomVideoStage({ roomId, displayName }) {
     );
   }
 
-  // ── Choice card (fresh entry from the hallway) ───────────────
+  // ── Auto-preview connecting ──────────────────────────────────
+  // Others are in the call and we haven't been dismissed → the effect above is
+  // about to flip us into spectate. Show a neutral fill instead of flashing the
+  // choice card for a frame.
+  if (othersInCall && !dismissed) {
+    return (
+      <div className={`${shellCls} items-center justify-center`}>
+        <span className="text-white/55 text-sm font-medium">Connecting preview…</span>
+      </div>
+    );
+  }
+
+  // ── Choice card (you dismissed the preview, or no one's in the call) ─────────
   return (
     <div className={`${shellCls} items-center justify-center text-center px-6`}>
       {othersInCall ? (

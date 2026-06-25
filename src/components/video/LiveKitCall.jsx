@@ -1259,21 +1259,10 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
       <SpectatorList spectators={spectators} />
       {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}
 
-      {/* Spectator → publisher. Rendered ON the overlay (the app's stage
-          placeholder underneath is covered by this call). */}
-      {!publish && !compact && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
-          <button
-            type="button"
-            onClick={() => onJoinIn?.()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-[12px] font-semibold shadow-lg"
-          >
-            <Eye className="w-3.5 h-3.5 opacity-90" /> Watching
-            <span className="opacity-60">·</span>
-            <Video className="w-3.5 h-3.5" /> Join in
-          </button>
-        </div>
-      )}
+      {/* The spectator → publisher control lives in RoomVideoStage's JoinDock,
+          overlaid on this call (it owns the persisted mic/camera join intent and
+          the live preview context). PiP has no join affordance — go back to the
+          room to join. onJoinIn is still wired for any future in-call use. */}
     </div>
   );
 }
