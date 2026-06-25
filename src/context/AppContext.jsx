@@ -1215,6 +1215,12 @@ export function AppProvider({ session, children }) {
     if ("workStart" in patch) dbPatch.work_start = patch.workStart || null;
     if ("workEnd" in patch) dbPatch.work_end = patch.workEnd || null;
     if ("lunchBreakPaid" in patch) dbPatch.lunch_break_paid = patch.lunchBreakPaid;
+    if ("timezone" in patch) dbPatch.timezone = patch.timezone || null;
+    if ("timezoneManual" in patch) dbPatch.timezone_manual = patch.timezoneManual;
+    if ("offHoursWarn" in patch) dbPatch.off_hours_warn = patch.offHoursWarn;
+    if ("oooStart" in patch) dbPatch.ooo_start = patch.oooStart || null;
+    if ("oooEnd" in patch) dbPatch.ooo_end = patch.oooEnd || null;
+    if ("oooNote" in patch) dbPatch.ooo_note = patch.oooNote || null;
     if (Object.keys(dbPatch).length === 0) return;
     if (!session?.user?.id) return;
     await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);

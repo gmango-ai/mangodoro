@@ -1,31 +1,27 @@
 import { useEffect, useRef } from "react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
-import { updateMyProfile } from "../lib/profiles";
 import { setWorkStatus } from "../lib/workStatus";
 
 // Mirrors this user's outward presence signals (no UI):
-//  • captures the browser timezone into their profile (once per tz), so hover
-//    cards can show their local time;
+//  • auto-detects the browser timezone into user_settings (mirrored to the
+//    profile) so hover cards show their local time — UNLESS they've set it
+//    manually (timezone_manual);
 //  • projects the private clock (AppContext clockIn) into the team-visible
 //    work_status row, so teammates see who's working / on a break.
 export default function PresenceSync() {
-  const { clockIn, session } = useApp();
+  const { clockIn, session, settings, updateSettingsField } = useApp();
   const { activeTeamId } = useTeam();
   const userId = session?.user?.id;
 
-  // Timezone → profile (write only when it changes / first seen).
+  // Auto timezone → settings (skip when the user set it manually).
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || settings?.timezoneManual) return;
     let tz = null;
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { tz = null; }
-    if (!tz) return;
-    const k = `tz_synced:${userId}`;
-    try { if (localStorage.getItem(k) === tz) return; } catch { /* */ }
-    updateMyProfile(userId, { timezone: tz }).then(({ error }) => {
-      if (!error) { try { localStorage.setItem(k, tz); } catch { /* */ } }
-    });
-  }, [userId]);
+    if (!tz || tz === settings?.timezone) return;
+    updateSettingsField({ timezone: tz });
+  }, [userId, settings?.timezoneManual, settings?.timezone, updateSettingsField]);
 
   // Clock → work_status (debounced, deduped on a signature).
   const lastRef = useRef("");

@@ -24,6 +24,7 @@ import { loadPomodoroSoundSettings, savePomodoroSoundSettings, USER_SOUND_PREFIX
 import { clearCachedNotificationSound } from "../lib/nativeNotifications";
 import { NOTIFICATION_TYPES, listPreferences, setPreferenceEnabled } from "../lib/notifications";
 import { REMINDERS, REMINDER_INTERVALS, reminderConfig } from "../lib/reminders";
+import { TIMEZONES, browserTimezone, localTimeLabel } from "../lib/timezone";
 
 // Settings as a real page. Left rail of sections, right pane renders
 // the active section. Sections persist on field commit (blur/change)
@@ -1362,24 +1363,73 @@ function NotificationsSection({ dark }) {
       </SectionCard>
 
       <SectionCard
-        title="Working hours"
-        hint="Your typical hours — shown on your profile so teammates in other timezones know when you're around (and get a heads-up before pinging you at clock-off)."
+        title="Working hours & timezone"
+        hint="Your timezone + typical hours — shown on your profile so teammates in other timezones know when you're around (and get a heads-up before pinging you at clock-off)."
         dark={dark}
       >
-        <div className="flex items-center gap-2 flex-wrap text-sm">
-          <span className={dark ? "text-slate-400" : "text-slate-500"}>From</span>
-          <TimeSelect value={settings?.workStart || ""} onChange={(v) => updateSettingsField({ workStart: v || null })} />
-          <span className={dark ? "text-slate-400" : "text-slate-500"}>to</span>
-          <TimeSelect value={settings?.workEnd || ""} onChange={(v) => updateSettingsField({ workEnd: v || null })} />
-          {(settings?.workStart || settings?.workEnd) && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>Timezone</span>
+            <select
+              value={settings?.timezoneManual ? (settings?.timezone || "") : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) updateSettingsField({ timezoneManual: false, timezone: browserTimezone() });
+                else updateSettingsField({ timezoneManual: true, timezone: v });
+              }}
+              className={`rounded-lg px-2 py-1.5 text-sm border max-w-[16rem] ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`}
+            >
+              <option value="">Auto-detect ({browserTimezone() || "?"})</option>
+              {TIMEZONES.map((z) => <option key={z} value={z}>{z}</option>)}
+            </select>
+            {settings?.timezone && (
+              <span className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>{localTimeLabel(settings.timezone)} now</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>From</span>
+            <TimeSelect value={settings?.workStart || ""} onChange={(v) => updateSettingsField({ workStart: v || null })} />
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>to</span>
+            <TimeSelect value={settings?.workEnd || ""} onChange={(v) => updateSettingsField({ workEnd: v || null })} />
+            {(settings?.workStart || settings?.workEnd) && (
+              <button type="button" onClick={() => updateSettingsField({ workStart: null, workEnd: null })} className={`text-xs px-2 py-1 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>Clear</button>
+            )}
+          </div>
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={() => updateSettingsField({ workStart: null, workEnd: null })}
-              className={`text-xs px-2 py-1 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}
+              role="switch"
+              aria-checked={settings?.offHoursWarn !== false}
+              onClick={() => updateSettingsField({ offHoursWarn: !(settings?.offHoursWarn !== false) })}
+              className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${settings?.offHoursWarn !== false ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
             >
-              Clear
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${settings?.offHoursWarn !== false ? "translate-x-4" : ""}`} />
             </button>
-          )}
+            <span className={`text-sm ${dark ? "text-slate-300" : "text-slate-700"}`}>Warn teammates who @mention me outside these hours</span>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Out of office"
+        hint="Mark yourself away for a stretch — it shows on your profile + hover card so teammates know not to expect a reply."
+        dark={dark}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>From</span>
+            <input type="date" value={settings?.oooStart || ""} onChange={(e) => updateSettingsField({ oooStart: e.target.value || null })}
+              className={`rounded-lg px-2 py-1.5 text-sm border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`} />
+            <span className={dark ? "text-slate-400" : "text-slate-500"}>to</span>
+            <input type="date" value={settings?.oooEnd || ""} onChange={(e) => updateSettingsField({ oooEnd: e.target.value || null })}
+              className={`rounded-lg px-2 py-1.5 text-sm border ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200 text-slate-700"}`} />
+            {(settings?.oooStart || settings?.oooEnd || settings?.oooNote) && (
+              <button type="button" onClick={() => updateSettingsField({ oooStart: null, oooEnd: null, oooNote: "" })} className={`text-xs px-2 py-1 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>Clear</button>
+            )}
+          </div>
+          <input type="text" maxLength={80} value={settings?.oooNote || ""} onChange={(e) => updateSettingsField({ oooNote: e.target.value })}
+            placeholder="Note (optional) — e.g. Vacation, conference"
+            className={`text-sm px-2.5 py-1.5 rounded-lg border outline-none ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500" : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"}`} />
         </div>
       </SectionCard>
 

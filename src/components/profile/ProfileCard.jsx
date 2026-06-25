@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock, Globe } from "lucide-react";
+import { Clock, Globe, Palmtree } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -8,7 +8,7 @@ import FollowButton from "../FollowButton";
 import { presenceDot, presenceLabel } from "../../lib/presence";
 import { getProfile } from "../../lib/profiles";
 import { getUserWorkSummary } from "../../lib/workStatus";
-import { availability } from "../../lib/timezone";
+import { availability, isOutOfOffice, tzAbbrev } from "../../lib/timezone";
 import { formatDuration } from "../../lib/utils";
 
 // Shared identity block — used by the click popover and the full profile page.
@@ -39,6 +39,11 @@ export default function ProfileCard({ userId, onOpenFull }) {
 
   const isMe = session?.user?.id === userId;
   const { label: localTime, badge: hoursBadge } = availability(profile?.timezone, profile?.work_start, profile?.work_end);
+  const tzab = tzAbbrev(profile?.timezone);
+  const ooo = isOutOfOffice(profile?.ooo_start, profile?.ooo_end);
+  const oooUntil = profile?.ooo_end
+    ? new Date(`${profile.ooo_end}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" })
+    : null;
 
   const member = (teamMembers || []).find((m) => m.user_id === userId);
   const name = profile?.display_name || member?.name || "Member";
@@ -67,12 +72,20 @@ export default function ProfileCard({ userId, onOpenFull }) {
       {status && <div className={`text-[13px] mt-2.5 ${dark ? "text-slate-300" : "text-slate-600"}`}>{status}</div>}
       {profile?.bio && <div className={`text-xs mt-1.5 leading-snug ${dark ? "text-slate-400" : "text-slate-500"}`}>{profile.bio}</div>}
 
+      {ooo && (
+        <div className={`flex items-center gap-1.5 mt-2.5 text-[11px] font-semibold ${dark ? "text-amber-300" : "text-amber-600"}`}>
+          <Palmtree className="w-3.5 h-3.5 shrink-0" />
+          <span>Out of office{profile?.ooo_note ? ` · ${profile.ooo_note}` : ""}{oooUntil ? ` · until ${oooUntil}` : ""}</span>
+        </div>
+      )}
+
       {!isMe && localTime && (
         <div className={`flex items-center gap-1.5 mt-2.5 text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
           <Globe className="w-3 h-3 shrink-0" />
           <span>
-            <span className={`font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{localTime}</span> their time
-            {hoursBadge && (
+            <span className={`font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{localTime}</span>
+            {tzab ? ` ${tzab}` : ""} their time
+            {!ooo && hoursBadge && (
               <span className={hoursBadge === "off hours" ? (dark ? " text-amber-300" : " text-amber-600") : (dark ? " text-slate-400" : " text-slate-500")}>
                 {" · "}{hoursBadge}
               </span>

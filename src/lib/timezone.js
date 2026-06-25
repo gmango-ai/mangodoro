@@ -2,6 +2,34 @@
 // team timezone strip). Pure formatting over a person's IANA timezone +
 // optional working hours (HH:MM[:SS] strings).
 
+// All IANA zones for a picker (fallback to a tiny list on old engines).
+export const TIMEZONES = (() => {
+  try { return Intl.supportedValuesOf("timeZone"); }
+  catch { return ["UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "Europe/London", "Europe/Berlin", "Asia/Kolkata", "Asia/Tokyo", "Australia/Sydney"]; }
+})();
+
+export function browserTimezone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; }
+}
+
+// Short zone label like "EDT" / "GMT+2" for the current moment.
+export function tzAbbrev(tz) {
+  if (!tz) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date());
+    return parts.find((p) => p.type === "timeZoneName")?.value || null;
+  } catch { return null; }
+}
+
+// Is `today` (in the viewer's local date) within an OOO [start,end] (date strings, inclusive)?
+export function isOutOfOffice(start, end) {
+  if (!start && !end) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  if (start && today < start) return false;
+  if (end && today > end) return false;
+  return true;
+}
+
 export function localTimeLabel(tz) {
   if (!tz) return null;
   try {
