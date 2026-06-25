@@ -65,13 +65,30 @@ export function parseHm(t) {
   return h * 60 + m;
 }
 
-// { label, badge } — badge is "off hours" | "wrapping up" | null. Needs both
-// a timezone and explicit working hours to judge availability.
-export function availability(tz, workStart, workEnd) {
+// Current weekday (0=Sun..6=Sat) in the given timezone, or null.
+export function localWeekday(tz) {
+  if (!tz) return null;
+  try {
+    const s = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(new Date());
+    const i = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(s);
+    return i < 0 ? null : i;
+  } catch { return null; }
+}
+
+// { label, badge } — badge is "off hours" | "wrapping up" | null. Off-hours if
+// today isn't a working day (when workDays is set) or local time is outside
+// working hours. workDays = array of 0–6, or null = no day filter.
+export function availability(tz, workStart, workEnd, workDays) {
   const label = localTimeLabel(tz);
   const lm = localMinutes(tz);
   const ws = parseHm(workStart);
   const we = parseHm(workEnd);
+
+  if (Array.isArray(workDays) && workDays.length) {
+    const wd = localWeekday(tz);
+    if (wd != null && !workDays.includes(wd)) return { label, badge: "off hours" };
+  }
+
   let badge = null;
   if (lm != null && ws != null && we != null && ws !== we) {
     const off = ws < we ? (lm < ws || lm >= we) : (lm < ws && lm >= we); // overnight-safe

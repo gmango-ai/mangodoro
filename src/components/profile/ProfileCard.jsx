@@ -38,7 +38,7 @@ export default function ProfileCard({ userId, onOpenFull }) {
   }, []);
 
   const isMe = session?.user?.id === userId;
-  const { label: localTime, badge: hoursBadge } = availability(profile?.timezone, profile?.work_start, profile?.work_end);
+  const { label: localTime, badge: hoursBadge } = availability(profile?.timezone, profile?.work_start, profile?.work_end, profile?.work_days);
   const tzab = tzAbbrev(profile?.timezone);
   const ooo = isOutOfOffice(profile?.ooo_start, profile?.ooo_end);
   const oooUntil = profile?.ooo_end

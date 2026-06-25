@@ -249,7 +249,7 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false }) {
         const until = p.ooo_end ? ` until ${new Date(`${p.ooo_end}T00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}` : "";
         out.push(`${nm} is out of office${until}`);
       } else if (p.off_hours_warn !== false) {
-        const a = availability(p.timezone, p.work_start, p.work_end);
+        const a = availability(p.timezone, p.work_start, p.work_end, p.work_days);
         if (a.badge === "off hours") out.push(`it's after hours for ${nm}${a.label ? ` (${a.label} their time)` : ""}`);
       }
     }

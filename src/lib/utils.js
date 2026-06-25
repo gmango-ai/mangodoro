@@ -47,6 +47,7 @@ export function normalizeSettings(row) {
     reminderActiveEnd: normalizeTime(row.reminder_active_end),
     workStart: normalizeTime(row.work_start),
     workEnd: normalizeTime(row.work_end),
+    workDays: Array.isArray(row.work_days) ? row.work_days : null,
     lunchBreakPaid: row.lunch_break_paid ?? false,
     timezone: row.timezone || "",
     timezoneManual: row.timezone_manual ?? false,
