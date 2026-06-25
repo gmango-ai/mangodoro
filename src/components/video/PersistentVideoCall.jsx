@@ -57,6 +57,19 @@ export default function PersistentVideoCall() {
   }
   const [jitsiRect, setJitsiRect] = useState(null);
 
+  // Collapse the call UI to compact when it's rendered in a tight area — PiP, or
+  // the shrunk "others" corner of the pre-join — so the toolbar never overflows.
+  const [small, setSmall] = useState(false);
+  useEffect(() => {
+    if (!reparentSafe) return undefined;
+    const host = hostRef.current;
+    if (!host || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => setSmall(host.clientWidth > 0 && host.clientWidth < 380));
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, [reparentSafe]);
+  const compact = inPiP || small || (!reparentSafe && !!jitsiRect && jitsiRect.width < 380);
+
   // Bind the call's lifetime to the room's sync session, and handle carry-over:
   // when you move from one room to another while in a call, the call FOLLOWS you
   // (re-joins the new room) rather than ending — the only "auto-join" path.
@@ -138,7 +151,7 @@ export default function PersistentVideoCall() {
         key={call.roomId}
         roomId={call.roomId}
         displayName={call.displayName}
-        compact={inPiP}
+        compact={compact}
         publish={call.mode !== "spectate"}
         choices={call.choices}
         onJoinIn={() => updateCall({ mode: "join" })}

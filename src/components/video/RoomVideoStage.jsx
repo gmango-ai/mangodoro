@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X } from "lucide-react";
+import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles } from "lucide-react";
 import { usePreviewTracks, usePersistentUserChoices } from "@livekit/components-react";
 import "@livekit/components-styles";
 import { useTheme } from "../../context/ThemeContext";
@@ -8,6 +8,94 @@ import { useVideoCall } from "../../context/VideoCallContext";
 import { Button } from "@/components/ui/button";
 import UserAvatar from "../UserAvatar";
 import { useRoomCallPresence } from "./useRoomCallPresence";
+import { createRefinedBackgroundProcessor } from "./refinedBackground";
+import { bgToOptions, loadBgPref, loadBgCustomPref, saveBgPref, BLUR_LEVELS, BG_PRESETS } from "./backgroundEffects";
+
+// Applies the SAME background processor the call uses to a pre-join preview
+// track, driven by the shared localStorage pref — so the blur/background you see
+// before joining is exactly what gets published. Returns [bg, setBg]; setBg
+// persists, so the call picks it up when it mounts. Heavy (MediaPipe/RVM) so it
+// only runs while a preview track exists and a background is actually selected.
+function usePreviewBackground(videoTrack) {
+  const [bg, setBgState] = useState(loadBgPref);
+  const customBg = useMemo(() => loadBgCustomPref(), []);
+  useEffect(() => {
+    if (!videoTrack) return undefined;
+    let active = true;
+    (async () => {
+      try {
+        const opts = bgToOptions(bg, customBg);
+        if (opts) {
+          const proc = createRefinedBackgroundProcessor(opts);
+          if (!active) return;
+          await videoTrack.setProcessor(proc);
+        } else {
+          await videoTrack.stopProcessor();
+        }
+      } catch { /* leave the raw camera if the effect can't load */ }
+    })();
+    return () => { active = false; };
+  }, [videoTrack, bg, customBg]);
+  const setBg = (v) => { setBgState(v); saveBgPref(v); };
+  return [bg, setBg];
+}
+
+// Compact background/blur picker for the pre-join. Writes the shared pref, so the
+// choice carries into the call. Mirrors the in-call menu's None / blur levels /
+// gradient presets.
+function BgPicker({ bg, onChange }) {
+  const [open, setOpen] = useState(false);
+  const active = bg && bg !== "none";
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="Background / blur"
+        aria-label="Background / blur"
+        className={`inline-flex items-center justify-center w-9 h-9 rounded-full shrink-0 transition-colors ${
+          active ? "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]" : "bg-white/15 text-white hover:bg-white/25"
+        }`}
+      >
+        <Sparkles className="w-4 h-4" />
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 w-48 rounded-xl bg-slate-900/95 backdrop-blur p-1.5 text-white shadow-xl ring-1 ring-white/10">
+          <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">Background</div>
+          <button
+            type="button"
+            onClick={() => { onChange("none"); setOpen(false); }}
+            className={`w-full text-left px-2 py-1.5 rounded-md text-[12px] hover:bg-white/10 ${bg === "none" || !bg ? "bg-white/10" : ""}`}
+          >
+            None
+          </button>
+          {BLUR_LEVELS.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              onClick={() => { onChange(l.id); setOpen(false); }}
+              className={`w-full text-left px-2 py-1.5 rounded-md text-[12px] hover:bg-white/10 ${bg === l.id ? "bg-white/10" : ""}`}
+            >
+              Blur · {l.label}
+            </button>
+          ))}
+          <div className="grid grid-cols-5 gap-1 px-1 pt-1.5">
+            {BG_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                title={p.label}
+                onClick={() => { onChange(`image:${p.id}`); setOpen(false); }}
+                className={`h-7 rounded-md ring-1 ${bg === `image:${p.id}` ? "ring-white" : "ring-white/20"}`}
+                style={{ backgroundImage: `linear-gradient(135deg, ${p.colors[0]}, ${p.colors[1]})` }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function DeviceSelect({ label, devices, value, onChange }) {
   return (
@@ -65,6 +153,9 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   );
   const tracks = usePreviewTracks(trackOpts, logPreviewError);
   const videoTrack = useMemo(() => tracks?.find((t) => t.kind === "video"), [tracks]);
+  // Apply your saved blur/background to the preview so you see (and can change)
+  // it before starting the call; the choice carries through via the shared pref.
+  const [bg, setBg] = usePreviewBackground(videoTrack);
 
   const videoRef = useRef(null);
   // Lock the preview to the camera's NATIVE aspect ratio so it shows the exact
@@ -223,6 +314,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
             {/* Overlaid controls — float on the preview, never push the CTA down. */}
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2">
               {toggles}
+              <BgPicker bg={bg} onChange={setBg} />
               <div className="relative">
                 <button
                   type="button"
@@ -253,34 +345,41 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   );
 }
 
-// Join dock overlaid on a live spectate preview. You watch the call, see a live
-// preview of YOUR OWN camera, set your join intent (mic / camera — persisted,
-// shared with the green room), then upgrade to publishing in place. The self
-// camera only spins up when you explicitly turn the camera toggle ON in this
-// dock — persisted join intent alone never grabs the webcam, so auto-spectate
-// stays subscribe-only until you opt in.
-function JoinDock({ displayName, onJoin, onLeave }) {
+// Pre-join experience for a room that's ALREADY in a call: your own camera shown
+// big (proper call size) with your blur/background applied; the parent shrinks the
+// live call (others) into a corner. Camera stays OFF until you explicitly turn it
+// on here (persisted join intent never grabs the webcam), then the hero shows your
+// processed self-view. Join upgrades spectate→publish in place with these AV +
+// background choices. Returns a fragment (hero + control dock) so the parent can
+// keep the live-call corner as a stable sibling.
+function SpectatePreJoin({ displayName, onJoin, onLeave }) {
   const { userChoices, saveAudioInputEnabled, saveVideoInputEnabled } =
     usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: false, audioEnabled: true } });
   const camOn = userChoices.videoEnabled;
   const micOn = userChoices.audioEnabled;
-  const [camPreview, setCamPreview] = useState(false);
+  const [camPreview, setCamPreview] = useState(camOn);
 
-  // Self-preview track — only after an explicit camera-on in this dock (video:false
-  // releases it). Same pattern as the green room; logPreviewError is module-stable
-  // so the track isn't rebuilt every render (the black↔feed flash).
   const trackOpts = useMemo(
     () => ({ audio: false, video: camPreview ? { deviceId: userChoices.videoDeviceId || undefined } : false }),
     [camPreview, userChoices.videoDeviceId],
   );
   const tracks = usePreviewTracks(trackOpts, logPreviewError);
   const videoTrack = useMemo(() => tracks?.find((t) => t.kind === "video"), [tracks]);
+  const [bg, setBg] = usePreviewBackground(videoTrack);
+
   const videoRef = useRef(null);
+  const [aspect, setAspect] = useState(16 / 9);
   useEffect(() => {
     const el = videoRef.current;
     if (!videoTrack || !el) return undefined;
     videoTrack.attach(el);
-    return () => { try { videoTrack.detach(el); } catch { /* */ } };
+    const onMeta = () => { if (el.videoWidth && el.videoHeight) setAspect(el.videoWidth / el.videoHeight); };
+    el.addEventListener("loadedmetadata", onMeta);
+    onMeta();
+    return () => {
+      el.removeEventListener("loadedmetadata", onMeta);
+      try { videoTrack.detach(el); } catch { /* */ }
+    };
   }, [videoTrack]);
 
   const join = () => onJoin({
@@ -297,20 +396,23 @@ function JoinDock({ displayName, onJoin, onLeave }) {
       onClick={onClick}
       title={title}
       aria-label={title}
-      className={`inline-flex items-center justify-center w-9 h-9 rounded-full shrink-0 transition-colors ${
+      className={`inline-flex items-center justify-center w-10 h-10 rounded-full shrink-0 transition-colors ${
         active ? "bg-white/15 text-white hover:bg-white/25" : "bg-rose-500/90 text-white hover:bg-rose-500"
       }`}
     >
-      {active ? <OnIcon className="w-4 h-4" /> : <OffIcon className="w-4 h-4" />}
+      {active ? <OnIcon className="w-5 h-5" /> : <OffIcon className="w-5 h-5" />}
     </button>
   );
 
   return (
-    <div className="absolute inset-x-0 bottom-4 z-30 flex justify-center pointer-events-none">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-2xl bg-slate-900/85 backdrop-blur px-2 py-2 shadow-xl ring-1 ring-white/10">
-        {/* Your own camera preview — how you'll look when you join. */}
-        <div className="w-24 aspect-video rounded-lg overflow-hidden bg-black/60 flex items-center justify-center shrink-0">
-          {camPreview && videoTrack ? (
+    <>
+      {/* Hero self-preview (z-0, behind the corner call). */}
+      <div className="absolute inset-0 z-0 flex items-center justify-center p-3">
+        {camPreview && videoTrack ? (
+          <div
+            className="relative max-w-full max-h-full rounded-xl overflow-hidden shadow-2xl"
+            style={{ aspectRatio: String(aspect) }}
+          >
             <video
               ref={videoRef}
               autoPlay
@@ -319,34 +421,44 @@ function JoinDock({ displayName, onJoin, onLeave }) {
               className="w-full h-full object-cover"
               style={{ transform: "scaleX(-1)" }}
             />
-          ) : (
-            <UserAvatar url="" name={displayName} size={26} />
-          )}
-        </div>
-        {T(micOn, Mic, MicOff, micOn ? "Join with mic on" : "Join muted", () => saveAudioInputEnabled(!micOn))}
-        {T(camOn, Video, VideoOff, camOn ? "Turn camera off for join" : "Turn camera on for join", () => {
-          const next = !camOn;
-          saveVideoInputEnabled(next);
-          setCamPreview(next);
-        })}
-        <button
-          type="button"
-          onClick={join}
-          className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-[13px] font-semibold"
-        >
-          <LogIn className="w-4 h-4" /> Join call
-        </button>
-        <button
-          type="button"
-          onClick={onLeave}
-          title="Stop watching"
-          aria-label="Stop watching"
-          className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10"
-        >
-          <X className="w-4 h-4" />
-        </button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-center">
+            <UserAvatar url="" name={displayName} size={72} />
+            <span className="text-white/70 text-sm font-medium">Camera off — turn it on to preview</span>
+          </div>
+        )}
       </div>
-    </div>
+
+      {/* Control dock. */}
+      <div className="absolute inset-x-0 bottom-4 z-40 flex justify-center pointer-events-none">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-slate-900/85 backdrop-blur px-2.5 py-2 shadow-xl ring-1 ring-white/10">
+          {T(micOn, Mic, MicOff, micOn ? "Join with mic on" : "Join muted", () => saveAudioInputEnabled(!micOn))}
+          {T(camPreview, Video, VideoOff, camPreview ? "Turn camera off" : "Turn camera on to preview", () => {
+            const next = !camPreview;
+            setCamPreview(next);
+            saveVideoInputEnabled(next);
+          })}
+          <BgPicker bg={bg} onChange={setBg} />
+          <button
+            type="button"
+            onClick={join}
+            className="inline-flex items-center gap-1.5 h-10 px-5 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-[13px] font-semibold"
+          >
+            <LogIn className="w-4 h-4" /> Join call
+          </button>
+          <button
+            type="button"
+            onClick={onLeave}
+            title="Stop watching"
+            aria-label="Stop watching"
+            className="inline-flex items-center justify-center w-10 h-10 rounded-full text-white/70 hover:text-white hover:bg-white/10"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -420,21 +532,24 @@ export default function RoomVideoStage({ roomId, displayName }) {
   }, [othersInCall, inCall, inAnotherCall, setupOpen, dismissed, roomId, displayName, startCall]);
 
   // ── In the call ──────────────────────────────────────────────
-  // The persistent call (LiveKitCall) is portaled INTO stageRef and fills it.
-  // The JoinDock is a SIBLING overlay (z-30), not a child of stageRef — so we
-  // never mix React-managed children with the manually-appended call host in the
-  // same parent. For spectators it floats over the live preview: watch, set your
-  // AV, join in place.
+  // The persistent call (LiveKitCall) portals INTO stageRef. stageRef stays the
+  // SAME element across spectate↔join (only its className changes), so the call
+  // never re-glues / flashes PiP on join. When SPECTATING it's shrunk to a corner
+  // (z-30) and SpectatePreJoin renders your big self-preview behind it (z-0) + the
+  // control dock (z-40); when JOINED it fills the tile. The pre-join pieces are
+  // SIBLINGS of stageRef, never children, so React nodes and the manual call host
+  // don't share a parent.
   if (inCall) {
     return (
-      <div className="relative w-full h-full">
+      <div className="relative w-full h-full rounded-xl overflow-hidden" style={{ background: "#0f172a" }}>
         <div
           ref={stageRef}
-          className="absolute inset-0 rounded-xl overflow-hidden"
-          style={{ background: "#0f172a" }}
+          className={spectating
+            ? "absolute top-3 right-3 w-40 sm:w-52 lg:w-60 aspect-video rounded-lg overflow-hidden ring-1 ring-white/25 shadow-2xl z-30 bg-slate-900"
+            : "absolute inset-0"}
         />
         {spectating && (
-          <JoinDock
+          <SpectatePreJoin
             displayName={displayName}
             onJoin={(choices) => updateCall({ mode: "join", choices })}
             onLeave={() => { setDismissed(true); endCall(); }}
