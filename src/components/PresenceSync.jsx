@@ -3,6 +3,7 @@ import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { setWorkStatus } from "../lib/workStatus";
 import { emitSelfNotification } from "../lib/notifications";
+import { joinTeamPresence, setMyPresenceState, leaveTeamPresence } from "../hooks/useTeamPresence";
 
 // Mirrors this user's outward presence signals (no UI):
 //  • auto-detects the browser timezone into user_settings (mirrored to the
@@ -42,6 +43,17 @@ export default function PresenceSync() {
       dedupeWindowMinutes: 10080, // ~1 week
     });
   }, [userId, settings?.timezone, settings?.workStart, settings?.workEnd]);
+
+  // Team-wide Realtime Presence — track this user as "online" so teammates see
+  // them as around even when NOT clocked in (the hallway reads this). Re-joins on
+  // user/team change; auto-clears when this client disconnects.
+  useEffect(() => {
+    if (!userId || !activeTeamId) return undefined;
+    joinTeamPresence({ teamId: activeTeamId, user: { id: userId, name: settings?.name || "", avatar_url: settings?.avatarUrl || "" } });
+    return () => leaveTeamPresence();
+  }, [userId, activeTeamId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Keep the tracked presence_state fresh (IdlePresence / manual changes).
+  useEffect(() => { setMyPresenceState(settings?.presenceState || "active"); }, [settings?.presenceState]);
 
   // Clock → work_status (debounced, deduped on a signature).
   const lastRef = useRef("");
