@@ -5,6 +5,10 @@ semantic versions. Newest first.
 
 ## 2026-06-26
 
+- Fix cluster merge leaving followers on abandoned id
+- Rework late cluster-join + kiosk sleep loading gate
+- Fix tap-to-wake blocked while sleep schedule is loading
+- Fix schedule loading gate and late cluster join migration
 - Kiosk offline: scheduled active hours + manual sleep/wake
 - Video: 'I'm in this room' pre-join — join muted before entry (no squeal)
 - Revert COOP/COEP headers in prod — they broke joining the call
