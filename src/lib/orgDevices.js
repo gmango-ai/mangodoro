@@ -15,11 +15,39 @@ async function invoke(fn, body) {
 export async function listOrgDevices(orgId) {
   const { data, error } = await supabase
     .from("org_devices")
-    .select("id, name, room_id, movable, last_seen_at, created_at")
+    .select("id, name, room_id, movable, last_seen_at, created_at, active_start, active_end, active_days, asleep_until, awake_until")
     .eq("org_id", orgId)
     .is("revoked_at", null)
     .order("created_at", { ascending: true });
   return { data: data || [], error };
+}
+
+// Device: read its own sleep schedule + manual override.
+export async function currentDeviceSleep() {
+  const { data, error } = await supabase.rpc("current_device_sleep");
+  return { data: data || null, error };
+}
+
+// Device: set its own manual sleep/wake override (absolute timestamps the kiosk
+// computes from the schedule). Pass nulls to clear.
+export async function deviceSetSleep(asleepUntil, awakeUntil) {
+  const { error } = await supabase.rpc("device_set_sleep", {
+    p_asleep_until: asleepUntil ? new Date(asleepUntil).toISOString() : null,
+    p_awake_until: awakeUntil ? new Date(awakeUntil).toISOString() : null,
+  });
+  return { error };
+}
+
+// Admin: set a device's active hours/days. Times are "HH:MM" (device-local);
+// days is an array of weekday numbers (0=Sun..6=Sat) or null for every day.
+export async function adminSetDeviceSchedule(deviceId, start, end, days) {
+  const { error } = await supabase.rpc("admin_set_device_schedule", {
+    p_device_id: deviceId,
+    p_start: start || null,
+    p_end: end || null,
+    p_days: days && days.length ? days : null,
+  });
+  return { error };
 }
 
 // Device: the LIVE pinned room (authoritative — survives a room switch, unlike

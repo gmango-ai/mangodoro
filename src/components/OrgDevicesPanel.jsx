@@ -1,9 +1,64 @@
 import { useEffect, useState } from "react";
-import { Tablet, Plus, Trash2, RefreshCw, Copy, Check, DoorOpen } from "lucide-react";
+import { Tablet, Plus, Trash2, RefreshCw, Copy, Check, DoorOpen, Clock } from "lucide-react";
 import { supabase } from "../supabase";
 import { useTheme } from "../context/ThemeContext";
-import { listOrgDevices, provisionDevice, reissueDeviceCode, revokeDevice, adminSetDeviceRoom, adminSetDeviceMovable } from "../lib/orgDevices";
+import { listOrgDevices, provisionDevice, reissueDeviceCode, revokeDevice, adminSetDeviceRoom, adminSetDeviceMovable, adminSetDeviceSchedule } from "../lib/orgDevices";
 import ConfirmRow from "./ConfirmRow";
+
+const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+function scheduleLabel(d) {
+  const hasTime = d.active_start && d.active_end;
+  const hasDays = Array.isArray(d.active_days) && d.active_days.length;
+  if (!hasTime && !hasDays) return "Always on";
+  const t = hasTime ? `${d.active_start.slice(0, 5)}–${d.active_end.slice(0, 5)}` : "All day";
+  return hasDays ? `${t} · ${d.active_days.length}d` : t;
+}
+
+// Per-device active hours/days editor. Empty start/end + no days = always on.
+function ScheduleEditor({ device, dark, onSave, onCancel }) {
+  const [start, setStart] = useState(device.active_start ? device.active_start.slice(0, 5) : "");
+  const [end, setEnd] = useState(device.active_end ? device.active_end.slice(0, 5) : "");
+  const [days, setDays] = useState(() => (Array.isArray(device.active_days) ? [...device.active_days] : []));
+  const toggleDay = (d) => setDays((ds) => (ds.includes(d) ? ds.filter((x) => x !== d) : [...ds, d].sort((a, b) => a - b)));
+  const inputCls = `h-8 px-2 rounded-md border text-sm ${dark ? "bg-white/5 border-[var(--color-border)] text-slate-200" : "bg-white border-slate-200"}`;
+  return (
+    <div className={`mt-2 rounded-lg border p-2.5 space-y-2 ${dark ? "border-[var(--color-border)] bg-black/20" : "border-slate-200 bg-white"}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] text-[var(--color-muted)]">Active</span>
+        <input type="time" value={start} onChange={(e) => setStart(e.target.value)} className={inputCls} />
+        <span className="text-[11px] text-[var(--color-muted)]">to</span>
+        <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} className={inputCls} />
+        <span className="text-[10px] text-[var(--color-muted)]">device's local time</span>
+      </div>
+      <div className="flex items-center gap-1">
+        {DOW.map((lbl, i) => (
+          <button
+            key={lbl}
+            type="button"
+            onClick={() => toggleDay(i)}
+            title={days.length === 0 ? "every day (click to restrict)" : ""}
+            className={`w-7 h-7 rounded-full text-[11px] font-semibold transition-colors ${
+              days.length === 0 || days.includes(i)
+                ? "bg-[var(--color-accent)] text-white"
+                : dark ? "bg-white/10 text-slate-400" : "bg-slate-100 text-slate-500"
+            }`}
+          >
+            {lbl}
+          </button>
+        ))}
+        {days.length === 0 && <span className="ml-1 text-[10px] text-[var(--color-muted)]">every day</span>}
+      </div>
+      <div className="flex items-center justify-between">
+        <button type="button" onClick={() => onSave("", "", [])} className="text-[11px] font-semibold text-[var(--color-muted)] hover:text-[var(--color-text)]">Always on (24/7)</button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={onCancel} className="text-[11px] font-semibold text-[var(--color-muted)] px-2 py-1">Cancel</button>
+          <button type="button" onClick={() => onSave(start, end, days)} className="text-[11px] font-semibold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-md px-2.5 py-1">Save hours</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function relTime(iso) {
   if (!iso) return "never";
@@ -59,6 +114,7 @@ export default function OrgDevicesPanel({ orgId }) {
   const [err, setErr] = useState("");
   const [pairing, setPairing] = useState(null); // { code, expires_at, name }
   const [confirmRemove, setConfirmRemove] = useState(null);
+  const [editHours, setEditHours] = useState(null); // device id whose schedule is open
 
   const reload = async () => {
     const { data } = await listOrgDevices(orgId);
@@ -121,6 +177,13 @@ export default function OrgDevicesPanel({ orgId }) {
     setErr("");
     const { error } = await adminSetDeviceMovable(d.id, !d.movable);
     if (error) { setErr(error.message || "Could not update device"); return; }
+    reload();
+  };
+  const saveSchedule = async (deviceId, start, end, days) => {
+    setErr("");
+    const { error } = await adminSetDeviceSchedule(deviceId, start, end, days);
+    if (error) { setErr(error.message || "Could not set hours"); return; }
+    setEditHours(null);
     reload();
   };
 
@@ -217,6 +280,19 @@ export default function OrgDevicesPanel({ orgId }) {
                       >
                         <DoorOpen className="w-3 h-3" /> {d.movable ? "Movable" : "Fixed"}
                       </button>
+                      {/* Active hours — outside them the kiosk sleeps (call + polling off). */}
+                      <button
+                        type="button"
+                        onClick={() => setEditHours((id) => (id === d.id ? null : d.id))}
+                        title="Set the hours this display is on (it sleeps outside them)"
+                        className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full transition-colors ${
+                          scheduleLabel(d) === "Always on"
+                            ? dark ? "bg-white/10 text-slate-400 hover:text-slate-200" : "bg-slate-100 text-slate-500 hover:text-slate-700"
+                            : "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
+                        }`}
+                      >
+                        <Clock className="w-3 h-3" /> {scheduleLabel(d)}
+                      </button>
                       <span className="text-[11px] text-[var(--color-muted)]">seen {relTime(d.last_seen_at)}</span>
                     </div>
                   </div>
@@ -227,6 +303,14 @@ export default function OrgDevicesPanel({ orgId }) {
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+              )}
+              {editHours === d.id && confirmRemove !== d.id && (
+                <ScheduleEditor
+                  device={d}
+                  dark={dark}
+                  onSave={(start, end, days) => saveSchedule(d.id, start, end, days)}
+                  onCancel={() => setEditHours(null)}
+                />
               )}
             </li>
           ))}
