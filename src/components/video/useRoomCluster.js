@@ -181,6 +181,7 @@ export function useRoomCluster({ manage = false } = {}) {
   // it's null once cluster is set, so a late discovery after founding is invisible.
   const mergeTarget = useMemo(() => {
     if (!cluster || cluster !== myId) return null;
+    if (members.length !== 1) return null;
     const others = participants.filter((p) => !p.isLocal && p.attributes?.[ATTR_CLUSTER]);
     if (!others.length) return null;
     const deviceHost = others.find((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
@@ -192,7 +193,7 @@ export function useRoomCluster({ manage = false } = {}) {
       .map((p) => p.attributes?.[ATTR_CLUSTER])
       .filter((id) => id && id !== cluster && id < cluster);
     return ids.length ? ids.sort()[0] : null;
-  }, [participants, cluster, myId]);
+  }, [participants, cluster, myId, members]);
 
   const setAttrs = useCallback(
     (delta) => (localParticipant ? localParticipant.setAttributes(delta).catch(() => {}) : Promise.resolve()),
