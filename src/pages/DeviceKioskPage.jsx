@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, DoorOpen } from "lucide-react";
+import { ChevronDown, DoorOpen, Power, Moon } from "lucide-react";
 import { supabase } from "../supabase";
 import { applyAccent } from "../lib/accent";
-import { currentDeviceRoom, setDeviceRoom } from "../lib/orgDevices";
+import { currentDeviceRoom, setDeviceRoom, currentDeviceSleep, deviceSetSleep } from "../lib/orgDevices";
+import { isAsleep, nextWakeAt, nextSleepAt, clockLabel } from "../lib/deviceSchedule";
 import LogoMark from "../components/LogoMark";
 import RoomLayout from "../components/office/roomLayout/RoomLayout";
 import LayoutBar from "../components/office/roomLayout/LayoutBar";
@@ -81,6 +82,33 @@ function RoomSwitcher({ currentRoomId, currentName, rooms, onSwitch }) {
   );
 }
 
+// Sleep screen — shown when the kiosk is off the clock (outside its scheduled
+// hours, or manually put offline). The call + polling are torn down (the main
+// content unmounts), so it's just a dim wall clock. Tap anywhere to wake.
+function SleepScreen({ roomName, backAt, onWake }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <button
+      type="button"
+      onClick={onWake}
+      className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-3 bg-black text-white select-none"
+    >
+      <div className="text-7xl font-bold tabular-nums text-white/25" style={{ fontFamily: "'Parkinsans', sans-serif" }}>
+        {now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+      </div>
+      <div className="flex items-center gap-2 text-white/40">
+        <Moon className="w-4 h-4" />
+        <span className="text-sm">{roomName} · offline{backAt ? ` until ${backAt}` : ""}</span>
+      </div>
+      <div className="mt-4 text-[11px] uppercase tracking-[0.2em] text-white/25">Tap to wake</div>
+    </button>
+  );
+}
+
 // Paired-device kiosk. Now a configurable room display: the same modular BSP
 // layout members use (RoomLayout + useRoomLayout) but with the DEVICE panel set
 // (portal video, read-only chat, embedded whiteboard, timer, presence) and
@@ -100,6 +128,45 @@ export default function DeviceKioskPage({ session }) {
   const [participants, setParticipants] = useState([]);
   const [rooms, setRooms] = useState([]); // org rooms readable here (>1 ⇒ movable)
   const [arranging, setArranging] = useState(false);
+
+  // Sleep schedule + manual override. `asleep` is re-derived on a tick so the
+  // kiosk auto-sleeps/wakes at the schedule boundaries without a reload. Until
+  // the first fetch lands we don't know the schedule, so treat that as asleep —
+  // better to hold the call/polling off for a beat than to mount the full portal
+  // for a device that should already be off the clock.
+  const [sched, setSched] = useState(null);
+  const [schedLoaded, setSchedLoaded] = useState(false);
+  const [, setSleepTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const { data } = await currentDeviceSleep();
+      if (!alive) return;
+      setSched(data);
+      setSchedLoaded(true);
+    };
+    load();
+    const poll = setInterval(load, 60000); // pick up admin schedule edits; keeps ticking while asleep
+    return () => { alive = false; clearInterval(poll); };
+  }, []);
+  useEffect(() => {
+    const id = setInterval(() => setSleepTick((n) => (n + 1) % 1e9), 30000);
+    return () => clearInterval(id);
+  }, []);
+  // Hold the portal off until the schedule is known: a device that should be
+  // asleep would otherwise mount the call + subscriptions for the fetch window.
+  const asleep = !schedLoaded || isAsleep(sched);
+
+  const goOffline = async () => {
+    const until = nextWakeAt(sched);
+    setSched((s) => ({ ...(s || {}), asleep_until: until.toISOString(), awake_until: null }));
+    await deviceSetSleep(until, null);
+  };
+  const wake = async () => {
+    const until = nextSleepAt(sched);
+    setSched((s) => ({ ...(s || {}), awake_until: until.toISOString(), asleep_until: null }));
+    await deviceSetSleep(null, until);
+  };
 
   // Confirm the live room + load switch targets, and re-poll so an admin's
   // remote reassign is picked up. RLS does the gating: a fixed device only ever
@@ -138,6 +205,10 @@ export default function DeviceKioskPage({ session }) {
     supabase.from("rooms").select("id, name").eq("id", roomId).maybeSingle()
       .then(({ data }) => { if (alive) setRoom(data); });
 
+    // Asleep → don't subscribe or poll the session (and the call is unmounted
+    // below). We still loaded the room name above so the sleep screen can show it.
+    if (asleep) return () => { alive = false; };
+
     const loadSession = async () => {
       const { data } = await supabase
         .from("sync_sessions")
@@ -170,7 +241,7 @@ export default function DeviceKioskPage({ session }) {
       .subscribe();
     const poll = setInterval(loadSession, 30000); // self-heal if a realtime event is missed
     return () => { alive = false; supabase.removeChannel(ch); clearInterval(poll); };
-  }, [roomId]);
+  }, [roomId, asleep]);
 
   // Device-local modular layout (own preset set + storage key prefix).
   const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel, togglePanel } =
@@ -208,6 +279,20 @@ export default function DeviceKioskPage({ session }) {
     );
   }
 
+  if (asleep) {
+    if (!schedLoaded) {
+      // Schedule still loading — don't mount the portal OR the interactive sleep
+      // screen (no "Tap to wake" until we actually know the device's hours).
+      return (
+        <main className="min-h-[100dvh] flex items-center justify-center bg-black text-white/40 select-none">
+          <div className="text-sm">{deviceName}</div>
+        </main>
+      );
+    }
+    const back = sched?.asleep_until ? new Date(sched.asleep_until) : nextWakeAt(sched);
+    return <SleepScreen roomName={room?.name || deviceName} backAt={clockLabel(back)} onWake={wake} />;
+  }
+
   return (
     <main className="relative h-[100dvh] flex flex-col bg-[var(--color-bg)] text-slate-100 overflow-hidden select-none">
       <header className="shrink-0 flex items-center justify-between gap-3 px-5 py-2.5 border-b border-[var(--color-border)]">
@@ -236,6 +321,14 @@ export default function DeviceKioskPage({ session }) {
             presets={DEVICE_PRESETS}
           />
           <WallClock />
+          <button
+            type="button"
+            onClick={goOffline}
+            title="Put this display offline (ends the call until it wakes on schedule or you tap it)"
+            className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-semibold text-white/80 transition-colors"
+          >
+            <Power className="w-3.5 h-3.5" /> Go offline
+          </button>
           <button type="button" onClick={unpair} className="text-[11px] text-white/45 hover:text-white/80 transition-colors">
             Unpair
           </button>

@@ -3,6 +3,13 @@
 Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first.
 
+## 2026-06-26
+
+- Kiosk offline: scheduled active hours + manual sleep/wake
+- Video: 'I'm in this room' pre-join — join muted before entry (no squeal)
+- Revert COOP/COEP headers in prod — they broke joining the call
+- Video green room: pin Join button so it can't be clipped
+
 ## 2026-06-25
 
 - Fix pinned room loading race and stale fetch in OrgDevicesPanel
