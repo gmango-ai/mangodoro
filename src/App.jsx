@@ -19,6 +19,7 @@ import HealthReminders from "./components/HealthReminders";
 import PresenceSync from "./components/PresenceSync";
 import IdlePresence from "./components/IdlePresence";
 import ReflectionPrompt from "./components/ReflectionPrompt";
+import ClockOutModal from "./components/ClockOutModal";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import WhatsNew from "./components/WhatsNew";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
@@ -179,6 +180,8 @@ function AppLayout({ session }) {
       <IdlePresence />
       {/* "What did you work on?" capture around pomodoro phases. */}
       <ReflectionPrompt />
+      {/* Save/edit-your-time modal on clock-out (skips the trip to /log). */}
+      <ClockOutModal />
       {/* Transient in-app notification toasts. */}
       <NotificationToaster />
       {/* "What's new" toast + changelog modal (reads CHANGELOG.md). */}
