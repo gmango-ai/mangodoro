@@ -5,6 +5,7 @@ import {
   calcWorked, roundTimeStr, currentTimeStr, todayStr, weekStart,
   makeEmptyForm, formatDuration, formatDecimal, formatMoney, formatMonthLabel,
   weekRangeLabel, toDisplayTime, downloadFile, unpaidBreakMins,
+  formatClockNotes,
 } from "../lib/utils";
 import {
   startTaskSegment, stopTaskSegment, updateOpenTaskSegment,
@@ -432,6 +433,20 @@ export function AppProvider({ session, children }) {
     });
   }
 
+  // Append a per-pomodoro reflection to the running day-log + keep `description`
+  // pointed at the latest (so presence/work_status shows the current focus). The
+  // accumulated `notes` become the entry's description at clock-out.
+  function addClockNote(note) {
+    if (!note?.text?.trim()) return;
+    setClockIn((prev) => {
+      if (!prev) return prev;
+      const entry = { at: new Date().toISOString(), text: note.text.trim(), status: note.status || null };
+      const updated = { ...prev, notes: [...(prev.notes || []), entry], description: entry.text };
+      localStorage.setItem("ql_clock_in", JSON.stringify(updated));
+      return updated;
+    });
+  }
+
   // `meta` lets a caller mark the break paid/unpaid + tag its kind (e.g. the
   // quick "On lunch" button passes { unpaid: !lunchBreakPaid, kind: "lunch" }).
   function startClockBreak(meta) {
@@ -474,7 +489,11 @@ export function AppProvider({ session, children }) {
       start: clockIn.start,
       end,
       minutes,
-      description: clockIn.description || "",
+      // The day's accumulated pomodoro notes become the entry description (one
+      // bullet per focus block); fall back to the single description if none.
+      description: (clockIn.notes && clockIn.notes.length)
+        ? formatClockNotes(clockIn.notes)
+        : (clockIn.description || ""),
       breaks,
       projectIds: clockIn.projectIds || [],
       billable: clockIn.billable !== false,
@@ -1529,7 +1548,7 @@ export function AppProvider({ session, children }) {
     importEntriesRef, importProfileRef, logHoursRef, dateInputRef,
     // clock
     clockIn, clockedTick, handleClockIn, handleClockOut, clockedElapsed, breakElapsed,
-    updateClockIn, startClockBreak, endClockBreak,
+    updateClockIn, addClockNote, startClockBreak, endClockBreak,
     // tasks within a clock-in session
     currentTask, switchTask, renameCurrentTask,
     clockOutAndFill: () => { const p = handleClockOut(); if (p) setPendingEntry(p); },
