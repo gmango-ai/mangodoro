@@ -142,10 +142,16 @@ export function AppProvider({ session, children }) {
         return;
       }
 
-      // Sync clock-in state from DB (handles cross-device tracking).
-      // Only override local state if DB has an active session; if DB is null
-      // it might just mean this device hasn't synced yet — visibilitychange
-      // handles the "stopped on another device" case after initial load.
+      // Sync clock-in state from DB (handles cross-device tracking). The DB is
+      // authoritative for an ACTIVE clock and for an EXPLICIT stop:
+      //   • active clock  → adopt it (refresh / other device clocked in).
+      //   • { stopped:true } → CLEAR any stale local clock. This is the fix for
+      //     "clock out on one device, the others auto-restart": a device that was
+      //     closed during the clock-out reopens with a stale localStorage clock;
+      //     without this it kept that clock and its write-back effect re-wrote it
+      //     to the DB, undoing the clock-out everywhere.
+      //   • null → ambiguous (this device may just not have synced yet); keep
+      //     local so an offline clock-in isn't lost — visibilitychange reconciles.
       const dbClock = settingsRes.data?.active_clock ?? null;
       if (dbClock && !dbClock.stopped) {
         clockInFromDBRef.current = true;
@@ -156,6 +162,10 @@ export function AppProvider({ session, children }) {
         fetchCurrentTaskSegment().then(({ data: seg }) => {
           if (seg) setCurrentTask({ id: seg.id, description: seg.description, started_at: seg.started_at });
         });
+      } else if (dbClock?.stopped === true) {
+        clockInFromDBRef.current = true;
+        setClockIn(null);
+        try { localStorage.removeItem("ql_clock_in"); } catch { /* */ }
       }
       const loadedTemplates = (templatesRes.data ?? []).map(normalizeTemplate);
       const loadedSettings = settingsRes.data ? normalizeSettings(settingsRes.data) : {};
