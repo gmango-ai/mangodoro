@@ -171,6 +171,29 @@ export function useRoomCluster({ manage = false } = {}) {
     return { id, leaderId: micId || id, leaderName, isDevice: !!deviceHost };
   }, [participants, cluster]);
 
+  // If we FOUNDED a cluster via the entry fallback (cluster === myId) but a real
+  // room cluster shows up belatedly — the device beacon landed late, or another
+  // co-located joiner started their own within our 900ms blind window — there's a
+  // canonical cluster to merge into: the device's, else the lowest-id founder
+  // below us (so exactly one founder survives and the rest join it; the id<cluster
+  // guard keeps two racers from cross-joining each other). Null when we're not a
+  // self-founder, or no better target exists. existingCluster can't serve here:
+  // it's null once cluster is set, so a late discovery after founding is invisible.
+  const mergeTarget = useMemo(() => {
+    if (!cluster || cluster !== myId) return null;
+    const others = participants.filter((p) => !p.isLocal && p.attributes?.[ATTR_CLUSTER]);
+    if (!others.length) return null;
+    const deviceHost = others.find((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
+    if (deviceHost) {
+      const id = deviceHost.attributes[ATTR_CLUSTER];
+      return id && id !== cluster ? id : null;
+    }
+    const ids = others
+      .map((p) => p.attributes?.[ATTR_CLUSTER])
+      .filter((id) => id && id !== cluster && id < cluster);
+    return ids.length ? ids.sort()[0] : null;
+  }, [participants, cluster, myId]);
+
   const setAttrs = useCallback(
     (delta) => (localParticipant ? localParticipant.setAttributes(delta).catch(() => {}) : Promise.resolve()),
     [localParticipant],
@@ -262,6 +285,7 @@ export function useRoomCluster({ manage = false } = {}) {
     isFollower,
     members,
     existingCluster,
+    mergeTarget,
     startRoom,
     joinRoom,
     takeSpeaker,

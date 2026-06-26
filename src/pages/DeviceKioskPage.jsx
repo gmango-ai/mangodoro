@@ -130,7 +130,10 @@ export default function DeviceKioskPage({ session }) {
   const [arranging, setArranging] = useState(false);
 
   // Sleep schedule + manual override. `asleep` is re-derived on a tick so the
-  // kiosk auto-sleeps/wakes at the schedule boundaries without a reload.
+  // kiosk auto-sleeps/wakes at the schedule boundaries without a reload. Until
+  // the first fetch lands we don't know the schedule, so treat that as asleep —
+  // better to hold the call/polling off for a beat than to mount the full portal
+  // for a device that should already be off the clock.
   const [sched, setSched] = useState(null);
   const [schedLoaded, setSchedLoaded] = useState(false);
   const [, setSleepTick] = useState(0);
@@ -138,7 +141,9 @@ export default function DeviceKioskPage({ session }) {
     let alive = true;
     const load = async () => {
       const { data } = await currentDeviceSleep();
-      if (alive) { setSched(data); setSchedLoaded(true); }
+      if (!alive) return;
+      setSched(data);
+      setSchedLoaded(true);
     };
     load();
     const poll = setInterval(load, 60000); // pick up admin schedule edits; keeps ticking while asleep
@@ -148,7 +153,9 @@ export default function DeviceKioskPage({ session }) {
     const id = setInterval(() => setSleepTick((n) => (n + 1) % 1e9), 30000);
     return () => clearInterval(id);
   }, []);
-  const asleep = (!schedLoaded && !sched) || isAsleep(sched);
+  // Hold the portal off until the schedule is known: a device that should be
+  // asleep would otherwise mount the call + subscriptions for the fetch window.
+  const asleep = !schedLoaded || isAsleep(sched);
 
   const goOffline = async () => {
     const until = nextWakeAt(sched);
@@ -273,6 +280,15 @@ export default function DeviceKioskPage({ session }) {
   }
 
   if (asleep) {
+    if (!schedLoaded) {
+      // Schedule still loading — don't mount the portal OR the interactive sleep
+      // screen (no "Tap to wake" until we actually know the device's hours).
+      return (
+        <main className="min-h-[100dvh] flex items-center justify-center bg-black text-white/40 select-none">
+          <div className="text-sm">{deviceName}</div>
+        </main>
+      );
+    }
     const back = sched?.asleep_until ? new Date(sched.asleep_until) : nextWakeAt(sched);
     return <SleepScreen roomName={room?.name || deviceName} backAt={clockLabel(back)} onWake={wake} />;
   }

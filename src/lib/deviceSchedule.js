@@ -32,15 +32,23 @@ export function isAsleep(sched, now = new Date()) {
   return !inActiveWindow(sched, now);
 }
 
-// Next minute the schedule flips to `targetActive`. Steps minute-by-minute up to
-// 8 days; returns null if it never does (e.g. no schedule → never sleeps; no
-// active days → never wakes), so callers can fall back to "indefinite".
+// Next minute the schedule FLIPS to `targetActive` — i.e. the first minute whose
+// state differs from the previous minute's and equals `targetActive`. Returning
+// the first minute that merely matches (as a naive scan would) is wrong: while
+// already in the target state it yields ~now+1min, so manual sleep/wake
+// overrides would expire instantly instead of at the next real boundary.
+// Steps minute-by-minute up to 8 days; returns null if it never flips (no
+// schedule → never sleeps; no active days → never wakes), so callers fall back
+// to "indefinite".
 function nextBoundary(sched, targetActive, now = new Date()) {
   const d = new Date(now);
   d.setSeconds(0, 0);
+  let prev = inActiveWindow(sched, d);
   for (let i = 0; i < 8 * 24 * 60; i++) {
     d.setMinutes(d.getMinutes() + 1);
-    if (inActiveWindow(sched, d) === targetActive) return new Date(d);
+    const cur = inActiveWindow(sched, d);
+    if (cur !== prev && cur === targetActive) return new Date(d);
+    prev = cur;
   }
   return null;
 }
