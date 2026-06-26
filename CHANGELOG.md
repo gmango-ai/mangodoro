@@ -5,6 +5,13 @@ semantic versions. Newest first.
 
 ## 2026-06-25
 
+- Fix pinned room loading race and stale fetch in OrgDevicesPanel
+- Fix device room select when pinned room is archived
+- Device: Phase C UI — movable devices (kiosk switcher + admin controls)
+- Device: Phase C migration — movable devices (room switching)
+- Device: Phase B3 — view-only whiteboard on the kiosk
+- Device: Phase B2 — modular room layout on the kiosk (arrangeable panels)
+- Fix device RLS: active session whiteboard and chat author profiles
 - Docs: plan to reduce DB calls / Supabase load
 - Video: surface the LiveKit disconnect reason (diagnose silent green-room bounce)
 - Device: Phase B1 — read-only RLS so a kiosk can view room chat + whiteboard
