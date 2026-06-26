@@ -178,8 +178,30 @@ function bgToOptions(bg, customBg) {
 function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
-  const { cluster, isMicSource } = useRoomCluster();
+  const { cluster, isMicSource, existingCluster, startRoom, joinRoom } = useRoomCluster();
   const bestMicAppliedRef = useRef(false);
+  const enteredRef = useRef(false);
+  const inRoom = !!choices?.inRoom;
+
+  // "I'm in this room" pre-join: on entry, join the room's audio cluster as a
+  // muted follower (or found it if you're first) BEFORE the mic comes up, so
+  // people sitting together don't get the squeal. The mic + call audio are held
+  // off (below / in the audio renderers) until the cluster attribute lands.
+  useEffect(() => {
+    if (!publish || !inRoom) return undefined;
+    if (cluster) { enteredRef.current = true; return undefined; }
+    if (!localParticipant || enteredRef.current) return undefined;
+    if (existingCluster) {
+      enteredRef.current = true;
+      joinRoom(existingCluster);
+      return undefined;
+    }
+    // No cluster visible yet — wait a beat for other participants' attributes to
+    // arrive before founding one (so two people arriving together don't each
+    // start a separate cluster). The mic is held off meanwhile, so no squeal.
+    const t = setTimeout(() => { enteredRef.current = true; startRoom(); }, 900);
+    return () => clearTimeout(t);
+  }, [publish, inRoom, cluster, localParticipant, existingCluster, joinRoom, startRoom]);
 
   useEffect(() => {
     if (!localParticipant) return;
@@ -190,7 +212,9 @@ function PublishController({ publish, choices, micMuted }) {
     // Your mic is live only when YOU haven't muted it AND (solo, or you're the
     // room's mic source). The in-room gate is the "behind the scenes" auto-mute —
     // it doesn't flip your personal mute button; that stays your own control.
-    const wantAudio = publish && !micMuted && (cluster ? isMicSource : true);
+    // While entering "in this room" but not yet clustered, hold the mic off so
+    // it can't squeal before the follower/mic-source role resolves.
+    const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
     localParticipant
       .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
       .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
@@ -275,9 +299,11 @@ function AutoMicController({ enabled }) {
 // Audio playback. In a room only the AUDIO SINK (the device's speakers, or the
 // lone speaker in a device-less room) plays the call aloud — anyone else in the
 // room would double up and echo. Solo participants render normally.
-function ClusterAudioRenderer() {
+function ClusterAudioRenderer({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
-  if (cluster && !isAudioSink) return null;
+  // holdForEntry: while joining "in this room" but before the cluster attribute
+  // has landed, stay silent so our speakers can't feed a co-located mic.
+  if ((cluster && !isAudioSink) || (holdForEntry && !cluster)) return null;
   return <RoomAudioRenderer />;
 }
 
@@ -288,9 +314,9 @@ function ClusterAudioRenderer() {
 // need external audio, via the room speaker". This also covers a person who
 // took over the mic: they publish, but the device still plays for the room, so
 // they don't subscribe either. Re-subscribes the moment they become the sink.
-function FollowerAudioGate() {
+function FollowerAudioGate({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
-  const suppress = !!cluster && !isAudioSink;
+  const suppress = (!!cluster && !isAudioSink) || (holdForEntry && !cluster);
   const audioTracks = useTracks(
     [Track.Source.Microphone, Track.Source.ScreenShareAudio],
     { onlySubscribed: false },
@@ -1493,15 +1519,16 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         {/* Owns in-room cluster management (leader handoff). Mount once. */}
         <RoomClusterManager />
         {/* In-room followers receive no audio at all (the room speaker carries
-            it for them); everyone else plays normally. */}
-        <FollowerAudioGate />
+            it for them); everyone else plays normally. holdForEntry keeps a
+            still-clustering "in this room" joiner silent during the entry window. */}
+        <FollowerAudioGate holdForEntry={publish && !!choices?.inRoom} />
         {/* Required for participants to be audible — suppressed for in-room
             followers so the leader's speakers don't echo back through them. Also
             gated on `listen`: a silent auto-preview spectator plays NOTHING, so
             walking up to a room can't blast the call through your speakers and
             (if a live participant is nearby) feed back into the room. Publishers
             always hear; explicit watchers and join always have listen=true. */}
-        {(publish || listen) && <ClusterAudioRenderer />}
+        {(publish || listen) && <ClusterAudioRenderer holdForEntry={publish && !!choices?.inRoom} />}
       </LiveKitRoom>
     </div>
   );

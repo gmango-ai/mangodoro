@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles, Volume2, VolumeX } from "lucide-react";
+import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles, Volume2, VolumeX, Users } from "lucide-react";
 import { usePreviewTracks, usePersistentUserChoices } from "@livekit/components-react";
 import "@livekit/components-styles";
 import { useTheme } from "../../context/ThemeContext";
@@ -194,6 +194,16 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   }, [camOn, videoTrack]);
 
   const [gearOpen, setGearOpen] = useState(false);
+  // "I'm in this room" — join the room's shared audio muted so co-located people
+  // don't echo on entry. Persisted (a laptop that lives in the room stays set).
+  const [inRoom, setInRoom] = useState(() => {
+    try { return localStorage.getItem("mango:inRoomAudio") === "1"; } catch { return false; }
+  });
+  const toggleInRoom = () => setInRoom((v) => {
+    const next = !v;
+    try { localStorage.setItem("mango:inRoomAudio", next ? "1" : "0"); } catch { /* */ }
+    return next;
+  });
 
   // Responsive: collapse to a minimal card when the tile gets small.
   const wrapRef = useRef(null);
@@ -212,7 +222,22 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     audioEnabled: micOn,
     videoDeviceId: userChoices.videoDeviceId,
     audioDeviceId: userChoices.audioDeviceId,
+    inRoom,
   });
+
+  const inRoomToggle = (
+    <button
+      type="button"
+      onClick={toggleInRoom}
+      aria-pressed={inRoom}
+      title={inRoom ? "You'll join muted (sharing this room's audio)" : "I'm in this room — join muted to avoid echo"}
+      className={`inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-full text-[12px] font-semibold transition-colors shrink-0 ${
+        inRoom ? "bg-[var(--color-accent)] text-white" : "bg-white/10 text-white/70 hover:bg-white/20"
+      }`}
+    >
+      <Users className="w-4 h-4" /> {inRoom ? "In this room · muted" : "I'm in this room"}
+    </button>
+  );
 
   const toggleBtn = (active, OnIcon, OffIcon, title, onClick) => (
     <button
@@ -276,6 +301,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
             {othersInCall ? `${participants?.length || ""} in call` : "Start the call"}
           </div>
           <div className="flex items-center gap-2">{toggles}</div>
+          {inRoomToggle}
           <div className="w-full max-w-[280px]">{joinRow}</div>
         </div>
       ) : (
@@ -338,6 +364,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
                 )}
               </div>
             </div>
+            <div className="flex justify-center">{inRoomToggle}</div>
             {joinRow}
           </div>
         </>
@@ -359,6 +386,16 @@ function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave 
   const camOn = userChoices.videoEnabled;
   const micOn = userChoices.audioEnabled;
   const [camPreview, setCamPreview] = useState(camOn);
+  // "I'm in this room" — join the room's shared audio muted so people sitting
+  // together don't echo. Persisted (a laptop that lives in the room stays set).
+  const [inRoom, setInRoom] = useState(() => {
+    try { return localStorage.getItem("mango:inRoomAudio") === "1"; } catch { return false; }
+  });
+  const toggleInRoom = () => setInRoom((v) => {
+    const next = !v;
+    try { localStorage.setItem("mango:inRoomAudio", next ? "1" : "0"); } catch { /* */ }
+    return next;
+  });
 
   const trackOpts = useMemo(
     () => ({ audio: false, video: camPreview ? { deviceId: userChoices.videoDeviceId || undefined } : false }),
@@ -389,6 +426,7 @@ function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave 
     audioEnabled: micOn,
     videoDeviceId: userChoices.videoDeviceId,
     audioDeviceId: userChoices.audioDeviceId,
+    inRoom,
   });
 
   const T = (active, OnIcon, OffIcon, title, onClick) => (
@@ -452,6 +490,20 @@ function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave 
             }`}
           >
             {listen ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+          </button>
+          {/* In this room — join the shared audio muted so co-located people
+              don't echo on entry. */}
+          <button
+            type="button"
+            onClick={toggleInRoom}
+            title={inRoom ? "You'll join muted (sharing this room's audio)" : "I'm in this room — join muted to avoid echo"}
+            aria-label="I'm in this room"
+            aria-pressed={inRoom}
+            className={`inline-flex items-center justify-center w-10 h-10 rounded-full shrink-0 transition-colors ${
+              inRoom ? "bg-[var(--color-accent)] text-white" : "bg-white/10 text-white/55 hover:bg-white/20"
+            }`}
+          >
+            <Users className="w-5 h-5" />
           </button>
           <BgPicker bg={bg} onChange={setBg} />
           <button
