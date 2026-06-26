@@ -24,7 +24,6 @@ import WhatsNew from "./components/WhatsNew";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
-import ClockBanner from "./components/ClockBanner";
 import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
 import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
@@ -281,7 +280,9 @@ function AppLayout({ session }) {
         <div className="relative z-10 min-h-screen">
           {!isEmbed && <Nav onOpenPomodoro={() => setShowPomodoro(true)} />}
           {!isEmbed && <InvoiceModal />}
-          {!isEmbed && <ClockBanner />}
+          {/* ClockBanner (fixed bottom tracking bar) disabled — the top-bar
+              WorkClockBar now owns clock display + controls; the bottom bar was
+              redundant and overlapped content. Component kept for reference. */}
           {!isEmbed && !onPomodoroPage && (
             <PomodoroSurface
               variant="floating"
