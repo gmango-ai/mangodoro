@@ -13,6 +13,7 @@ import RunningTimerPill from "./RunningTimerPill";
 import BottomNav from "./BottomNav";
 import MoreSheet from "./MoreSheet";
 import NotificationBell from "./notifications/NotificationBell";
+import NavMessages from "./messages/NavMessages";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import WorkClockBar from "./nav/WorkClockBar";
@@ -165,6 +166,7 @@ export default function Nav({ onOpenPomodoro }) {
           <div className="xl:hidden ml-auto flex items-center gap-2">
             <WorkClockBar dark={darkMode} />
             <WorkingNowBar dark={darkMode} />
+            <NavMessages />
             <NotificationBell />
           </div>
 
@@ -200,6 +202,7 @@ export default function Nav({ onOpenPomodoro }) {
                 cover content. */}
             <RunningTimerPill onOpen={onOpenPomodoro} />
 
+            <NavMessages />
             <NotificationBell />
 
             {/* Single user-menu dropdown on the right — replaces the

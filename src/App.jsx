@@ -13,6 +13,8 @@ import { SyncSessionProvider, useSyncSession } from "./context/SyncSessionContex
 import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import { VideoCallProvider } from "./context/VideoCallContext";
 import { NotificationProvider } from "./context/NotificationContext";
+import { MessagesProvider } from "./context/MessagesContext";
+import MessagesPage from "./pages/MessagesPage";
 import { ProfileProvider } from "./context/ProfileContext";
 import LunchReminder from "./components/LunchReminder";
 import HealthReminders from "./components/HealthReminders";
@@ -322,6 +324,7 @@ function AppLayout({ session }) {
             <Route path="/time-tracker" element={<TimeTrackerPage />} />
             <Route path="/time-tracker/:tab" element={<TimeTrackerPage />} />
             <Route path="/team" element={<TeamPage />} />
+            <Route path="/messages" element={<MessagesPage />} />
             <Route path="/u/:userId" element={<ProfilePage />} />
             <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
             {/* Retros section. /team/retro is the legacy URL — redirect. */}
@@ -373,9 +376,11 @@ function AuthenticatedApp({ session }) {
           <PomodoroProvider userId={session.user.id}>
             <VideoCallProvider>
               <NotificationProvider>
-                <ProfileProvider>
-                  <AppLayout session={session} />
-                </ProfileProvider>
+                <MessagesProvider>
+                  <ProfileProvider>
+                    <AppLayout session={session} />
+                  </ProfileProvider>
+                </MessagesProvider>
               </NotificationProvider>
             </VideoCallProvider>
           </PomodoroProvider>
