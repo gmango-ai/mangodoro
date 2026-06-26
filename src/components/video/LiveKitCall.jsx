@@ -24,7 +24,7 @@ import { useTeam } from "../../context/TeamContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
-import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
+import { useRoomCluster, useClusterRoles, ATTR_CLUSTER, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 
@@ -178,6 +178,7 @@ function bgToOptions(bg, customBg) {
 function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
+  const participants = useParticipants();
   const { cluster, isMicSource, existingCluster, startRoom, joinRoom } = useRoomCluster();
   const bestMicAppliedRef = useRef(false);
   const enteredRef = useRef(false);
@@ -189,8 +190,28 @@ function PublishController({ publish, choices, micMuted }) {
   // off (below / in the audio renderers) until the cluster attribute lands.
   useEffect(() => {
     if (!publish || !inRoom) return undefined;
+    if (!localParticipant) return undefined;
+    const myId = localParticipant.identity;
+    // Timed out into a solo self-cluster, but another participant's cluster
+    // arrived late — migrate in so co-located joiners share one cluster.
+    if (cluster === myId) {
+      const onMine = participants.filter((p) => p.attributes?.[ATTR_CLUSTER] === myId);
+      if (onMine.length === 1) {
+        const others = participants.filter((p) => !p.isLocal && p.attributes?.[ATTR_CLUSTER]);
+        if (others.length) {
+          const deviceHost = others.find((p) => p.attributes?.[ATTR_ROOM_DEVICE] === "1");
+          const host = deviceHost || others[0];
+          const peerId = host.attributes[ATTR_CLUSTER];
+          if (peerId && peerId !== myId) {
+            enteredRef.current = true;
+            joinRoom({ id: peerId });
+            return undefined;
+          }
+        }
+      }
+    }
     if (cluster) { enteredRef.current = true; return undefined; }
-    if (!localParticipant || enteredRef.current) return undefined;
+    if (enteredRef.current) return undefined;
     if (existingCluster) {
       enteredRef.current = true;
       joinRoom(existingCluster);
@@ -201,7 +222,7 @@ function PublishController({ publish, choices, micMuted }) {
     // start a separate cluster). The mic is held off meanwhile, so no squeal.
     const t = setTimeout(() => { enteredRef.current = true; startRoom(); }, 900);
     return () => clearTimeout(t);
-  }, [publish, inRoom, cluster, localParticipant, existingCluster, joinRoom, startRoom]);
+  }, [publish, inRoom, cluster, localParticipant, existingCluster, joinRoom, startRoom, participants]);
 
   useEffect(() => {
     if (!localParticipant) return;

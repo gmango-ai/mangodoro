@@ -132,10 +132,14 @@ export default function DeviceKioskPage({ session }) {
   // Sleep schedule + manual override. `asleep` is re-derived on a tick so the
   // kiosk auto-sleeps/wakes at the schedule boundaries without a reload.
   const [sched, setSched] = useState(null);
+  const [schedLoaded, setSchedLoaded] = useState(false);
   const [, setSleepTick] = useState(0);
   useEffect(() => {
     let alive = true;
-    const load = async () => { const { data } = await currentDeviceSleep(); if (alive) setSched(data); };
+    const load = async () => {
+      const { data } = await currentDeviceSleep();
+      if (alive) { setSched(data); setSchedLoaded(true); }
+    };
     load();
     const poll = setInterval(load, 60000); // pick up admin schedule edits; keeps ticking while asleep
     return () => { alive = false; clearInterval(poll); };
@@ -144,7 +148,7 @@ export default function DeviceKioskPage({ session }) {
     const id = setInterval(() => setSleepTick((n) => (n + 1) % 1e9), 30000);
     return () => clearInterval(id);
   }, []);
-  const asleep = isAsleep(sched);
+  const asleep = !schedLoaded || isAsleep(sched);
 
   const goOffline = async () => {
     const until = nextWakeAt(sched);
