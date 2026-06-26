@@ -148,7 +148,7 @@ export default function DeviceKioskPage({ session }) {
     const id = setInterval(() => setSleepTick((n) => (n + 1) % 1e9), 30000);
     return () => clearInterval(id);
   }, []);
-  const asleep = !schedLoaded || isAsleep(sched);
+  const asleep = (!schedLoaded && !sched) || isAsleep(sched);
 
   const goOffline = async () => {
     const until = nextWakeAt(sched);
