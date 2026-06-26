@@ -68,6 +68,18 @@ export async function markAllRead() {
   await supabase.from("notifications").update({ read_at: new Date().toISOString() }).is("read_at", null);
 }
 
+// Clear (delete) — RLS scopes both to the caller's own rows.
+export async function clearNotification(id) {
+  if (!id) return;
+  await supabase.from("notifications").delete().eq("id", id);
+}
+
+export async function clearAllNotifications() {
+  // `.not("id", "is", null)` matches every own row (delete needs a filter); RLS
+  // restricts it to the caller.
+  await supabase.from("notifications").delete().not("id", "is", null);
+}
+
 // ── Follows ("notify me when [X] starts focusing") ──
 export async function listFollows(kind = "focus_start") {
   const { data } = await supabase.from("notification_follows").select("target_user_id, kind").eq("kind", kind);
