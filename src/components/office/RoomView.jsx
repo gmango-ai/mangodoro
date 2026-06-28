@@ -173,7 +173,7 @@ export default function RoomView({
   // Room-shared set of web tiles (everyone sees the same sites) + their URLs.
   // Each web instance becomes a real layout tile (panel id "web:<id>"); the
   // layout tree is reconciled below so a site added by anyone appears for all.
-  const { webs, addWeb, removeWeb, setWebUrl } = useRoomWeb(room.id, session?.user?.id);
+  const { webs, playback: webPlayback, addWeb, removeWeb, setWebUrl, sendPlayback } = useRoomWeb(room.id, session?.user?.id);
 
   // Dynamic panel registry = the fixed panels + one entry per shared web view.
   const panels = useMemo(() => {
@@ -188,11 +188,20 @@ export default function RoomView({
         title: label,
         icon: Globe,
         min: 320,
-        render: () => <WebPanel url={w.url} onSetUrl={(u) => setWebUrl(w.id, u)} dark={dark} />,
+        render: () => (
+          <WebPanel
+            url={w.url}
+            onSetUrl={(u) => setWebUrl(w.id, u)}
+            dark={dark}
+            playback={webPlayback[w.id]}
+            onPlayback={(p) => sendPlayback(w.id, p)}
+            meId={session?.user?.id}
+          />
+        ),
       };
     }
     return map;
-  }, [webs, setWebUrl, dark]);
+  }, [webs, webPlayback, setWebUrl, sendPlayback, dark, session?.user?.id]);
 
   // Reconcile the layout tree with the shared web set: add a tile for each web
   // that isn't shown yet, and drop tiles whose web was removed. Idempotent, so

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Globe, ExternalLink, Youtube } from "lucide-react";
 
 // A shared website tile. The URL is room-shared state (useRoomWeb): anyone can
 // paste a link and everyone's tile loads it — watch a YouTube video together, or
-// look at a doc, without screen-sharing it over the call. (YouTube play/pause/
-// seek sync is layered on in a follow-up via the IFrame API.)
+// look at a doc, without screen-sharing it over the call. For YouTube, play /
+// pause / seek are SYNCED across the room via the IFrame API.
 
 // Parse a URL into an embeddable source. YouTube is special-cased to its /embed/
 // player (with the JS API enabled so playback sync can hook it); everything else
@@ -21,18 +21,101 @@ export function parseEmbed(url) {
     else if (u.pathname.startsWith("/shorts/")) vid = u.pathname.split("/")[2];
     else if (u.pathname.startsWith("/embed/")) vid = u.pathname.split("/")[2];
   }
-  if (vid) {
-    return { kind: "youtube", videoId: vid, src: `https://www.youtube.com/embed/${vid}?enablejsapi=1&rel=0&modestbranding=1` };
-  }
+  if (vid) return { kind: "youtube", videoId: vid, src: `https://www.youtube.com/watch?v=${vid}` };
   return { kind: "web", src: u.href };
 }
 
-// Embedding arbitrary sites is inherently best-effort + a mild risk surface, so
-// we sandbox: scripts + same-origin (so the framed app runs) and popups/forms,
-// but NOT top-navigation (the framed page can't hijack our tab).
+// Embedding arbitrary sites is best-effort + a mild risk surface, so we sandbox:
+// scripts + same-origin (so the framed app runs) and popups/forms, but NOT
+// top-navigation (the framed page can't hijack our tab).
 const SANDBOX = "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-presentation";
 
-export default function WebPanel({ url, onSetUrl, dark }) {
+// Load the YouTube IFrame API once, resolving to window.YT.
+let _ytPromise;
+function loadYT() {
+  if (typeof window === "undefined") return Promise.reject(new Error("no window"));
+  if (window.YT && window.YT.Player) return Promise.resolve(window.YT);
+  if (_ytPromise) return _ytPromise;
+  _ytPromise = new Promise((resolve) => {
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { try { prev?.(); } catch { /* */ } resolve(window.YT); };
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+  });
+  return _ytPromise;
+}
+
+// A YouTube player whose play/pause/seek is shared with the room. `playback` is
+// the latest shared state ({ playing, time, ts, by }); `onPlayback` broadcasts a
+// local change. We guard both directions so applying a peer's state doesn't echo
+// back as our own.
+function YouTubePlayer({ videoId, playback, onPlayback, meId }) {
+  const mountRef = useRef(null);
+  const playerRef = useRef(null);
+  const readyRef = useRef(false);
+  const suppressUntil = useRef(0); // ignore state changes we caused while applying remote
+
+  const emit = useCallback((playing) => {
+    const p = playerRef.current;
+    if (!p) return;
+    try { onPlayback({ playing, time: p.getCurrentTime() }); } catch { /* */ }
+  }, [onPlayback]);
+
+  // Apply the shared playback to the local player (skip our own echo).
+  const applyRemote = useCallback(() => {
+    const p = playback;
+    const player = playerRef.current;
+    if (!p || !player || !readyRef.current || p.by === meId) return;
+    const target = p.playing ? p.time + Math.max(0, (Date.now() - (p.ts || Date.now())) / 1000) : p.time;
+    suppressUntil.current = Date.now() + 1500;
+    try {
+      const cur = player.getCurrentTime();
+      if (Math.abs(cur - target) > 1.2) player.seekTo(target, true);
+      if (p.playing) player.playVideo(); else player.pauseVideo();
+    } catch { /* */ }
+  }, [playback, meId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadYT().then((YT) => {
+      if (cancelled || !mountRef.current) return;
+      playerRef.current = new YT.Player(mountRef.current, {
+        videoId,
+        playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+        events: {
+          onReady: () => { readyRef.current = true; applyRemote(); },
+          onStateChange: (e) => {
+            if (Date.now() < suppressUntil.current) return; // echo from applyRemote
+            const S = window.YT?.PlayerState || {};
+            if (e.data === S.PLAYING) emit(true);
+            else if (e.data === S.PAUSED) emit(false);
+          },
+        },
+      });
+    }).catch(() => { /* API blocked — tile still shows, just unsynced */ });
+    return () => {
+      cancelled = true;
+      readyRef.current = false;
+      try { playerRef.current?.destroy(); } catch { /* */ }
+      playerRef.current = null;
+    };
+    // Re-create only when the video changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoId]);
+
+  // React to shared-state changes.
+  useEffect(() => { applyRemote(); }, [applyRemote]);
+
+  return (
+    <div className="absolute inset-0">
+      {/* YT.Player replaces this node with its iframe. */}
+      <div ref={mountRef} className="w-full h-full" />
+    </div>
+  );
+}
+
+export default function WebPanel({ url, onSetUrl, dark, playback, onPlayback, meId }) {
   const [draft, setDraft] = useState(url || "");
   const inputRef = useRef(null);
   useEffect(() => { setDraft(url || ""); }, [url]);
@@ -59,9 +142,14 @@ export default function WebPanel({ url, onSetUrl, dark }) {
           className="flex-1 min-w-0 bg-white/10 focus:bg-white/15 text-white text-[12px] rounded-md px-2 py-1 outline-none placeholder:text-white/40"
           spellCheck={false}
         />
+        {embed?.kind === "youtube" && (
+          <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-emerald-400 px-1" title="Play / pause / seek are synced for everyone">
+            Synced
+          </span>
+        )}
         {url && (
           <a
-            href={parseEmbed(url)?.src || url}
+            href={embed?.kind === "youtube" ? `https://www.youtube.com/watch?v=${embed.videoId}` : (embed?.src || url)}
             target="_blank"
             rel="noreferrer"
             title="Open in a new tab"
@@ -73,9 +161,10 @@ export default function WebPanel({ url, onSetUrl, dark }) {
       </div>
 
       <div className="flex-1 min-h-0 relative">
-        {embed ? (
+        {embed?.kind === "youtube" ? (
+          <YouTubePlayer videoId={embed.videoId} playback={playback} onPlayback={onPlayback} meId={meId} />
+        ) : embed ? (
           <iframe
-            // key on src so changing the URL reloads the frame cleanly.
             key={embed.src}
             src={embed.src}
             title="Shared web view"
