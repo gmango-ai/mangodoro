@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Globe, ExternalLink, Youtube } from "lucide-react";
+
+// The app sets COEP (for SharedArrayBuffer / RVM matting), which otherwise
+// BLOCKS cross-origin iframes — Chrome reports that as "refused to connect"
+// (ERR_BLOCKED_BY_RESPONSE), easily mistaken for X-Frame-Options. The
+// `credentialless` iframe attribute opts a single cross-origin frame out of that
+// (loads it without credentials), so embeds like YouTube work under our COEP.
+// It MUST be present before the src loads, so we set it imperatively, then src.
+function setCredentiallessSrc(el, src) {
+  if (!el) return;
+  try { el.setAttribute("credentialless", ""); } catch { /* unsupported → still tries */ }
+  if (el.getAttribute("src") !== src) el.setAttribute("src", src);
+}
 
 // A shared website tile. The URL is room-shared state (useRoomWeb): anyone can
 // paste a link and everyone's tile loads it — watch a YouTube video together, or
@@ -51,7 +63,7 @@ function loadYT() {
 // local change. We guard both directions so applying a peer's state doesn't echo
 // back as our own.
 function YouTubePlayer({ videoId, playback, onPlayback, meId }) {
-  const mountRef = useRef(null);
+  const iframeRef = useRef(null);
   const playerRef = useRef(null);
   const readyRef = useRef(false);
   const suppressUntil = useRef(0); // ignore state changes we caused while applying remote
@@ -76,13 +88,20 @@ function YouTubePlayer({ videoId, playback, onPlayback, meId }) {
     } catch { /* */ }
   }, [playback, meId]);
 
+  // We OWN the iframe (so we can mark it credentialless to satisfy COEP), and
+  // attach YT.Player to it for the playback sync. Set credentialless + src
+  // before the API attaches.
+  useLayoutEffect(() => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&rel=0&modestbranding=1&playsinline=1&origin=${encodeURIComponent(origin)}`;
+    setCredentiallessSrc(iframeRef.current, src);
+  }, [videoId]);
+
   useEffect(() => {
     let cancelled = false;
     loadYT().then((YT) => {
-      if (cancelled || !mountRef.current) return;
-      playerRef.current = new YT.Player(mountRef.current, {
-        videoId,
-        playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+      if (cancelled || !iframeRef.current) return;
+      playerRef.current = new YT.Player(iframeRef.current, {
         events: {
           onReady: () => { readyRef.current = true; applyRemote(); },
           onStateChange: (e) => {
@@ -93,25 +112,49 @@ function YouTubePlayer({ videoId, playback, onPlayback, meId }) {
           },
         },
       });
-    }).catch(() => { /* API blocked — tile still shows, just unsynced */ });
+    }).catch(() => { /* API blocked — the iframe still plays, just unsynced */ });
     return () => {
       cancelled = true;
       readyRef.current = false;
       try { playerRef.current?.destroy(); } catch { /* */ }
       playerRef.current = null;
     };
-    // Re-create only when the video changes.
+    // Re-attach only when the video changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId]);
 
   // React to shared-state changes.
   useEffect(() => { applyRemote(); }, [applyRemote]);
 
+  // No src in JSX — set imperatively above so `credentialless` lands first.
   return (
-    <div className="absolute inset-0">
-      {/* YT.Player replaces this node with its iframe. */}
-      <div ref={mountRef} className="w-full h-full" />
-    </div>
+    <iframe
+      key={videoId}
+      ref={iframeRef}
+      title="Shared YouTube"
+      className="absolute inset-0 w-full h-full border-0"
+      allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+      allowFullScreen
+    />
+  );
+}
+
+// Generic site frame — credentialless (so COEP doesn't block it) + sandboxed.
+// Sites that send X-Frame-Options / CSP frame-ancestors still refuse; nothing
+// client-side can override that (it's the site's server policy).
+function GenericFrame({ src }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => { setCredentiallessSrc(ref.current, src); }, [src]);
+  return (
+    <iframe
+      key={src}
+      ref={ref}
+      title="Shared web view"
+      className="absolute inset-0 w-full h-full border-0"
+      allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write"
+      allowFullScreen
+      sandbox={SANDBOX}
+    />
   );
 }
 
@@ -164,15 +207,7 @@ export default function WebPanel({ url, onSetUrl, dark, playback, onPlayback, me
         {embed?.kind === "youtube" ? (
           <YouTubePlayer videoId={embed.videoId} playback={playback} onPlayback={onPlayback} meId={meId} />
         ) : embed ? (
-          <iframe
-            key={embed.src}
-            src={embed.src}
-            title="Shared web view"
-            className="absolute inset-0 w-full h-full border-0"
-            allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write"
-            allowFullScreen
-            sandbox={SANDBOX}
-          />
+          <GenericFrame src={embed.src} />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-6 text-slate-400">
             <Globe className="w-8 h-8 opacity-40" />
