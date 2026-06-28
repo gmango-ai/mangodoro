@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles, Volume2, VolumeX, Users } from "lucide-react";
 import { usePreviewTracks, usePersistentUserChoices } from "@livekit/components-react";
 import "@livekit/components-styles";
@@ -149,7 +150,9 @@ function DeviceSelect({ label, devices, value, onChange }) {
 // caller's usePersistentUserChoices (LiveKit's own persistence).
 function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickMic }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+  const [rect, setRect] = useState(null); // the gear button's viewport rect
   const [devices, setDevices] = useState({ cams: [], mics: [], speakers: [] });
   const [spk, setSpk] = useState(() => loadPref(PREF.speaker, ""));
   const [noise, setNoise] = useState(() => loadPref(PREF.noise, "1") === "1");
@@ -158,7 +161,10 @@ function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickM
   const toggleNoise = () => setNoise((v) => { savePref(PREF.noise, v ? "0" : "1"); return !v; });
   const togglePtt = () => setPtt((v) => { savePref(PREF.ptt, v ? "0" : "1"); return !v; });
 
-  // (Re)enumerate when opened so labels show after the media grant lands.
+  // The popover is PORTALED to <body> with fixed positioning so it escapes the
+  // panel's overflow-hidden clipping (a short tile / PiP was cutting it off top
+  // and right). We measure the gear button and clamp the popover into the
+  // viewport, opening upward and right-aligned to the button.
   useEffect(() => {
     if (!open) return undefined;
     let alive = true;
@@ -172,14 +178,45 @@ function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickM
         });
       })
       .catch(() => { /* not enumerable yet */ });
-    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const measure = () => { const r = btnRef.current?.getBoundingClientRect(); if (r) setRect(r); };
+    measure();
+    const onDown = (e) => {
+      if (btnRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
     document.addEventListener("mousedown", onDown);
-    return () => { alive = false; document.removeEventListener("mousedown", onDown); };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      alive = false;
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
+  // Fixed-position style, clamped to the viewport.
+  const W = 224;
+  const popStyle = rect
+    ? {
+        position: "fixed",
+        // Sit just above the button; clamp the height to the space above so the
+        // top never goes off-screen (scrolls internally if taller).
+        bottom: Math.round(window.innerHeight - rect.top + 8),
+        left: Math.round(Math.min(Math.max(8, rect.right - W), window.innerWidth - W - 8)),
+        width: W,
+        maxHeight: Math.max(160, Math.round(rect.top - 16)),
+        zIndex: 200,
+      }
+    : null;
+
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         title="Call settings"
@@ -189,11 +226,12 @@ function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickM
       >
         <Settings className="w-5 h-5" />
       </button>
-      {open && (
-        // Right-anchored (the gear is a right-side dock control) so it grows
-        // inward and never spills off the panel. Width caps to the panel on a
-        // narrow tile / PiP.
-        <div className="absolute bottom-full mb-2 right-0 z-50 w-56 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-xl">
+      {open && popStyle && createPortal(
+        <div
+          ref={popRef}
+          style={popStyle}
+          className="overflow-y-auto rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-2xl ring-1 ring-white/10"
+        >
           <DeviceSelect label="Camera" devices={devices.cams} value={videoDeviceId} onChange={onPickCamera} />
           <DeviceSelect label="Microphone" devices={devices.mics} value={audioDeviceId} onChange={onPickMic} />
           {devices.speakers.length > 0 && (
@@ -202,7 +240,8 @@ function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickM
           <div className="my-1.5 border-t border-white/10" />
           <LobbyToggleRow label="Noise cancellation" active={noise} onClick={toggleNoise} />
           <LobbyToggleRow label="Push to talk" hint="hold Space in the call" active={ptt} onClick={togglePtt} />
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
