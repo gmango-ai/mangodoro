@@ -14,8 +14,10 @@ import {
   useLocalParticipant,
   useRoomContext,
   useMaybeTrackRefContext,
+  useIsSpeaking,
+  useConnectionQualityIndicator,
 } from "@livekit/components-react";
-import { Track, RoomEvent, setLogLevel } from "livekit-client";
+import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
 import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff, Radio } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
@@ -1175,6 +1177,12 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   const role = participant ? roles.get(participant.identity) : null;
   const isPinned = !!participant?.identity && participant.identity === globalPinId;
   const inRoom = !!role?.inRoom;
+  // Tile chrome: a speaking ring (glows while this person talks) and a
+  // connection-quality dot (shown only when degraded, so it reads as a warning
+  // not clutter). Hooks accept an optional participant → safe on placeholders.
+  const isSpeaking = useIsSpeaking(participant);
+  const { quality } = useConnectionQualityIndicator({ participant });
+  const weak = quality === ConnectionQuality.Poor || quality === ConnectionQuality.Lost;
   // Amber for whoever carries the room's audio I/O — the device, the current mic
   // source, or the speakers — muted chip for the rest.
   const active = !!role && (role.isDevice || role.isMicSource || role.isAudioSink);
@@ -1190,6 +1198,29 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   return (
     <div style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}>
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+
+      {/* Speaking ring — an inset glow so it never shifts layout. Matches the
+          tile's rounding; pulses softly while the person is talking. */}
+      {isSpeaking && (
+        <div
+          className="absolute inset-0 z-20 pointer-events-none animate-pulse"
+          style={{
+            borderRadius: "var(--lk-border-radius, 0.75rem)",
+            boxShadow: "inset 0 0 0 3px rgba(16,185,129,0.95), 0 0 14px -2px rgba(16,185,129,0.6)",
+          }}
+        />
+      )}
+
+      {/* Connection-quality dot — only when degraded (amber = poor, red = lost). */}
+      {weak && (
+        <div
+          className="absolute bottom-1.5 right-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm pointer-events-none"
+          title={quality === ConnectionQuality.Lost ? "Connection lost" : "Weak connection"}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${quality === ConnectionQuality.Lost ? "bg-red-500" : "bg-amber-400"}`} />
+        </div>
+      )}
+
       {(isPinned || inRoom) && (
         <div className="absolute top-1.5 left-1.5 z-10 flex flex-col items-start gap-1 pointer-events-none">
           {isPinned && (
