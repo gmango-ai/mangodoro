@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import {
-  Hash, Briefcase, MessageSquare, Lock,
+  Hash, Briefcase, MessageSquare, Lock, Globe,
   LogIn, LogOut, Play, Pause, PanelLeftOpen, PanelLeftClose, ChevronDown, Settings,
   Copy, Check,
 } from "lucide-react";
@@ -17,6 +17,8 @@ import { useRoomLayout } from "./roomLayout/useRoomLayout";
 import { PANEL_IDS, ROOM_PANELS } from "./roomLayout/panels";
 import { panelsIn } from "./roomLayout/layoutTree";
 import { useRoomPanelActivity } from "./roomLayout/useRoomPanelActivity";
+import { useRoomWeb } from "./roomLayout/useRoomWeb";
+import WebPanel, { parseEmbed } from "./roomLayout/WebPanel";
 
 const KIND_ICON = {
   general: Hash,
@@ -102,7 +104,7 @@ export default function RoomView({
 
   // Modular panel layout (per-user, per-room). Replaces the old fixed
   // view modes — see ./roomLayout. Panels = video, chat, whiteboard.
-  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
+  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
   const [arranging, setArranging] = useState(false);
 
   // Access code for a code-gated room — fetched only for managers (RLS on
@@ -165,6 +167,50 @@ export default function RoomView({
     dark,
     whiteboardId: linkedWhiteboardId,
     canLink: canLinkWhiteboard,
+  };
+
+  // ── Shared website views ─────────────────────────────────────
+  // Room-shared set of web tiles (everyone sees the same sites) + their URLs.
+  // Each web instance becomes a real layout tile (panel id "web:<id>"); the
+  // layout tree is reconciled below so a site added by anyone appears for all.
+  const { webs, addWeb, removeWeb, setWebUrl } = useRoomWeb(room.id, session?.user?.id);
+
+  // Dynamic panel registry = the fixed panels + one entry per shared web view.
+  const panels = useMemo(() => {
+    const map = { ...ROOM_PANELS };
+    for (const w of webs) {
+      const label = parseEmbed(w.url)?.kind === "youtube" ? "YouTube" : (() => {
+        try { return new URL(w.url.includes("://") ? w.url : `https://${w.url}`).hostname.replace(/^www\./, ""); }
+        catch { return "Web"; }
+      })();
+      map[`web:${w.id}`] = {
+        id: `web:${w.id}`,
+        title: label,
+        icon: Globe,
+        min: 320,
+        render: () => <WebPanel url={w.url} onSetUrl={(u) => setWebUrl(w.id, u)} dark={dark} />,
+      };
+    }
+    return map;
+  }, [webs, setWebUrl, dark]);
+
+  // Reconcile the layout tree with the shared web set: add a tile for each web
+  // that isn't shown yet, and drop tiles whose web was removed. Idempotent, so
+  // it converges and stops (no loop). A web closed from its tile header calls
+  // removeWeb (below), which broadcasts and clears it for everyone.
+  const desiredWebPanels = useMemo(() => webs.map((w) => `web:${w.id}`), [webs]);
+  useEffect(() => {
+    const present = panelsIn(tree).filter((p) => p.startsWith("web:"));
+    desiredWebPanels.forEach((id) => { if (!present.includes(id)) addPanel(id); });
+    present.forEach((id) => { if (!desiredWebPanels.includes(id)) closePanel(id); });
+  }, [desiredWebPanels, tree, addPanel, closePanel]);
+
+  // Closing a web tile (its header X / drag-to-toolbox) should remove the SHARED
+  // web, not just hide it locally — so wrap closePanel to route web ids to
+  // removeWeb (which broadcasts), and pass everything else through.
+  const handleClosePanel = (panelId) => {
+    if (typeof panelId === "string" && panelId.startsWith("web:")) removeWeb(panelId.slice(4));
+    else closePanel(panelId);
   };
 
   const Icon = KIND_ICON[room.kind] || Hash;
@@ -350,6 +396,7 @@ export default function RoomView({
               activePanels={activePanels}
               badges={panelBadges}
               onTogglePanel={togglePanel}
+              onAddWeb={() => addWeb("")}
             />
           </div>
         </div>
@@ -363,11 +410,12 @@ export default function RoomView({
         <RoomLayout
           tree={tree}
           ctx={panelCtx}
+          panels={panels}
           onRatioChange={setRatio}
           arranging={arranging}
           onMove={movePanel}
           onAddAt={addPanelAt}
-          onClose={closePanel}
+          onClose={handleClosePanel}
         />
       </div>
     </div>

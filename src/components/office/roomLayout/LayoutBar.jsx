@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { ChevronDown, LayoutGrid, RotateCcw, Move } from "lucide-react";
+import { ChevronDown, LayoutGrid, RotateCcw, Move, Globe } from "lucide-react";
 import { PRESETS } from "./presets";
 
 // Room-header control: pick a preset layout, toggle rearrange mode, or
 // reset to the default. `presetId` is "custom" once the layout is edited.
 export default function LayoutBar({
   presetId, onApply, onReset, accent, dark, arranging, onToggleArrange,
-  panels, activePanels, badges, onTogglePanel, presets = PRESETS,
+  panels, activePanels, badges, onTogglePanel, onAddWeb, presets = PRESETS,
 }) {
   const [open, setOpen] = useState(false);
   const current = presets.find((p) => p.id === presetId);
@@ -56,6 +56,20 @@ export default function LayoutBar({
           </div>
         );
       })}
+      {/* Add a shared website tile — a new instance each click (not a toggle),
+          synced so everyone in the room sees it. */}
+      {onAddWeb && (
+        <button
+          type="button"
+          onClick={onAddWeb}
+          title="Add a shared web view (everyone sees it)"
+          className={`inline-flex items-center justify-center w-7 h-7 rounded-full transition-colors ${
+            dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
+          }`}
+        >
+          <Globe className="w-3.5 h-3.5" />
+        </button>
+      )}
       {(panels || []).length > 0 && (
         <span className={`w-px h-4 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
       )}

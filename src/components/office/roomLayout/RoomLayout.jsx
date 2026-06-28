@@ -154,7 +154,9 @@ export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioCha
 
   const { leaves, dividers } = computeLayout(tree, { x: 0, y: 0, w: rect.w, h: rect.h });
   const shown = new Set(leaves.map((l) => l.panel));
-  const hidden = Object.keys(panels).filter((id) => !shown.has(id));
+  // Web tiles are managed by shared room state (add via the header, close via
+  // the tile), so they never appear as draggable toolbox chips.
+  const hidden = Object.keys(panels).filter((id) => !shown.has(id) && !id.startsWith("web:"));
   const canClose = leaves.length > 1;
   // Ignore a stale maximize if that panel was since closed.
   const maximizedPanel = maximized && shown.has(maximized) ? maximized : null;
