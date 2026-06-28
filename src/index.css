@@ -473,3 +473,89 @@ html.electron-popover body::before {
 }
 .wb-sticky::before { left: 7px; transform: rotate(-3.5deg); }
 .wb-sticky::after { right: 7px; transform: rotate(3.5deg); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   In-call (LiveKit) UI polish. The call relied on LiveKit's default component
+   styles, which read dated; these overrides give a cohesive modern look —
+   clean glass controls, soft tiles, glassy name pills — scoped to the call
+   surface ([data-lk-theme]) so nothing else is touched.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-lk-theme] {
+  --lk-border-radius: 12px;
+}
+
+/* Control-bar buttons → uniform circular glass with smooth feedback. */
+[data-lk-theme] .lk-button {
+  background: rgba(255, 255, 255, 0.07);
+  border: none;
+  border-radius: 9999px;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
+  color: #f1f5f9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s ease, transform 0.1s ease, color 0.15s ease;
+}
+[data-lk-theme] .lk-button:hover { background: rgba(255, 255, 255, 0.16); }
+[data-lk-theme] .lk-button:active { transform: scale(0.92); }
+[data-lk-theme] .lk-button:focus-visible {
+  outline: 2px solid var(--color-accent, #22d3ee);
+  outline-offset: 2px;
+}
+
+/* "Leave" → a clean red pill, distinct from the round controls. */
+[data-lk-theme] .lk-disconnect-button {
+  background: rgba(244, 63, 94, 0.92);
+  border: none;
+  border-radius: 9999px;
+  height: 42px;
+  padding: 0 18px;
+  color: #fff;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+[data-lk-theme] .lk-disconnect-button:hover { background: rgb(244, 63, 94); }
+[data-lk-theme] .lk-disconnect-button:active { transform: scale(0.96); }
+
+/* Participant tiles → soft corners, no harsh default border. */
+[data-lk-theme] .lk-participant-tile {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+  border: none;
+}
+[data-lk-theme] .lk-participant-placeholder {
+  background: radial-gradient(circle at 50% 38%, #1e293b, #0b1220);
+}
+
+/* Name / mute chip → a small glassy pill, bottom-left, not the wide LK bar. */
+[data-lk-theme] .lk-participant-metadata { inset: auto auto 8px 8px; gap: 4px; }
+[data-lk-theme] .lk-participant-metadata-item {
+  background: rgba(2, 6, 23, 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border-radius: 8px;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: #f1f5f9;
+}
+
+/* Hover focus/pin toggle on a tile → subtle rounded glass. */
+[data-lk-theme] .lk-focus-toggle-button {
+  border: none;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+}
