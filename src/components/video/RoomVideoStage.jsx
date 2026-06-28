@@ -10,6 +10,7 @@ import UserAvatar from "../UserAvatar";
 import { useRoomCallPresence } from "./useRoomCallPresence";
 import { createRefinedBackgroundProcessor } from "./refinedBackground";
 import { bgToOptions, loadBgPref, loadBgCustomPref, saveBgPref, BLUR_LEVELS, BG_PRESETS } from "./backgroundEffects";
+import { PREF, loadPref, savePref } from "./callPrefs";
 
 // Applies the SAME background processor the call uses to a pre-join preview
 // track, driven by the shared localStorage pref — so the blur/background you see
@@ -97,6 +98,29 @@ function BgPicker({ bg, onChange }) {
   );
 }
 
+// A labelled on/off toggle row for the lobby settings popover — mirrors the
+// in-call mic-menu toggles (noise cancellation, push-to-talk) so the lobby reads
+// as the same settings surface.
+function LobbyToggleRow({ label, hint, active, onClick }) {
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={active}
+      onClick={onClick}
+      className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-md hover:bg-white/10"
+    >
+      <span className="flex-1 min-w-0">
+        <span className="block text-[12px]">{label}</span>
+        {hint && <span className="block text-[10px] opacity-50">{hint}</span>}
+      </span>
+      <span className={`text-[10px] font-bold uppercase tracking-wide ${active ? "text-[var(--color-accent)]" : "opacity-50"}`}>
+        {active ? "On" : "Off"}
+      </span>
+    </button>
+  );
+}
+
 function DeviceSelect({ label, devices, value, onChange }) {
   return (
     <label className="block mb-1.5 last:mb-0">
@@ -180,7 +204,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   }, [videoTrack]);
 
   // Device lists (re-enumerate once the camera grant lands so labels show).
-  const [devices, setDevices] = useState({ cams: [], mics: [] });
+  const [devices, setDevices] = useState({ cams: [], mics: [], speakers: [] });
   useEffect(() => {
     let alive = true;
     navigator.mediaDevices?.enumerateDevices?.()
@@ -189,11 +213,22 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
         setDevices({
           cams: ds.filter((d) => d.kind === "videoinput"),
           mics: ds.filter((d) => d.kind === "audioinput"),
+          speakers: ds.filter((d) => d.kind === "audiooutput"),
         });
       })
       .catch(() => { /* not enumerable yet */ });
     return () => { alive = false; };
   }, [camOn, videoTrack]);
+
+  // Call settings that carry into the call — written to the SAME localStorage
+  // keys the live call reads, so choosing them here pre-applies them on join
+  // (speaker via SavedSpeakerApplier; noise + push-to-talk via the call's prefs).
+  const [spk, setSpk] = useState(() => loadPref(PREF.speaker, ""));
+  const [noise, setNoise] = useState(() => loadPref(PREF.noise, "1") === "1");
+  const [ptt, setPtt] = useState(() => loadPref(PREF.ptt, "0") === "1");
+  const pickSpeaker = (id) => { setSpk(id); savePref(PREF.speaker, id); };
+  const toggleNoise = () => setNoise((v) => { savePref(PREF.noise, v ? "0" : "1"); return !v; });
+  const togglePtt = () => setPtt((v) => { savePref(PREF.ptt, v ? "0" : "1"); return !v; });
 
   const [gearOpen, setGearOpen] = useState(false);
   // "I'm in this room" — join the room's shared audio muted so co-located people
@@ -361,9 +396,15 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
                   <Settings className="w-5 h-5" />
                 </button>
                 {gearOpen && (
-                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-56 rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-xl">
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-60 max-h-[60vh] overflow-y-auto rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-xl">
                     <DeviceSelect label="Camera" devices={devices.cams} value={userChoices.videoDeviceId} onChange={saveVideoInputDeviceId} />
                     <DeviceSelect label="Microphone" devices={devices.mics} value={userChoices.audioDeviceId} onChange={saveAudioInputDeviceId} />
+                    {devices.speakers.length > 0 && (
+                      <DeviceSelect label="Speaker" devices={devices.speakers} value={spk} onChange={pickSpeaker} />
+                    )}
+                    <div className="my-1.5 border-t border-white/10" />
+                    <LobbyToggleRow label="Noise cancellation" active={noise} onClick={toggleNoise} />
+                    <LobbyToggleRow label="Push to talk" hint="hold Space in the call" active={ptt} onClick={togglePtt} />
                   </div>
                 )}
               </div>

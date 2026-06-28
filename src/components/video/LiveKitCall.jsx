@@ -25,6 +25,7 @@ import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
 import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
+import { PREF, loadPref, savePref } from "./callPrefs";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
@@ -79,22 +80,8 @@ const LK_DISCONNECT_REASON = {
 // Per-device preferences for the local self-view processors + layout. Kept in
 // localStorage so they persist across calls and apply even in PiP (which has
 // no control bar to toggle them).
-const PREF = { bg: "ql_lk_bg", bgCustom: "ql_lk_bg_custom", noise: "ql_lk_noise", layout: "ql_lk_layout", autoMic: "ql_lk_automic", ptt: "ql_lk_ptt" };
-function loadPref(key, fallback) {
-  try {
-    const v = localStorage.getItem(key);
-    return v === null ? fallback : v;
-  } catch {
-    return fallback;
-  }
-}
-function savePref(key, val) {
-  try {
-    localStorage.setItem(key, val);
-  } catch {
-    /* ignore */
-  }
-}
+// Shared with the pre-join lobby so a setting chosen there carries into the call.
+// (PREF/loadPref/savePref now live in callPrefs.js.)
 
 function refKey(t) {
   return t ? `${t.participant?.identity || ""}:${t.source}` : "";
@@ -268,6 +255,24 @@ function RoomClusterManager() {
   return null;
 }
 
+// Re-applies the saved audio-output device (chosen in a prior call or the lobby)
+// once connected, so your speaker choice persists across calls. switchActiveDevice
+// fails soft if the device is gone (unplugged headphones → default).
+function SavedSpeakerApplier() {
+  const room = useRoomContext();
+  useEffect(() => {
+    if (!room) return undefined;
+    const apply = () => {
+      const saved = loadPref(PREF.speaker, "");
+      if (saved) room.switchActiveDevice("audiooutput", saved).catch(() => { /* device gone */ });
+    };
+    if (room.state === "connected") apply();
+    room.on(RoomEvent.Connected, apply);
+    return () => { room.off(RoomEvent.Connected, apply); };
+  }, [room]);
+  return null;
+}
+
 // Proximity-style auto mic-switching (experimental, opt-in). Only active in a
 // room that HAS a device — the device stays the stable audio sink (speakers)
 // while the mic moves between people. Each in-room person runs local voice
@@ -432,7 +437,7 @@ function OutputDeviceSection() {
               type="button"
               role="menuitemradio"
               aria-checked={selected}
-              onClick={() => setActiveMediaDevice(d.deviceId)}
+              onClick={() => { setActiveMediaDevice(d.deviceId); savePref(PREF.speaker, d.deviceId); }}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10"
             >
               <span className="flex-1 truncate">{d.label || "Unnamed device"}</span>
@@ -1596,6 +1601,8 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} chromeless={chromeless} />
         {/* Owns in-room cluster management (leader handoff). Mount once. */}
         <RoomClusterManager />
+        {/* Restore the saved audio-output device on connect. */}
+        <SavedSpeakerApplier />
         {/* In-room followers receive no audio at all (the room speaker carries
             it for them); everyone else plays normally. holdForEntry keeps a
             still-clustering "in this room" joiner silent during the entry window. */}
