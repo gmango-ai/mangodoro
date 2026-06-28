@@ -141,6 +141,70 @@ function DeviceSelect({ label, devices, value, onChange }) {
   );
 }
 
+// Shared lobby settings gear (camera / mic / speaker pickers + noise cancel +
+// push-to-talk), used by BOTH pre-join surfaces — the start lobby (GreenRoom)
+// and the watch-the-call lobby (SpectatePreJoin) — so they read as one settings
+// surface. Speaker / noise / PTT write the SAME localStorage keys the live call
+// reads, so the choices apply on join. Camera + mic device ids come from the
+// caller's usePersistentUserChoices (LiveKit's own persistence).
+function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickMic }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const [devices, setDevices] = useState({ cams: [], mics: [], speakers: [] });
+  const [spk, setSpk] = useState(() => loadPref(PREF.speaker, ""));
+  const [noise, setNoise] = useState(() => loadPref(PREF.noise, "1") === "1");
+  const [ptt, setPtt] = useState(() => loadPref(PREF.ptt, "0") === "1");
+  const pickSpeaker = (id) => { setSpk(id); savePref(PREF.speaker, id); };
+  const toggleNoise = () => setNoise((v) => { savePref(PREF.noise, v ? "0" : "1"); return !v; });
+  const togglePtt = () => setPtt((v) => { savePref(PREF.ptt, v ? "0" : "1"); return !v; });
+
+  // (Re)enumerate when opened so labels show after the media grant lands.
+  useEffect(() => {
+    if (!open) return undefined;
+    let alive = true;
+    navigator.mediaDevices?.enumerateDevices?.()
+      .then((ds) => {
+        if (!alive) return;
+        setDevices({
+          cams: ds.filter((d) => d.kind === "videoinput"),
+          mics: ds.filter((d) => d.kind === "audioinput"),
+          speakers: ds.filter((d) => d.kind === "audiooutput"),
+        });
+      })
+      .catch(() => { /* not enumerable yet */ });
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => { alive = false; document.removeEventListener("mousedown", onDown); };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="Call settings"
+        aria-label="Call settings"
+        aria-expanded={open}
+        className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/15 text-white hover:bg-white/25 shrink-0"
+      >
+        <Settings className="w-5 h-5" />
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 w-60 max-h-[60vh] overflow-y-auto rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-xl">
+          <DeviceSelect label="Camera" devices={devices.cams} value={videoDeviceId} onChange={onPickCamera} />
+          <DeviceSelect label="Microphone" devices={devices.mics} value={audioDeviceId} onChange={onPickMic} />
+          {devices.speakers.length > 0 && (
+            <DeviceSelect label="Speaker" devices={devices.speakers} value={spk} onChange={pickSpeaker} />
+          )}
+          <div className="my-1.5 border-t border-white/10" />
+          <LobbyToggleRow label="Noise cancellation" active={noise} onClick={toggleNoise} />
+          <LobbyToggleRow label="Push to talk" hint="hold Space in the call" active={ptt} onClick={togglePtt} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Stable onError for usePreviewTracks — its effect deps are
 // [JSON.stringify(options), onError, mutex], so an INLINE onError (new identity
 // every render) re-runs the effect on every parent re-render, tearing down and
@@ -203,34 +267,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     };
   }, [videoTrack]);
 
-  // Device lists (re-enumerate once the camera grant lands so labels show).
-  const [devices, setDevices] = useState({ cams: [], mics: [], speakers: [] });
-  useEffect(() => {
-    let alive = true;
-    navigator.mediaDevices?.enumerateDevices?.()
-      .then((ds) => {
-        if (!alive) return;
-        setDevices({
-          cams: ds.filter((d) => d.kind === "videoinput"),
-          mics: ds.filter((d) => d.kind === "audioinput"),
-          speakers: ds.filter((d) => d.kind === "audiooutput"),
-        });
-      })
-      .catch(() => { /* not enumerable yet */ });
-    return () => { alive = false; };
-  }, [camOn, videoTrack]);
-
-  // Call settings that carry into the call — written to the SAME localStorage
-  // keys the live call reads, so choosing them here pre-applies them on join
-  // (speaker via SavedSpeakerApplier; noise + push-to-talk via the call's prefs).
-  const [spk, setSpk] = useState(() => loadPref(PREF.speaker, ""));
-  const [noise, setNoise] = useState(() => loadPref(PREF.noise, "1") === "1");
-  const [ptt, setPtt] = useState(() => loadPref(PREF.ptt, "0") === "1");
-  const pickSpeaker = (id) => { setSpk(id); savePref(PREF.speaker, id); };
-  const toggleNoise = () => setNoise((v) => { savePref(PREF.noise, v ? "0" : "1"); return !v; });
-  const togglePtt = () => setPtt((v) => { savePref(PREF.ptt, v ? "0" : "1"); return !v; });
-
-  const [gearOpen, setGearOpen] = useState(false);
+  // Device + audio settings live in the shared <LobbySettingsGear> below.
   // "I'm in this room" — join the room's shared audio muted so co-located people
   // don't echo on entry. Persisted (a laptop that lives in the room stays set).
   const [inRoom, setInRoom] = useState(() => {
@@ -385,29 +422,12 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
             <div className="flex items-center justify-center gap-2">
               {toggles}
               <BgPicker bg={bg} onChange={setBg} />
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setGearOpen((v) => !v)}
-                  title="Devices"
-                  aria-label="Choose devices"
-                  className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/15 text-white hover:bg-white/25 shrink-0"
-                >
-                  <Settings className="w-5 h-5" />
-                </button>
-                {gearOpen && (
-                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-60 max-h-[60vh] overflow-y-auto rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-xl">
-                    <DeviceSelect label="Camera" devices={devices.cams} value={userChoices.videoDeviceId} onChange={saveVideoInputDeviceId} />
-                    <DeviceSelect label="Microphone" devices={devices.mics} value={userChoices.audioDeviceId} onChange={saveAudioInputDeviceId} />
-                    {devices.speakers.length > 0 && (
-                      <DeviceSelect label="Speaker" devices={devices.speakers} value={spk} onChange={pickSpeaker} />
-                    )}
-                    <div className="my-1.5 border-t border-white/10" />
-                    <LobbyToggleRow label="Noise cancellation" active={noise} onClick={toggleNoise} />
-                    <LobbyToggleRow label="Push to talk" hint="hold Space in the call" active={ptt} onClick={togglePtt} />
-                  </div>
-                )}
-              </div>
+              <LobbySettingsGear
+                videoDeviceId={userChoices.videoDeviceId}
+                onPickCamera={saveVideoInputDeviceId}
+                audioDeviceId={userChoices.audioDeviceId}
+                onPickMic={saveAudioInputDeviceId}
+              />
             </div>
             <div className="flex justify-center">{inRoomToggle}</div>
             {joinRow}
@@ -426,8 +446,10 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
 // check yourself before joining. Join upgrades spectate→publish in place with
 // these AV + background choices.
 function SpectatePreJoin({ displayName, participants = [], listen, onToggleListen, onJoin, onLeave }) {
-  const { userChoices, saveAudioInputEnabled, saveVideoInputEnabled } =
-    usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: false, audioEnabled: true } });
+  const {
+    userChoices, saveAudioInputEnabled, saveVideoInputEnabled,
+    saveAudioInputDeviceId, saveVideoInputDeviceId,
+  } = usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: false, audioEnabled: true } });
   const camOn = userChoices.videoEnabled;
   const micOn = userChoices.audioEnabled;
   const [camPreview, setCamPreview] = useState(camOn);
@@ -553,6 +575,12 @@ function SpectatePreJoin({ displayName, participants = [], listen, onToggleListe
             <Users className="w-5 h-5" />
           </button>
           <BgPicker bg={bg} onChange={setBg} />
+          <LobbySettingsGear
+            videoDeviceId={userChoices.videoDeviceId}
+            onPickCamera={saveVideoInputDeviceId}
+            audioDeviceId={userChoices.audioDeviceId}
+            onPickMic={saveAudioInputDeviceId}
+          />
           <button
             type="button"
             onClick={join}
