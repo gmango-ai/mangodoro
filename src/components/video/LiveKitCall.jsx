@@ -570,17 +570,17 @@ function DeviceSettingsMenu({ kind, label, children }) {
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative -ml-1.5">
       <button
         type="button"
-        className="lk-button"
+        className="lk-caret-btn"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${label} settings`}
         title={`${label} settings`}
       >
-        <ChevronDown className="w-4 h-4" />
+        <ChevronDown className="w-3.5 h-3.5" />
       </button>
       {open && (
         <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-60 max-h-[70vh] overflow-y-auto rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1.5 shadow-xl text-[12px]">
@@ -1169,6 +1169,14 @@ function PeoplePanel({ roomId, onClose }) {
   );
 }
 
+// A soft, deterministic per-person gradient for the camera-off initials avatar.
+function avatarGradient(id) {
+  let h = 0;
+  for (let i = 0; i < (id || "").length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  return `linear-gradient(135deg, hsl(${hue} 52% 48%), hsl(${(hue + 38) % 360} 55% 34%))`;
+}
+
 // A ParticipantTile with an in-room badge. When a participant is part of a
 // physical-room cluster, their tile gets a small chip — amber "Room device" /
 // "Room mic" for whoever carries the room's audio, muted "In room" for the
@@ -1198,6 +1206,11 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   // <video> LiveKit renders inside ParticipantTile.
   const { mirror } = useContext(SelfViewContext);
   const flip = mirror && participant?.isLocal && trackRef?.source === Track.Source.Camera;
+  // Camera off → cover LiveKit's generic gray silhouette with a clean initials
+  // avatar (a soft per-person gradient), which reads far more modern.
+  const camOff = trackRef?.source === Track.Source.Camera && (!trackRef?.publication || trackRef.publication.isMuted);
+  const dispName = participant?.name || participant?.identity || "Guest";
+  const initial = (dispName.trim()[0] || "?").toUpperCase();
   // Amber for whoever carries the room's audio I/O — the device, the current mic
   // source, or the speakers — muted chip for the rest.
   const active = !!role && (role.isDevice || role.isMicSource || role.isAudioSink);
@@ -1216,6 +1229,26 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
       style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+
+      {/* Camera-off: an initials avatar over LiveKit's default silhouette. */}
+      {camOff && (
+        <div
+          className="absolute inset-0 z-[1] flex items-center justify-center"
+          style={{ background: "radial-gradient(circle at 50% 36%, #1b2840, #0b1220)" }}
+        >
+          <div
+            className="rounded-full flex items-center justify-center text-white font-semibold ring-1 ring-white/10 shadow-lg"
+            style={{
+              width: "clamp(44px, 26%, 116px)",
+              aspectRatio: "1",
+              fontSize: "clamp(16px, 4vw, 40px)",
+              background: avatarGradient(participant?.identity || dispName),
+            }}
+          >
+            {initial}
+          </div>
+        </div>
+      )}
 
       {/* Speaking ring — an inset glow so it never shifts layout. Matches the
           tile's rounding; pulses softly while the person is talking. */}

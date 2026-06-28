@@ -503,7 +503,25 @@ html.electron-popover body::before {
 }
 [data-lk-theme] .lk-button:hover { background: rgba(255, 255, 255, 0.16); }
 [data-lk-theme] .lk-button:active { transform: scale(0.92); }
-[data-lk-theme] .lk-button:focus-visible {
+
+/* The device-chooser caret next to mic/camera → a slim, secondary control that
+   tucks against its button instead of reading as a third equal circle. */
+[data-lk-theme] .lk-caret-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 42px;
+  border: none;
+  background: transparent;
+  color: rgba(241, 245, 249, 0.55);
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+[data-lk-theme] .lk-caret-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+[data-lk-theme] .lk-button:focus-visible,
+[data-lk-theme] .lk-caret-btn:focus-visible {
   outline: 2px solid var(--color-accent, #22d3ee);
   outline-offset: 2px;
 }
