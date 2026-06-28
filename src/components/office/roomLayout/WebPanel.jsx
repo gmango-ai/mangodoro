@@ -28,6 +28,21 @@ export function parseEmbed(url) {
     else if (u.pathname.startsWith("/embed/")) vid = u.pathname.split("/")[2];
   }
   if (vid) return { kind: "youtube", videoId: vid, src: `https://www.youtube.com/watch?v=${vid}` };
+
+  // Google Docs / Sheets / Slides / Drive → the official /preview embed endpoint.
+  // The /edit URL needs your Google LOGIN cookie, which browsers block as a
+  // cross-site cookie inside an iframe (→ 401). /preview works for a link-shared
+  // ("anyone with the link") doc with NO login, dodging that entirely.
+  if (host === "docs.google.com" || host === "drive.google.com") {
+    const m = u.pathname.match(/\/(document|spreadsheets|presentation|file)\/d\/([^/]+)/);
+    if (m) {
+      const kind = m[1];
+      const id = m[2];
+      const h = kind === "file" ? "drive.google.com" : "docs.google.com";
+      return { kind: "web", src: `https://${h}/${kind}/d/${id}/preview` };
+    }
+  }
+
   return { kind: "web", src: u.href };
 }
 
@@ -181,7 +196,7 @@ export default function WebPanel({ url, onSetUrl, dark, playback, onPlayback, me
         )}
         {url && (
           <a
-            href={embed?.kind === "youtube" ? `https://www.youtube.com/watch?v=${embed.videoId}` : (embed?.src || url)}
+            href={embed?.kind === "youtube" ? `https://www.youtube.com/watch?v=${embed.videoId}` : url}
             target="_blank"
             rel="noreferrer"
             title="Open in a new tab"
