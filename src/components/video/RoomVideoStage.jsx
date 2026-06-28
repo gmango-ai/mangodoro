@@ -190,7 +190,10 @@ function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickM
         <Settings className="w-5 h-5" />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 w-60 max-h-[60vh] overflow-y-auto rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-xl">
+        // Right-anchored (the gear is a right-side dock control) so it grows
+        // inward and never spills off the panel. Width caps to the panel on a
+        // narrow tile / PiP.
+        <div className="absolute bottom-full mb-2 right-0 z-50 w-56 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-xl">
           <DeviceSelect label="Camera" devices={devices.cams} value={videoDeviceId} onChange={onPickCamera} />
           <DeviceSelect label="Microphone" devices={devices.mics} value={audioDeviceId} onChange={onPickMic} />
           {devices.speakers.length > 0 && (
