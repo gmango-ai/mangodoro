@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -19,7 +19,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff, Radio } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -165,6 +165,11 @@ function bgToOptions(bg, customBg) {
   }
   return null;
 }
+
+// Per-device self-view prefs shared from the control bar down to the tiles:
+//   mirror — flip your own camera horizontally (your view only)
+//   float  — render your own tile as a draggable PiP instead of a grid cell
+const SelfViewContext = createContext({ mirror: true, float: true, setMirror: () => {}, setFloat: () => {} });
 
 function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
@@ -873,6 +878,8 @@ function CallControlBar({
   noiseEnabled, onToggleNoise,
   autoMic, onToggleAutoMic,
   ptt, onTogglePtt,
+  mirror, onToggleMirror,
+  selfFloat, onToggleSelfFloat,
   micMuted, onToggleMic,
   peopleOpen, onTogglePeople,
 }) {
@@ -923,6 +930,9 @@ function CallControlBar({
           {!tight && (
             <DeviceSettingsMenu kind="videoinput" label="Camera">
               <BackgroundEffects value={bg} onChange={onChangeBg} customBg={customBg} onUpload={onUploadBg} />
+              <div className="my-1 border-t border-white/10" />
+              <SettingRow icon={FlipHorizontal2} label="Mirror my video" active={mirror} onClick={onToggleMirror} />
+              <SettingRow icon={PictureInPicture2} label="Float my video" active={selfFloat} onClick={onToggleSelfFloat} />
             </DeviceSettingsMenu>
           )}
           <TrackToggle source={Track.Source.ScreenShare} />
@@ -1183,6 +1193,11 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   const isSpeaking = useIsSpeaking(participant);
   const { quality } = useConnectionQualityIndicator({ participant });
   const weak = quality === ConnectionQuality.Poor || quality === ConnectionQuality.Lost;
+  // Mirror only YOUR OWN camera (the convention — your self-view reads like a
+  // mirror), and only the camera, never a screen share. `[&_video]` flips the
+  // <video> LiveKit renders inside ParticipantTile.
+  const { mirror } = useContext(SelfViewContext);
+  const flip = mirror && participant?.isLocal && trackRef?.source === Track.Source.Camera;
   // Amber for whoever carries the room's audio I/O — the device, the current mic
   // source, or the speakers — muted chip for the rest.
   const active = !!role && (role.isDevice || role.isMicSource || role.isAudioSink);
@@ -1196,7 +1211,10 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
           ? "Room speaker"
           : "In room";
   return (
-    <div style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}>
+    <div
+      className={flip ? "[&_video]:scale-x-[-1]" : undefined}
+      style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}
+    >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
 
       {/* Speaking ring — an inset glow so it never shifts layout. Matches the
@@ -1349,6 +1367,72 @@ function AudienceRow({ tracks }) {
   );
 }
 
+// Your own camera as a floating, draggable, minimizable PiP (Meet's signature
+// self-view) — pulled out of the grid so it doesn't eat a cell. Drag to
+// reposition (clamped to the stage); hover for shrink + dock-to-grid controls.
+// It renders a ClusterParticipantTile, so it picks up the mirror pref too.
+function FloatingSelfView({ trackRef, onDock }) {
+  const [pos, setPos] = useState({ right: 14, bottom: 14 });
+  const [minimized, setMinimized] = useState(false);
+  const dragRef = useRef(null);
+
+  const onMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.sx;
+    const dy = e.clientY - d.sy;
+    const maxR = Math.max(8, (d.parent?.width || 9999) - d.w - 8);
+    const maxB = Math.max(8, (d.parent?.height || 9999) - d.h - 8);
+    setPos({
+      right: Math.min(maxR, Math.max(8, d.right - dx)),
+      bottom: Math.min(maxB, Math.max(8, d.bottom - dy)),
+    });
+  };
+  const endDrag = () => {
+    dragRef.current = null;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", endDrag);
+  };
+  const startDrag = (e) => {
+    if (e.target.closest("button")) return; // don't drag when hitting a control
+    e.preventDefault();
+    const self = e.currentTarget.getBoundingClientRect();
+    const parent = e.currentTarget.parentElement?.getBoundingClientRect();
+    dragRef.current = { sx: e.clientX, sy: e.clientY, right: pos.right, bottom: pos.bottom, parent, w: self.width, h: self.height };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", endDrag);
+  };
+
+  return (
+    <div
+      onPointerDown={startDrag}
+      className="group/self absolute z-40 rounded-xl overflow-hidden ring-1 ring-white/25 shadow-2xl bg-slate-900 cursor-grab active:cursor-grabbing"
+      style={{ right: pos.right, bottom: pos.bottom, width: minimized ? 132 : 188, aspectRatio: "16 / 9", touchAction: "none" }}
+    >
+      <ClusterParticipantTile trackRef={trackRef} />
+      <div className="absolute top-1 right-1 z-10 flex items-center gap-0.5 opacity-0 group-hover/self:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={() => setMinimized((v) => !v)}
+          title={minimized ? "Enlarge" : "Shrink"}
+          className="p-1 rounded bg-black/55 text-white/90 hover:text-white"
+        >
+          {minimized ? <Maximize2 className="w-3 h-3" /> : <Minimize2 className="w-3 h-3" />}
+        </button>
+        <button
+          type="button"
+          onClick={onDock}
+          title="Show my video in the grid instead"
+          className="p-1 rounded bg-black/55 text-white/90 hover:text-white"
+        >
+          <LayoutGrid className="w-3 h-3" />
+        </button>
+      </div>
+      <span className="absolute bottom-1 left-1.5 text-[9px] font-medium text-white/80 px-1 rounded bg-black/40 pointer-events-none">You</span>
+    </div>
+  );
+}
+
 // The video stage. Switches between layout modes — grid (uniform clamped
 // tiles), presenter (one big focus + a strip of the rest), and spotlight (just
 // the focus). An explicit focus (your pin, the admin's global pin, or a screen
@@ -1401,6 +1485,16 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   const forcedFocus = (pinned && pinned[0]) || globalPinTrack || screenTrack || null;
   const focusTrack = forcedFocus || speakerTrack || shown[0] || null;
 
+  // Floating self-view: pull your own camera tile out of the grid into a PiP
+  // (unless it's the focus — then it stays big). Everyone else still sees you as
+  // a normal tile; this is purely your local arrangement.
+  const { float, setFloat } = useContext(SelfViewContext);
+  const localCamTrack = shown.find(
+    (t) => t.participant?.isLocal && t.source === Track.Source.Camera && t.publication && !t.publication.isMuted,
+  );
+  const floatLocal = float && publish && !!localCamTrack && (!focusTrack || refKey(localCamTrack) !== refKey(focusTrack));
+  const baseTiles = floatLocal ? shown.filter((t) => t !== localCamTrack) : shown;
+
   // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
   const squished = (h > 0 && h < 200) || (w > 0 && w < 220);
   let mode = layoutMode;
@@ -1420,15 +1514,15 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
     stageTiles = [focusTrack];
     stageFocusKey = refKey(focusTrack);
   } else if (mode === "presenter" && focusTrack) {
-    stageTiles = shown;
+    stageTiles = baseTiles;
     stageFocusKey = refKey(focusTrack);
-  } else if (shown.length > capFor(w, h)) {
+  } else if (baseTiles.length > capFor(w, h)) {
     const cap = capFor(w, h - AUDIENCE_H);
-    const ordered = rankTiles(shown, featuredSpeaker, speaking);
+    const ordered = rankTiles(baseTiles, featuredSpeaker, speaking);
     stageTiles = ordered.slice(0, cap);
     audienceTiles = ordered.slice(cap);
   } else {
-    stageTiles = shown;
+    stageTiles = baseTiles;
   }
 
   return (
@@ -1440,6 +1534,8 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
         />
       </div>
       {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
+
+      {floatLocal && <FloatingSelfView trackRef={localCamTrack} onDock={() => setFloat(false)} />}
 
       <SpectatorList spectators={spectators} />
       {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}
@@ -1506,12 +1602,19 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // Push-to-talk: when on, the mic stays muted and a held Space key opens it for
   // the duration of the press. Off by default.
   const [ptt, setPtt] = useState(() => loadPref(PREF.ptt, "0") === "1");
+  // Self-view: mirror your own camera + float it as a PiP. Both default ON (the
+  // Meet convention).
+  const [mirror, setMirror] = useState(() => loadPref(PREF.mirror, "1") === "1");
+  const [selfFloat, setSelfFloat] = useState(() => loadPref(PREF.selfFloat, "1") === "1");
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.bg, bg), [bg]);
   useEffect(() => savePref(PREF.noise, noiseEnabled ? "1" : "0"), [noiseEnabled]);
   useEffect(() => savePref(PREF.autoMic, autoMic ? "1" : "0"), [autoMic]);
   useEffect(() => savePref(PREF.ptt, ptt ? "1" : "0"), [ptt]);
+  useEffect(() => savePref(PREF.mirror, mirror ? "1" : "0"), [mirror]);
+  useEffect(() => savePref(PREF.selfFloat, selfFloat ? "1" : "0"), [selfFloat]);
+  const selfView = useMemo(() => ({ mirror, float: selfFloat, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat]);
 
   // Push-to-talk key handling. micMuted lives in the parent; we drive it via the
   // passed toggle, reading the latest value through a ref so the listeners never
@@ -1567,17 +1670,19 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     >
       <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
       <AutoMicController enabled={autoMic} />
-      <LayoutContextProvider>
-        <Stage
-          compact={compact}
-          publish={publish}
-          onJoinIn={onJoinIn}
-          layoutMode={layoutMode}
-          roomId={roomId}
-          peopleOpen={peopleOpen}
-          onClosePeople={() => setPeopleOpen(false)}
-        />
-      </LayoutContextProvider>
+      <SelfViewContext.Provider value={selfView}>
+        <LayoutContextProvider>
+          <Stage
+            compact={compact}
+            publish={publish}
+            onJoinIn={onJoinIn}
+            layoutMode={layoutMode}
+            roomId={roomId}
+            peopleOpen={peopleOpen}
+            onClosePeople={() => setPeopleOpen(false)}
+          />
+        </LayoutContextProvider>
+      </SelfViewContext.Provider>
       {!compact && !chromeless && (
         <div
           className={`absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-3 pointer-events-none transition-opacity duration-300 ${
@@ -1605,6 +1710,10 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onToggleAutoMic={() => setAutoMic((v) => !v)}
               ptt={ptt}
               onTogglePtt={() => setPtt((v) => !v)}
+              mirror={mirror}
+              onToggleMirror={() => setMirror((v) => !v)}
+              selfFloat={selfFloat}
+              onToggleSelfFloat={() => setSelfFloat((v) => !v)}
               micMuted={micMuted}
               onToggleMic={onToggleMic}
               peopleOpen={peopleOpen}

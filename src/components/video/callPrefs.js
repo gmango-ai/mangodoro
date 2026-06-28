@@ -11,6 +11,8 @@ export const PREF = {
   autoMic: "ql_lk_automic",
   ptt: "ql_lk_ptt",
   speaker: "ql_lk_speaker", // saved audio-output deviceId (applied on call connect)
+  mirror: "ql_lk_mirror",   // flip your OWN camera (self-view) horizontally
+  selfFloat: "ql_lk_selffloat", // show your own tile as a floating PiP, not in the grid
 };
 
 export function loadPref(key, fallback) {
