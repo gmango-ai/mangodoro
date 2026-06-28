@@ -1,12 +1,12 @@
 import { lazy, Suspense, memo, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
 import { nodeAbsPos, sortParentsFirst } from "./frame";
-import { Target, ChevronDown, Building2, User, Star, X, Plus } from "lucide-react";
+import { Target, ChevronDown, Building2, User, Star, X, Plus, CalendarClock, Check } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
-import { setGoal, clearGoalNode } from "../../lib/goals";
+import { setGoal, clearGoalNode, GOAL_TIMEFRAMES, timeframeToParams } from "../../lib/goals";
 import { fontStack } from "../../lib/whiteboardFonts";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -142,10 +142,27 @@ export function wrapActiveSelection(marker) {
 // Stops propagating wheel + pointerdown so the canvas doesn't pan under
 // the cursor mid-edit. Opens immediately for freshly-created nodes
 // (markNodeForEdit) and on a single click once the node is selected.
-function EditableText({ value, onChange, placeholder, className, style, nodeId, selected, markdown }) {
+function EditableText({ value, onChange, placeholder, className, style, nodeId, selected, markdown, wrap }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
   const textareaRef = useRef(null);
+  // Live-collab: while typing we push throttled text updates to the node (which
+  // the realtime sync then broadcasts) so peers see edits as they happen, not
+  // only on blur. draftRef feeds the throttle the latest text; sentRef tracks
+  // what the node already has (skip redundant pushes); editStartRef lets Escape
+  // revert to the text as it was when editing began (live pushes moved `value`).
+  const draftRef = useRef(draft); draftRef.current = draft;
+  const sentRef = useRef(value || "");
+  const editStartRef = useRef(value || "");
+  const liveTimer = useRef(null);
+  const flushLive = useCallback(() => {
+    liveTimer.current = null;
+    const v = draftRef.current;
+    if (v !== sentRef.current) { sentRef.current = v; onChange?.(v); }
+  }, [onChange]);
+  const scheduleLive = useCallback(() => {
+    if (liveTimer.current == null) liveTimer.current = setTimeout(flushLive, 140);
+  }, [flushLive]);
 
   // Fresh nodes (markNodeForEdit) open straight into edit. Consume the
   // flag in an effect — NOT the state initializer — so the delete side
@@ -154,14 +171,24 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
     if (nodeId && PENDING_EDIT.has(nodeId)) { PENDING_EDIT.delete(nodeId); setEditing(true); }
   }, [nodeId]);
 
-  useEffect(() => { setDraft(value || ""); }, [value]);
+  // Mirror external value into the draft ONLY when not editing — while editing,
+  // the local draft is the source of truth, so an echo of our own push (or a
+  // remote edit) can't yank the cursor or revert in-flight characters.
+  useEffect(() => {
+    if (!editing) setDraft(value || "");
+    sentRef.current = value || "";
+  }, [value, editing]);
   useEffect(() => {
     if (editing && textareaRef.current) {
+      editStartRef.current = value || ""; // snapshot for Escape-revert
       const el = textareaRef.current;
       el.focus();
       el.select();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
+  // Cancel a pending push on unmount so a late timer can't fire post-cleanup.
+  useEffect(() => () => { if (liveTimer.current) clearTimeout(liveTimer.current); }, []);
 
   // Register a selection-wrapper while editing so the Inspector B / I buttons
   // can markdown-format the live selection (their mouse-down keeps our focus).
@@ -182,6 +209,7 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
         selStart = s + ml; selEnd = e + ml;
       }
       setDraft(next.slice(0, 1000));
+      scheduleLive();
       requestAnimationFrame(() => {
         const t = textareaRef.current;
         if (!t) return;
@@ -194,7 +222,9 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
   }, [editing]);
 
   const commit = useCallback(() => {
+    if (liveTimer.current) { clearTimeout(liveTimer.current); liveTimer.current = null; }
     if (draft !== value) onChange?.(draft);
+    sentRef.current = draft;
     setEditing(false);
   }, [draft, value, onChange]);
 
@@ -227,7 +257,9 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
   // to the sizer (= the text), and the textarea fills it. Editing now hugs the
   // content exactly like display does — in both width and height — for free.
   return (
-    <div style={{ display: "grid" }}>
+    // wrap (fixed-width text box): fill the node's pinned width so the hidden
+    // sizer wraps at that width instead of growing to max-content while editing.
+    <div style={{ display: "grid", width: wrap ? "100%" : undefined }}>
       <div
         aria-hidden
         className={className}
@@ -250,11 +282,17 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
         value={draft}
         rows={1}
         cols={1}
-        onChange={(e) => setDraft(e.target.value.slice(0, 1000))}
+        onChange={(e) => { setDraft(e.target.value.slice(0, 1000)); scheduleLive(); }}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === "Escape") { setDraft(value || ""); setEditing(false); }
-          else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { commit(); }
+          if (e.key === "Escape") {
+            if (liveTimer.current) { clearTimeout(liveTimer.current); liveTimer.current = null; }
+            const orig = editStartRef.current;
+            if (orig !== value) onChange?.(orig); // undo any live pushes
+            sentRef.current = orig;
+            setDraft(orig);
+            setEditing(false);
+          } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { commit(); }
         }}
         onPointerDown={(e) => e.stopPropagation()}
         onWheel={(e) => e.stopPropagation()}
@@ -331,12 +369,103 @@ export const STICKY_PALETTE = [
   "#e2e8f0", "#cbd5e1", "#f1f5f9", "#e7e5e4", "#d6d3d1", "#fafaf9",
 ];
 
-export const StickyNode = memo(function StickyNode({ id, data, selected }) {
-  const setText = useNodeTextUpdater(id);
+// Reusable emoji-reaction strip for a node. Overhangs the node's bottom-left:
+// chips for existing reactions (click a chip to take one back), a quick-react
+// bar + full emoji picker when the node is selected, and a "⋯" popover listing
+// all reactions once they overflow. Reactions live on data.reactions
+// ({ emoji: count }) so they sync + persist like any node data. Sticky notes
+// render an equivalent strip inline; image nodes use this shared one.
+function NodeReactions({ id, data, selected, style }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
   const patch = useNodeDataPatcher(id);
-  const { setNodes } = useReactFlow();
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [allOpen, setAllOpen] = useState(false); // "view all reactions" popover
+  const reactions = data?.reactions || {};
+  const react = (emoji) => patch({ reactions: { ...reactions, [emoji]: (reactions[emoji] || 0) + 1 } });
+  const unreact = (emoji) => {
+    const next = { ...reactions, [emoji]: (reactions[emoji] || 0) - 1 };
+    if (next[emoji] <= 0) delete next[emoji];
+    patch({ reactions: next });
+  };
+  const shown = Object.entries(reactions).filter(([, c]) => c > 0);
+  const stop = (e) => e.stopPropagation();
+  const chipStyle = { display: "inline-flex", alignItems: "center", gap: 2, background: "#171430", color: "#fff", fontSize: 8, fontWeight: 700, lineHeight: 1, borderRadius: 5, padding: "2px 5px", border: `1.5px solid ${SELECT}`, boxShadow: "0 3px 8px -3px rgba(0,0,0,.5)", cursor: "pointer" };
+  const MAX_CHIPS = 3;
+  // Nothing to render when collapsed with no reactions yet.
+  if (!selected && shown.length === 0) return null;
+  return (
+    <div className="nodrag" onPointerDown={stop}
+      style={{ position: "absolute", left: 10, top: "calc(100% - 14px)", zIndex: 20, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, ...style }}>
+      {shown.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {shown.slice(0, MAX_CHIPS).map(([e, c]) => (
+            <button key={e} type="button" onClick={() => unreact(e)} title="Click to remove a reaction" style={chipStyle}>
+              <span style={{ fontSize: 10 }}>{e}</span>
+              <span>+{c}</span>
+            </button>
+          ))}
+          {shown.length > MAX_CHIPS && (
+            <button type="button" onClick={() => setAllOpen((v) => !v)} title="View all reactions"
+              style={{ ...chipStyle, fontWeight: 800, padding: "2px 6px" }}>⋯</button>
+          )}
+        </div>
+      )}
+      {allOpen && (
+        <>
+          <div className="nodrag" onPointerDown={(e) => { stop(e); setAllOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
+          <div className="nodrag nowheel" onPointerDown={stop}
+            style={{ zIndex: 60, maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2, minWidth: 92, background: "#171430", border: `1.5px solid ${SELECT}`, borderRadius: 9, padding: 5, boxShadow: "0 12px 26px -8px rgba(0,0,0,.6)" }}>
+            {shown.map(([e, c]) => (
+              <button key={e} type="button" onClick={() => unreact(e)} title="Click to remove a reaction"
+                style={{ display: "flex", alignItems: "center", gap: 6, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 5px", borderRadius: 5, cursor: "pointer" }}>
+                <span style={{ fontSize: 15 }}>{e}</span>
+                <span>+{c}</span>
+                <X style={{ width: 11, height: 11, marginLeft: "auto", opacity: 0.55 }} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {selected && (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 1, background: "#171430", borderRadius: 9, padding: "2px 5px", border: "2px solid rgba(255,255,255,.16)", boxShadow: "0 5px 12px -4px rgba(0,0,0,.5)" }}>
+          {QUICK_REACTIONS.map((e) => (
+            <button key={e} type="button" onClick={() => react(e)} title={`React ${e}`} style={{ fontSize: 14, lineHeight: 1, padding: "1px 2px" }}>{e}</button>
+          ))}
+          <button type="button" onClick={() => setEmojiOpen((v) => !v)} title="More emojis" aria-label="More emojis"
+            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, borderRadius: 9999, color: "#fff" }}>
+            <Plus style={{ width: 12, height: 12 }} />
+          </button>
+        </div>
+      )}
+      {emojiOpen && (
+        <>
+          <div className="nodrag" onPointerDown={(e) => { stop(e); setEmojiOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
+          <div className="nodrag nowheel" onPointerDown={stop} style={{ zIndex: 60, borderRadius: 12, overflow: "hidden", boxShadow: "0 16px 36px -16px rgba(0,0,0,.5)" }}>
+            <Suspense fallback={null}>
+              <EmojiPicker
+                onEmojiClick={(d) => { react(d.emoji); setEmojiOpen(false); }}
+                theme={dark ? "dark" : "light"}
+                emojiStyle="native"
+                width={300}
+                height={360}
+                lazyLoadEmojis
+                autoFocusSearch={false}
+                skinTonesDisabled
+                previewConfig={{ showPreview: false }}
+                searchPlaceholder="Search emoji"
+              />
+            </Suspense>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export const StickyNode = memo(function StickyNode({ id, data, selected }) {
+  const setText = useNodeTextUpdater(id);
+  const { setNodes } = useReactFlow();
   // Grow the note's height to fit its text so nothing clips (width stays
   // user-controlled, like shapes). Pad covers the 16/12 padding + author line.
   const growRef = useAutoHeight(id, 28 + (data?.author ? 20 : 0) + 6);
@@ -361,21 +490,8 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
   // the author line is the same ink, dimmed.
   const ink = readableText(bg);
   const authorInk = ink === "#0f172a" ? "rgba(40,28,8,.55)" : "rgba(255,255,255,.72)";
-  const reactions = data?.reactions || {};
-  const react = (emoji) => patch({ reactions: { ...reactions, [emoji]: (reactions[emoji] || 0) + 1 } });
-  // Click a chip to take one back (drops off at zero).
-  const unreact = (emoji) => {
-    const next = { ...reactions, [emoji]: (reactions[emoji] || 0) - 1 };
-    if (next[emoji] <= 0) delete next[emoji];
-    patch({ reactions: next });
-  };
-  const shown = Object.entries(reactions).filter(([, c]) => c > 0);
   const author = data?.author || "";
   const stop = (e) => e.stopPropagation();
-  // Small dark reaction pill; at most a few show on the note, the rest live in
-  // a "⋯" popover so the strip never runs off the edge.
-  const chipStyle = { display: "inline-flex", alignItems: "center", gap: 2, background: "#171430", color: "#fff", fontSize: 8, fontWeight: 700, lineHeight: 1, borderRadius: 5, padding: "2px 5px", border: `1.5px solid ${SELECT}`, boxShadow: "0 3px 8px -3px rgba(0,0,0,.5)", cursor: "pointer" };
-  const MAX_CHIPS = 3;
   const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
   return (
     <div
@@ -427,64 +543,8 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
         </div>
       )}
 
-      {/* Reactions overhang the bottom edge. The "viewer" (chips) wraps within
-          the note's width so it never flies off; the quick-react bar and the
-          full emoji picker stack BELOW it when the note is selected. Click a
-          chip to take a reaction back. */}
-      <div className="nodrag" onPointerDown={stop}
-        style={{ position: "absolute", left: 10, top: "calc(100% - 14px)", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
-        {shown.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            {shown.slice(0, MAX_CHIPS).map(([e, c]) => (
-              <button key={e} type="button" onClick={() => unreact(e)} title="Click to remove a reaction" style={chipStyle}>
-                <span style={{ fontSize: 10 }}>{e}</span>
-                <span>+{c}</span>
-              </button>
-            ))}
-            {shown.length > MAX_CHIPS && (
-              <button type="button" onClick={() => setAllOpen((v) => !v)} title="View all reactions"
-                style={{ ...chipStyle, fontWeight: 800, padding: "2px 6px" }}>⋯</button>
-            )}
-          </div>
-        )}
-        {allOpen && (
-          <>
-            <div className="nodrag" onPointerDown={(e) => { stop(e); setAllOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
-            <div className="nodrag nowheel" onPointerDown={stop}
-              style={{ zIndex: 60, maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2, minWidth: 92, background: "#171430", border: `1.5px solid ${SELECT}`, borderRadius: 9, padding: 5, boxShadow: "0 12px 26px -8px rgba(0,0,0,.6)" }}>
-              {shown.map(([e, c]) => (
-                <button key={e} type="button" onClick={() => unreact(e)} title="Click to remove a reaction"
-                  style={{ display: "flex", alignItems: "center", gap: 6, color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 5px", borderRadius: 5, cursor: "pointer" }}>
-                  <span style={{ fontSize: 15 }}>{e}</span>
-                  <span>+{c}</span>
-                  <X style={{ width: 11, height: 11, marginLeft: "auto", opacity: 0.55 }} />
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-        {selected && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 1, background: "#171430", borderRadius: 9, padding: "2px 5px", border: "2px solid rgba(255,255,255,.16)", boxShadow: "0 5px 12px -4px rgba(0,0,0,.5)" }}>
-            {QUICK_REACTIONS.map((e) => (
-              <button key={e} type="button" onClick={() => react(e)} title={`React ${e}`} style={{ fontSize: 14, lineHeight: 1, padding: "1px 2px" }}>{e}</button>
-            ))}
-            <button type="button" onClick={() => setEmojiOpen((v) => !v)} title="More emojis" aria-label="More emojis"
-              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, borderRadius: 9999, color: "#fff" }}>
-              <Plus style={{ width: 12, height: 12 }} />
-            </button>
-          </div>
-        )}
-        {emojiOpen && (
-          <>
-            <div className="nodrag" onPointerDown={(e) => { stop(e); setEmojiOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
-            <div className="nodrag nowheel" onPointerDown={stop} style={{ zIndex: 60, borderRadius: 12, overflow: "hidden", boxShadow: "0 16px 36px -16px rgba(0,0,0,.5)" }}>
-              <Suspense fallback={null}>
-                <EmojiPicker onEmojiClick={(d) => { react(d.emoji); setEmojiOpen(false); }} theme="light" width={232} height={300} lazyLoadEmojis skinTonesDisabled previewConfig={{ showPreview: false }} />
-              </Suspense>
-            </div>
-          </>
-        )}
-      </div>
+      {/* Emoji reactions — overhang the bottom-left edge (shared with images). */}
+      <NodeReactions id={id} data={data} selected={selected} />
     </div>
   );
 });
@@ -494,18 +554,71 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
 // Padding presets for a text node's background chip (data.pad).
 const TEXT_PAD = { none: "0px", sm: "8px 14px", md: "16px 26px", lg: "30px 44px" };
 
+// A slim drag strip on a text node's right edge that PINS its width (data.w) so
+// the text wraps to that width and the height auto-fits. Width-only by design:
+// it never sets a node height, so React Flow keeps measuring the wrapped content
+// (exact fit, both growing and shrinking). Double-click releases the width back
+// to auto-hug. Zoom-aware so the edge tracks the cursor 1:1. nodrag/nowheel +
+// stopPropagation keep the canvas from panning or moving the node mid-drag.
+function WidthHandle({ id, rootRef }) {
+  const { setNodes, getViewport } = useReactFlow();
+  const onPointerDown = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = rootRef.current?.offsetWidth || 180;
+    const zoom = getViewport().zoom || 1;
+    const move = (ev) => {
+      const w = Math.max(80, Math.round(startW + (ev.clientX - startX) / zoom));
+      setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, w } } : n)));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const release = (e) => {
+    e.stopPropagation();
+    setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, w: undefined } } : n)));
+  };
+  return (
+    <div
+      className="nodrag nowheel"
+      onPointerDown={onPointerDown}
+      onDoubleClick={release}
+      title="Drag to set width · double-click to auto-fit"
+      style={{
+        position: "absolute", top: 6, bottom: 6, right: -5, width: 8,
+        cursor: "ew-resize", borderRadius: 4, background: SELECT, opacity: 0.55, zIndex: 6,
+      }}
+    />
+  );
+}
+
 export const TextNode = memo(function TextNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
+  const rootRef = useRef(null);
   // Optional background turns a text node into a label / chip / callout. When a
   // fill is set the default text colour auto-contrasts against it (like sticky
   // and shape do); radius + padding round the chip.
   const fill = data?.fill || null;
   const radius = data?.radius ?? 8;
   const textColor = data?.textColor || (fill ? readableText(fill) : "var(--color-text)");
+  // Width modes: a text node hugs its content by DEFAULT (grows horizontally as
+  // you type). Drag the right handle to pin a width (data.w) — text then wraps to
+  // that width and the HEIGHT auto-fits, because we never set an explicit node
+  // height (React Flow measures the wrapped content). Double-click the handle to
+  // release the width back to auto-hug.
+  const fixed = typeof data?.w === "number" && data.w > 0;
   return (
     <div
+      ref={rootRef}
       style={{
-        minWidth: 180,
+        position: "relative",
+        width: fixed ? data.w : undefined,
+        minWidth: fixed ? undefined : 180,
         padding: fill ? (TEXT_PAD[data?.pad] || TEXT_PAD.md) : "8px 12px",
         background: fill || (selected ? SELECT_FILL : "transparent"),
         borderRadius: radius,
@@ -521,8 +634,10 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         nodeId={id}
         selected={selected}
         markdown
+        wrap={fixed}
         style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
       />
+      {selected && !data?.locked && <WidthHandle id={id} rootRef={rootRef} />}
     </div>
   );
 });
@@ -705,10 +820,12 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
   const { orgTeams = [], teamMembers = [], activeTeamId } = useTeam() || {};
   const { whiteboardId } = useParams();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [tfOpen, setTfOpen] = useState(false);
   const linked = data?.linkType && data?.linkId;
   const linkColor = data?.linkColor || "#f59e0b";
   const goalActive = !!data?.goalActive;
-  const canSet = linked && (data?.text || "").trim();
+  const timeframe = data?.timeframe || "none";
+  const body = (data?.text || "").trim();
   // Theme-aware surfaces so the goal card reads in dark mode (the amber header
   // banner + accent border stay; only the body/card chrome flips).
   const dark = theme === "dark";
@@ -718,21 +835,35 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
   const divider = dark ? "rgba(255,255,255,.10)" : "rgba(0,0,0,.07)";
   const popBorder = dark ? "rgba(255,255,255,.14)" : "#e2e8f0";
 
-  async function toggleSetAsGoal() {
-    if (!activeTeamId || !linked) return;
-    if (goalActive) {
-      await clearGoalNode({ boardId: whiteboardId, nodeId: id });
-      patch({ goalActive: false });
-    } else {
-      if (!(data?.text || "").trim()) return;
-      const { error } = await setGoal({
-        teamId: activeTeamId, ownerType: data.linkType, ownerId: data.linkId,
-        ownerName: data.linkName, ownerColor: data.linkColor, body: data.text,
-        boardId: whiteboardId, nodeId: id,
-      });
-      if (!error) patch({ goalActive: true });
-    }
-  }
+  // Auto-sync to the goals list: a goal node is a goal. Once it has a linked
+  // owner + text, it's added to the owner's goals list (debounced); clearing
+  // the text or unlinking removes it. lastSyncRef prevents redundant writes +
+  // a re-sync loop when we patch goalActive back into node data.
+  const lastSyncRef = useRef("");
+  useEffect(() => {
+    if (!activeTeamId) return;
+    const sig = linked && body ? `${data.linkType}:${data.linkId}:${timeframe}:${body}` : "";
+    if (sig === lastSyncRef.current) return;
+    const t = setTimeout(async () => {
+      if (sig) {
+        const { horizon, weekStart } = timeframeToParams(timeframe);
+        const { error } = await setGoal({
+          teamId: activeTeamId, ownerType: data.linkType, ownerId: data.linkId,
+          ownerName: data.linkName, ownerColor: data.linkColor, body,
+          boardId: whiteboardId, nodeId: id, horizon, weekStart,
+        });
+        if (!error) { lastSyncRef.current = sig; if (!data?.goalActive) patch({ goalActive: true }); }
+      } else if (lastSyncRef.current) {
+        await clearGoalNode({ boardId: whiteboardId, nodeId: id });
+        lastSyncRef.current = "";
+        if (data?.goalActive) patch({ goalActive: false });
+      }
+    }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTeamId, data?.linkType, data?.linkId, body, timeframe, whiteboardId, id]);
+
+  const tfLabel = GOAL_TIMEFRAMES.find((t) => t.key === timeframe)?.label || "Ongoing";
   return (
     <div
       style={{
@@ -748,32 +879,52 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "linear-gradient(120deg,#f59e0b,#f97316)", color: "#fff", borderRadius: "12px 12px 0 0" }}>
         <Target style={{ width: 14, height: 14 }} />
         <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".12em" }}>GOAL</span>
-        <button
-          type="button"
-          className="nodrag"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={toggleSetAsGoal}
-          disabled={!goalActive && !canSet}
-          title={goalActive ? "Currently set as the goal — click to unset" : canSet ? "Set as the current goal for its tag" : "Add text + link it first"}
-          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 800, color: "#fff", opacity: goalActive || canSet ? 1 : 0.55, padding: "1px 6px", borderRadius: 9999, background: goalActive ? "rgba(255,255,255,.25)" : "transparent" }}
+        {/* Auto-saved status — a goal node is added to the owner's goals list
+            as soon as it's linked + has text. No manual "set" step. */}
+        <span
+          title={goalActive ? "Saved to the goals list" : "Link an owner + add text to add this to the goals list"}
+          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 800, color: "#fff", opacity: goalActive ? 1 : 0.6, padding: "1px 6px", borderRadius: 9999, background: goalActive ? "rgba(255,255,255,.25)" : "transparent" }}
         >
-          <Star style={{ width: 12, height: 12 }} fill={goalActive ? "#fff" : "none"} />
-          {goalActive ? "SET" : "Set goal"}
-        </button>
+          {goalActive ? <Check style={{ width: 12, height: 12 }} /> : <Star style={{ width: 12, height: 12 }} fill="none" />}
+          {goalActive ? "In goals" : "Goal"}
+        </span>
       </div>
       <div style={{ flex: 1, padding: 10, minHeight: 0 }}>
         <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }} />
       </div>
-      <div className="nodrag" style={{ position: "relative", padding: "6px 10px", borderTop: `1px solid ${divider}` }} onPointerDown={(e) => e.stopPropagation()}>
+      <div className="nodrag" style={{ position: "relative", padding: "6px 10px", borderTop: `1px solid ${divider}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} onPointerDown={(e) => e.stopPropagation()}>
         <button
           type="button"
-          onClick={() => setPickerOpen((v) => !v)}
+          onClick={() => { setPickerOpen((v) => !v); setTfOpen(false); }}
           style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: linked ? "#fff" : muted, background: linked ? linkColor : "transparent", padding: linked ? "2px 8px" : 0, borderRadius: 9999 }}
         >
           {data?.linkType === "user" ? <User style={{ width: 12, height: 12 }} /> : <Building2 style={{ width: 12, height: 12 }} />}
           {linked ? data.linkName : "Link to a team or person"}
           <ChevronDown style={{ width: 11, height: 11, opacity: 0.6 }} />
         </button>
+
+        {/* Timeframe — Ongoing / This week / Next week / month / … */}
+        <button
+          type="button"
+          onClick={() => { setTfOpen((v) => !v); setPickerOpen(false); }}
+          title="When is this goal for?"
+          style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: muted, background: dark ? "rgba(255,255,255,.06)" : "rgba(0,0,0,.04)", padding: "2px 8px", borderRadius: 9999 }}
+        >
+          <CalendarClock style={{ width: 12, height: 12 }} />
+          {tfLabel}
+          <ChevronDown style={{ width: 11, height: 11, opacity: 0.6 }} />
+        </button>
+        {tfOpen && (
+          <div className="nowheel" style={{ position: "absolute", bottom: 34, right: 8, zIndex: 40, width: 150, background: surface, border: `1px solid ${popBorder}`, borderRadius: 12, boxShadow: "0 16px 36px -16px rgba(0,0,0,.45)", padding: 4 }}>
+            {GOAL_TIMEFRAMES.map((t) => (
+              <button key={t.key} type="button" onClick={() => { patch({ timeframe: t.key }); setTfOpen(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "4px 8px", borderRadius: 8, fontSize: 12, color: text, fontWeight: t.key === timeframe ? 700 : 500 }}>
+                {t.key === timeframe ? <Check style={{ width: 12, height: 12, color: "#f59e0b" }} /> : <span style={{ width: 12 }} />}
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         {pickerOpen && (
           <div className="nowheel" style={{ position: "absolute", bottom: 34, left: 8, zIndex: 40, width: 196, maxHeight: 220, overflowY: "auto", background: surface, border: `1px solid ${popBorder}`, borderRadius: 12, boxShadow: "0 16px 36px -16px rgba(0,0,0,.45)", padding: 4 }}>
             {orgTeams.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, color: muted, textTransform: "uppercase", letterSpacing: ".08em", padding: "4px 8px 2px" }}>Departments</div>}
@@ -923,28 +1074,32 @@ export const ImageNode = memo(function ImageNode({ id, data, selected }) {
   const stop = (e) => e.stopPropagation();
   const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
   return (
-    <div
-      style={{
-        width: "100%", height: "100%", position: "relative",
-        borderRadius: 6, overflow: "hidden", background: "#0b1020",
-        boxShadow: selected
-          ? `0 0 0 2px ${SELECT}, 0 16px 28px -12px rgba(0,0,0,.5)`
-          : "0 14px 26px -12px rgba(0,0,0,.4), 0 3px 7px -3px rgba(0,0,0,.18)",
-      }}
-    >
+    // Outer wrapper is NOT clipped so the reaction strip can overhang the bottom
+    // edge; only the inner image surface rounds + clips its pixels.
+    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+      <div
+        style={{
+          width: "100%", height: "100%",
+          borderRadius: 6, overflow: "hidden", background: "#0b1020",
+          boxShadow: selected
+            ? `0 0 0 2px ${SELECT}, 0 16px 28px -12px rgba(0,0,0,.5)`
+            : "0 14px 26px -12px rgba(0,0,0,.4), 0 3px 7px -3px rgba(0,0,0,.18)",
+        }}
+      >
+        {src ? (
+          <img
+            src={src}
+            alt={data?.alt || ""}
+            draggable={false}
+            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", pointerEvents: "none", userSelect: "none" }}
+          />
+        ) : (
+          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12, padding: 8, textAlign: "center" }}>
+            Image unavailable
+          </div>
+        )}
+      </div>
       <NodeResizer isVisible={selected && !data?.locked} minWidth={48} minHeight={48} keepAspectRatio {...resizer(SELECT)} />
-      {src ? (
-        <img
-          src={src}
-          alt={data?.alt || ""}
-          draggable={false}
-          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", pointerEvents: "none", userSelect: "none" }}
-        />
-      ) : (
-        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12, padding: 8, textAlign: "center" }}>
-          Image unavailable
-        </div>
-      )}
       <FourHandles />
       {selected && (
         <button
@@ -954,6 +1109,8 @@ export const ImageNode = memo(function ImageNode({ id, data, selected }) {
           <X style={{ width: 13, height: 13 }} />
         </button>
       )}
+      {/* Emoji reactions pinned to the image — chips overhang the bottom edge. */}
+      <NodeReactions id={id} data={data} selected={selected} />
     </div>
   );
 });

@@ -27,6 +27,7 @@ import {
   Pencil,
   Archive,
   Download,
+  Crop,
   Type,
   Shapes,
   Frame,
@@ -1004,15 +1005,91 @@ export default function WhiteboardPage() {
 // it can be dropped into the /whiteboards route (above) OR a room panel
 // tile. `embedded` trims page-only chrome (back link, archive, full-
 // viewport height) so it fits inside an arbitrary container.
-export function WhiteboardBoard({ boardId, embedded = false }) {
+// Region capture: a full-cover overlay that lets you drag a box over the canvas
+// to export just that area as a PNG (a "snip" tool). It grabs the drag itself —
+// so nodes don't move and the canvas doesn't pan — and exits on release. The two
+// corners convert through screenToFlowPosition, so the captured bounds are in
+// flow space regardless of the current pan/zoom. A dashed box dims everything
+// outside the selection while dragging.
+function RegionCapture({ toFlow, onComplete, onCancel, dark }) {
+  const [box, setBox] = useState(null); // client-space rect for the visual
+  const startRef = useRef(null);
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const down = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startRef.current = { x: e.clientX, y: e.clientY };
+    draggingRef.current = true;
+    setBox({ l: e.clientX, t: e.clientY, w: 0, h: 0 });
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* */ }
+  };
+  const move = (e) => {
+    if (!draggingRef.current) return;
+    const s = startRef.current;
+    setBox({ l: Math.min(s.x, e.clientX), t: Math.min(s.y, e.clientY), w: Math.abs(e.clientX - s.x), h: Math.abs(e.clientY - s.y) });
+  };
+  const up = (e) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    const s = startRef.current;
+    setBox(null);
+    let a, b;
+    try {
+      a = toFlow({ x: Math.min(s.x, e.clientX), y: Math.min(s.y, e.clientY) });
+      b = toFlow({ x: Math.max(s.x, e.clientX), y: Math.max(s.y, e.clientY) });
+    } catch { onCancel(); return; }
+    const bounds = { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y };
+    if (bounds.width < 8 || bounds.height < 8) { onCancel(); return; } // a click, not a drag
+    onComplete(bounds);
+  };
+
+  return (
+    <div
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      style={{ position: "absolute", inset: 0, zIndex: 50, cursor: "crosshair", background: "transparent", touchAction: "none" }}
+    >
+      {box && (
+        <div
+          style={{
+            position: "fixed", left: box.l, top: box.t, width: box.w, height: box.h,
+            border: "2px dashed #38bdf8", background: "rgba(56,189,248,0.10)",
+            boxShadow: "0 0 0 9999px rgba(15,23,42,0.30)", pointerEvents: "none",
+          }}
+        />
+      )}
+      <div
+        style={{
+          position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)",
+          background: dark ? "rgba(2,6,23,0.92)" : "rgba(15,23,42,0.88)", color: "#fff",
+          fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 9999,
+          pointerEvents: "none", whiteSpace: "nowrap", zIndex: 51,
+        }}
+      >
+        Drag to capture a region · Esc to cancel
+      </div>
+    </div>
+  );
+}
+
+export function WhiteboardBoard({ boardId, embedded = false, readOnly = false }) {
   return (
     <ReactFlowProvider>
-      <WhiteboardEditor boardId={boardId} embedded={embedded} />
+      <WhiteboardEditor boardId={boardId} embedded={embedded} readOnly={readOnly} />
     </ReactFlowProvider>
   );
 }
 
-function WhiteboardEditor({ boardId, embedded = false }) {
+function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const { theme } = useTheme();
   const { isAdmin, activeTeamId } = useTeam();
   const navigate = useNavigate();
@@ -2525,17 +2602,16 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     navigate("/whiteboards");
   }
 
-  // Export the whole board as a PNG. We capture React Flow's viewport element
-  // with an overridden transform that frames the nodes' bounding box (so the
-  // export covers everything, not just what's on screen). html-to-image clones
-  // the node, so the live view isn't disturbed.
-  const handleExportPng = useCallback(async () => {
+  // Render a flow-coordinate region to a PNG and download it. We capture React
+  // Flow's viewport element with an overridden transform that frames `bounds` (so
+  // the export covers that area, not just what's on screen). html-to-image clones
+  // the node, so the live view isn't disturbed. Shared by the whole-board export
+  // (bounds = all nodes) and the region-capture tool (bounds = the dragged box).
+  const exportPng = useCallback(async (bounds, pad = 48) => {
     const el = mainRef.current?.querySelector(".react-flow__viewport");
     if (!el) return;
-    const bounds = getNodesBounds(rf.getNodes());
-    if (!bounds.width || !bounds.height) { setError("Nothing to export yet."); return; }
-    const pad = 48;
-    // Up to 2x for crisp small boards; scale down big ones to cap ~4000px.
+    if (!bounds || !bounds.width || !bounds.height) { setError("Nothing to export yet."); return; }
+    // Up to 2x for crisp small regions; scale down big ones to cap ~4000px.
     const zoom = Math.min(2, 4000 / Math.max(bounds.width, bounds.height));
     const w = Math.ceil(bounds.width * zoom + pad * 2);
     const h = Math.ceil(bounds.height * zoom + pad * 2);
@@ -2560,7 +2636,12 @@ function WhiteboardEditor({ boardId, embedded = false }) {
     } catch (e) {
       setError(`Export failed: ${e?.message || "unknown error"}`);
     }
-  }, [rf, dark, board?.title]);
+  }, [dark, board?.title]);
+
+  // Whole-board export: frame the bounding box of every node.
+  const handleExportPng = useCallback(() => {
+    exportPng(getNodesBounds(rf.getNodes()), 48);
+  }, [exportPng, rf]);
 
   const template = useMemo(
     () => (board?.template_key ? TEMPLATES[board.template_key] : null),
@@ -2630,6 +2711,23 @@ function WhiteboardEditor({ boardId, embedded = false }) {
       onPointerCancel={onWbPointerUp}
     >
       <EdgeMarkerDefs />
+      {/* Embedded (room) view hides the full toolbar, so surface a standalone
+          PNG download here — same export handler the full page uses. Hidden on
+          read-only (kiosk) boards, which can't interact and show a "View only"
+          badge in that corner. */}
+      {embedded && !readOnly && (
+        <button
+          type="button"
+          onClick={handleExportPng}
+          title="Download as PNG"
+          aria-label="Download whiteboard as PNG"
+          className={`absolute top-2 right-2 z-20 w-8 h-8 rounded-full inline-flex items-center justify-center shadow-md transition-colors ${
+            dark ? "bg-slate-800/90 text-slate-200 hover:bg-slate-700" : "bg-white/90 text-slate-600 hover:bg-white"
+          }`}
+        >
+          <Download className="w-4 h-4" />
+        </button>
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -2913,6 +3011,16 @@ function WhiteboardEditor({ boardId, embedded = false }) {
         })()}
       </ReactFlow>
 
+      {/* Region capture ("snip") overlay — drag a box to export it as a PNG. */}
+      {tool === "capture" && !embedded && (
+        <RegionCapture
+          dark={dark}
+          toFlow={(p) => rf.screenToFlowPosition(p)}
+          onComplete={(b) => { setTool("select"); exportPng(b, 12); }}
+          onCancel={() => setTool("select")}
+        />
+      )}
+
       {/* My own laser glow (screen space) — tracks in laser mode, shows on press. */}
       <LocalLaser active={tool === "laser"} show={laserPressing} color={effectiveLaserColor} />
       {/* Photoshop-style brush ring while painting (replaces the crosshair). */}
@@ -3109,6 +3217,24 @@ function WhiteboardEditor({ boardId, embedded = false }) {
                 <MapIcon className="w-4 h-4" />
               </button>
             </>
+          )}
+          {!embedded && (
+            <button
+              type="button"
+              onClick={() => setTool((t) => (t === "capture" ? "select" : "capture"))}
+              title="Capture a region as PNG"
+              aria-label="Capture a region as PNG"
+              aria-pressed={tool === "capture"}
+              className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+                tool === "capture"
+                  ? "text-[var(--color-accent)] bg-[var(--color-accent-light)]"
+                  : dark
+                  ? "text-slate-400 hover:bg-white/10"
+                  : "text-slate-500 hover:bg-slate-100"
+              }`}
+            >
+              <Crop className="w-4 h-4" />
+            </button>
           )}
           {!embedded && (
             <button
