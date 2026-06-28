@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import {
   Hash, Briefcase, MessageSquare, Lock,
   LogIn, LogOut, Play, Pause, PanelLeftOpen, PanelLeftClose, ChevronDown, Settings,
+  Copy, Check,
 } from "lucide-react";
+import { getRoomAccessCode } from "../../lib/rooms";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { openPomodoroSurface } from "../../lib/pomodoroSurface";
 import RoomLayout from "./roomLayout/RoomLayout";
@@ -102,6 +104,27 @@ export default function RoomView({
   const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
   const [arranging, setArranging] = useState(false);
 
+  // Access code for a code-gated room — fetched only for managers (RLS on
+  // room_secrets returns nothing to anyone else), so it can be grabbed and
+  // shared straight from the header.
+  const [accessCode, setAccessCode] = useState("");
+  const [codeCopied, setCodeCopied] = useState(false);
+  const isCodeRoom = room?.entry_policy === "code";
+  useEffect(() => {
+    if (!isCodeRoom || !canEditRoom || !room?.id) { setAccessCode(""); return; }
+    let cancelled = false;
+    getRoomAccessCode(room.id).then(({ data }) => { if (!cancelled) setAccessCode(data || ""); });
+    return () => { cancelled = true; };
+  }, [room?.id, isCodeRoom, canEditRoom]);
+  async function copyAccessCode() {
+    if (!accessCode) return;
+    try {
+      await navigator.clipboard.writeText(accessCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  }
+
   if (!room) return null;
 
   // Quick-toggle data for the header: which panels exist + their icon/title.
@@ -196,7 +219,7 @@ export default function RoomView({
                 </h1>
                 <p className={`text-[10px] uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
                   {KIND_LABEL[room.kind] || room.kind}
-                  {room.kind === "private" && room.invite_code && (
+                  {room.entry_policy === "code" && (
                     <span className={`ml-2 ${dark ? "text-amber-300" : "text-amber-600"}`}>
                       · Locked
                     </span>
@@ -204,6 +227,30 @@ export default function RoomView({
                 </p>
               </div>
             </button>
+
+            {/* Access code chip — managers can grab + share the room's
+                code without opening settings. Click copies to clipboard.
+                Only rendered when a code exists (RLS hides it from
+                non-managers, so this never leaks). */}
+            {isCodeRoom && canEditRoom && accessCode && (
+              <button
+                type="button"
+                onClick={copyAccessCode}
+                title="Copy access code — share it to let people in"
+                aria-label={`Room access code ${accessCode}. Click to copy.`}
+                className={`inline-flex items-center gap-1.5 shrink-0 h-8 px-2.5 rounded-lg border text-xs font-mono tracking-widest transition-colors ${
+                  dark
+                    ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-amber-200 hover:border-amber-400/50"
+                    : "bg-amber-50 border-amber-200 text-amber-700 hover:border-amber-300"
+                }`}
+              >
+                <Lock className="w-3 h-3 opacity-70" />
+                <span>{accessCode}</span>
+                {codeCopied
+                  ? <Check className="w-3.5 h-3.5" />
+                  : <Copy className="w-3.5 h-3.5 opacity-70" />}
+              </button>
+            )}
 
             {/* Room settings — opens the same RoomSettingsModal used on
                 the team page (name, color, team gating, meeting duration,

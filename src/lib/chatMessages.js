@@ -83,3 +83,13 @@ export async function deleteMessage(messageId) {
     .eq("id", messageId);
   return { error };
 }
+
+// Clear an entire room's chat — soft-deletes every message via a manager-only
+// RPC (the table's UPDATE policy is authors-only, so a bulk clear can't go
+// through a direct update). Soft delete → the realtime UPDATE events clear every
+// connected client's view in place.
+export async function clearRoomChat(roomId) {
+  if (!roomId) return { error: { message: "No room" } };
+  const { error } = await supabase.rpc("clear_room_chat", { p_room_id: roomId });
+  return { error };
+}

@@ -826,6 +826,22 @@ export function TeamProvider({ session, children }) {
     });
   }, [rooms, isAdmin, myOrgTeamIds]);
 
+  // Room ids gated to a department the viewer is NOT a member of — computed for
+  // EVERYONE, admins included. Non-admins can't enter these (they're their
+  // lockedRooms, click-blocked). Admins DO bypass the block (they can still
+  // enter for management), but the UI uses this set to badge those rooms as
+  // locked so the gating stays visible — an admin shouldn't think a department
+  // room is open to all just because they personally can walk in.
+  const restrictedRoomIds = useMemo(() => {
+    const s = new Set();
+    for (const r of rooms || []) {
+      const gating = r.room_teams || [];
+      if (gating.length === 0) continue;
+      if (!gating.some((rt) => myOrgTeamIds.has(rt.org_team_id))) s.add(r.id);
+    }
+    return s;
+  }, [rooms, myOrgTeamIds]);
+
   return (
     <TeamContext.Provider
       value={{
@@ -837,7 +853,7 @@ export function TeamProvider({ session, children }) {
         grantTeamOwner, revokeTeamOwner, transferTeamOwnership,
         fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
         activeTeamSessions, loadActiveTeamSessions,
-        rooms, visibleRooms, lockedRooms, loadRoomsForActiveTeam,
+        rooms, visibleRooms, lockedRooms, restrictedRoomIds, loadRoomsForActiveTeam,
         teamSounds, loadTeamSoundsForActive, addTeamSound, renameTeamSound, removeTeamSound,
         teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
         orgTeams, myOrgTeamIds, myOrgTeamLeadIds, teamsByUserId, orgTeamMemberCounts, loadOrgTeamsForActive,
@@ -852,4 +868,12 @@ export function useTeam() {
   const ctx = useContext(TeamContext);
   if (!ctx) throw new Error("useTeam must be used within TeamProvider");
   return ctx;
+}
+
+// Non-throwing variant for components that legitimately render OUTSIDE a
+// TeamProvider — e.g. the read-only device kiosk, which mounts member panels
+// (RoomChatPanel) without the full member context stack. Returns null there;
+// callers guard with `|| {}`.
+export function useTeamOptional() {
+  return useContext(TeamContext);
 }

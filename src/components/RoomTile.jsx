@@ -2,7 +2,7 @@ import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
 import UserAvatar from "./UserAvatar";
 import { presenceDot, presenceRing } from "../lib/presence";
-import { Briefcase, MessageSquare, Lock, Crown, Hash, Star } from "lucide-react";
+import { Briefcase, MessageSquare, Lock, LockOpen, Crown, Hash, Star } from "lucide-react";
 
 const KIND_ICON = {
   department: Briefcase,
@@ -72,9 +72,8 @@ function OccupantAvatar({ occupant, isLeader, userTeams, size = 28 }) {
 
 export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size: sizeOverride, onOpen, locked = false, lockedReason }) {
   const { theme } = useTheme();
-  const { teamsByUserId } = useTeam();
+  const { teamsByUserId, restrictedRoomIds } = useTeam();
   const dark = theme === "dark";
-  const Icon = KIND_ICON[room.kind] || Hash;
 
   const size = sizeOverride || pickSize(room.layout_w || 4, room.layout_h || 2);
 
@@ -94,6 +93,13 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
     const bl = b.user_id === activeSession?.leader_id ? -1 : 0;
     return al - bl;
   });
+
+  // Private rooms get a DYNAMIC lock: open (unlocked) while empty, locked once
+  // someone is inside. Other kinds keep their static kind icon.
+  const someoneInside = occupants.length > 0;
+  const Icon = room.kind === "private"
+    ? (someoneInside ? Lock : LockOpen)
+    : (KIND_ICON[room.kind] || Hash);
 
   const tone = isOccupied
     ? dark
@@ -120,13 +126,22 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
   // lock badge in the top-right, and a tooltip explaining which team
   // gates the room. The button stays clickable for accessibility but
   // handlePrimary is a no-op.
+  // A department-gated room the viewer isn't a member of. Non-admins get the
+  // full locked treatment (dimmed + click-blocked, via `locked`). Admins aren't
+  // in `locked` (they can still enter for management), but we badge the tile as
+  // restricted so the gating stays visible — an admin shouldn't read a
+  // department room as open to all just because they personally can walk in.
+  const isRestricted = restrictedRoomIds?.has?.(room.id) || false;
+  const showLock = locked || isRestricted;
   const lockedClass = locked ? "opacity-60 cursor-not-allowed" : "";
   const lockTooltip = locked
     ? (lockedReason
         ? `Locked — ${lockedReason}`
         : "Locked — not a member of the gating team")
-    : "";
-  const LockBadge = locked ? (
+    : isRestricted
+      ? "Restricted to a department — you can enter as an admin"
+      : "";
+  const LockBadge = showLock ? (
     <span
       className={`absolute top-1.5 right-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] z-10 ${
         dark ? "bg-[var(--color-surface-raised)] text-slate-400 border border-[var(--color-border)]" : "bg-slate-100 text-slate-500 border border-slate-200"
@@ -151,7 +166,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
         type="button"
         onClick={handlePrimary}
         disabled={busy || locked}
-        title={locked ? lockTooltip : `${room.name} — ${dotTitle}`}
+        title={showLock ? lockTooltip : `${room.name} — ${dotTitle}`}
         className={`relative flex flex-col items-center justify-center rounded-2xl border p-2 transition-all h-full w-full text-center overflow-hidden ${tone} ${pulse} ${lockedClass} ${
           locked ? "" : "hover:border-[var(--color-accent)]"
         }`}
@@ -207,7 +222,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
       type="button"
       onClick={handlePrimary}
       disabled={busy || locked}
-      title={locked ? lockTooltip : undefined}
+      title={showLock ? lockTooltip : undefined}
       className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full overflow-hidden ${tone} ${pulse} ${lockedClass} ${
         locked ? "" : "hover:border-[var(--color-accent)]"
       }`}
@@ -233,9 +248,11 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
             {KIND_LABEL[room.kind]}
             {room.kind === "private" && (
               <span className={`uppercase tracking-wider font-bold ${
-                dark ? "text-amber-300" : "text-amber-700"
+                someoneInside
+                  ? (dark ? "text-amber-300" : "text-amber-700")
+                  : (dark ? "text-emerald-300" : "text-emerald-700")
               }`}>
-                · Locked
+                · {someoneInside ? "Locked" : "Open"}
               </span>
             )}
           </p>

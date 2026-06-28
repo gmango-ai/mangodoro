@@ -40,6 +40,9 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
       p_control_mode: "leader",
       p_durations: opts.durations ?? null,
       p_auto_transition: opts.autoTransition ?? null,
+      // Room privacy: server verifies this against the room's entry policy
+      // before creating/returning the session. null for open rooms.
+      p_access_code: opts.accessCode ?? null,
     });
     if (error) return { error };
     session = Array.isArray(data) ? data[0] : data;
@@ -73,6 +76,7 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
   const { error: joinErr } = await supabase.rpc("join_sync_session", {
     p_join_code: session.join_code,
     p_display_name: displayName,
+    p_access_code: opts.accessCode ?? null,
   });
   if (joinErr) {
     // Only clean up a session we definitely created ourselves. A room
@@ -85,10 +89,13 @@ export async function createSyncSession(userId, displayName = "", opts = {}) {
   return { data: session };
 }
 
-export async function joinSyncSession(joinCode, displayName = "") {
+export async function joinSyncSession(joinCode, displayName = "", accessCode = null) {
   const { data, error } = await supabase.rpc("join_sync_session", {
     p_join_code: joinCode.trim().toUpperCase(),
     p_display_name: displayName,
+    // Room privacy: verified server-side for room sessions. null for
+    // ad-hoc / open rooms.
+    p_access_code: accessCode ?? null,
   });
   if (error) return { error };
   if (data?.error) return { error: { message: data.error } };

@@ -5,7 +5,7 @@ import { useApp } from "../../context/AppContext";
 import { useClockedIn } from "../../hooks/useClockedIn";
 import {
   Users, Timer, Pencil, Search, LayoutGrid, List as ListIcon,
-  Hash, Briefcase, MessageSquare, Lock, X,
+  Hash, Briefcase, MessageSquare, Lock, LockOpen, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import OfficeLayoutEditor from "../OfficeLayoutEditor";
@@ -315,7 +315,10 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                 const session = sessionByRoomId?.get(room.id) || null;
                 const occupants = session?.occupants || [];
                 const locked = lockedRoomIds?.has(room.id) || false;
-                const RoomIcon = KIND_ICON[room.kind] || Hash;
+                // Private rooms: dynamic lock — open while empty, locked once occupied.
+                const RoomIcon = room.kind === "private"
+                  ? (occupants.length > 0 ? Lock : LockOpen)
+                  : (KIND_ICON[room.kind] || Hash);
                 // Same faint room-color wash as the floor tiles, so the
                 // two hallway views read as the same place.
                 const tint = room.color || "#14b8a6";

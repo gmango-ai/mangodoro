@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Check, Trash2, Clock } from "lucide-react";
+import { X, Check, Trash2, Clock, Lock, Globe, Eraser } from "lucide-react";
 import {
   renameRoomV2, setRoomColor, updateRoomGating, archiveRoomV2,
-  setRoomMaxDuration,
+  setRoomMaxDuration, setRoomEntryPolicy, setRoomAccessCode, getRoomAccessCode,
 } from "../lib/rooms";
+import { clearRoomChat } from "../lib/chatMessages";
 
 const DURATION_PRESETS = [
   { value: 15, label: "15m" },
@@ -39,12 +40,18 @@ export default function RoomSettingsModal({
   const [maxDuration, setMaxDuration] = useState(null);   // minutes, or null
   const [customDuration, setCustomDuration] = useState(""); // text in custom input
   const [showCustomDuration, setShowCustomDuration] = useState(false);
+  const [entryPolicy, setEntryPolicy] = useState("open");  // 'open' | 'code'
+  const [accessCode, setAccessCode] = useState("");        // editable PIN
+  const [currentCode, setCurrentCode] = useState("");      // loaded PIN, for diffing
   const [busy, setBusy] = useState(false);
-  const [dirty, setDirty] = useState({ name: false, color: false, gating: false, duration: false });
+  const [dirty, setDirty] = useState({ name: false, color: false, gating: false, duration: false, access: false });
   // Two-step delete: clicking the trash icon flips this to true and the
   // footer swaps in a Confirm / Cancel pair. Avoids needing a separate
   // modal layer for a single destructive action.
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Two-step "clear chat", same pattern as delete (a destructive action that
+  // soft-deletes every message in the room).
+  const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => {
     if (!open || !room) return;
@@ -57,9 +64,21 @@ export default function RoomSettingsModal({
     const presetValues = DURATION_PRESETS.map((p) => p.value);
     setShowCustomDuration(current != null && !presetValues.includes(current));
     setCustomDuration(current != null && !presetValues.includes(current) ? String(current) : "");
-    setDirty({ name: false, color: false, gating: false, duration: false });
+    setEntryPolicy(room.entry_policy || "open");
+    setAccessCode("");
+    setCurrentCode("");
+    setDirty({ name: false, color: false, gating: false, duration: false, access: false });
     setConfirmDelete(false);
+    setConfirmClear(false);
     setBusy(false);
+    // Fetch the current PIN (room_secrets RLS returns it only to managers).
+    let cancelled = false;
+    getRoomAccessCode(room.id).then(({ data }) => {
+      if (cancelled) return;
+      setCurrentCode(data || "");
+      setAccessCode(data || "");
+    });
+    return () => { cancelled = true; };
   }, [open, room]);
 
   async function handleDelete() {
@@ -74,6 +93,17 @@ export default function RoomSettingsModal({
     }
     onDeleted?.(room.name || "Room");
     onClose?.();
+  }
+
+  async function handleClearChat() {
+    if (!room?.id) return;
+    setBusy(true);
+    const { error } = await clearRoomChat(room.id);
+    setBusy(false);
+    setConfirmClear(false);
+    if (error) { onError?.(error.message || "Could not clear chat"); return; }
+    // Soft-deletes propagate via realtime — the chat empties on every client.
+    onSaved?.("Chat cleared");
   }
 
   if (!open || !room) return null;
@@ -108,6 +138,21 @@ export default function RoomSettingsModal({
         ? (customDuration.trim() === "" ? null : Math.max(1, parseInt(customDuration, 10) || 0))
         : maxDuration;
       tasks.push(setRoomMaxDuration(room.id, next).then((r) => r.error && errs.push(r.error)));
+    }
+    if (dirty.access) {
+      // Persist policy + code sequentially: set the policy first, then the
+      // code. Run as one task so it doesn't race the others.
+      tasks.push((async () => {
+        if (entryPolicy !== (room.entry_policy || "open")) {
+          const r = await setRoomEntryPolicy(room.id, entryPolicy);
+          if (r.error) { errs.push(r.error); return; }
+        }
+        const cleanCode = accessCode.trim().toUpperCase();
+        if (entryPolicy === "code" && cleanCode && cleanCode !== (currentCode || "").toUpperCase()) {
+          const r = await setRoomAccessCode(room.id, cleanCode);
+          if (r.error) errs.push(r.error);
+        }
+      })());
     }
     await Promise.all(tasks);
     setBusy(false);
@@ -317,6 +362,59 @@ export default function RoomSettingsModal({
           </div>
         )}
 
+        {/* Access — who can enter the room. 'Open' = any teammate who can
+            see it; 'Code' = a shareable access code is required (managers
+            always get in without one). */}
+        <div className="mb-4">
+          <label className={labelCls}>Access</label>
+          <div className="flex gap-1.5 mt-1.5">
+            {[
+              { value: "open", label: "Open", Icon: Globe },
+              { value: "code", label: "Requires code", Icon: Lock },
+            ].map(({ value, label, Icon }) => {
+              const active = entryPolicy === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => { setEntryPolicy(value); setDirty((d) => ({ ...d, access: true })); }}
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                    active
+                      ? "bg-[var(--accent-bg)] text-[var(--accent-text)] border-[var(--accent-border)]"
+                      : (dark
+                          ? "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")
+                  }`}
+                  aria-pressed={active}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {entryPolicy === "code" && (
+            <div className="mt-2">
+              <input
+                value={accessCode}
+                onChange={(e) => {
+                  setAccessCode(e.target.value.toUpperCase().slice(0, 16));
+                  setDirty((d) => ({ ...d, access: true }));
+                }}
+                placeholder="Set an access code"
+                className={`w-full px-3 py-2 rounded-lg border text-sm font-mono uppercase tracking-widest ${
+                  dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"
+                }`}
+              />
+              <p className={`text-[11px] mt-1 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                {accessCode.trim()
+                  ? "Lets people join while the room is occupied (an empty room is open to claim). Expires 24h after you set it — re-save to refresh. 4–16 characters."
+                  : "No code set yet — anyone can claim the room while it's empty; once someone's inside, only managers can enter until you set a code."}
+              </p>
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center gap-2">
           {confirmDelete ? (
             <div className="flex items-center gap-2 flex-1">
@@ -344,6 +442,32 @@ export default function RoomSettingsModal({
                 </Button>
               </div>
             </div>
+          ) : confirmClear ? (
+            <div className="flex items-center gap-2 flex-1">
+              <span className={`text-xs ${dark ? "text-slate-300" : "text-slate-600"}`}>
+                Clear all chat in "{room.name}"? This can't be undone.
+              </span>
+              <div className="ml-auto flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setConfirmClear(false)}
+                  disabled={busy}
+                >
+                  Keep
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleClearChat}
+                  disabled={busy}
+                  className={dark
+                    ? "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40"
+                    : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"}
+                >
+                  {busy ? "Clearing…" : "Clear chat"}
+                </Button>
+              </div>
+            </div>
           ) : (
             <>
               <button
@@ -360,12 +484,24 @@ export default function RoomSettingsModal({
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
               </button>
+              <button
+                type="button"
+                onClick={() => setConfirmClear(true)}
+                disabled={busy}
+                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1.5 rounded-md transition-colors ${
+                  dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+                title="Clear all messages in this room's chat"
+              >
+                <Eraser className="w-3.5 h-3.5" />
+                Clear chat
+              </button>
               <div className="ml-auto flex gap-2">
                 <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
                 <Button
                   type="button"
                   onClick={handleSave}
-                  disabled={busy || !(dirty.name || dirty.color || dirty.gating || dirty.duration) || !name.trim()}
+                  disabled={busy || !(dirty.name || dirty.color || dirty.gating || dirty.duration || dirty.access) || !name.trim()}
                 >
                   {busy ? "Saving…" : "Save"}
                 </Button>

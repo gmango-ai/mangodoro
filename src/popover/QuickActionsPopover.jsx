@@ -236,16 +236,15 @@ function OfficePage({ dark }) {
   }
 
   async function enterRoom(room) {
-    // Private rooms with an existing code are locked — the popover
-    // doesn't currently host a code prompt, so route those users to
-    // the main office page. Unlocked private rooms behave like any
-    // other room here.
-    if (room.kind === "private" && room.invite_code) {
-      setError("This private room is locked — open the office in the main window to enter a code.");
+    const active = sessionByRoomId.get(room.id);
+    // "Open until occupied": an EMPTY code room is enterable (first one in,
+    // no code). Once occupied, it locks — and the popover has no code gate,
+    // so route non-owners to the office where the lock gate lives.
+    if (room.entry_policy === "code" && active && room.created_by !== session?.user?.id) {
+      setError("This room is locked — open the office in the main window to enter its code.");
       return;
     }
     setBusy(true); setError("");
-    const active = sessionByRoomId.get(room.id);
     if (active) {
       const { data, error: e } = await joinSyncSession(active.join_code, displayName());
       setBusy(false);

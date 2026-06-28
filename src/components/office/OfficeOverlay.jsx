@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { X, LogOut, Hash, Briefcase, MessageSquare, Lock } from "lucide-react";
+import { X, LogOut, Hash, Briefcase, MessageSquare, Lock, LockOpen } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import OfficeMinimap from "./OfficeMinimap";
@@ -142,11 +142,15 @@ export default function OfficeOverlay({
                 ...(rooms || []).map((r) => ({ room: r, locked: false })),
                 ...(lockedRooms || []).map((r) => ({ room: r, locked: true })),
               ].map(({ room, locked }) => {
-                const Icon = KIND_ICON[room.kind] || Hash;
                 const accent = room.color || "#14b8a6";
                 const active = sessionByRoomId?.get(room.id) || null;
                 const occupants = active?.occupants || [];
                 const isSelected = room.id === selectedRoomId;
+                // Private rooms show a DYNAMIC lock: open (unlocked) while empty,
+                // locked once someone is inside.
+                const Icon = room.kind === "private"
+                  ? (occupants.length > 0 ? Lock : LockOpen)
+                  : (KIND_ICON[room.kind] || Hash);
                 return (
                   <button
                     key={room.id}
