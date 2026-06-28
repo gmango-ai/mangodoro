@@ -27,6 +27,8 @@ import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "..
 import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
+import AdaptiveStage from "./AdaptiveStage";
+import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
 
 // LiveKit's client logs at "info" by default, which floods the console with
 // per-connection play-by-play (signal connecting, connection state changes,
@@ -1252,13 +1254,9 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   const rootRef = useRef(null);
   const { w, h } = useSize(rootRef);
 
-  // Keep the last active speaker so the focus doesn't fall away during a silence
-  // between turns.
-  const [stickySpeaker, setStickySpeaker] = useState(null);
-  const topSpeaker = speaking?.[0]?.identity;
-  useEffect(() => {
-    if (topSpeaker) setStickySpeaker(topSpeaker);
-  }, [topSpeaker]);
+  // Featured speaker with a decay so the focus rides through pauses between turns
+  // instead of snapping away mid-conversation.
+  const featuredSpeaker = useFeaturedSpeaker(speaking, { decayMs: 2500 });
 
   // Spectators are listed by name; publishers (even camera-off) get a tile.
   const spectators = participants.filter((p) => p.attributes?.role === "spectator" && !p.isLocal);
@@ -1271,8 +1269,8 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   });
 
   const screenTrack = shown.find((t) => t.source === Track.Source.ScreenShare);
-  const speakerTrack = stickySpeaker
-    ? shown.find((t) => t.participant?.identity === stickySpeaker && t.source === Track.Source.Camera)
+  const speakerTrack = featuredSpeaker
+    ? shown.find((t) => t.participant?.identity === featuredSpeaker && t.source === Track.Source.Camera)
     : null;
   // The admin's global pin (room metadata) focuses this participant for everyone,
   // unless you've locally pinned someone else. Their screen share wins over their
@@ -1293,28 +1291,18 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   if (squished) mode = "spotlight";
   else if (forcedFocus && layoutMode === "grid") mode = "presenter";
 
-  const others = focusTrack ? shown.filter((t) => refKey(t) !== refKey(focusTrack)) : [];
+  // Map the resolved mode to the adaptive stage: grid = even tiles; presenter =
+  // focus + filmstrip; spotlight = focus only. The solver does the geometry
+  // (incl. the aspect-adaptive content layout) and animates between modes.
+  const stageTiles = mode === "spotlight" && focusTrack ? [focusTrack] : shown;
+  const stageFocusKey = (mode === "presenter" || mode === "spotlight") && focusTrack ? refKey(focusTrack) : null;
 
   return (
     <div ref={rootRef} className="relative flex-1 min-h-0">
-      {mode === "grid" && <VideoGrid tracks={shown} />}
-
-      {/* VideoGrid (even for one tile) applies the aspect clamp, so the focus is
-          letterboxed to ~16:9 instead of object-cover slicing a wide/short tile. */}
-      {mode === "spotlight" && focusTrack && <VideoGrid tracks={[focusTrack]} />}
-
-      {mode === "presenter" && focusTrack && (
-        <div className="absolute inset-0 flex flex-col gap-1.5 p-1">
-          <div className="relative flex-1 min-h-0">
-            <VideoGrid tracks={[focusTrack]} />
-          </div>
-          {others.length > 0 && (
-            <div className="relative shrink-0 h-[22%] min-h-[76px] max-h-[150px]">
-              <VideoGrid tracks={others} />
-            </div>
-          )}
-        </div>
-      )}
+      <AdaptiveStage
+        tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
+        focusKey={stageFocusKey}
+      />
 
       <SpectatorList spectators={spectators} />
       {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}

@@ -1,9 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import {
   LiveKitRoom,
-  GridLayout,
-  FocusLayout,
-  CarouselLayout,
   ParticipantTile,
   RoomAudioRenderer,
   useTracks,
@@ -60,6 +57,10 @@ function DeviceMediaPicker({ kind, label, storageKey }) {
 }
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { ATTR_CLUSTER, ATTR_LEADER, ATTR_ROOM_DEVICE, pickMicSource, pickAudioSink } from "./useRoomCluster";
+import AdaptiveStage from "./AdaptiveStage";
+import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
+
+const refKey = (t) => (t ? `${t.participant?.identity || ""}:${t.source}` : "");
 
 // Advertises the locked device as its room's default mic + speakers (companion
 // mode). The device is always-on and already publishes mic + plays the call
@@ -129,33 +130,25 @@ function PortalStage() {
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });
   const screens = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }], { onlySubscribed: false });
   const speaking = useSpeakingParticipants();
+  // Decay so a paused speaker doesn't snap off the big tile — the kiosk's worst
+  // offender (it used to fall straight back to cameras[0] the instant they
+  // stopped). A touch longer than the member call since it's a passive display.
+  const featuredId = useFeaturedSpeaker(speaking, { decayMs: 3500 });
 
-  if (!screens.length && cameras.length <= 2) {
-    return (
-      <GridLayout tracks={cameras} style={{ height: "100%" }}>
-        <ParticipantTile />
-      </GridLayout>
-    );
-  }
-
-  const speakerCam = speaking.length
-    ? cameras.find((t) => t.participant?.identity === speaking[0]?.identity)
-    : null;
-  const focus = screens[0] || speakerCam || cameras[0];
-  const strip = cameras.filter((t) => t !== focus);
+  // Even grid for a small call with no screen share; otherwise spotlight the
+  // screen / featured speaker with the rest in an aspect-adaptive filmstrip.
+  const evenGrid = !screens.length && cameras.length <= 2;
+  const speakerCam = featuredId ? cameras.find((t) => t.participant?.identity === featuredId) : null;
+  const focus = evenGrid ? null : (screens[0] || speakerCam || cameras[0] || null);
+  const ordered = focus ? [focus, ...cameras.filter((t) => t !== focus)] : cameras;
 
   return (
-    <div className="flex flex-col h-full gap-3 p-3">
-      <div className="flex-1 min-h-0 rounded-2xl overflow-hidden bg-black/30">
-        <FocusLayout trackRef={focus} style={{ height: "100%" }} />
-      </div>
-      {strip.length > 0 && (
-        <div className="h-[20%] min-h-[88px]">
-          <CarouselLayout tracks={strip} orientation="horizontal">
-            <ParticipantTile />
-          </CarouselLayout>
-        </div>
-      )}
+    <div className="relative w-full h-full">
+      <AdaptiveStage
+        tiles={ordered.map((t) => ({ key: refKey(t), content: <ParticipantTile trackRef={t} /> }))}
+        focusKey={focus ? refKey(focus) : null}
+        gap={12}
+      />
     </div>
   );
 }
