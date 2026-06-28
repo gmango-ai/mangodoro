@@ -20,30 +20,76 @@ export function parseEmbed(url) {
   let u;
   try { u = new URL(url.includes("://") ? url : `https://${url}`); } catch { return null; }
   const host = u.hostname.replace(/^www\./, "");
+  const path = u.pathname;
+  const seg = path.split("/").filter(Boolean);
+  const web = (src) => ({ kind: "web", src });
+  // Some embeds (Twitch) require a `parent` matching the embedding host.
+  const parent = typeof window !== "undefined" ? window.location.hostname : "localhost";
+
+  // YouTube → embed player (kind "youtube" gets playback sync).
   let vid = null;
-  if (host === "youtu.be") vid = u.pathname.slice(1);
+  if (host === "youtu.be") vid = seg[0];
   else if (host.endsWith("youtube.com")) {
-    if (u.pathname === "/watch") vid = u.searchParams.get("v");
-    else if (u.pathname.startsWith("/shorts/")) vid = u.pathname.split("/")[2];
-    else if (u.pathname.startsWith("/embed/")) vid = u.pathname.split("/")[2];
+    if (path === "/watch") vid = u.searchParams.get("v");
+    else if (seg[0] === "shorts" || seg[0] === "embed" || seg[0] === "live") vid = seg[1];
   }
   if (vid) return { kind: "youtube", videoId: vid, src: `https://www.youtube.com/watch?v=${vid}` };
+
+  // Vimeo
+  if (host === "vimeo.com" && /^\d+$/.test(seg[0] || "")) return web(`https://player.vimeo.com/video/${seg[0]}`);
+  if (host === "player.vimeo.com") return web(u.href);
+
+  // Loom
+  if (host === "loom.com" && seg[0] === "share" && seg[1]) return web(`https://www.loom.com/embed/${seg[1]}`);
+
+  // Dailymotion
+  if (host === "dailymotion.com" && seg[0] === "video" && seg[1]) return web(`https://www.dailymotion.com/embed/video/${seg[1]}`);
+  if (host === "dai.ly" && seg[0]) return web(`https://www.dailymotion.com/embed/video/${seg[0]}`);
+
+  // Twitch — channel or VOD (needs the embedding host as `parent`).
+  if (host === "twitch.tv") {
+    if (seg[0] === "videos" && seg[1]) return web(`https://player.twitch.tv/?video=${seg[1]}&parent=${parent}`);
+    if (seg[0]) return web(`https://player.twitch.tv/?channel=${seg[0]}&parent=${parent}`);
+  }
+
+  // Spotify (track / album / playlist / episode / show / artist) → embed widget.
+  if (host === "open.spotify.com") {
+    const m = path.match(/\/(track|album|playlist|episode|show|artist)\/([A-Za-z0-9]+)/);
+    if (m) return web(`https://open.spotify.com/embed/${m[1]}/${m[2]}`);
+  }
+
+  // SoundCloud → the widget player (takes the original URL).
+  if (host === "soundcloud.com") return web(`https://w.soundcloud.com/player/?url=${encodeURIComponent(u.href)}&visual=true`);
+
+  // Figma (file / design / proto / board) → embed.
+  if (host === "figma.com" && ["file", "design", "proto", "board"].includes(seg[0])) {
+    return web(`https://www.figma.com/embed?embed_host=share&url=${encodeURIComponent(u.href)}`);
+  }
+
+  // CodePen / CodeSandbox / StackBlitz
+  if (host === "codepen.io" && seg[1] === "pen" && seg[2]) return web(`https://codepen.io/${seg[0]}/embed/${seg[2]}?default-tab=result`);
+  if (host === "codesandbox.io" && seg[0] === "s" && seg[1]) return web(`https://codesandbox.io/embed/${seg[1]}`);
+  if (host === "stackblitz.com" && seg[0] === "edit" && seg[1]) return web(`https://stackblitz.com/edit/${seg[1]}?embed=1`);
 
   // Google Docs / Sheets / Slides / Drive → the official /preview embed endpoint.
   // The /edit URL needs your Google LOGIN cookie, which browsers block as a
   // cross-site cookie inside an iframe (→ 401). /preview works for a link-shared
   // ("anyone with the link") doc with NO login, dodging that entirely.
   if (host === "docs.google.com" || host === "drive.google.com") {
-    const m = u.pathname.match(/\/(document|spreadsheets|presentation|file)\/d\/([^/]+)/);
+    const m = path.match(/\/(document|spreadsheets|presentation|file)\/d\/([^/]+)/);
     if (m) {
-      const kind = m[1];
-      const id = m[2];
-      const h = kind === "file" ? "drive.google.com" : "docs.google.com";
-      return { kind: "web", src: `https://${h}/${kind}/d/${id}/preview` };
+      const h = m[1] === "file" ? "drive.google.com" : "docs.google.com";
+      return web(`https://${h}/${m[1]}/d/${m[2]}/preview`);
     }
   }
 
-  return { kind: "web", src: u.href };
+  // Google Maps → embeddable output.
+  if ((host === "google.com" || host.endsWith(".google.com")) && path.startsWith("/maps")) {
+    u.searchParams.set("output", "embed");
+    return web(u.href);
+  }
+
+  return web(u.href);
 }
 
 // Embedding arbitrary sites is best-effort + a mild risk surface, so we sandbox:
@@ -146,19 +192,57 @@ function YouTubePlayer({ videoId, playback, onPlayback, meId }) {
 }
 
 // Generic site frame — sandboxed (no top-navigation hijack), loads with cookies.
-// Sites that send X-Frame-Options / CSP frame-ancestors still refuse; nothing
-// client-side can override that (it's the site's server policy).
-function GenericFrame({ src }) {
+// Sites that send X-Frame-Options / CSP frame-ancestors refuse to load; we can't
+// override that, so we detect the likely block (the frame never fires `load`
+// within a few seconds) and show a clean "open in a new tab" card instead of the
+// browser's raw error. `load` firing hides it (handles slow loads + late loads).
+function GenericFrame({ src, url }) {
+  const loadedRef = useRef(false);
+  const [blocked, setBlocked] = useState(false);
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    loadedRef.current = false;
+    setBlocked(false);
+    const t = setTimeout(() => { if (!loadedRef.current) setBlocked(true); }, 7000);
+    return () => clearTimeout(t);
+  }, [src, tries]);
   return (
-    <iframe
-      key={src}
-      src={src}
-      title="Shared web view"
-      className="absolute inset-0 w-full h-full border-0"
-      allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write"
-      allowFullScreen
-      sandbox={SANDBOX}
-    />
+    <div className="absolute inset-0">
+      <iframe
+        key={`${src}#${tries}`}
+        src={src}
+        title="Shared web view"
+        onLoad={() => { loadedRef.current = true; setBlocked(false); }}
+        className="absolute inset-0 w-full h-full border-0"
+        allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write"
+        allowFullScreen
+        sandbox={SANDBOX}
+      />
+      {blocked && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6 bg-slate-900/96 text-slate-300">
+          <Globe className="w-8 h-8 opacity-40" />
+          <p className="text-sm font-semibold text-slate-200">This site can&apos;t be embedded</p>
+          <p className="text-xs max-w-[300px]">It blocks being shown inside another page. Open it in a new tab instead — everyone here has the same link.</p>
+          <div className="flex items-center gap-2 pt-1">
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-[12px] font-semibold"
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> Open in new tab
+            </a>
+            <button
+              type="button"
+              onClick={() => setTries((t) => t + 1)}
+              className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-slate-200 text-[12px] font-semibold"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -211,7 +295,7 @@ export default function WebPanel({ url, onSetUrl, dark, playback, onPlayback, me
         {embed?.kind === "youtube" ? (
           <YouTubePlayer videoId={embed.videoId} playback={playback} onPlayback={onPlayback} meId={meId} />
         ) : embed ? (
-          <GenericFrame src={embed.src} />
+          <GenericFrame src={embed.src} url={url} />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-6 text-slate-400">
             <Globe className="w-8 h-8 opacity-40" />
