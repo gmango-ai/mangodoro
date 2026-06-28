@@ -26,14 +26,41 @@ function fmt(sec) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// A single shared AudioContext, reused across every chime/tick — matching the
+// app's other Web Audio modules (lib/pomodoroSound.js, lib/focusAudio.js).
+//
+// The old code constructed a FRESH AudioContext per beep and closed it on a
+// timer. tick() fires once a second through the final 15s, so a single
+// countdown churned ~16 short-lived contexts — right against the browser's hard
+// cap on concurrent AudioContexts (~6 in Chrome; close() is async so they
+// overlap). Hitting that cap throws on construction AND, because the page shares
+// one audio session, disrupted the in-room LiveKit call's audio (remote
+// participants dropping out). One reused, never-closed context never trips it.
+//
+// Oscillators are one-shot nodes: created, scheduled, and GC'd after stop() —
+// nothing to clean up, so the context just persists for the page's lifetime.
+let sharedCtx = null;
+function audioCtx() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    if (!sharedCtx) sharedCtx = new Ctx();
+    // Created outside a gesture → may be suspended; resume so scheduled beeps
+    // actually sound (the timer's own Start click gives us sticky activation).
+    if (sharedCtx.state === "suspended") sharedCtx.resume().catch(() => { /* */ });
+    return sharedCtx;
+  } catch {
+    return null;
+  }
+}
+
 // A short "time's up" chime — three ascending notes. Synthesized so it
 // never has to load a file and can't be silently swallowed the way the
 // looping background track was.
 function chime() {
+  const ctx = audioCtx();
+  if (!ctx) return;
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
     const notes = [659.25, 880, 1174.66]; // E5 · A5 · D6
     const noteDur = 0.18;
     notes.forEach((freq, i) => {
@@ -49,17 +76,15 @@ function chime() {
       o.start(t0);
       o.stop(t0 + noteDur + 0.02);
     });
-    setTimeout(() => { try { ctx.close(); } catch { /* */ } }, (notes.length * noteDur + 0.3) * 1000);
   } catch { /* */ }
 }
 
 // A soft, short tick for the final wrap-up countdown — percussive enough to
 // notice over the music, quiet enough not to nag.
 function tick() {
+  const ctx = audioCtx();
+  if (!ctx) return;
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.connect(g); g.connect(ctx.destination);
@@ -71,7 +96,6 @@ function tick() {
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.06);
     o.start(t0);
     o.stop(t0 + 0.08);
-    setTimeout(() => { try { ctx.close(); } catch { /* */ } }, 150);
   } catch { /* */ }
 }
 

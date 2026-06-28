@@ -42,8 +42,14 @@ export default defineConfig({
         ],
       },
       workbox: {
-        skipWaiting: true,
-        clientsClaim: true,
+        // NOTE: do NOT set skipWaiting/clientsClaim here. With registerType
+        // "prompt", the app drives activation: PWAUpdater calls
+        // updateServiceWorker(true), which posts SKIP_WAITING to the WAITING
+        // worker and reloads on `controllerchange`. A workbox-level skipWaiting
+        // makes the new SW self-activate on install instead of waiting, so that
+        // handshake misfires — the new SW serves new assets while the page keeps
+        // running the OLD in-memory JS until a manual reload ("stuck on the old
+        // version"). Letting it wait makes the auto-apply + reload reliable.
         cleanupOutdatedCaches: true,
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
         // The LiveKit self-view processors (MediaPipe background blur, Krisp
