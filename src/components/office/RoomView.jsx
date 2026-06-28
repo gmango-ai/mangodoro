@@ -96,7 +96,7 @@ export default function RoomView({
 }) {
   const { theme } = useTheme();
   const { session } = useApp();
-  const { syncSession: currentSyncSession, leaderPresent } = useSyncSession();
+  const { syncSession: currentSyncSession } = useSyncSession();
   const dark = theme === "dark";
 
   // Modular panel layout (per-user, per-room). Replaces the old fixed
@@ -134,13 +134,12 @@ export default function RoomView({
   }));
 
   // Whiteboard link flows through the sync session (session.whiteboard_id),
-  // mirroring the old retro link. Leader — or any member when the host is
-  // away — may attach one (matches the server's leader fallback).
+  // mirroring the old retro link. Anyone in the room may attach/swap it — it's a
+  // shared surface; the server gates on session participation, not leadership.
   const displayName = session?.user?.user_metadata?.name || session?.user?.email || "Guest";
   const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
   const linkedWhiteboardId = inThisRoomSession ? (currentSyncSession.whiteboard_id || null) : null;
-  const canLinkWhiteboard = inThisRoomSession
-    && (currentSyncSession.leader_id === session?.user?.id || !leaderPresent);
+  const canLinkWhiteboard = inThisRoomSession;
   const panelCtx = {
     room,
     userId: session?.user?.id,

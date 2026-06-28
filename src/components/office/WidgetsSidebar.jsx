@@ -5,7 +5,6 @@ import {
   useDraggable, useDroppable,
 } from "@dnd-kit/core";
 import { useTheme } from "../../context/ThemeContext";
-import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import { unlinkWhiteboardFromSession } from "../../lib/syncSession";
@@ -129,17 +128,15 @@ function SortableSlot({ id, children }) {
 // (Replaces the deprecated retro widget — the whiteboard is now what a
 // room attaches for shared work.)
 function WhiteboardWidget({ dark }) {
-  const { session } = useApp();
-  const { syncSession, leaderPresent } = useSyncSession();
+  const { syncSession } = useSyncSession();
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const userId = session?.user?.id;
   const inSession = !!syncSession;
   const linkedId = inSession ? (syncSession.whiteboard_id || null) : null;
-  const isLeader = inSession && syncSession.leader_id === userId;
-  // Host away (no fresh heartbeat) → any present member can attach a
-  // board, so the group isn't blocked. Mirrors the server's leader fallback.
-  const canLead = inSession && (isLeader || !leaderPresent);
+  // Anyone in the room may attach/swap the shared whiteboard (a shared surface,
+  // like opening a shared doc) — the server now gates on session participation,
+  // not leadership.
+  const canLead = inSession;
 
   async function unlink() {
     if (!syncSession?.id) return;
@@ -166,11 +163,6 @@ function WhiteboardWidget({ dark }) {
         </Button>
       )}
 
-      {inSession && !linkedId && !canLead && (
-        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-          The host can attach a whiteboard for the group.
-        </p>
-      )}
 
       {linkedId && (
         <div className="space-y-2">
