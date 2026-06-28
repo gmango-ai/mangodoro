@@ -1287,23 +1287,64 @@ function useSize(ref) {
   return size;
 }
 
-// A uniform, aspect-clamped grid of tiles (replaces LiveKit's GridLayout, whose
-// cells filled arbitrary shapes and cropped faces). Every tile is the same
-// ~16:9 box, sized as large as possible to fit them all, centered.
-function VideoGrid({ tracks, aspect = 16 / 9, gap = 8 }) {
-  const ref = useRef(null);
-  const { w, h } = useSize(ref);
-  const { cols, tileW, tileH } = bestGrid(tracks.length, w, h, aspect, gap);
+// Largest tile count that still fits at a comfortable minimum width — the cap
+// before the grid spills into the audience row. Walks the same bestGrid the grid
+// uses so the threshold matches what would actually render.
+function capFor(w, h, minW = 130, aspect = 16 / 9, gap = 8) {
+  if (w <= 0 || h <= 0) return 99;
+  let best = 1;
+  for (let n = 1; n <= 60; n++) {
+    const { tileW } = bestGrid(n, w, h, aspect, gap);
+    if (tileW >= minW) best = n; else break;
+  }
+  return best;
+}
+
+// Order tiles so the grid keeps who matters when it overflows: the featured /
+// active speakers first, then cameras-on, then cameras-off. Stable within a tier
+// (original order) so tiles don't shuffle every render — only a new speaker
+// promotes into view.
+function rankTiles(tracks, featuredId, speaking) {
+  const speakingIds = new Set((speaking || []).map((p) => p.identity));
+  const score = (t) => {
+    const id = t.participant?.identity;
+    if (id && (id === featuredId || speakingIds.has(id))) return 0;
+    const camOn = !!t.publication && !t.publication.isMuted;
+    return camOn ? 1 : 2;
+  };
+  return tracks
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) => score(a.t) - score(b.t) || a.i - b.i)
+    .map((x) => x.t);
+}
+
+// One overflow person — initials avatar with a speaking pulse. Speaking promotes
+// them back into the grid (rankTiles), so the pulse here is the "they're talking,
+// watch them pop up" cue.
+function AudienceChip({ participant }) {
+  const isSpeaking = useIsSpeaking(participant);
+  const name = participant?.name || participant?.identity || "Guest";
+  const initial = (name.trim()[0] || "?").toUpperCase();
   return (
-    <div ref={ref} className="absolute inset-0 p-1">
-      <div
-        className="grid w-full h-full place-content-center"
-        style={{ gap, gridTemplateColumns: `repeat(${Math.max(1, cols)}, ${tileW}px)`, gridAutoRows: `${tileH}px` }}
-      >
-        {tracks.map((tr) => (
-          <ClusterParticipantTile key={refKey(tr)} trackRef={tr} />
-        ))}
+    <div className="flex flex-col items-center gap-1 w-14 shrink-0" title={name}>
+      <div className={`relative w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold text-sm bg-slate-700 ${isSpeaking ? "ring-2 ring-emerald-400" : "ring-1 ring-white/15"}`}>
+        {initial}
+        {isSpeaking && <span className="absolute inset-0 rounded-full ring-2 ring-emerald-400 animate-ping pointer-events-none" />}
       </div>
+      <span className="text-[10px] text-slate-300 truncate max-w-full">{name}</span>
+    </div>
+  );
+}
+
+// The audience row — overflow participants past the grid cap, as a scrollable
+// strip of chips.
+function AudienceRow({ tracks }) {
+  return (
+    <div className="shrink-0 h-[80px] flex items-center gap-2 px-3 overflow-x-auto bg-black/30 border-t border-white/10">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-white/50 shrink-0 mr-1">
+        +{tracks.length}
+      </span>
+      {tracks.map((t) => <AudienceChip key={refKey(t)} participant={t.participant} />)}
     </div>
   );
 }
@@ -1367,17 +1408,38 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   else if (forcedFocus && layoutMode === "grid") mode = "presenter";
 
   // Map the resolved mode to the adaptive stage: grid = even tiles; presenter =
-  // focus + filmstrip; spotlight = focus only. The solver does the geometry
-  // (incl. the aspect-adaptive content layout) and animates between modes.
-  const stageTiles = mode === "spotlight" && focusTrack ? [focusTrack] : shown;
-  const stageFocusKey = (mode === "presenter" || mode === "spotlight") && focusTrack ? refKey(focusTrack) : null;
+  // focus + filmstrip; spotlight = focus only. In GRID mode, once there are more
+  // people than fit at a comfortable size, the extras spill into the audience
+  // row (avatar chips) — the grid keeps the speakers + cameras-on (rankTiles),
+  // and a chip speaking promotes them back up.
+  let stageTiles;
+  let stageFocusKey = null;
+  let audienceTiles = [];
+  const AUDIENCE_H = 80;
+  if (mode === "spotlight" && focusTrack) {
+    stageTiles = [focusTrack];
+    stageFocusKey = refKey(focusTrack);
+  } else if (mode === "presenter" && focusTrack) {
+    stageTiles = shown;
+    stageFocusKey = refKey(focusTrack);
+  } else if (shown.length > capFor(w, h)) {
+    const cap = capFor(w, h - AUDIENCE_H);
+    const ordered = rankTiles(shown, featuredSpeaker, speaking);
+    stageTiles = ordered.slice(0, cap);
+    audienceTiles = ordered.slice(cap);
+  } else {
+    stageTiles = shown;
+  }
 
   return (
-    <div ref={rootRef} className="relative flex-1 min-h-0">
-      <AdaptiveStage
-        tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
-        focusKey={stageFocusKey}
-      />
+    <div ref={rootRef} className="relative flex-1 min-h-0 flex flex-col">
+      <div className="relative flex-1 min-h-0">
+        <AdaptiveStage
+          tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
+          focusKey={stageFocusKey}
+        />
+      </div>
+      {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
 
       <SpectatorList spectators={spectators} />
       {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}
