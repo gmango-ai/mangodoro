@@ -1,17 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Globe, ExternalLink, Youtube } from "lucide-react";
 
-// The app sets COEP (for SharedArrayBuffer / RVM matting), which otherwise
-// BLOCKS cross-origin iframes — Chrome reports that as "refused to connect"
-// (ERR_BLOCKED_BY_RESPONSE), easily mistaken for X-Frame-Options. The
-// `credentialless` iframe attribute opts a single cross-origin frame out of that
-// (loads it without credentials), so embeds like YouTube work under our COEP.
-// It MUST be present before the src loads, so we set it imperatively, then src.
-function setCredentiallessSrc(el, src) {
-  if (!el) return;
-  try { el.setAttribute("credentialless", ""); } catch { /* unsupported → still tries */ }
-  if (el.getAttribute("src") !== src) el.setAttribute("src", src);
-}
+// Note: the app no longer sets COEP (see vite.config.js), so these are plain
+// cross-origin iframes that load WITH cookies — logged-in embeds like Google
+// Docs work (subject to the browser's normal third-party-cookie policy). Sites
+// that send X-Frame-Options / CSP frame-ancestors still refuse; that's a
+// server-side policy nothing client-side can override.
 
 // A shared website tile. The URL is room-shared state (useRoomWeb): anyone can
 // paste a link and everyone's tile loads it — watch a YouTube video together, or
@@ -88,15 +82,12 @@ function YouTubePlayer({ videoId, playback, onPlayback, meId }) {
     } catch { /* */ }
   }, [playback, meId]);
 
-  // We OWN the iframe (so we can mark it credentialless to satisfy COEP), and
-  // attach YT.Player to it for the playback sync. Set credentialless + src
-  // before the API attaches.
-  useLayoutEffect(() => {
+  const src = useMemo(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&rel=0&modestbranding=1&playsinline=1&origin=${encodeURIComponent(origin)}`;
-    setCredentiallessSrc(iframeRef.current, src);
+    return `https://www.youtube.com/embed/${videoId}?enablejsapi=1&rel=0&modestbranding=1&playsinline=1&origin=${encodeURIComponent(origin)}`;
   }, [videoId]);
 
+  // Attach YT.Player to our own iframe for the playback sync.
   useEffect(() => {
     let cancelled = false;
     loadYT().then((YT) => {
@@ -126,11 +117,11 @@ function YouTubePlayer({ videoId, playback, onPlayback, meId }) {
   // React to shared-state changes.
   useEffect(() => { applyRemote(); }, [applyRemote]);
 
-  // No src in JSX — set imperatively above so `credentialless` lands first.
   return (
     <iframe
       key={videoId}
       ref={iframeRef}
+      src={src}
       title="Shared YouTube"
       className="absolute inset-0 w-full h-full border-0"
       allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
@@ -139,16 +130,14 @@ function YouTubePlayer({ videoId, playback, onPlayback, meId }) {
   );
 }
 
-// Generic site frame — credentialless (so COEP doesn't block it) + sandboxed.
+// Generic site frame — sandboxed (no top-navigation hijack), loads with cookies.
 // Sites that send X-Frame-Options / CSP frame-ancestors still refuse; nothing
 // client-side can override that (it's the site's server policy).
 function GenericFrame({ src }) {
-  const ref = useRef(null);
-  useLayoutEffect(() => { setCredentiallessSrc(ref.current, src); }, [src]);
   return (
     <iframe
       key={src}
-      ref={ref}
+      src={src}
       title="Shared web view"
       className="absolute inset-0 w-full h-full border-0"
       allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write"
