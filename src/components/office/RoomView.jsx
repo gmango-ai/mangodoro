@@ -16,6 +16,7 @@ import LayoutBar from "./roomLayout/LayoutBar";
 import { useRoomLayout } from "./roomLayout/useRoomLayout";
 import { PANEL_IDS, ROOM_PANELS } from "./roomLayout/panels";
 import { panelsIn } from "./roomLayout/layoutTree";
+import { useRoomPanelActivity } from "./roomLayout/useRoomPanelActivity";
 
 const KIND_ICON = {
   general: Hash,
@@ -140,6 +141,23 @@ export default function RoomView({
   const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
   const linkedWhiteboardId = inThisRoomSession ? (currentSyncSession.whiteboard_id || null) : null;
   const canLinkWhiteboard = inThisRoomSession;
+
+  // Activity on CLOSED panels → header-toggle badges (people in the call /
+  // editing the board, unread chat) so you can tell what's live without opening
+  // each panel.
+  const activity = useRoomPanelActivity({
+    roomId: room.id,
+    userId: session?.user?.id,
+    whiteboardId: linkedWhiteboardId,
+    videoOpen: activePanels.includes("video"),
+    chatOpen: activePanels.includes("chat"),
+    whiteboardOpen: activePanels.includes("whiteboard"),
+  });
+  const panelBadges = {
+    video: activity.video > 0 ? { count: activity.video, live: true } : null,
+    chat: activity.chat > 0 ? { count: activity.chat } : null,
+    whiteboard: activity.whiteboard > 0 ? { count: activity.whiteboard, live: true } : null,
+  };
   const panelCtx = {
     room,
     userId: session?.user?.id,
@@ -330,6 +348,7 @@ export default function RoomView({
               onToggleArrange={() => setArranging((v) => !v)}
               panels={quickPanels}
               activePanels={activePanels}
+              badges={panelBadges}
               onTogglePanel={togglePanel}
             />
           </div>

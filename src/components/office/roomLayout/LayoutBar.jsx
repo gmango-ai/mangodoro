@@ -6,7 +6,7 @@ import { PRESETS } from "./presets";
 // reset to the default. `presetId` is "custom" once the layout is edited.
 export default function LayoutBar({
   presetId, onApply, onReset, accent, dark, arranging, onToggleArrange,
-  panels, activePanels, onTogglePanel, presets = PRESETS,
+  panels, activePanels, badges, onTogglePanel, presets = PRESETS,
 }) {
   const [open, setOpen] = useState(false);
   const current = presets.find((p) => p.id === presetId);
@@ -17,20 +17,43 @@ export default function LayoutBar({
           in or pull it back out, no Arrange mode needed. Filled = shown. */}
       {(panels || []).map(({ id, title, Icon }) => {
         const on = (activePanels || []).includes(id);
+        // Activity badge only when the panel is CLOSED (open = you're seeing it).
+        const badge = !on ? badges?.[id] : null;
+        const badgeLabel = badge
+          ? (id === "chat"
+              ? `${badge.count} unread message${badge.count === 1 ? "" : "s"}`
+              : `${badge.count} ${id === "video" ? "in the call" : "on the whiteboard"}`)
+          : "";
         return (
-          <button
-            key={id}
-            type="button"
-            onClick={() => onTogglePanel?.(id)}
-            title={on ? `Remove ${title}` : `Add ${title}`}
-            aria-pressed={on}
-            className={`inline-flex items-center justify-center w-7 h-7 rounded-full transition-colors ${
-              on ? "text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
-            }`}
-            style={on ? { background: accent } : {}}
-          >
-            <Icon className="w-3.5 h-3.5" />
-          </button>
+          <div key={id} className="relative">
+            <button
+              type="button"
+              onClick={() => onTogglePanel?.(id)}
+              title={badge ? `${title} — ${badgeLabel}` : on ? `Remove ${title}` : `Add ${title}`}
+              aria-pressed={on}
+              className={`inline-flex items-center justify-center w-7 h-7 rounded-full transition-colors ${
+                on ? "text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
+              }`}
+              style={on ? { background: accent } : {}}
+            >
+              <Icon className="w-3.5 h-3.5" />
+            </button>
+            {badge && (
+              <span
+                aria-label={badgeLabel}
+                className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 inline-flex items-center justify-center rounded-full text-[9px] font-bold leading-none ring-2 ${
+                  dark ? "ring-[var(--color-surface)]" : "ring-white"
+                } ${
+                  // "live" (people present) reads green; unread chat reads accent.
+                  badge.live
+                    ? "bg-emerald-500 text-white"
+                    : "bg-[var(--color-accent)] text-white"
+                }`}
+              >
+                {badge.count > 9 ? "9+" : badge.count}
+              </span>
+            )}
+          </div>
         );
       })}
       {(panels || []).length > 0 && (
