@@ -554,19 +554,9 @@ html.electron-popover body::before {
   background: radial-gradient(circle at 50% 38%, #1e293b, #0b1220);
 }
 
-/* Name / mute chip → a small glassy pill, bottom-left, not the wide LK bar. */
-[data-lk-theme] .lk-participant-metadata { inset: auto auto 8px 8px; gap: 4px; }
-[data-lk-theme] .lk-participant-metadata-item {
-  background: rgba(2, 6, 23, 0.55);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  border-radius: 8px;
-  padding: 3px 8px;
-  font-size: 11.5px;
-  font-weight: 500;
-  line-height: 1.2;
-  color: #f1f5f9;
-}
+/* We render our own name/mute pill in ClusterParticipantTile (so it sits above
+   the camera-off avatar overlay), so hide LiveKit's default metadata bar. */
+[data-lk-theme] .lk-participant-metadata { display: none; }
 
 /* Hover focus/pin toggle on a tile → subtle rounded glass. */
 [data-lk-theme] .lk-focus-toggle-button {

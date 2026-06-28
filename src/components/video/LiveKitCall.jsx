@@ -1209,6 +1209,7 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   // Camera off → cover LiveKit's generic gray silhouette with a clean initials
   // avatar (a soft per-person gradient), which reads far more modern.
   const camOff = trackRef?.source === Track.Source.Camera && (!trackRef?.publication || trackRef.publication.isMuted);
+  const micOff = !!participant && participant.isMicrophoneEnabled === false;
   const dispName = participant?.name || participant?.identity || "Guest";
   const initial = (dispName.trim()[0] || "?").toUpperCase();
   // Amber for whoever carries the room's audio I/O — the device, the current mic
@@ -1225,10 +1226,18 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
           : "In room";
   return (
     <div
-      className={flip ? "[&_video]:scale-x-[-1]" : undefined}
-      style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}
+      className={`relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""}`}
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+
+      {/* Name + mute, glassy pill bottom-left (replaces LiveKit's metadata bar,
+          which our avatar overlay would otherwise cover). */}
+      <div className="absolute bottom-1.5 left-1.5 z-10 inline-flex items-center gap-1 max-w-[calc(100%-12px)] px-2 py-0.5 rounded-md bg-black/55 backdrop-blur-sm pointer-events-none">
+        {micOff && <MicOff className="w-3 h-3 text-rose-300 shrink-0" />}
+        <span className="text-[11px] font-medium text-white truncate">
+          {dispName}{participant?.isLocal ? " (You)" : ""}
+        </span>
+      </div>
 
       {/* Camera-off: an initials avatar over LiveKit's default silhouette. */}
       {camOff && (
