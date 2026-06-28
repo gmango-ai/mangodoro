@@ -140,7 +140,9 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     saveVideoInputEnabled,
     saveAudioInputDeviceId,
     saveVideoInputDeviceId,
-  } = usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: true, audioEnabled: true } });
+    // Camera OFF by default — walking up to a room shouldn't grab your webcam;
+    // you opt in by toggling it on to preview. The choice persists thereafter.
+  } = usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: false, audioEnabled: true } });
 
   const camOn = userChoices.videoEnabled;
   const micOn = userChoices.audioEnabled;
@@ -286,13 +288,15 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
         dark ? "border-[var(--color-border)] bg-slate-950" : "border-slate-200 bg-slate-900"
       }`}
     >
-      <button
-        type="button"
-        onClick={onBack}
-        className="absolute top-3 left-3 z-20 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/70 hover:bg-black/90 text-white text-[13px] font-semibold shadow-lg ring-1 ring-white/15 transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" /> Back
-      </button>
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="absolute top-3 left-3 z-20 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/70 hover:bg-black/90 text-white text-[13px] font-semibold shadow-lg ring-1 ring-white/15 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back
+        </button>
+      )}
 
       {compact ? (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-4 text-center">
@@ -373,14 +377,14 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   );
 }
 
-// Pre-join experience for a room that's ALREADY in a call: your own camera shown
-// big (proper call size) with your blur/background applied; the parent shrinks the
-// live call (others) into a corner. Camera stays OFF until you explicitly turn it
-// on here (persisted join intent never grabs the webcam), then the hero shows your
-// processed self-view. Join upgrades spectate→publish in place with these AV +
-// background choices. Returns a fragment (hero + control dock) so the parent can
-// keep the live-call corner as a stable sibling.
-function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave }) {
+// Watching-the-call lobby overlay. The LIVE CALL fills the tile behind this (the
+// parent's stageRef) — "walk into the office, see everyone". This overlays the
+// only dock (Join / Watch-audio / settings) plus an OPTIONAL small self-preview
+// PiP. Camera stays OFF until you turn it on (persisted join intent never grabs
+// the webcam); turning it on shows your processed self-view as the PiP so you can
+// check yourself before joining. Join upgrades spectate→publish in place with
+// these AV + background choices.
+function SpectatePreJoin({ displayName, participants = [], listen, onToggleListen, onJoin, onLeave }) {
   const { userChoices, saveAudioInputEnabled, saveVideoInputEnabled } =
     usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: false, audioEnabled: true } });
   const camOn = userChoices.videoEnabled;
@@ -445,29 +449,31 @@ function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave 
 
   return (
     <>
-      {/* Hero self-preview (z-0, behind the corner call). */}
-      <div className="absolute inset-0 z-0 flex items-center justify-center p-3">
-        {camPreview && videoTrack ? (
-          <div
-            className="relative max-w-full max-h-full rounded-xl overflow-hidden shadow-2xl"
-            style={{ aspectRatio: String(aspect) }}
-          >
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="w-full h-full object-cover"
-              style={{ transform: "scaleX(-1)" }}
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2 text-center">
-            <UserAvatar url="" name={displayName} size={72} />
-            <span className="text-white/70 text-sm font-medium">Camera off — turn it on to preview</span>
-          </div>
-        )}
+      {/* "You're watching" pill, top-left, over the live call. */}
+      <div className="absolute top-3 left-3 z-40 inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-black/55 backdrop-blur text-white text-[11px] font-semibold pointer-events-none">
+        <Eye className="w-3.5 h-3.5 opacity-80" />
+        Watching{participants.length ? ` · ${participants.length} in call` : ""}
       </div>
+
+      {/* Optional self-preview PiP (only when you turn your camera on to check
+          yourself before joining) — small, bottom-left, above the dock. When the
+          camera's off there's no PiP at all; the live call just fills. */}
+      {camPreview && videoTrack && (
+        <div
+          className="absolute bottom-20 left-3 z-40 w-32 sm:w-40 rounded-lg overflow-hidden ring-1 ring-white/25 shadow-2xl bg-slate-900"
+          style={{ aspectRatio: String(aspect) }}
+        >
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+            style={{ transform: "scaleX(-1)" }}
+          />
+          <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/55 text-white text-[9px] font-medium">You</span>
+        </div>
+      )}
 
       {/* Control dock. */}
       <div className="absolute inset-x-0 bottom-4 z-40 flex justify-center pointer-events-none">
@@ -546,7 +552,6 @@ export default function RoomVideoStage({ roomId, displayName }) {
   const dark = theme === "dark";
   const { session } = useApp();
   const userId = session?.user?.id;
-  const [setupOpen, setSetupOpen] = useState(false);
 
   const { call, startCall, setStageEl, updateCall, endCall } = useVideoCall();
   const inCall = call?.roomId === roomId;
@@ -593,32 +598,28 @@ export default function RoomVideoStage({ roomId, displayName }) {
   // the call into a nearby participant's mic). Tap Listen in the dock to hear.
   // `autoRef` fires it once per room visit; `dismissed` respects "Stop watching".
   useEffect(() => {
-    if (othersInCall && !inCall && !inAnotherCall && !setupOpen && !dismissed && !autoRef.current) {
+    if (othersInCall && !inCall && !inAnotherCall && !dismissed && !autoRef.current) {
       autoRef.current = true;
       startCall(roomId, displayName, { mode: "spectate", listen: false });
     }
-  }, [othersInCall, inCall, inAnotherCall, setupOpen, dismissed, roomId, displayName, startCall]);
+  }, [othersInCall, inCall, inAnotherCall, dismissed, roomId, displayName, startCall]);
 
   // ── In the call ──────────────────────────────────────────────
-  // The persistent call (LiveKitCall) portals INTO stageRef. stageRef stays the
-  // SAME element across spectate↔join (only its className changes), so the call
-  // never re-glues / flashes PiP on join. When SPECTATING it's shrunk to a corner
-  // (z-30) and SpectatePreJoin renders your big self-preview behind it (z-0) + the
-  // control dock (z-40); when JOINED it fills the tile. The pre-join pieces are
-  // SIBLINGS of stageRef, never children, so React nodes and the manual call host
-  // don't share a parent.
+  // The persistent call (LiveKitCall) portals INTO stageRef. stageRef ALWAYS
+  // fills the tile — the live call is the big thing the moment you're connected,
+  // whether you're spectating ("walk into the office, see everyone") or joined.
+  // While spectating, the call renders CHROMELESS (its own bar suppressed, see
+  // PersistentVideoCall) and SpectatePreJoin overlays the only dock (z-40) plus
+  // an OPTIONAL small self-preview PiP. stageRef keeps the same element across
+  // spectate↔join (only siblings change), so the call never re-glues on join.
   if (inCall) {
     return (
       <div className="relative w-full h-full rounded-xl overflow-hidden" style={{ background: "#0f172a" }}>
-        <div
-          ref={stageRef}
-          className={spectating
-            ? "absolute top-3 right-3 w-40 sm:w-52 lg:w-60 aspect-video rounded-lg overflow-hidden ring-1 ring-white/25 shadow-2xl z-30 bg-slate-900"
-            : "absolute inset-0"}
-        />
+        <div ref={stageRef} className="absolute inset-0" />
         {spectating && (
           <SpectatePreJoin
             displayName={displayName}
+            participants={observed.participants}
             listen={call?.listen === true}
             onToggleListen={() => updateCall({ listen: !(call?.listen === true) })}
             onJoin={(choices) => updateCall({ mode: "join", choices })}
@@ -638,25 +639,10 @@ export default function RoomVideoStage({ roomId, displayName }) {
     dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-slate-900"
   }`;
 
-  // ── Green room (camera preview + always-visible Join) ────────
-  if (setupOpen) {
-    return (
-      <GreenRoom
-        displayName={displayName}
-        othersInCall={othersInCall}
-        participants={observed.participants}
-        onJoin={(choices) => join(choices)}
-        onWatch={watch}
-        onBack={() => setSetupOpen(false)}
-        dark={dark}
-      />
-    );
-  }
-
-  // ── Auto-preview connecting ──────────────────────────────────
-  // Others are in the call and we haven't been dismissed → the effect above is
-  // about to flip us into spectate. Show a neutral fill instead of flashing the
-  // choice card for a frame.
+  // ── Others in the call ───────────────────────────────────────
+  // The auto-preview effect drops you straight into a live (muted) spectate so
+  // you SEE the call the moment you walk up. While that connects, show a neutral
+  // fill rather than flashing a card for a frame.
   if (othersInCall && !dismissed) {
     return (
       <div className={`${shellCls} items-center justify-center`}>
@@ -665,57 +651,54 @@ export default function RoomVideoStage({ roomId, displayName }) {
     );
   }
 
-  // ── Choice card (you dismissed the preview, or no one's in the call) ─────────
-  return (
-    <div className={`${shellCls} items-center justify-center text-center px-6`}>
-      {othersInCall ? (
-        <>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <p className="text-sm font-semibold text-white">{observed.participants.length} in call</p>
-          </div>
-          <div className="flex items-center justify-center gap-1.5 mb-4">
-            {observed.participants.slice(0, 6).map((p) => (
-              <span key={p.user_id} className="ring-2 ring-white/30 rounded-full">
-                <UserAvatar url="" name={p.display_name || "Member"} size={32} />
-              </span>
-            ))}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="p-3 rounded-full bg-white/10 backdrop-blur-sm mb-3">
-            <Video className="w-6 h-6 text-white/80" />
-          </div>
-          <p className="text-sm font-semibold text-white">No one's in the call</p>
-          <p className="text-xs text-white/60 max-w-[320px] mt-1 mb-4">
-            Set up your camera and mic, then start a call — teammates in this room get a join prompt.
-          </p>
-        </>
-      )}
-
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <Button
-          onClick={() => setSetupOpen(true)}
-          className="rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
-        >
-          <LogIn className="w-4 h-4 mr-1.5" />
-          {othersInCall ? "Set up & join" : "Set up & start"}
-        </Button>
-        {othersInCall && (
+  // ── You stopped watching, but a call is still running ────────
+  // A compact rejoin card (not the full lobby) — peek at who's in, then Join or
+  // watch again.
+  if (othersInCall && dismissed) {
+    return (
+      <div className={`${shellCls} items-center justify-center text-center px-6`}>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <p className="text-sm font-semibold text-white">{observed.participants.length} in call</p>
+        </div>
+        <div className="flex items-center justify-center gap-1.5 mb-4">
+          {observed.participants.slice(0, 6).map((p) => (
+            <span key={p.user_id} className="ring-2 ring-white/30 rounded-full">
+              <UserAvatar url="" name={p.display_name || "Member"} size={32} />
+            </span>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2">
           <Button
             onClick={watch}
+            className="rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
+          >
+            <Eye className="w-4 h-4 mr-1.5" /> Watch again
+          </Button>
+          <Button
+            onClick={() => join({ videoEnabled: false, audioEnabled: true })}
             variant="outline"
             className="rounded-full border-white/20 text-white hover:bg-white/10"
           >
-            <Eye className="w-4 h-4 mr-1.5" />
-            Just watch
+            <LogIn className="w-4 h-4 mr-1.5" /> Join call
           </Button>
-        )}
+        </div>
       </div>
-      <p className="text-[11px] text-white/50 mt-3">
-        {othersInCall ? "Watch without turning on your camera, or set up and join in." : "Your camera + mic stay off until you start."}
-      </p>
-    </div>
+    );
+  }
+
+  // ── Empty room → the start lobby directly (no choice-card hop) ───────────────
+  // GreenRoom IS the lobby: self-preview (camera off until you opt in) + a
+  // primary "Start call". No Back — there's nothing behind it now.
+  return (
+    <GreenRoom
+      displayName={displayName}
+      othersInCall={othersInCall}
+      participants={observed.participants}
+      onJoin={(choices) => join(choices)}
+      onWatch={watch}
+      onBack={null}
+      dark={dark}
+    />
   );
 }

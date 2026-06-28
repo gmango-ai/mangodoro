@@ -1315,7 +1315,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   );
 }
 
-function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic }) {
+function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, chromeless }) {
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
   const rootRef = useRef(null);
@@ -1403,7 +1403,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
           onClosePeople={() => setPeopleOpen(false)}
         />
       </LayoutContextProvider>
-      {!compact && (
+      {!compact && !chromeless && (
         <div
           className={`absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-3 pointer-events-none transition-opacity duration-300 ${
             controlsShown ? "opacity-100" : "opacity-0"
@@ -1440,7 +1440,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   );
 }
 
-export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, onJoinIn, emote, onJoined, onLeft, onError }) {
+export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, chromeless = false, onJoinIn, emote, onJoined, onLeft, onError }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [token, setToken] = useState(null);
@@ -1514,7 +1514,7 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         onError={(e) => onError?.(e?.message || "LiveKit connection error")}
       >
         <PublishController publish={publish} choices={choices} micMuted={micMuted} />
-        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} />
+        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} chromeless={chromeless} />
         {/* Owns in-room cluster management (leader handoff). Mount once. */}
         <RoomClusterManager />
         {/* In-room followers receive no audio at all (the room speaker carries
