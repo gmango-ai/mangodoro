@@ -17,7 +17,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff, Radio } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -79,7 +79,7 @@ const LK_DISCONNECT_REASON = {
 // Per-device preferences for the local self-view processors + layout. Kept in
 // localStorage so they persist across calls and apply even in PiP (which has
 // no control bar to toggle them).
-const PREF = { bg: "ql_lk_bg", bgCustom: "ql_lk_bg_custom", noise: "ql_lk_noise", layout: "ql_lk_layout", autoMic: "ql_lk_automic" };
+const PREF = { bg: "ql_lk_bg", bgCustom: "ql_lk_bg_custom", noise: "ql_lk_noise", layout: "ql_lk_layout", autoMic: "ql_lk_automic", ptt: "ql_lk_ptt" };
 function loadPref(key, fallback) {
   try {
     const v = localStorage.getItem(key);
@@ -408,6 +408,41 @@ function EffectsController({ bg, customBg, noiseEnabled }) {
   }, [noiseEnabled, microphoneTrack]);
 
   return null;
+}
+
+// Speaker (audio output) picker, shown inside the mic menu so all audio
+// settings live together. Switching calls room.switchActiveDevice("audiooutput")
+// under the hood (setSinkId on the call's <audio> elements). Renders nothing
+// where output selection isn't supported (Safari/iOS expose no audiooutput
+// devices), so the menu just omits it there instead of showing an empty list.
+function OutputDeviceSection() {
+  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind: "audiooutput" });
+  if (!devices || devices.length === 0) return null;
+  return (
+    <div className="px-0.5 py-0.5">
+      <div className="flex items-center gap-2 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">
+        <Volume2 className="w-3.5 h-3.5 opacity-80" /> Speaker
+      </div>
+      <div className="max-h-32 overflow-auto">
+        {devices.map((d) => {
+          const selected = d.deviceId === activeDeviceId;
+          return (
+            <button
+              key={d.deviceId}
+              type="button"
+              role="menuitemradio"
+              aria-checked={selected}
+              onClick={() => setActiveMediaDevice(d.deviceId)}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10"
+            >
+              <span className="flex-1 truncate">{d.label || "Unnamed device"}</span>
+              {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // A settings row inside a device menu — a labelled on/off toggle (e.g. blur,
@@ -830,6 +865,7 @@ function CallControlBar({
   bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
   autoMic, onToggleAutoMic,
+  ptt, onTogglePtt,
   micMuted, onToggleMic,
   peopleOpen, onTogglePeople,
 }) {
@@ -870,7 +906,10 @@ function CallControlBar({
           <MicButton micMuted={micMuted} onToggleMic={onToggleMic} />
           {!tight && (
             <DeviceSettingsMenu kind="audioinput" label="Microphone">
+              <OutputDeviceSection />
+              <div className="my-1 border-t border-white/10" />
               <SettingRow icon={Waves} label="Noise cancellation" active={noiseEnabled} onClick={onToggleNoise} />
+              <SettingRow icon={Radio} label="Push to talk (hold Space)" active={ptt} onClick={onTogglePtt} />
             </DeviceSettingsMenu>
           )}
           <TrackToggle source={Track.Source.Camera} />
@@ -1366,11 +1405,49 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const [noiseEnabled, setNoiseEnabled] = useState(() => loadPref(PREF.noise, "1") === "1");
   // Proximity auto mic-switching is experimental → defaults OFF.
   const [autoMic, setAutoMic] = useState(() => loadPref(PREF.autoMic, "0") === "1");
+  // Push-to-talk: when on, the mic stays muted and a held Space key opens it for
+  // the duration of the press. Off by default.
+  const [ptt, setPtt] = useState(() => loadPref(PREF.ptt, "0") === "1");
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.bg, bg), [bg]);
   useEffect(() => savePref(PREF.noise, noiseEnabled ? "1" : "0"), [noiseEnabled]);
   useEffect(() => savePref(PREF.autoMic, autoMic ? "1" : "0"), [autoMic]);
+  useEffect(() => savePref(PREF.ptt, ptt ? "1" : "0"), [ptt]);
+
+  // Push-to-talk key handling. micMuted lives in the parent; we drive it via the
+  // passed toggle, reading the latest value through a ref so the listeners never
+  // capture a stale state. Enabling PTT mutes you to start; then Space (held)
+  // unmutes while pressed. Ignored while typing in a field, and key-repeat is
+  // dropped so a long hold doesn't thrash.
+  const micMutedRef = useRef(micMuted);
+  micMutedRef.current = micMuted;
+  useEffect(() => {
+    if (!ptt) return undefined;
+    if (!micMutedRef.current) onToggleMic?.(); // start muted when PTT turns on
+    const typing = () => {
+      const el = document.activeElement;
+      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    };
+    const onDown = (e) => {
+      if (e.code !== "Space" || e.repeat || typing()) return;
+      e.preventDefault();
+      if (micMutedRef.current) onToggleMic?.(); // open the mic while held
+    };
+    const onUp = (e) => {
+      if (e.code !== "Space" || typing()) return;
+      e.preventDefault();
+      if (!micMutedRef.current) onToggleMic?.(); // close it on release
+    };
+    window.addEventListener("keydown", onDown);
+    window.addEventListener("keyup", onUp);
+    return () => {
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+    };
+    // onToggleMic is stable from the parent; depend only on the enable flag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ptt]);
 
   const onUploadBg = async (file) => {
     try {
@@ -1428,6 +1505,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onToggleNoise={() => setNoiseEnabled((v) => !v)}
               autoMic={autoMic}
               onToggleAutoMic={() => setAutoMic((v) => !v)}
+              ptt={ptt}
+              onTogglePtt={() => setPtt((v) => !v)}
               micMuted={micMuted}
               onToggleMic={onToggleMic}
               peopleOpen={peopleOpen}
