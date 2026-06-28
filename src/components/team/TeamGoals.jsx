@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Check, X, Target, Building2, Pin, PinOff, Pencil, ChevronUp, ChevronDown, GripVertical } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
-import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, reorderGoals, reassignGoal, horizonShort } from "../../lib/goals";
+import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, reorderGoals, reassignGoal, timeframeOf, timeframeToParams, timeframeShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
 import GoalProgress from "../goals/GoalProgress";
@@ -69,16 +69,17 @@ export default function TeamGoals({ dark }) {
     if (!body) return;
     setDrafts((d) => ({ ...d, [owner.id]: "" }));
     setAddingId(null);
+    const { horizon, weekStart } = timeframeToParams(horizons[owner.id] || "none");
     await createGoal({
       teamId: activeTeamId, ownerType, ownerId: owner.id,
       ownerName: owner.name, ownerColor: owner.color || null, body,
-      horizon: horizons[owner.id] || "none",
+      horizon, weekStart,
     });
     load();
   };
   const toggle = async (g) => { await updateGoal({ id: g.id, status: g.status === "done" ? "active" : "done" }); load(); };
   const remove = async (g) => { await deleteGoal(g.id); load(); };
-  const changeHorizon = async (g, h) => { await updateGoal({ id: g.id, horizon: h }); load(); };
+  const changeHorizon = async (g, key) => { const { horizon, weekStart } = timeframeToParams(key); await updateGoal({ id: g.id, horizon, weekStart }); load(); };
   const togglePin = async (g) => { await updateGoal({ id: g.id, pinned: g.pinned === false }); load(); };
   const moveGoal = async (ownerType, ownerId, g, dir) => {
     const own = goals.filter((x) => x.owner_type === ownerType && String(x.owner_id) === String(ownerId));
@@ -245,11 +246,11 @@ export default function TeamGoals({ dark }) {
                 <MarkdownText dark={dark} compact>{g.body}</MarkdownText>
               </div>
               {manage ? (
-                <GoalHorizonSelect value={g.horizon} onChange={(h) => changeHorizon(g, h)} dark={dark} />
+                <GoalHorizonSelect value={timeframeOf(g)} onChange={(key) => changeHorizon(g, key)} dark={dark} />
               ) : (
-                g.horizon && g.horizon !== "none" && (
+                timeframeShort(g) && (
                   <span className={`shrink-0 mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${dark ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
-                    {horizonShort(g.horizon)}
+                    {timeframeShort(g)}
                   </span>
                 )
               )}

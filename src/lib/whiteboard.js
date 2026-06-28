@@ -92,13 +92,22 @@ export async function deleteWhiteboardTemplate(id) {
 
 // ─── CRUD ──────────────────────────────────────────────────────────
 
-export async function listTeamWhiteboards(teamId, { includeArchived = false } = {}) {
-  if (!teamId) return { data: [], error: null };
+// Boards visible in the active team's list: the team's ORG boards plus the
+// caller's own PERSONAL boards (pass ownerId). RLS already enforces this; the
+// filters just narrow what we ask for.
+export async function listTeamWhiteboards(teamId, { includeArchived = false, ownerId = null } = {}) {
+  if (!teamId && !ownerId) return { data: [], error: null };
   let q = supabase
     .from("whiteboards")
-    .select("id, team_id, title, template_key, goal, created_by, created_at, updated_at, archived_at")
-    .eq("team_id", teamId)
+    .select("id, team_id, scope, owner_id, title, template_key, goal, created_by, created_at, updated_at, archived_at")
     .order("updated_at", { ascending: false });
+  if (teamId && ownerId) {
+    q = q.or(`and(scope.eq.org,team_id.eq.${teamId}),and(scope.eq.personal,owner_id.eq.${ownerId})`);
+  } else if (teamId) {
+    q = q.eq("scope", "org").eq("team_id", teamId);
+  } else {
+    q = q.eq("scope", "personal").eq("owner_id", ownerId);
+  }
   if (!includeArchived) q = q.is("archived_at", null);
   const { data, error } = await q;
   return { data: data || [], error };
@@ -114,14 +123,18 @@ export async function fetchWhiteboardById(whiteboardId) {
   return { data, error };
 }
 
-export async function createWhiteboard({ teamId, title, createdBy, snapshot }) {
+export async function createWhiteboard({ teamId, title, createdBy, snapshot, scope = "org" }) {
   const trimmedTitle = (title || "").trim() || "Untitled whiteboard";
   if (trimmedTitle.length > 120) return { error: { message: "Title too long (max 120 chars)." } };
+  const personal = scope === "personal";
+  if (!personal && !teamId) return { error: { message: "Pick a team for a team whiteboard." } };
   const row = {
-    team_id: teamId,
     title: trimmedTitle,
     template_key: "blank",
     created_by: createdBy,
+    scope: personal ? "personal" : "org",
+    owner_id: createdBy,
+    team_id: personal ? null : teamId,
   };
   // Seed from a saved template's snapshot when one was chosen.
   if (snapshot && !isEmptySnapshot(snapshot)) row.snapshot = cleanSnapshot(snapshot);

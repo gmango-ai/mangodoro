@@ -27,11 +27,13 @@ export default function WhiteboardPicker({ open, onClose }) {
   useEffect(() => {
     if (!open || !activeTeamId) return;
     setLoading(true);
-    listTeamWhiteboards(activeTeamId).then(({ data }) => {
+    // Include the user's own personal boards — they can bring one into the
+    // room (link_whiteboard_to_session allows linking a personal board you own).
+    listTeamWhiteboards(activeTeamId, { ownerId: session?.user?.id }).then(({ data }) => {
       setBoards(data || []);
       setLoading(false);
     });
-  }, [open, activeTeamId]);
+  }, [open, activeTeamId, session?.user?.id]);
 
   useEffect(() => {
     if (!open) return;
