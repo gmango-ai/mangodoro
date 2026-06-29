@@ -212,24 +212,33 @@ function PublishController({ publish, choices, micMuted }) {
   }, [publish, inRoom, mergeTarget, joinRoom]);
 
   useEffect(() => {
-    if (!localParticipant) return;
-    // Tag our role so every client can render spectators as a name list
-    // instead of giving them a (camera-off) tile in the grid.
-    localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
-    const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
-    // Your mic is live only when YOU haven't muted it AND (solo, or you're the
-    // room's mic source). The in-room gate is the "behind the scenes" auto-mute —
-    // it doesn't flip your personal mute button; that stays your own control.
-    // While entering "in this room" but not yet clustered, hold the mic off so
-    // it can't squeal before the follower/mic-source role resolves.
-    const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
-    localParticipant
-      .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
-      .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
-    localParticipant
-      .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
-      .catch(() => { /* */ });
-  }, [localParticipant, publish, choices, cluster, isMicSource, micMuted]);
+    if (!localParticipant || !room) return undefined;
+    const apply = () => {
+      // Tag our role so every client can render spectators as a name list
+      // instead of giving them a (camera-off) tile in the grid.
+      localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
+      const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
+      // Your mic is live only when YOU haven't muted it AND (solo, or you're the
+      // room's mic source). The in-room gate is the "behind the scenes" auto-mute —
+      // it doesn't flip your personal mute button; that stays your own control.
+      // While entering "in this room" but not yet clustered, hold the mic off so
+      // it can't squeal before the follower/mic-source role resolves.
+      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
+      localParticipant
+        .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
+        .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
+      localParticipant
+        .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
+        .catch(() => { /* */ });
+    };
+    // These are all signal requests — only valid once connected. Touching them
+    // earlier (e.g. while a connect is still failing) logs "cannot send signal
+    // request before connected" and wastes the call. Apply on connect, and
+    // re-apply on every (re)connection.
+    room.on(RoomEvent.Connected, apply);
+    if (room.state === "connected") apply();
+    return () => room.off(RoomEvent.Connected, apply);
+  }, [localParticipant, room, publish, choices, cluster, isMicSource, micMuted, inRoom]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
