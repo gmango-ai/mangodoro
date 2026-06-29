@@ -73,10 +73,17 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json(405, { error: "Method not allowed" });
 
-  if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET || !LIVEKIT_URL) {
+  // Name the specific missing secret(s) — LIVEKIT_URL in particular is easy to
+  // miss because mint-livekit-token doesn't need it, so the app can mint tokens
+  // and join calls fine while every moderation action (pin/kick/mute) 500s here.
+  const missingSecrets = [
+    !LIVEKIT_API_KEY && "LIVEKIT_API_KEY",
+    !LIVEKIT_API_SECRET && "LIVEKIT_API_SECRET",
+    !LIVEKIT_URL && "LIVEKIT_URL",
+  ].filter(Boolean);
+  if (missingSecrets.length) {
     return json(500, {
-      error:
-        "LiveKit not configured. Set LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL via `supabase secrets set`.",
+      error: `LiveKit not configured — missing secret(s): ${missingSecrets.join(", ")}. Set via \`supabase secrets set\`.`,
     });
   }
   if (!SERVICE_ROLE_KEY) {
