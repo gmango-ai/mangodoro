@@ -28,6 +28,7 @@ import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livek
 import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
 import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { PREF, loadPref, savePref } from "./callPrefs";
+import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt } from "./livekitConnect";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
@@ -1049,12 +1050,11 @@ function useGlobalPin() {
 }
 
 function PeoplePanel({ roomId, onClose }) {
-  const { theme } = useTheme();
-  const dark = theme === "dark";
   const participants = useParticipants();
+  const speaking = useSpeakingParticipants();
   const { localParticipant } = useLocalParticipant();
   const { syncSession } = useSyncSession();
-  const { isAdmin, isOwner } = useTeam();
+  const { isAdmin, isOwner, teamMembers } = useTeam();
   const myId = localParticipant?.identity;
   const leaderId = syncSession?.leader_id || null;
   const isHost = !!leaderId && leaderId === myId;
@@ -1064,6 +1064,15 @@ function PeoplePanel({ roomId, onClose }) {
   const globalPinId = useGlobalPin();
   const [busy, setBusy] = useState(null);
   const [confirmKick, setConfirmKick] = useState(null);
+
+  // Org members get a real profile (photo + name); everyone else is a guest
+  // shown with an initials avatar.
+  const memberMap = useMemo(() => {
+    const m = new Map();
+    for (const tm of teamMembers || []) m.set(tm.user_id, tm);
+    return m;
+  }, [teamMembers]);
+  const speakingIds = useMemo(() => new Set(speaking.map((p) => p.identity)), [speaking]);
 
   const doKick = async (id) => {
     setBusy(id);
@@ -1093,100 +1102,146 @@ function PeoplePanel({ roomId, onClose }) {
     if (error) console.warn("unpin:", error.message);
   };
 
+  const orgPeople = [];
+  const guests = [];
+  for (const p of participants) (memberMap.has(p.identity) ? orgPeople : guests).push(p);
+
+  const Row = (p, i) => {
+    const member = memberMap.get(p.identity);
+    const isSelf = p.identity === myId;
+    const isLeader = p.identity === leaderId;
+    const isSpectator = p.attributes?.role === "spectator";
+    const isPinned = p.identity === globalPinId;
+    const isSpk = speakingIds.has(p.identity);
+    const micPub = p.getTrackPublication?.(Track.Source.Microphone);
+    const micOn = !!micPub && !micPub.isMuted;
+    const name = p.name || member?.name || "Guest";
+    const canModerate = isOrgAdmin || (isHost && !isSelf);
+    const status = isSpectator ? "Watching" : isSpk ? "Speaking" : micOn ? "Mic on" : "Muted";
+    return (
+      <div
+        key={p.identity}
+        className="call-person-row group flex items-center gap-2.5 rounded-xl px-1.5 py-1.5 hover:bg-white/[0.06] transition-colors"
+        style={{ animationDelay: `${Math.min(i, 8) * 28}ms` }}
+      >
+        <CallAvatar name={name} src={member?.avatar_url} id={p.identity} size={34} speaking={isSpk} dimmed={isSpectator} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="truncate font-medium text-slate-100">{name}</span>
+            {isSelf && <span className="shrink-0 text-[10px] px-1 py-px rounded bg-white/10 text-slate-300">you</span>}
+            {isLeader && <span className="shrink-0 text-amber-300" title="Session leader">★</span>}
+            {isPinned && <Pin className="w-3 h-3 text-amber-300 shrink-0" />}
+          </div>
+          <div className="flex items-center gap-1 text-[10.5px] leading-tight">
+            <span className={isSpk ? "text-emerald-300" : "text-slate-400"}>{status}</span>
+          </div>
+        </div>
+        {!isSpectator && (
+          <span className="shrink-0" title={micOn ? "Mic on" : "Muted"}>
+            {micOn ? <Mic className="w-3.5 h-3.5 text-slate-300" /> : <MicOff className="w-3.5 h-3.5 text-slate-500" />}
+          </span>
+        )}
+        {canModerate && (
+          <span className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            {isOrgAdmin && (
+              isPinned ? (
+                <button
+                  type="button"
+                  title="Unpin for everyone"
+                  disabled={busy === p.identity}
+                  onClick={() => doUnpin(p.identity)}
+                  className="p-1 rounded-lg text-amber-300 hover:bg-white/15 active:scale-90 transition disabled:opacity-40"
+                >
+                  <PinOff className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title="Pin for everyone"
+                  disabled={busy === p.identity}
+                  onClick={() => doPin(p.identity)}
+                  className="p-1 rounded-lg text-slate-300 hover:bg-white/15 active:scale-90 transition disabled:opacity-40"
+                >
+                  <Pin className="w-3.5 h-3.5" />
+                </button>
+              )
+            )}
+            {isHost && !isSelf && micOn && (
+              <button
+                type="button"
+                title="Mute mic"
+                disabled={busy === p.identity}
+                onClick={() => doMute(p)}
+                className="p-1 rounded-lg text-slate-300 hover:bg-white/15 active:scale-90 transition disabled:opacity-40"
+              >
+                <MicOff className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {isHost && !isSelf && (
+              confirmKick === p.identity ? (
+                <button
+                  type="button"
+                  disabled={busy === p.identity}
+                  onClick={() => doKick(p.identity)}
+                  className="px-1.5 py-0.5 rounded-lg bg-rose-500/85 hover:bg-rose-500 text-[10px] font-semibold active:scale-95 transition disabled:opacity-40"
+                >
+                  Remove?
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title="Remove from call"
+                  onClick={() => setConfirmKick(p.identity)}
+                  className="p-1 rounded-lg text-rose-300 hover:bg-rose-500/20 active:scale-90 transition"
+                >
+                  <UserX className="w-3.5 h-3.5" />
+                </button>
+              )
+            )}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div
-      className={`absolute top-2 left-2 z-20 w-64 max-h-[85%] overflow-auto rounded-lg backdrop-blur-sm p-2 shadow-xl text-[12px] ${
-        dark ? "bg-slate-900/95 text-slate-100" : "bg-slate-900/90 text-white"
-      }`}
-    >
-      <div className="flex items-center justify-between px-1 pb-1.5">
-        <span className="font-semibold">In this call · {participants.length}</span>
-        <button type="button" onClick={onClose} aria-label="Close" className="p-0.5 rounded hover:bg-white/10">
+    <div className="call-sheet absolute top-2 bottom-2 right-2 z-20 w-72 max-w-[82%] flex flex-col text-[12.5px] text-slate-100">
+      <div className="flex items-center justify-between px-3.5 pt-3 pb-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <UsersRound className="w-4 h-4 opacity-80 shrink-0" />
+          <span className="font-semibold tracking-tight">People</span>
+          <span className="text-[11px] px-1.5 py-px rounded-full bg-white/10 text-slate-300">{participants.length}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="p-1 rounded-lg hover:bg-white/10 active:scale-90 transition"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
-      <ul className="space-y-0.5">
-        {participants.map((p) => {
-          const isSelf = p.identity === myId;
-          const isLeader = p.identity === leaderId;
-          const isSpectator = p.attributes?.role === "spectator";
-          const isPinned = p.identity === globalPinId;
-          const micPub = p.getTrackPublication?.(Track.Source.Microphone);
-          const micOn = !!micPub && !micPub.isMuted;
-          return (
-            <li key={p.identity} className="flex items-center gap-1.5 px-1 py-1 rounded hover:bg-white/5">
-              <span className="flex-1 min-w-0 truncate">
-                {p.name || p.identity}
-                {isSelf && <span className="opacity-60"> (you)</span>}
-                {isLeader && <span className="text-amber-300"> ★</span>}
-                {isPinned && <Pin className="inline w-3 h-3 text-amber-300 ml-1 -mt-0.5" />}
-                {isSpectator && <span className="opacity-50"> · watching</span>}
-              </span>
-              {(isOrgAdmin || (isHost && !isSelf)) && (
-                <span className="flex items-center gap-0.5 shrink-0">
-                  {isOrgAdmin && (
-                    isPinned ? (
-                      <button
-                        type="button"
-                        title="Unpin for everyone"
-                        disabled={busy === p.identity}
-                        onClick={() => doUnpin(p.identity)}
-                        className="p-1 rounded text-amber-300 hover:bg-white/15 disabled:opacity-40"
-                      >
-                        <PinOff className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        title="Pin for everyone"
-                        disabled={busy === p.identity}
-                        onClick={() => doPin(p.identity)}
-                        className="p-1 rounded hover:bg-white/15 disabled:opacity-40"
-                      >
-                        <Pin className="w-3.5 h-3.5" />
-                      </button>
-                    )
-                  )}
-                  {isHost && !isSelf && micOn && (
-                    <button
-                      type="button"
-                      title="Mute mic"
-                      disabled={busy === p.identity}
-                      onClick={() => doMute(p)}
-                      className="p-1 rounded hover:bg-white/15 disabled:opacity-40"
-                    >
-                      <MicOff className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  {isHost && !isSelf && (
-                    confirmKick === p.identity ? (
-                      <button
-                        type="button"
-                        disabled={busy === p.identity}
-                        onClick={() => doKick(p.identity)}
-                        className="px-1.5 py-0.5 rounded bg-red-500/80 hover:bg-red-500 text-[10px] font-semibold disabled:opacity-40"
-                      >
-                        Remove?
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        title="Remove from call"
-                        onClick={() => setConfirmKick(p.identity)}
-                        className="p-1 rounded text-red-300 hover:bg-red-500/20"
-                      >
-                        <UserX className="w-3.5 h-3.5" />
-                      </button>
-                    )
-                  )}
-                </span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-2.5">
+        {orgPeople.length > 0 && (
+          <div>
+            <div className="call-menu-label px-1.5">In your org · {orgPeople.length}</div>
+            <div className="mt-1 space-y-0.5">{orgPeople.map(Row)}</div>
+          </div>
+        )}
+        {guests.length > 0 && (
+          <div>
+            <div className="call-menu-label px-1.5">Guests · {guests.length}</div>
+            <div className="mt-1 space-y-0.5">{guests.map(Row)}</div>
+          </div>
+        )}
+        {participants.length === 0 && (
+          <p className="px-3 py-6 text-center text-slate-400">No one here yet.</p>
+        )}
+      </div>
       {!isHost && (
-        <p className="px-1 pt-1.5 text-[10px] opacity-50">Only the session leader can mute or remove.</p>
+        <p className="px-3.5 py-2 border-t border-white/[0.07] text-[10.5px] text-slate-400">
+          Only the session leader can mute or remove.
+        </p>
       )}
     </div>
   );
@@ -1198,6 +1253,43 @@ function avatarGradient(id) {
   for (let i = 0; i < (id || "").length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   const hue = h % 360;
   return `linear-gradient(135deg, hsl(${hue} 52% 48%), hsl(${(hue + 38) % 360} 55% 34%))`;
+}
+
+// First+last initial for an initials avatar / fallback.
+function getInitials(name) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// A round person avatar: real photo when we have one, otherwise initials on the
+// person's deterministic gradient. `speaking` adds the accent breathing ring.
+function CallAvatar({ name, src, id, size = 34, speaking = false, dimmed = false }) {
+  const [broken, setBroken] = useState(false);
+  const showImg = src && !broken;
+  return (
+    <span
+      className={`relative inline-flex shrink-0 items-center justify-center rounded-full overflow-hidden ${
+        speaking ? "call-avatar--speaking" : "ring-1 ring-white/10"
+      }`}
+      style={{
+        width: size,
+        height: size,
+        background: showImg ? "rgba(255,255,255,0.06)" : avatarGradient(id || name),
+        opacity: dimmed ? 0.6 : 1,
+        transition: "opacity 0.15s ease",
+      }}
+    >
+      {showImg ? (
+        <img src={src} alt="" className="w-full h-full object-cover" onError={() => setBroken(true)} />
+      ) : (
+        <span className="font-semibold text-white leading-none" style={{ fontSize: Math.round(size * 0.4) }}>
+          {getInitials(name)}
+        </span>
+      )}
+    </span>
+  );
 }
 
 // A ParticipantTile with an in-room badge. When a participant is part of a
@@ -1803,15 +1895,24 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
   useEffect(() => {
     let cancelled = false;
     setToken(null);
-    (async () => {
-      try {
-        const t = await fetchLiveKitToken(liveKitRoomName(roomId), displayName);
-        if (!cancelled) setToken(t);
-      } catch (e) {
-        if (!cancelled) onError?.(e?.message || "Could not get a LiveKit token");
-      }
-    })();
-    return () => { cancelled = true; };
+    const room = liveKitRoomName(roomId);
+    // Throttle: if we connected to this room very recently (StrictMode double-
+    // mount, an HMR remount, or a rapid rejoin), wait out the cooldown before
+    // minting a token + connecting again, so we stop spamming the backend.
+    const delay = connectDelayFor(room);
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      markConnectAttempt(room);
+      (async () => {
+        try {
+          const t = await fetchLiveKitToken(room, displayName);
+          if (!cancelled) setToken(t);
+        } catch (e) {
+          if (!cancelled) onError?.(e?.message || "Could not get a LiveKit token");
+        }
+      })();
+    }, delay);
+    return () => { cancelled = true; clearTimeout(timer); };
     // Re-mint only on room change (identity is the user, not the name).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
@@ -1851,6 +1952,10 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         // when publishing so spectate↔join flips without a reconnect.
         video={false}
         audio={false}
+        // Capped-backoff reconnect + bounded initial retries so a failed
+        // connect can't 429-storm LiveKit Cloud across every region.
+        options={LK_ROOM_OPTIONS}
+        connectOptions={LK_CONNECT_OPTIONS}
         style={{ height: "100%" }}
         onConnected={() => onJoined?.()}
         onDisconnected={(reason) => {
