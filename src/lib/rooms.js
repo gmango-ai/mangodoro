@@ -7,7 +7,7 @@ export async function listRooms(teamId) {
   const { data, error } = await supabase
     .from("rooms")
     .select(`
-      id, team_id, name, kind, color, entry_policy, created_by, created_at, archived_at,
+      id, team_id, name, kind, color, entry_policy, pin_policy, created_by, created_at, archived_at,
       layout_x, layout_y, layout_w, layout_h, max_duration_minutes,
       room_teams ( org_team_id )
     `)
@@ -139,6 +139,16 @@ export async function renameRoom(roomId, name) {
 
 export async function setRoomEntryPolicy(roomId, policy) {
   const { error } = await supabase.rpc("set_room_entry_policy", {
+    p_room_id: roomId,
+    p_policy: policy,
+  });
+  return { error };
+}
+
+// Who may pin a participant into everyone's view:
+// 'admins' | 'leaders' | 'both' | 'everyone'. Server enforces the manager check.
+export async function setRoomPinPolicy(roomId, policy) {
+  const { error } = await supabase.rpc("set_room_pin_policy", {
     p_room_id: roomId,
     p_policy: policy,
   });

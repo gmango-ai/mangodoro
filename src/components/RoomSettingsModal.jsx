@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Check, Trash2, Clock, Lock, Globe, Eraser } from "lucide-react";
+import { X, Check, Trash2, Clock, Lock, Globe, Eraser, Pin } from "lucide-react";
 import {
   renameRoomV2, setRoomColor, updateRoomGating, archiveRoomV2,
   setRoomMaxDuration, setRoomEntryPolicy, setRoomAccessCode, getRoomAccessCode,
+  setRoomPinPolicy,
 } from "../lib/rooms";
 import { clearRoomChat } from "../lib/chatMessages";
 
@@ -43,8 +44,9 @@ export default function RoomSettingsModal({
   const [entryPolicy, setEntryPolicy] = useState("open");  // 'open' | 'code'
   const [accessCode, setAccessCode] = useState("");        // editable PIN
   const [currentCode, setCurrentCode] = useState("");      // loaded PIN, for diffing
+  const [pinPolicy, setPinPolicy] = useState("admins");    // who can pin for everyone
   const [busy, setBusy] = useState(false);
-  const [dirty, setDirty] = useState({ name: false, color: false, gating: false, duration: false, access: false });
+  const [dirty, setDirty] = useState({ name: false, color: false, gating: false, duration: false, access: false, pin: false });
   // Two-step delete: clicking the trash icon flips this to true and the
   // footer swaps in a Confirm / Cancel pair. Avoids needing a separate
   // modal layer for a single destructive action.
@@ -65,9 +67,10 @@ export default function RoomSettingsModal({
     setShowCustomDuration(current != null && !presetValues.includes(current));
     setCustomDuration(current != null && !presetValues.includes(current) ? String(current) : "");
     setEntryPolicy(room.entry_policy || "open");
+    setPinPolicy(room.pin_policy || "admins");
     setAccessCode("");
     setCurrentCode("");
-    setDirty({ name: false, color: false, gating: false, duration: false, access: false });
+    setDirty({ name: false, color: false, gating: false, duration: false, access: false, pin: false });
     setConfirmDelete(false);
     setConfirmClear(false);
     setBusy(false);
@@ -153,6 +156,9 @@ export default function RoomSettingsModal({
           if (r.error) errs.push(r.error);
         }
       })());
+    }
+    if (dirty.pin && pinPolicy !== (room.pin_policy || "admins")) {
+      tasks.push(setRoomPinPolicy(room.id, pinPolicy).then((r) => r.error && errs.push(r.error)));
     }
     await Promise.all(tasks);
     setBusy(false);
@@ -413,6 +419,48 @@ export default function RoomSettingsModal({
               </p>
             </div>
           )}
+        </div>
+
+        {/* Pin control — who can pin a participant into everyone's view during a
+            call (sets the shared focus all clients follow). */}
+        <div className="mb-4">
+          <label className={labelCls}>
+            <Pin className="inline w-3.5 h-3.5 mr-1 -mt-0.5" />
+            Who can pin for everyone
+          </label>
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {[
+              { value: "admins", label: "Admins" },
+              { value: "leaders", label: "Session leader" },
+              { value: "both", label: "Admins & leader" },
+              { value: "everyone", label: "Everyone" },
+            ].map(({ value, label }) => {
+              const active = pinPolicy === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => { setPinPolicy(value); setDirty((d) => ({ ...d, pin: true })); }}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                    active
+                      ? "bg-[var(--accent-bg)] text-[var(--accent-text)] border-[var(--accent-border)]"
+                      : (dark
+                          ? "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")
+                  }`}
+                  aria-pressed={active}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <p className={`text-[11px] mt-1 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            {pinPolicy === "admins" && "Only org admins can pin someone into everyone's view."}
+            {pinPolicy === "leaders" && "Only the room's session leader can pin for everyone."}
+            {pinPolicy === "both" && "Org admins and the session leader can pin for everyone."}
+            {pinPolicy === "everyone" && "Anyone in the call can pin a participant for everyone."}
+          </p>
         </div>
 
         <div className="flex items-center gap-2">

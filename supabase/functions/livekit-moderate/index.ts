@@ -126,10 +126,14 @@ Deno.serve(async (req) => {
   // ── authorize ──
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
   if (isPin) {
-    // Pinning the view for everyone is a team/org admin action.
+    // Who may pin for everyone is configurable per room (rooms.pin_policy):
+    //   admins   → org admin / owner of the room's team
+    //   leaders  → the active sync-session leader
+    //   both     → either of the above
+    //   everyone → anyone in the call (any authenticated caller)
     const { data: roomRow, error: roomErr } = await admin
       .from("rooms")
-      .select("team_id")
+      .select("team_id, pin_policy")
       .eq("id", roomId)
       .maybeSingle();
     if (roomErr) {
@@ -137,18 +141,43 @@ Deno.serve(async (req) => {
       return json(500, { error: "Could not verify room" });
     }
     if (!roomRow) return json(404, { error: "Room not found" });
-    const { data: membership, error: memErr } = await admin
-      .from("team_members")
-      .select("role, is_owner")
-      .eq("team_id", roomRow.team_id)
-      .eq("user_id", caller.id)
-      .maybeSingle();
-    if (memErr) {
-      console.error("[livekit-moderate] membership lookup failed", memErr);
-      return json(500, { error: "Could not verify membership" });
+    const policy = roomRow.pin_policy || "admins";
+
+    let allowed = policy === "everyone";
+
+    if (!allowed && (policy === "admins" || policy === "both")) {
+      const { data: membership, error: memErr } = await admin
+        .from("team_members")
+        .select("role, is_owner")
+        .eq("team_id", roomRow.team_id)
+        .eq("user_id", caller.id)
+        .maybeSingle();
+      if (memErr) {
+        console.error("[livekit-moderate] membership lookup failed", memErr);
+        return json(500, { error: "Could not verify membership" });
+      }
+      if (membership && (membership.role === "admin" || membership.is_owner === true)) allowed = true;
     }
-    const isOrgAdmin = !!membership && (membership.role === "admin" || membership.is_owner === true);
-    if (!isOrgAdmin) return json(403, { error: "Only a team admin can pin for everyone" });
+
+    if (!allowed && (policy === "leaders" || policy === "both")) {
+      const { data: sess, error: sessErr } = await admin
+        .from("sync_sessions")
+        .select("leader_id")
+        .eq("room_id", roomId)
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (sessErr) {
+        console.error("[livekit-moderate] session lookup failed", sessErr);
+        return json(500, { error: "Could not verify session" });
+      }
+      if (sess && sess.leader_id === caller.id) allowed = true;
+    }
+
+    if (!allowed) {
+      return json(403, { error: "You don't have permission to pin for everyone in this room" });
+    }
   } else {
     // Mute/kick is the active session's leader.
     const { data: sess, error: sessErr } = await admin

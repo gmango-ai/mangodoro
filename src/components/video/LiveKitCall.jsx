@@ -172,6 +172,46 @@ function bgToOptions(bg, customBg) {
 //   float  — render your own tile as a draggable PiP instead of a grid cell
 const SelfViewContext = createContext({ mirror: true, float: true, setMirror: () => {}, setFloat: () => {} });
 
+// "Pin for everyone" control, shared from the call down to each tile + the
+// People panel so the affordance shows wherever it's useful. `canPin` is gated
+// by the room's pin_policy; the server re-checks, so this only decides the UI.
+const PinControlContext = createContext({ canPin: false, pinnedId: null, pin: () => {}, unpin: () => {}, busyId: null });
+
+function usePinControlValue(roomId) {
+  const { isAdmin, isOwner, rooms } = useTeam();
+  const { syncSession } = useSyncSession();
+  const { localParticipant } = useLocalParticipant();
+  const globalPinId = useGlobalPin();
+  const myId = localParticipant?.identity;
+  const policy = (rooms || []).find((r) => r.id === roomId)?.pin_policy || "admins";
+  const isOrgAdmin = !!isAdmin || !!isOwner;
+  const isLeader = !!syncSession?.leader_id && syncSession.leader_id === myId;
+  const canPin =
+    policy === "everyone" ||
+    (policy === "admins" && isOrgAdmin) ||
+    (policy === "leaders" && isLeader) ||
+    (policy === "both" && (isOrgAdmin || isLeader));
+  const [busyId, setBusyId] = useState(null);
+  const pin = async (id) => {
+    setBusyId(id);
+    const { error } = await setRoomPin(roomId, id);
+    setBusyId(null);
+    if (error) console.warn("pin:", error.message);
+  };
+  const unpin = async () => {
+    setBusyId(globalPinId || "_");
+    const { error } = await clearRoomPin(roomId);
+    setBusyId(null);
+    if (error) console.warn("unpin:", error.message);
+  };
+  return useMemo(
+    () => ({ canPin, policy, pinnedId: globalPinId, pin, unpin, busyId }),
+    // pin/unpin are stable enough for our use; re-memo on the values that matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canPin, policy, globalPinId, busyId],
+  );
+}
+
 function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
@@ -1063,13 +1103,12 @@ function PeoplePanel({ roomId, onClose }) {
   const speaking = useSpeakingParticipants();
   const { localParticipant } = useLocalParticipant();
   const { syncSession } = useSyncSession();
-  const { isAdmin, isOwner, teamMembers } = useTeam();
+  const { teamMembers } = useTeam();
   const myId = localParticipant?.identity;
   const leaderId = syncSession?.leader_id || null;
   const isHost = !!leaderId && leaderId === myId;
-  // Pinning for everyone is a team admin power (server re-checks against the
-  // room's team; this just gates the affordance).
-  const isOrgAdmin = !!isAdmin || !!isOwner;
+  // Pinning for everyone is gated by the room's pin policy (server re-checks).
+  const { canPin } = useContext(PinControlContext);
   const globalPinId = useGlobalPin();
   const [busy, setBusy] = useState(null);
   const [confirmKick, setConfirmKick] = useState(null);
@@ -1125,7 +1164,7 @@ function PeoplePanel({ roomId, onClose }) {
     const micPub = p.getTrackPublication?.(Track.Source.Microphone);
     const micOn = !!micPub && !micPub.isMuted;
     const name = p.name || member?.name || "Guest";
-    const canModerate = isOrgAdmin || (isHost && !isSelf);
+    const canModerate = canPin || (isHost && !isSelf);
     const status = isSpectator ? "Watching" : isSpk ? "Speaking" : micOn ? "Mic on" : "Muted";
     return (
       <div
@@ -1152,7 +1191,7 @@ function PeoplePanel({ roomId, onClose }) {
         )}
         {canModerate && (
           <span className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-            {isOrgAdmin && (
+            {canPin && (
               isPinned ? (
                 <button
                   type="button"
@@ -1316,8 +1355,14 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   const participant = trackRef?.participant;
   const roles = useClusterRoles();
   const globalPinId = useGlobalPin();
+  const { canPin, pin, unpin, busyId } = useContext(PinControlContext);
   const role = participant ? roles.get(participant.identity) : null;
   const isPinned = !!participant?.identity && participant.identity === globalPinId;
+  // A hover pin toggle so you can set everyone's focus straight from a tile —
+  // no need to open the People list. Shown only when the room's pin policy lets
+  // you (server re-checks). Hidden on placeholder tiles (no identity yet).
+  const canPinHere = canPin && !!participant?.identity;
+  const pinBusy = busyId === participant?.identity || (isPinned && busyId === "_");
   const inRoom = !!role?.inRoom;
   // Tile chrome: a speaking ring (glows while this person talks) and a
   // connection-quality dot (shown only when degraded, so it reads as a warning
@@ -1350,9 +1395,26 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
           : "In room";
   return (
     <div
-      className={`relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""}`}
+      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""}`}
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+
+      {/* Hover pin toggle (top-right) — set/clear everyone's focus from the tile. */}
+      {canPinHere && (
+        <button
+          type="button"
+          onClick={() => (isPinned ? unpin() : pin(participant.identity))}
+          disabled={pinBusy}
+          title={isPinned ? "Unpin for everyone" : "Pin for everyone"}
+          className={`absolute top-1.5 right-1.5 z-30 inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 disabled:opacity-40 ${
+            isPinned
+              ? "bg-amber-500/85 text-white opacity-100"
+              : "bg-black/55 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-black/75"
+          }`}
+        >
+          {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+        </button>
+      )}
 
       {/* Name + mute, glassy pill bottom-left (replaces LiveKit's metadata bar,
           which our avatar overlay would otherwise cover). */}
@@ -1617,6 +1679,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   const speaking = useSpeakingParticipants();
   const pinned = usePinnedTracks();
   const globalPinId = useGlobalPin();
+  const pinControl = usePinControlValue(roomId);
   const rootRef = useRef(null);
   const { w, h } = useSize(rootRef);
 
@@ -1692,25 +1755,27 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   }
 
   return (
-    <div ref={rootRef} className="relative flex-1 min-h-0 flex flex-col">
-      <div className="relative flex-1 min-h-0">
-        <AdaptiveStage
-          tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
-          focusKey={stageFocusKey}
-        />
+    <PinControlContext.Provider value={pinControl}>
+      <div ref={rootRef} className="relative flex-1 min-h-0 flex flex-col">
+        <div className="relative flex-1 min-h-0">
+          <AdaptiveStage
+            tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
+            focusKey={stageFocusKey}
+          />
+        </div>
+        {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
+
+        {floatLocal && <FloatingSelfView trackRef={localCamTrack} onDock={() => setFloat(false)} />}
+
+        <SpectatorList spectators={spectators} />
+        {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}
+
+        {/* The spectator → publisher control lives in RoomVideoStage's JoinDock,
+            overlaid on this call (it owns the persisted mic/camera join intent and
+            the live preview context). PiP has no join affordance — go back to the
+            room to join. onJoinIn is still wired for any future in-call use. */}
       </div>
-      {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
-
-      {floatLocal && <FloatingSelfView trackRef={localCamTrack} onDock={() => setFloat(false)} />}
-
-      <SpectatorList spectators={spectators} />
-      {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}
-
-      {/* The spectator → publisher control lives in RoomVideoStage's JoinDock,
-          overlaid on this call (it owns the persisted mic/camera join intent and
-          the live preview context). PiP has no join affordance — go back to the
-          room to join. onJoinIn is still wired for any future in-call use. */}
-    </div>
+    </PinControlContext.Provider>
   );
 }
 
