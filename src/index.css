@@ -637,6 +637,20 @@ html.electron-popover body::before {
 [data-lk-theme] .lk-button:hover { background: rgba(255, 255, 255, 0.16); }
 [data-lk-theme] .lk-button:active { transform: scale(0.92); }
 
+/* Toggled-on control (raised hand) — amber so "on" reads at a glance. */
+[data-lk-theme] .lk-button--raised { background: rgba(245, 158, 11, 0.92); color: #fff; }
+[data-lk-theme] .lk-button--raised:hover { background: rgba(245, 158, 11, 1); }
+
+/* Raised-hand glyph: a gentle wave so it catches the eye without nagging. */
+@keyframes call-hand-wave {
+  0%, 55%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(15deg); }
+  30% { transform: rotate(-9deg); }
+  45% { transform: rotate(11deg); }
+}
+.call-hand-wave { animation: call-hand-wave 2.4s ease-in-out infinite; transform-origin: 65% 80%; }
+@media (prefers-reduced-motion: reduce) { .call-hand-wave { animation: none; } }
+
 /* The device-chooser caret next to mic/camera → a slim, secondary control that
    tucks against its button instead of reading as a third equal circle. */
 [data-lk-theme] .lk-caret-btn {

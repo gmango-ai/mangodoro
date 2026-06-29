@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -19,7 +19,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2 } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -210,6 +210,61 @@ function usePinControlValue(roomId) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [canPin, policy, globalPinId, busyId],
   );
+}
+
+// Raise-hand — a self-set participant attribute (`hand` = the raise timestamp,
+// "" = lowered). Attributes (not data messages) so it persists for late joiners
+// and needs no server round-trip, mirroring how `role`/cluster state is carried.
+// Ordered by raise time so a host sees who's been waiting longest. Shared from
+// ConferenceLayout (above both the Stage and the control bar) via context.
+const ATTR_HAND = "hand";
+
+const HandRaiseContext = createContext({
+  raisedIds: new Set(),
+  order: new Map(),
+  myRaised: false,
+  toggle: () => {},
+  count: 0,
+});
+
+function useHandRaiseValue() {
+  const room = useRoomContext();
+  const { localParticipant } = useLocalParticipant();
+  const participants = useParticipants();
+  // useParticipants doesn't re-render on a pure attribute change, so nudge it.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!room) return undefined;
+    const bump = () => setTick((n) => n + 1);
+    room.on(RoomEvent.ParticipantAttributesChanged, bump);
+    return () => room.off(RoomEvent.ParticipantAttributesChanged, bump);
+  }, [room]);
+
+  const raised = useMemo(
+    () =>
+      participants
+        .map((p) => ({ identity: p.identity, ts: Number(p.attributes?.[ATTR_HAND]) || 0 }))
+        .filter((x) => x.ts > 0)
+        .sort((a, b) => a.ts - b.ts),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [participants, tick],
+  );
+
+  const myId = localParticipant?.identity;
+  const myRaised = !!myId && raised.some((r) => r.identity === myId);
+
+  const toggle = useCallback(() => {
+    if (!localParticipant || room?.state !== "connected") return;
+    const raisedNow = !!localParticipant.attributes?.[ATTR_HAND];
+    localParticipant.setAttributes({ [ATTR_HAND]: raisedNow ? "" : String(Date.now()) }).catch(() => {});
+    setTick((n) => n + 1); // optimistic — don't wait for the echo
+  }, [localParticipant, room]);
+
+  return useMemo(() => {
+    const raisedIds = new Set(raised.map((r) => r.identity));
+    const order = new Map(raised.map((r, i) => [r.identity, i + 1]));
+    return { raisedIds, order, myRaised, toggle, count: raised.length };
+  }, [raised, myRaised, toggle]);
 }
 
 function PublishController({ publish, choices, micMuted }) {
@@ -959,6 +1014,7 @@ function CallControlBar({
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [reactionsOpen, setReactionsOpen] = useState(false);
+  const { myRaised, toggle: toggleHand, count: handCount } = useContext(HandRaiseContext);
   // Mirror the overlay's charge + recents so the shared <EmoteBar> shows the
   // same glow and custom emojis here without re-rendering the whole call.
   const [charge, setCharge] = useState(null);
@@ -1014,19 +1070,38 @@ function CallControlBar({
         </>
       )}
 
+      {/* Raise hand — available whether or not you publish (a spectator can ask
+          to speak). Amber while yours is up. */}
+      <button
+        type="button"
+        className={`lk-button ${myRaised ? "lk-button--raised" : ""}`}
+        onClick={toggleHand}
+        aria-pressed={myRaised}
+        title={myRaised ? "Lower hand" : "Raise hand"}
+      >
+        <Hand className={`w-5 h-5 ${myRaised ? "call-hand-wave" : ""}`} />
+      </button>
+
       {/* Layout picker (viewing — available whether or not you publish). */}
       <LayoutMenu mode={layoutMode} onSet={onSetLayout} />
 
-      {/* People / moderation roster. */}
-      <button
-        type="button"
-        className="lk-button"
-        onClick={onTogglePeople}
-        aria-pressed={peopleOpen}
-        title="People in this call"
-      >
-        <Users className="w-5 h-5" />
-      </button>
+      {/* People / moderation roster. A badge surfaces raised hands when closed. */}
+      <span className="relative inline-flex">
+        <button
+          type="button"
+          className="lk-button"
+          onClick={onTogglePeople}
+          aria-pressed={peopleOpen}
+          title={handCount > 0 ? `People · ${handCount} hand${handCount > 1 ? "s" : ""} up` : "People in this call"}
+        >
+          <Users className="w-5 h-5" />
+        </button>
+        {handCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none ring-2 ring-[rgba(22,24,29,0.82)] pointer-events-none">
+            {handCount}
+          </span>
+        )}
+      </span>
 
       <button
         type="button"
@@ -1109,6 +1184,7 @@ function PeoplePanel({ roomId, onClose }) {
   const isHost = !!leaderId && leaderId === myId;
   // Pinning for everyone is gated by the room's pin policy (server re-checks).
   const { canPin } = useContext(PinControlContext);
+  const { raisedIds, order: handOrder } = useContext(HandRaiseContext);
   const globalPinId = useGlobalPin();
   const [busy, setBusy] = useState(null);
   const [confirmKick, setConfirmKick] = useState(null);
@@ -1164,6 +1240,8 @@ function PeoplePanel({ roomId, onClose }) {
     const micPub = p.getTrackPublication?.(Track.Source.Microphone);
     const micOn = !!micPub && !micPub.isMuted;
     const name = p.name || member?.name || "Guest";
+    const handUp = raisedIds.has(p.identity);
+    const handPos = handUp ? handOrder.get(p.identity) : null;
     const canModerate = canPin || (isHost && !isSelf);
     const status = isSpectator ? "Watching" : isSpk ? "Speaking" : micOn ? "Mic on" : "Muted";
     return (
@@ -1179,6 +1257,12 @@ function PeoplePanel({ roomId, onClose }) {
             {isSelf && <span className="shrink-0 text-[10px] px-1 py-px rounded bg-white/10 text-slate-300">you</span>}
             {isLeader && <span className="shrink-0 text-amber-300" title="Session leader">★</span>}
             {isPinned && <Pin className="w-3 h-3 text-amber-300 shrink-0" />}
+            {handUp && (
+              <span className="shrink-0 inline-flex items-center text-amber-300" title={handPos ? `Hand raised (#${handPos} in line)` : "Hand raised"}>
+                <Hand className="w-3 h-3 call-hand-wave" />
+                {handPos && handPos > 1 ? <span className="text-[9px] font-bold ml-px">{handPos}</span> : null}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1 text-[10.5px] leading-tight">
             <span className={isSpk ? "text-emerald-300" : "text-slate-400"}>{status}</span>
@@ -1356,6 +1440,9 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   const roles = useClusterRoles();
   const globalPinId = useGlobalPin();
   const { canPin, pin, unpin, busyId } = useContext(PinControlContext);
+  const { raisedIds, order: handOrder } = useContext(HandRaiseContext);
+  const handRaised = !!participant?.identity && raisedIds.has(participant.identity);
+  const handPos = handRaised ? handOrder.get(participant.identity) : null;
   const role = participant ? roles.get(participant.identity) : null;
   const isPinned = !!participant?.identity && participant.identity === globalPinId;
   // A hover pin toggle so you can set everyone's focus straight from a tile —
@@ -1468,8 +1555,17 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
         />
       )}
 
-      {(isPinned || inRoom) && (
+      {(isPinned || inRoom || handRaised) && (
         <div className="absolute top-1.5 left-1.5 z-10 flex flex-col items-start gap-1 pointer-events-none">
+          {handRaised && (
+            <div
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm bg-amber-500/90 text-white"
+              title={handPos ? `Hand raised (#${handPos} in line)` : "Hand raised"}
+            >
+              <Hand className="w-3 h-3 shrink-0 call-hand-wave" />
+              {handPos && handPos > 1 ? handPos : "Hand"}
+            </div>
+          )}
           {isPinned && (
             <div
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm bg-amber-500/85 text-white"
@@ -1893,7 +1989,12 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     }
   };
 
+  // Raise-hand state lives here so both the Stage (tile badges + People panel)
+  // and the control-bar toggle read the same source.
+  const handRaise = useHandRaiseValue();
+
   return (
+    <HandRaiseContext.Provider value={handRaise}>
     <div
       ref={rootRef}
       className="relative flex flex-col w-full h-full"
@@ -1955,6 +2056,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
         </div>
       )}
     </div>
+    </HandRaiseContext.Provider>
   );
 }
 
