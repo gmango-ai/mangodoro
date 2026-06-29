@@ -240,6 +240,21 @@ function useHandRaiseValue() {
     return () => room.off(RoomEvent.ParticipantAttributesChanged, bump);
   }, [room]);
 
+  // Auto-lower your own hand once you start talking — you've got the floor, so a
+  // still-raised hand is stale and would keep you in the queue (Meet/Zoom do the
+  // same). Reads the authoritative isSpeaking + attribute at event time.
+  useEffect(() => {
+    if (!room) return undefined;
+    const onActive = () => {
+      if (localParticipant?.isSpeaking && localParticipant.attributes?.[ATTR_HAND]) {
+        localParticipant.setAttributes({ [ATTR_HAND]: "" }).catch(() => {});
+        setTick((n) => n + 1);
+      }
+    };
+    room.on(RoomEvent.ActiveSpeakersChanged, onActive);
+    return () => room.off(RoomEvent.ActiveSpeakersChanged, onActive);
+  }, [room, localParticipant]);
+
   const raised = useMemo(
     () =>
       participants
