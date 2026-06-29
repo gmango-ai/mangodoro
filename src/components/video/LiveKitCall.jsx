@@ -19,7 +19,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2 } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -431,10 +431,8 @@ function OutputDeviceSection() {
   const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind: "audiooutput" });
   if (!devices || devices.length === 0) return null;
   return (
-    <div className="px-0.5 py-0.5">
-      <div className="flex items-center gap-2 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">
-        <Volume2 className="w-3.5 h-3.5 opacity-80" /> Speaker
-      </div>
+    <div>
+      <div className="call-menu-label flex items-center gap-1.5"><Volume2 className="w-3.5 h-3.5 opacity-70" /> Speaker</div>
       <div className="max-h-32 overflow-auto">
         {devices.map((d) => {
           const selected = d.deviceId === activeDeviceId;
@@ -445,10 +443,10 @@ function OutputDeviceSection() {
               role="menuitemradio"
               aria-checked={selected}
               onClick={() => { setActiveMediaDevice(d.deviceId); savePref(PREF.speaker, d.deviceId); }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10"
+              className={`call-menu-item ${selected ? "call-menu-item--active" : ""}`}
             >
               <span className="flex-1 truncate">{d.label || "Unnamed device"}</span>
-              {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
+              {selected && <Check className="w-4 h-4 shrink-0 text-[var(--color-accent)]" />}
             </button>
           );
         })}
@@ -466,11 +464,11 @@ function SettingRow({ icon: Icon, label, active, onClick }) {
       role="menuitemcheckbox"
       aria-checked={active}
       onClick={onClick}
-      className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10"
+      className="call-menu-item"
     >
-      <Icon className="w-3.5 h-3.5 opacity-80 shrink-0" />
+      <Icon className="w-4 h-4 opacity-70 shrink-0" />
       <span className="flex-1 truncate">{label}</span>
-      <span className={`text-[10px] font-bold uppercase tracking-wide ${active ? "text-[var(--lk-accent-bg,#22d3ee)]" : "opacity-50"}`}>
+      <span className={`text-[10px] font-bold uppercase tracking-wide ${active ? "text-[var(--color-accent)]" : "opacity-50"}`}>
         {active ? "On" : "Off"}
       </span>
     </button>
@@ -583,11 +581,11 @@ function DeviceSettingsMenu({ kind, label, children }) {
         <ChevronDown className="w-3.5 h-3.5" />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-60 max-h-[70vh] overflow-y-auto rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1.5 shadow-xl text-[12px]">
-          <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
+        <div className="call-menu absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-64 max-h-[70vh] overflow-y-auto">
+          <div className="call-menu-label">{label}</div>
           <div className="max-h-44 overflow-auto">
             {devices.length === 0 ? (
-              <div className="px-2.5 py-1.5 opacity-60">No devices found</div>
+              <div className="px-2.5 py-2 text-[13px] opacity-55">No devices found</div>
             ) : (
               devices.map((d) => {
                 const selected = d.deviceId === activeDeviceId;
@@ -598,16 +596,21 @@ function DeviceSettingsMenu({ kind, label, children }) {
                     role="menuitemradio"
                     aria-checked={selected}
                     onClick={() => { setActiveMediaDevice(d.deviceId); setOpen(false); }}
-                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10"
+                    className={`call-menu-item ${selected ? "call-menu-item--active" : ""}`}
                   >
                     <span className="flex-1 truncate">{d.label || "Unnamed device"}</span>
-                    {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    {selected && <Check className="w-4 h-4 shrink-0 text-[var(--color-accent)]" />}
                   </button>
                 );
               })
             )}
           </div>
-          {children && <div className="mt-1 pt-1 border-t border-white/10">{children}</div>}
+          {children && (
+            <>
+              <div className="call-menu-sep" />
+              {children}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -647,13 +650,13 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
         className="lk-button"
         title={
           joining
-            ? `Join ${existingCluster.leaderName || "the"} room — mutes your mic & call audio (for when you're together in person)`
-            : "Make this the room speaker — others sharing your room join muted so it doesn't echo"
+            ? `In the room with ${existingCluster.leaderName || "others"}? Join their shared audio (mutes your mic + call audio so you don't echo)`
+            : "In a room with teammates? Make this the room speaker so you don't echo each other"
         }
-        aria-label={joining ? "Join room" : "Make this the room speaker"}
+        aria-label={joining ? "Join the room's shared audio" : "Make this the room speaker"}
         onClick={() => (joining ? joinRoom(existingCluster) : startRoom())}
       >
-        <DoorOpen className="w-5 h-5" />
+        <UsersRound className="w-5 h-5" />
       </button>
     );
   }
@@ -670,14 +673,14 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
         title={isMicSource ? "You're the room mic" : "You're in a shared room (muted)"}
         onClick={() => setOpen((v) => !v)}
       >
-        <DoorOpen className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
+        <UsersRound className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-60 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-2 shadow-xl text-[12px]">
-          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">
+        <div className="call-menu absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-64">
+          <div className="call-menu-label">
             {isMicSource ? "You're the room mic" : "In this room · muted"}
           </div>
-          <ul className="max-h-40 overflow-auto mb-1.5">
+          <ul className="max-h-40 overflow-auto mb-1 px-1">
             {members.map((p) => {
               const r = roles.get(p.identity) || {};
               const tag = r.isDevice
@@ -690,84 +693,75 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
                       ? "speaker"
                       : null;
               return (
-                <li key={p.identity} className="flex items-center gap-1.5 px-1 py-0.5">
+                <li key={p.identity} className="flex items-center gap-1.5 px-1.5 py-1 text-[12.5px]">
                   <span className="flex-1 min-w-0 truncate">
                     {p.name || p.identity}
-                    {p.isLocal && <span className="opacity-60"> (you)</span>}
+                    {p.isLocal && <span className="opacity-50"> (you)</span>}
                   </span>
                   {tag ? (
-                    <span className="inline-flex items-center gap-1 text-amber-300 shrink-0">
-                      <Volume2 className="w-3.5 h-3.5" />
+                    <span className="inline-flex items-center gap-1 text-amber-300 text-[11px] font-medium shrink-0">
+                      <Volume2 className="w-3 h-3" />
                       {tag}
                     </span>
                   ) : (
-                    <MicOff className="w-3.5 h-3.5 opacity-50 shrink-0" title="Muted" />
+                    <MicOff className="w-3.5 h-3.5 opacity-40 shrink-0" title="Muted" />
                   )}
                 </li>
               );
             })}
           </ul>
-          <div className="space-y-1">
-            {isMicSource ? (
-              <button
-                type="button"
-                onClick={() => { stepDown(); setOpen(false); }}
-                className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
-              >
-                {deviceInRoom ? "Give mic back to room device" : "Step down as room mic"}
+          <div className="call-menu-sep" />
+          {isMicSource ? (
+            <button type="button" onClick={() => { stepDown(); setOpen(false); }} className="call-menu-item">
+              <MicOff className="w-4 h-4 opacity-70 shrink-0" />
+              {deviceInRoom ? "Give mic back to room device" : "Step down as room mic"}
+            </button>
+          ) : (
+            <button type="button" onClick={() => { takeSpeaker(); setOpen(false); }} className="call-menu-item">
+              <Mic className="w-4 h-4 opacity-70 shrink-0" />
+              Take over the room mic
+            </button>
+          )}
+          {deviceInRoom && (
+            isAudioSink ? (
+              <button type="button" onClick={() => { releaseSink(); setOpen(false); }} className="call-menu-item">
+                <Volume2 className="w-4 h-4 opacity-70 shrink-0" />
+                Give room speakers back to device
               </button>
             ) : (
               <button
                 type="button"
-                onClick={() => { takeSpeaker(); setOpen(false); }}
-                className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
+                onClick={() => { takeSink(); setOpen(false); }}
+                className="call-menu-item"
+                title="Play the call through this computer's speakers instead of the device's."
               >
-                Take over the room mic
+                <Volume2 className="w-4 h-4 opacity-70 shrink-0" />
+                Use my speakers for the room
               </button>
-            )}
-            {deviceInRoom && (
-              isAudioSink ? (
-                <button
-                  type="button"
-                  onClick={() => { releaseSink(); setOpen(false); }}
-                  className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
-                >
-                  Give room speakers back to device
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => { takeSink(); setOpen(false); }}
-                  className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
-                  title="Play the call through this computer's speakers instead of the device's."
-                >
-                  Use my speakers for the room
-                </button>
-              )
-            )}
-            <button
-              type="button"
-              onClick={() => { leaveRoom(); setOpen(false); }}
-              className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left"
-            >
-              Leave room
-            </button>
-          </div>
+            )
+          )}
+          <button type="button" onClick={() => { leaveRoom(); setOpen(false); }} className="call-menu-item text-rose-300">
+            <X className="w-4 h-4 opacity-70 shrink-0" />
+            Leave room
+          </button>
           {deviceInRoom && (
-            <button
-              type="button"
-              role="menuitemcheckbox"
-              aria-checked={!!autoMic}
-              onClick={() => onToggleAutoMic?.()}
-              className="mt-1.5 pt-1.5 border-t border-white/10 w-full flex items-center gap-2 px-2 py-1 text-left rounded-md hover:bg-white/10"
-              title="Experimental: automatically hand the room mic to whoever's speaking (their closer mic)."
-            >
-              <Sparkles className="w-3.5 h-3.5 opacity-80 shrink-0" />
-              <span className="flex-1">Auto-switch mic to the speaker</span>
-              <span className={`text-[10px] font-bold uppercase tracking-wide ${autoMic ? "text-[var(--lk-accent-bg,#22d3ee)]" : "opacity-50"}`}>
-                {autoMic ? "On" : "Off"}
-              </span>
-            </button>
+            <>
+              <div className="call-menu-sep" />
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={!!autoMic}
+                onClick={() => onToggleAutoMic?.()}
+                className="call-menu-item"
+                title="Experimental: automatically hand the room mic to whoever's speaking (their closer mic)."
+              >
+                <Sparkles className="w-4 h-4 opacity-70 shrink-0" />
+                <span className="flex-1">Auto-switch mic to the speaker</span>
+                <span className={`text-[10px] font-bold uppercase tracking-wide ${autoMic ? "text-[var(--color-accent)]" : "opacity-50"}`}>
+                  {autoMic ? "On" : "Off"}
+                </span>
+              </button>
+            </>
           )}
         </div>
       )}
@@ -825,6 +819,33 @@ function LayoutMenu({ mode, onSet }) {
     { id: "spotlight", label: "Spotlight", Icon: Focus },
   ];
   const Cur = (items.find((i) => i.id === mode) || items[0]).Icon;
+  // Tiny diagram of each layout so the picker shows what it does, not just a word.
+  const Diagram = ({ id }) => {
+    const box = "w-[60px] h-[38px] rounded-md p-1 flex gap-1";
+    if (id === "grid") {
+      return (
+        <div className={`${box} grid grid-cols-2 grid-rows-2`}>
+          {[0, 1, 2, 3].map((i) => <span key={i} className="lc-cell w-full h-full" />)}
+        </div>
+      );
+    }
+    if (id === "presenter") {
+      return (
+        <div className={box}>
+          <span className="lc-cell flex-1 h-full" />
+          <span className="flex flex-col gap-1 w-[14px]">
+            <span className="lc-cell w-full flex-1" />
+            <span className="lc-cell w-full flex-1" />
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div className={box}>
+        <span className="lc-cell w-full h-full" />
+      </div>
+    );
+  };
   return (
     <div ref={ref} className="relative">
       <button
@@ -838,24 +859,26 @@ function LayoutMenu({ mode, onSet }) {
         <Cur className="w-5 h-5" />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-40 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1 shadow-xl text-[12px]">
-          {items.map((it) => {
-            const sel = mode === it.id;
-            return (
-              <button
-                key={it.id}
-                type="button"
-                role="menuitemradio"
-                aria-checked={sel}
-                onClick={() => { onSet(it.id); setOpen(false); }}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md hover:bg-white/10 ${sel ? "text-[var(--lk-accent-bg,#22d3ee)]" : ""}`}
-              >
-                <it.Icon className="w-4 h-4 shrink-0" />
-                <span className="flex-1 text-left">{it.label}</span>
-                {sel && <Check className="w-3.5 h-3.5 shrink-0" />}
-              </button>
-            );
-          })}
+        <div className="call-menu absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-[252px]">
+          <div className="call-menu-label">Layout</div>
+          <div className="grid grid-cols-3 gap-1.5 p-1">
+            {items.map((it) => {
+              const sel = mode === it.id;
+              return (
+                <button
+                  key={it.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={sel}
+                  onClick={() => { onSet(it.id); setOpen(false); }}
+                  className={`call-layout-card ${sel ? "call-layout-card--active" : ""}`}
+                >
+                  <Diagram id={it.id} />
+                  <span className="lc-label">{it.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -895,7 +918,7 @@ function CallControlBar({
 
   return (
     <div
-      className="relative flex items-center justify-center flex-wrap gap-1.5 px-2.5 py-2 rounded-2xl bg-black/45 backdrop-blur-md shadow-xl ring-1 ring-white/10"
+      className="lk-call-bar relative flex items-center justify-center flex-wrap gap-1.5 px-2.5 py-2 rounded-2xl backdrop-blur-md shadow-xl ring-1 ring-white/10"
       style={{ "--lk-border-radius": "9999px" }}
     >
       {reactionsOpen && (

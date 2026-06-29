@@ -109,11 +109,11 @@ function LobbyToggleRow({ label, hint, active, onClick }) {
       role="menuitemcheckbox"
       aria-checked={active}
       onClick={onClick}
-      className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded-md hover:bg-white/10"
+      className="call-menu-item"
     >
       <span className="flex-1 min-w-0">
-        <span className="block text-[12px]">{label}</span>
-        {hint && <span className="block text-[10px] opacity-50">{hint}</span>}
+        <span className="block">{label}</span>
+        {hint && <span className="block text-[10.5px] opacity-50">{hint}</span>}
       </span>
       <span className={`text-[10px] font-bold uppercase tracking-wide ${active ? "text-[var(--color-accent)]" : "opacity-50"}`}>
         {active ? "On" : "Off"}
@@ -124,20 +124,22 @@ function LobbyToggleRow({ label, hint, active, onClick }) {
 
 function DeviceSelect({ label, devices, value, onChange }) {
   return (
-    <label className="block mb-1.5 last:mb-0">
-      <span className="block text-[10px] uppercase tracking-wider opacity-60 mb-0.5">{label}</span>
-      <select
-        value={value || ""}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md bg-white/10 px-2 py-1.5 text-[12px] outline-none cursor-pointer"
-      >
-        {devices.length === 0 && <option value="">System default</option>}
-        {devices.map((d, i) => (
-          <option key={d.deviceId || i} value={d.deviceId} className="text-slate-900">
-            {d.label || `${label} ${i + 1}`}
-          </option>
-        ))}
-      </select>
+    <label className="block">
+      <span className="call-menu-label block">{label}</span>
+      <div className="px-1.5 pb-1.5">
+        <select
+          value={value || ""}
+          onChange={(e) => onChange(e.target.value)}
+          className="call-select"
+        >
+          {devices.length === 0 && <option value="">System default</option>}
+          {devices.map((d, i) => (
+            <option key={d.deviceId || i} value={d.deviceId}>
+              {d.label || `${label} ${i + 1}`}
+            </option>
+          ))}
+        </select>
+      </div>
     </label>
   );
 }
@@ -199,7 +201,7 @@ function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickM
   }, [open]);
 
   // Fixed-position style, clamped to the viewport.
-  const W = 224;
+  const W = 256;
   const popStyle = rect
     ? {
         position: "fixed",
@@ -227,17 +229,13 @@ function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickM
         <Settings className="w-5 h-5" />
       </button>
       {open && popStyle && createPortal(
-        <div
-          ref={popRef}
-          style={popStyle}
-          className="overflow-y-auto rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-2xl ring-1 ring-white/10"
-        >
+        <div ref={popRef} style={popStyle} className="call-menu overflow-y-auto">
           <DeviceSelect label="Camera" devices={devices.cams} value={videoDeviceId} onChange={onPickCamera} />
           <DeviceSelect label="Microphone" devices={devices.mics} value={audioDeviceId} onChange={onPickMic} />
           {devices.speakers.length > 0 && (
             <DeviceSelect label="Speaker" devices={devices.speakers} value={spk} onChange={pickSpeaker} />
           )}
-          <div className="my-1.5 border-t border-white/10" />
+          <div className="call-menu-sep" />
           <LobbyToggleRow label="Noise cancellation" active={noise} onClick={toggleNoise} />
           <LobbyToggleRow label="Push to talk" hint="hold Space in the call" active={ptt} onClick={togglePtt} />
         </div>,
