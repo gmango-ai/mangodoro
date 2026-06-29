@@ -73,8 +73,15 @@ async function measureLevel(ctx, deviceId, ms = 300) {
 }
 
 // Returns { deviceId, label, rms, score } for the best mic, or null if none /
-// not enumerable. Pass { measure: false } to score on labels only (instant, no
-// device probing) — useful when you can't spare ~300ms per input.
+// not enumerable.
+//
+// `measure: true` (default) opens getUserMedia on EACH candidate mic for ~300ms
+// and spins up a transient AudioContext to read its level. Do NOT use it during
+// a live call: re-opening inputs (especially the one the call is already using)
+// can hiccup the call's capture, and the extra context eats into the browser's
+// ~6-context cap. Callers in a call MUST pass `{ measure: false }` — label-only
+// scoring is instant, opens nothing, and still prefers a dedicated/USB mic over
+// a built-in. Reserve `measure: true` for not-in-a-call selection (e.g. a lobby).
 export async function pickBestMicrophone({ measure = true } = {}) {
   if (!navigator.mediaDevices?.enumerateDevices) return null;
   let devices;

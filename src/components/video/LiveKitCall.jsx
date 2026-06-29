@@ -363,7 +363,12 @@ function PublishController({ publish, choices, micMuted }) {
     let cancelled = false;
     (async () => {
       try {
-        const best = await pickBestMicrophone();
+        // Label-only scoring (measure:false) — this runs DURING a live call, and
+        // level-probing opens getUserMedia on every candidate mic (plus a
+        // transient AudioContext), which can hiccup the call's own capture. The
+        // label heuristic still upgrades a built-in to a dedicated/USB mic, which
+        // is the main win for a room-leader device.
+        const best = await pickBestMicrophone({ measure: false });
         if (!cancelled && best?.deviceId) await room.switchActiveDevice("audioinput", best.deviceId);
       } catch {
         /* keep the current mic */
