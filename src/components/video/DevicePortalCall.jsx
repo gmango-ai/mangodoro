@@ -56,6 +56,7 @@ function DeviceMediaPicker({ kind, label, storageKey }) {
   );
 }
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
+import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt } from "./livekitConnect";
 import { ATTR_CLUSTER, ATTR_LEADER, ATTR_ROOM_DEVICE, pickMicSource, pickAudioSink } from "./useRoomCluster";
 import AdaptiveStage from "./AdaptiveStage";
 import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
@@ -324,17 +325,33 @@ export default function DevicePortalCall({ roomId, displayName }) {
     let cancelled = false;
     setToken(null);
     setFailed(false);
-    fetchLiveKitToken(liveKitRoomName(roomId), displayName)
-      .then((t) => { if (!cancelled) setToken(t); })
-      .catch(() => { if (!cancelled) setFailed(true); });
-    return () => { cancelled = true; };
+    const room = liveKitRoomName(roomId);
+    // Same connection throttle as the app call: don't re-mint/reconnect to the
+    // same room inside the cooldown (kiosk reloads can otherwise churn).
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      markConnectAttempt(room);
+      fetchLiveKitToken(room, displayName)
+        .then((t) => { if (!cancelled) setToken(t); })
+        .catch(() => { if (!cancelled) setFailed(true); });
+    }, connectDelayFor(room));
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [roomId, displayName]);
 
   if (failed || !token) return null;
 
   return (
     <div data-lk-theme="default" className="w-full h-full bg-slate-900">
-      <LiveKitRoom serverUrl={LIVEKIT_URL} token={token} connect video audio style={{ height: "100%" }}>
+      <LiveKitRoom
+        serverUrl={LIVEKIT_URL}
+        token={token}
+        connect
+        video
+        audio
+        options={LK_ROOM_OPTIONS}
+        connectOptions={LK_CONNECT_OPTIONS}
+        style={{ height: "100%" }}
+      >
         <DevicePortalInner />
       </LiveKitRoom>
     </div>
