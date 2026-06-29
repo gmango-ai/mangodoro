@@ -1399,14 +1399,16 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
 
-      {/* Hover pin toggle (top-right) — set/clear everyone's focus from the tile. */}
+      {/* Hover pin toggle (bottom-right) — set/clear everyone's focus from the
+          tile. Lives on the bottom edge so it never collides with the room
+          panel's window controls (maximize/close), which own the top-right. */}
       {canPinHere && (
         <button
           type="button"
           onClick={() => (isPinned ? unpin() : pin(participant.identity))}
           disabled={pinBusy}
           title={isPinned ? "Unpin for everyone" : "Pin for everyone"}
-          className={`absolute top-1.5 right-1.5 z-30 inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 disabled:opacity-40 ${
+          className={`absolute bottom-1.5 right-1.5 z-30 inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 disabled:opacity-40 ${
             isPinned
               ? "bg-amber-500/85 text-white opacity-100"
               : "bg-black/55 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-black/75"
@@ -1423,6 +1425,15 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
         <span className="text-[11px] font-medium text-white truncate">
           {dispName}{participant?.isLocal ? " (You)" : ""}
         </span>
+        {/* Connection-quality dot — only when degraded (amber = poor, red =
+            lost). Folded into the name pill so the bottom-right corner is free
+            for the pin button. */}
+        {weak && (
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${quality === ConnectionQuality.Lost ? "bg-red-500" : "bg-amber-400"}`}
+            title={quality === ConnectionQuality.Lost ? "Connection lost" : "Weak connection"}
+          />
+        )}
       </div>
 
       {/* Camera-off: an initials avatar over LiveKit's default silhouette. */}
@@ -1455,16 +1466,6 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
             boxShadow: "inset 0 0 0 3px rgba(16,185,129,0.95), 0 0 14px -2px rgba(16,185,129,0.6)",
           }}
         />
-      )}
-
-      {/* Connection-quality dot — only when degraded (amber = poor, red = lost). */}
-      {weak && (
-        <div
-          className="absolute bottom-1.5 right-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm pointer-events-none"
-          title={quality === ConnectionQuality.Lost ? "Connection lost" : "Weak connection"}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${quality === ConnectionQuality.Lost ? "bg-red-500" : "bg-amber-400"}`} />
-        </div>
       )}
 
       {(isPinned || inRoom) && (
