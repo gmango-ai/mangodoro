@@ -1049,7 +1049,7 @@ function SpectatorList({ spectators }) {
   const [open, setOpen] = useState(false);
   if (!spectators.length) return null;
   return (
-    <div className="absolute top-2 right-2 z-10 text-white flex flex-col items-end">
+    <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 text-white flex flex-col items-center">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
