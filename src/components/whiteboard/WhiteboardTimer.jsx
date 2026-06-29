@@ -3,6 +3,7 @@ import {
   Play, Pause, Square, ChevronDown, Music, Volume2, VolumeX, Timer as TimerIcon,
 } from "lucide-react";
 import { supabase } from "../../supabase";
+import { getAudioContext } from "../../lib/audioContext";
 
 // A plain shared countdown for the board — "set 5 minutes while everyone
 // writes their thoughts, then chat." Background music loops for as long
@@ -26,39 +27,20 @@ function fmt(sec) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-// A single shared AudioContext, reused across every chime/tick — matching the
-// app's other Web Audio modules (lib/pomodoroSound.js, lib/focusAudio.js).
-//
-// The old code constructed a FRESH AudioContext per beep and closed it on a
-// timer. tick() fires once a second through the final 15s, so a single
-// countdown churned ~16 short-lived contexts — right against the browser's hard
-// cap on concurrent AudioContexts (~6 in Chrome; close() is async so they
-// overlap). Hitting that cap throws on construction AND, because the page shares
-// one audio session, disrupted the in-room LiveKit call's audio (remote
-// participants dropping out). One reused, never-closed context never trips it.
-//
-// Oscillators are one-shot nodes: created, scheduled, and GC'd after stop() —
-// nothing to clean up, so the context just persists for the page's lifetime.
-let sharedCtx = null;
-function audioCtx() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return null;
-    if (!sharedCtx) sharedCtx = new Ctx();
-    // Created outside a gesture → may be suspended; resume so scheduled beeps
-    // actually sound (the timer's own Start click gives us sticky activation).
-    if (sharedCtx.state === "suspended") sharedCtx.resume().catch(() => { /* */ });
-    return sharedCtx;
-  } catch {
-    return null;
-  }
-}
+// Chime/tick run on the app-wide shared AudioContext (lib/audioContext.js).
+// The old code constructed a FRESH context per beep and closed it on a timer —
+// tick() fires once a second through the final 15s, so a single countdown
+// churned ~16 short-lived contexts, right against the browser's ~6-context cap
+// (close() is async, so they overlap). Hitting it throws AND, because the page
+// shares one audio session, disrupted the in-room LiveKit call's audio. The
+// shared, never-closed context never trips it. Oscillators are one-shot nodes
+// (created, scheduled, GC'd after stop()), so there's nothing to clean up.
 
 // A short "time's up" chime — three ascending notes. Synthesized so it
 // never has to load a file and can't be silently swallowed the way the
 // looping background track was.
 function chime() {
-  const ctx = audioCtx();
+  const ctx = getAudioContext();
   if (!ctx) return;
   try {
     const notes = [659.25, 880, 1174.66]; // E5 · A5 · D6
@@ -82,7 +64,7 @@ function chime() {
 // A soft, short tick for the final wrap-up countdown — percussive enough to
 // notice over the music, quiet enough not to nag.
 function tick() {
-  const ctx = audioCtx();
+  const ctx = getAudioContext();
   if (!ctx) return;
   try {
     const o = ctx.createOscillator();

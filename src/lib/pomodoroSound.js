@@ -10,6 +10,14 @@
 // alerts. `repeat: 0` plays continuously until stopCompletionSound() is
 // called.
 
+// The Web Audio context is shared app-wide (see lib/audioContext.js) so the
+// pomodoro alarms, focus ambience, and whiteboard timer don't each hold their
+// own — staying clear of the browser's ~6-context cap. warmupAudioContext is
+// re-exported below so existing importers of it from this module keep working.
+import { getAudioContext, warmupAudioContext } from "./audioContext";
+
+export { warmupAudioContext };
+
 const LS_KEY = "ql_pomodoro_sound";
 
 export const POMODORO_SOUND_DEFAULTS = {
@@ -133,40 +141,6 @@ export function savePomodoroSoundSettings(settings) {
       repeatGapMs: clamp(Math.floor(settings.repeatGapMs ?? 600), 100, 5000),
     })
   );
-}
-
-// ── Audio context (singleton) ──────────────────────────────────
-let audioCtxRef = null;
-function getAudioContext() {
-  if (!audioCtxRef) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return null;
-    audioCtxRef = new AC();
-  }
-  return audioCtxRef;
-}
-
-/**
- * Unlock the Web Audio API during a user gesture (Start, preview, etc.)
- * so phase-end alarms are not blocked by autoplay policy.
- */
-export async function warmupAudioContext() {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  try {
-    if (ctx.state === "suspended") await ctx.resume();
-    if (ctx.state === "running") return;
-    const buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    const gain = ctx.createGain();
-    gain.gain.value = 0;
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    source.start(0);
-    source.stop(ctx.currentTime + 0.001);
-    if (ctx.state === "suspended") await ctx.resume();
-  } catch { /* ignore */ }
 }
 
 // ── Active playback handle (so we can stop repeating sounds) ───

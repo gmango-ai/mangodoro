@@ -7,25 +7,27 @@
 // shared AudioContext is reused across plays; channels are started by
 // stopping the previous and wiring new nodes into the master gain.
 
+import { getAudioContext } from "./audioContext";
+
 let ctx = null;
 let master = null;
 let nodes = [];
 let current = null;
 let vol = 0.5;
 
+// Reuse the app-wide shared AudioContext (lib/audioContext.js) rather than
+// constructing our own — but keep our own `master` gain (the ambience volume)
+// as a node on it. getAudioContext() resumes a suspended context for us; the
+// React surface should still only call play() from a user gesture.
 function ac() {
-  if (!ctx) {
-    const Ctor = window.AudioContext || window.webkitAudioContext;
-    if (!Ctor) return null;
-    ctx = new Ctor();
+  const shared = getAudioContext();
+  if (!shared) return null;
+  ctx = shared;
+  if (!master) {
     master = ctx.createGain();
     master.gain.value = vol;
     master.connect(ctx.destination);
   }
-  // Most browsers create the AudioContext in "suspended" state until a
-  // user gesture resumes it. Calling resume() inside a click handler is
-  // enough; the React component should only call play() from a click.
-  if (ctx.state === "suspended") ctx.resume();
   return ctx;
 }
 
