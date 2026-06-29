@@ -23,7 +23,7 @@ export default function ClockOutModal() {
   const dark = theme === "dark";
   const { pathname } = useLocation();
 
-  if (!pendingEntry || pathname.startsWith("/log")) return null;
+  if (!pendingEntry || pathname.startsWith("/log") || pathname.startsWith("/time-tracker/log")) return null;
 
   // Editing start/end recomputes the worked minutes (breaks held constant).
   const setTime = (field, v) => {

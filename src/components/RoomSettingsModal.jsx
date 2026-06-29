@@ -549,7 +549,7 @@ export default function RoomSettingsModal({
                 <Button
                   type="button"
                   onClick={handleSave}
-                  disabled={busy || !(dirty.name || dirty.color || dirty.gating || dirty.duration || dirty.access) || !name.trim()}
+                  disabled={busy || !(dirty.name || dirty.color || dirty.gating || dirty.duration || dirty.access || dirty.pin) || !name.trim()}
                 >
                   {busy ? "Saving…" : "Save"}
                 </Button>

@@ -20,13 +20,16 @@ export function useRoomPanelActivity({
   useEffect(() => {
     if (!roomId || !userId || videoOpen) { setCallCount(0); return undefined; }
     const channel = supabase.channel(`video-call:${roomId}`, { config: { presence: { key: userId } } });
-    if (channel.state === "joined" || channel.state === "joining") return () => { /* prior cycle owns it */ };
     const refresh = () => {
       const state = channel.presenceState();
       const ids = new Set();
       for (const arr of Object.values(state)) for (const p of arr) if (p?.user_id) ids.add(p.user_id);
       setCallCount(ids.size);
     };
+    if (channel.state === "joined" || channel.state === "joining") {
+      refresh();
+      return () => { /* prior cycle owns it */ };
+    }
     channel
       .on("presence", { event: "sync" }, refresh)
       .on("presence", { event: "join" }, refresh)
