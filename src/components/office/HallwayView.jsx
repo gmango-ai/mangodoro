@@ -253,14 +253,8 @@ export default function HallwayView({
             readOnly
             vibe={activeTeam?.office_vibe || "quiet"}
             busy={busy}
-            onOpenRoom={(room) => {
-              if (lockedRoomIds.has(room.id)) return;
-              onEnterRoom?.(room.id);
-            }}
-            onJoinRoom={(room) => {
-              if (lockedRoomIds.has(room.id)) return;
-              onEnterRoom?.(room.id);
-            }}
+            onOpenRoom={(room) => onEnterRoom?.(room.id)}
+            onJoinRoom={(room) => onEnterRoom?.(room.id)}
             sessionByRoomId={sessionByRoomId}
             lockedRoomIds={lockedRoomIds}
             lockedReasonFor={lockedReasonFor}
@@ -326,15 +320,11 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                   <li key={room.id}>
                     <button
                       type="button"
-                      onClick={() => {
-                        if (locked) return;
-                        onEnterRoom?.(room.id);
-                      }}
-                      disabled={locked}
-                      title={locked ? lockedReasonFor(room) : room.name}
+                      onClick={() => onEnterRoom?.(room.id)}
+                      title={locked ? `${lockedReasonFor(room)} — knock to ask to be let in` : room.name}
                       style={{ background: `color-mix(in srgb, ${tint} 10%, var(--color-surface))` }}
-                      className={`group w-full text-left rounded-xl border px-3 py-2.5 flex items-center gap-2 transition-colors ${
-                        locked ? "opacity-60 cursor-not-allowed" : "hover:border-[var(--color-accent)]"
+                      className={`group w-full text-left rounded-xl border px-3 py-2.5 flex items-center gap-2 transition-colors hover:border-[var(--color-accent)] ${
+                        locked ? "opacity-75" : ""
                       } ${
                         dark
                           ? "border-[var(--color-border)]"

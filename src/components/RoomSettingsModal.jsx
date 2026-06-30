@@ -6,7 +6,7 @@ import { X, Check, Trash2, Clock, Lock, Globe, Eraser, Pin } from "lucide-react"
 import {
   renameRoomV2, setRoomColor, updateRoomGating, archiveRoomV2,
   setRoomMaxDuration, setRoomEntryPolicy, setRoomAccessCode, getRoomAccessCode,
-  setRoomPinPolicy,
+  setRoomPinPolicy, setRoomKnockEnabled,
 } from "../lib/rooms";
 import { clearRoomChat } from "../lib/chatMessages";
 
@@ -45,6 +45,7 @@ export default function RoomSettingsModal({
   const [accessCode, setAccessCode] = useState("");        // editable PIN
   const [currentCode, setCurrentCode] = useState("");      // loaded PIN, for diffing
   const [pinPolicy, setPinPolicy] = useState("admins");    // who can pin for everyone
+  const [knockEnabled, setKnockEnabled] = useState(true);  // accept knocks while occupied
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState({ name: false, color: false, gating: false, duration: false, access: false, pin: false });
   // Two-step delete: clicking the trash icon flips this to true and the
@@ -68,6 +69,7 @@ export default function RoomSettingsModal({
     setCustomDuration(current != null && !presetValues.includes(current) ? String(current) : "");
     setEntryPolicy(room.entry_policy || "open");
     setPinPolicy(room.pin_policy || "admins");
+    setKnockEnabled(room.knock_enabled !== false);
     setAccessCode("");
     setCurrentCode("");
     setDirty({ name: false, color: false, gating: false, duration: false, access: false, pin: false });
@@ -153,6 +155,10 @@ export default function RoomSettingsModal({
         const cleanCode = accessCode.trim().toUpperCase();
         if (entryPolicy === "code" && cleanCode && cleanCode !== (currentCode || "").toUpperCase()) {
           const r = await setRoomAccessCode(room.id, cleanCode);
+          if (r.error) errs.push(r.error);
+        }
+        if ((room.knock_enabled !== false) !== knockEnabled) {
+          const r = await setRoomKnockEnabled(room.id, knockEnabled);
           if (r.error) errs.push(r.error);
         }
       })());
@@ -418,6 +424,26 @@ export default function RoomSettingsModal({
                   : "No code set yet — anyone can claim the room while it's empty; once someone's inside, only managers can enter until you set a code."}
               </p>
             </div>
+          )}
+
+          {/* Knock applies to any room that can be locked — a code room OR a
+              team-gated one. (A fully open, ungated room is never locked, so
+              the toggle is moot there and we hide it.) */}
+          {(entryPolicy === "code" || selectedTeamIds.length > 0) && (
+            <label className="mt-3 flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={knockEnabled}
+                onChange={(e) => { setKnockEnabled(e.target.checked); setDirty((d) => ({ ...d, access: true })); }}
+                className="mt-0.5 h-4 w-4 rounded accent-teal-600"
+              />
+              <span>
+                <span className={`text-sm ${dark ? "text-slate-200" : "text-slate-700"}`}>Accept knocks</span>
+                <span className={`block text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                  When this room is locked, someone who can’t get in can ask to be let in — an occupant or a manager approves. Turn off for a do-not-disturb room.
+                </span>
+              </span>
+            </label>
           )}
         </div>
 

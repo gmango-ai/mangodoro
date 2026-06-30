@@ -123,10 +123,7 @@ export default function OfficeOverlay({
               sessionByRoomId={sessionByRoomId}
               selectedRoomId={selectedRoomId}
               lockedRoomIds={new Set((lockedRooms || []).map((r) => r.id))}
-              onSelect={(id) => {
-                if ((lockedRooms || []).some((r) => r.id === id)) return;
-                enterRoom(id);
-              }}
+              onSelect={(id) => enterRoom(id)}
             />
           </div>
 
@@ -155,15 +152,11 @@ export default function OfficeOverlay({
                   <button
                     key={room.id}
                     type="button"
-                    onClick={() => {
-                      if (locked) return;
-                      enterRoom(room.id);
-                    }}
-                    disabled={locked}
-                    title={locked ? "Locked — not a member of the gating team" : undefined}
+                    onClick={() => enterRoom(room.id)}
+                    title={locked ? "Locked — knock to ask to be let in" : undefined}
                     className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${
                       locked
-                        ? "opacity-60 cursor-not-allowed"
+                        ? `opacity-75 ${dark ? "hover:bg-[var(--color-surface-raised)]/60" : "hover:bg-slate-50"}`
                         : isSelected
                           ? dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
                           : dark ? "hover:bg-[var(--color-surface-raised)]/60" : "hover:bg-slate-50"

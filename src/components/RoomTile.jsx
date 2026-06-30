@@ -114,30 +114,29 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
 
   // `handlePrimary` is the single click action for the whole tile.
   // Prefer onOpen (which routes to the popover) when provided, falling
-  // back to onJoin (legacy single-action behavior).
+  // back to onJoin (legacy single-action behavior). Locked (department-
+  // gated) tiles still click through — they land on the knock gate, where
+  // the viewer can ask to be let in rather than being a dead end.
   function handlePrimary() {
     if (busy) return;
-    if (locked) return;
     if (onOpen) onOpen(room);
     else if (onJoin) onJoin(room);
   }
 
-  // Common visual treatment for any locked tile size: dim the body, a
-  // lock badge in the top-right, and a tooltip explaining which team
-  // gates the room. The button stays clickable for accessibility but
-  // handlePrimary is a no-op.
+  // Common visual treatment for any locked tile size: dim the body and a
+  // lock badge in the top-right, with a tooltip inviting a knock.
   // A department-gated room the viewer isn't a member of. Non-admins get the
-  // full locked treatment (dimmed + click-blocked, via `locked`). Admins aren't
-  // in `locked` (they can still enter for management), but we badge the tile as
+  // dimmed+badged treatment (via `locked`) but can still click to knock. Admins
+  // aren't in `locked` (they can enter for management), but we badge the tile as
   // restricted so the gating stays visible — an admin shouldn't read a
   // department room as open to all just because they personally can walk in.
   const isRestricted = restrictedRoomIds?.has?.(room.id) || false;
   const showLock = locked || isRestricted;
-  const lockedClass = locked ? "opacity-60 cursor-not-allowed" : "";
+  const lockedClass = locked ? "opacity-75" : "";
   const lockTooltip = locked
     ? (lockedReason
-        ? `Locked — ${lockedReason}`
-        : "Locked — not a member of the gating team")
+        ? `${lockedReason} — knock to ask to be let in`
+        : "Locked — knock to ask to be let in")
     : isRestricted
       ? "Restricted to a department — you can enter as an admin"
       : "";
@@ -165,11 +164,9 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
       <button
         type="button"
         onClick={handlePrimary}
-        disabled={busy || locked}
+        disabled={busy}
         title={showLock ? lockTooltip : `${room.name} — ${dotTitle}`}
-        className={`relative flex flex-col items-center justify-center rounded-2xl border p-2 transition-all h-full w-full text-center overflow-hidden ${tone} ${pulse} ${lockedClass} ${
-          locked ? "" : "hover:border-[var(--color-accent)]"
-        }`}
+        className={`relative flex flex-col items-center justify-center rounded-2xl border p-2 transition-all h-full w-full text-center overflow-hidden ${tone} ${pulse} ${lockedClass} hover:border-[var(--color-accent)]`}
         style={tintStyle}
       >
         {LockBadge}
@@ -221,11 +218,9 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
     <button
       type="button"
       onClick={handlePrimary}
-      disabled={busy || locked}
+      disabled={busy}
       title={showLock ? lockTooltip : undefined}
-      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full overflow-hidden ${tone} ${pulse} ${lockedClass} ${
-        locked ? "" : "hover:border-[var(--color-accent)]"
-      }`}
+      className={`relative flex flex-col text-left rounded-2xl border ${padding} transition-colors h-full w-full overflow-hidden ${tone} ${pulse} ${lockedClass} hover:border-[var(--color-accent)]`}
       style={tintStyle}
     >
       {LockBadge}
