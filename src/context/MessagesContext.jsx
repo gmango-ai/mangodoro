@@ -4,10 +4,12 @@ import { useApp } from "./AppContext";
 import { useTeamOptional } from "./TeamContext";
 import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead } from "../lib/messages";
 
-// Direct / group / channel messaging — in-app layer. One realtime channel on
-// dm_messages (RLS scopes delivery to my conversations + my channels) drives
-// the list + unread badges and streams new messages to whatever thread is open.
-// A second listener on dm_message_reactions keeps reaction counts live.
+// Direct / group / channel messaging — in-app layer. One realtime channel
+// watches every messaging table the open thread cares about — dm_messages
+// (insert/edit/delete), dm_message_reactions, and dm_message_attachments (all
+// RLS-scoped to my conversations + channels). Each change is fanned out to the
+// open thread, which reconciles from the server so nothing goes stale, and
+// dm_messages changes also refresh the conversation list (last message / unread).
 //
 // Org scope is computed in list_my_conversations() and returned as org_ids per
 // row. `activeConversations` is the active org's inbox; `unread` is global (so
@@ -26,8 +28,7 @@ export function MessagesProvider({ children }) {
   const activeTeamId = team.activeTeamId || null;
   const teamMembers = team.teamMembers || [];
   const [conversations, setConversations] = useState([]);
-  const msgListeners = useRef(new Set());
-  const reactionListeners = useRef(new Set());
+  const convListeners = useRef(new Set());
   const reloadTimer = useRef(null);
 
   const reload = useCallback(async () => {
@@ -38,16 +39,20 @@ export function MessagesProvider({ children }) {
   useEffect(() => {
     if (!userId) { setConversations([]); return undefined; }
     reload();
-    const channel = supabase
-      .channel(`dm:${userId}:${Math.random().toString(36).slice(2)}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "dm_messages" }, (payload) => {
-        for (const fn of msgListeners.current) { try { fn(payload.new); } catch { /* */ } }
+    const fanout = (table) => (payload) => {
+      const evt = { table, eventType: payload.eventType, new: payload.new, old: payload.old };
+      for (const fn of convListeners.current) { try { fn(evt); } catch { /* */ } }
+      // New / edited / deleted messages also move the conversation list.
+      if (table === "dm_messages") {
         if (reloadTimer.current) clearTimeout(reloadTimer.current);
         reloadTimer.current = setTimeout(reload, 250);
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "dm_message_reactions" }, (payload) => {
-        for (const fn of reactionListeners.current) { try { fn(payload); } catch { /* */ } }
-      })
+      }
+    };
+    const channel = supabase
+      .channel(`dm:${userId}:${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "dm_messages" }, fanout("dm_messages"))
+      .on("postgres_changes", { event: "*", schema: "public", table: "dm_message_reactions" }, fanout("dm_message_reactions"))
+      .on("postgres_changes", { event: "*", schema: "public", table: "dm_message_attachments" }, fanout("dm_message_attachments"))
       .subscribe();
     return () => {
       try { supabase.removeChannel(channel); } catch { /* */ }
@@ -108,19 +113,16 @@ export function MessagesProvider({ children }) {
     await markConversationRead(convId, userId, kind);
   }, [userId]);
 
-  // The open thread registers here to receive new messages / reaction changes live.
-  const subscribeMessages = useCallback((fn) => {
-    msgListeners.current.add(fn);
-    return () => msgListeners.current.delete(fn);
-  }, []);
-  const subscribeReactions = useCallback((fn) => {
-    reactionListeners.current.add(fn);
-    return () => reactionListeners.current.delete(fn);
+  // The open thread registers here to receive every change (message edit/delete/
+  // insert, reaction, attachment) for its conversation and reconcile from server.
+  const subscribeConversation = useCallback((fn) => {
+    convListeners.current.add(fn);
+    return () => convListeners.current.delete(fn);
   }, []);
 
   const value = {
     conversations, activeConversations, unread, unreadByOrg, reload,
-    startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions,
+    startDm, createGroup, createChannel, markRead, subscribeConversation,
   };
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;
 }

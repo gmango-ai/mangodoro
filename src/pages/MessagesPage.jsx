@@ -236,16 +236,22 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message�
   return (
     <div className={`shrink-0 border-t p-3 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
       {files.length > 0 && (
-        <div className="flex gap-2 flex-wrap mb-2">
+        <div className="flex gap-2.5 flex-wrap mb-2.5">
           {files.map((f, i) => (
             <div key={i} className="relative group/att">
-              {f._url
-                ? <img src={f._url} alt="" className="w-16 h-16 object-cover rounded-lg border border-black/10" />
-                : <div className={`w-16 h-16 rounded-lg border flex flex-col items-center justify-center gap-1 ${dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "border-slate-200 bg-slate-50"}`}>
-                    <Paperclip className="w-4 h-4 text-slate-400" /><span className="text-[8px] px-1 truncate max-w-full text-slate-400">{f.name}</span>
-                  </div>}
-              <button type="button" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} aria-label="Remove"
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center shadow"><X className="w-3 h-3" /></button>
+              {f._url ? (
+                <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-black/10 shadow-sm">
+                  <img src={f._url} alt={f.name} className="w-full h-full object-cover" />
+                  <span className="absolute bottom-0 inset-x-0 px-1.5 py-0.5 text-[9px] text-white bg-black/45 truncate">{f.name}</span>
+                </div>
+              ) : (
+                <div className={`w-24 h-24 rounded-xl border flex flex-col items-center justify-center gap-1.5 px-1.5 text-center ${dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "border-slate-200 bg-slate-50"}`}>
+                  <span className="w-9 h-9 rounded-lg bg-[var(--color-accent-light)] text-[var(--color-accent)] flex items-center justify-center"><Paperclip className="w-4 h-4" /></span>
+                  <span className="text-[9px] leading-tight truncate max-w-full text-slate-400">{f.name}</span>
+                </div>
+              )}
+              <button type="button" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} aria-label="Remove attachment"
+                className={`absolute -top-2 -right-2 w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center shadow ring-2 ${dark ? "ring-[var(--color-surface)]" : "ring-white"}`}><X className="w-3 h-3" /></button>
             </div>
           ))}
         </div>
@@ -316,15 +322,15 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
 }
 
 // ── Open conversation ──
-function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, markRead, subscribeMessages, subscribeReactions, onChannelMetaSaved, dark }) {
+function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, markRead, subscribeConversation, onChannelMetaSaved, dark }) {
   const convId = conversation?.id;
   const kind = conversation?.kind || (conversation?.is_group ? "group" : "dm");
   const isChannel = kind === "channel";
-  const showAuthors = kind === "group" || isChannel;
   const canManageChannel = isChannel && (isAdmin || myOrgTeamLeadIds?.has(conversation?.org_team_id));
   const [messages, setMessages] = useState([]);
   const [reactions, setReactions] = useState(new Map());
   const [attachments, setAttachments] = useState(new Map());
+  const [pendingAtt, setPendingAtt] = useState(new Map()); // messageId -> optimistic image previews
   const [readMarks, setReadMarks] = useState([]);
   const [editing, setEditing] = useState(null);
   const [editDraft, setEditDraft] = useState("");
@@ -332,8 +338,10 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
   const [showSettings, setShowSettings] = useState(false);
   const [emoji, setEmoji] = useState(null);   // { messageId, anchor }
   const [lightbox, setLightbox] = useState(null);
+  const [error, setError] = useState(null);
   const scrollRef = useRef(null);
   const presenceRef = useRef(null);
+  const reloadTimer = useRef(null);
 
   const refreshSidecars = useCallback(async (msgs) => {
     const ids = msgs.map((m) => m.id);
@@ -341,26 +349,66 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
     setReactions(rx); setAttachments(at);
   }, [userId]);
 
+  // Reconcile the whole thread from the server (debounced). Driven by every
+  // realtime change so the conversation is always fresh — inserts, edits,
+  // deletes, reactions and attachments all land without manual state patching.
+  const reloadThread = useCallback(() => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(async () => {
+      const msgs = await listMessages(convId);
+      setMessages(msgs);
+      refreshSidecars(msgs);
+      listReadMarks(convId).then(setReadMarks);
+    }, 180);
+  }, [convId, refreshSidecars]);
+
+  // Initial load on conversation change.
   useEffect(() => {
     if (!convId) return;
     let alive = true;
-    setMessages([]); setReactions(new Map()); setAttachments(new Map()); setShowSettings(false);
+    setMessages([]); setReactions(new Map()); setAttachments(new Map()); setReadMarks([]); setShowSettings(false); setError(null);
     listMessages(convId).then((msgs) => { if (alive) { setMessages(msgs); refreshSidecars(msgs); } });
     listReadMarks(convId).then((m) => alive && setReadMarks(m));
     markRead(convId, kind);
-    return () => { alive = false; };
+    return () => { alive = false; if (reloadTimer.current) clearTimeout(reloadTimer.current); };
   }, [convId, kind, markRead, refreshSidecars]);
 
-  useEffect(() => subscribeMessages((m) => {
-    if (m.conversation_id !== convId) return;
-    setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-    markRead(convId, kind);
-    listReadMarks(convId).then(setReadMarks);
-  }), [convId, kind, subscribeMessages, markRead]);
+  // Live updates: any change touching this conversation reconciles from server.
+  useEffect(() => subscribeConversation((evt) => {
+    if (evt.table === "dm_messages") {
+      const cid = evt.new?.conversation_id || evt.old?.conversation_id;
+      if (cid !== convId) return;
+      if (evt.eventType === "INSERT" && evt.new?.sender_id !== userId) markRead(convId, kind);
+      reloadThread();
+    } else {
+      // reaction / attachment payloads carry message_id — reload only if that
+      // message is currently in view.
+      const mid = evt.new?.message_id || evt.old?.message_id;
+      setMessages((cur) => { if (mid && cur.some((m) => m.id === mid)) reloadThread(); return cur; });
+    }
+  }), [convId, kind, userId, subscribeConversation, markRead, reloadThread]);
 
-  useEffect(() => subscribeReactions(() => {
-    setMessages((cur) => { refreshSidecars(cur); return cur; });
-  }), [subscribeReactions, refreshSidecars]);
+  // Drop optimistic image previews once the real attachment rows have loaded.
+  useEffect(() => {
+    setPendingAtt((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false; const next = new Map(prev);
+      for (const id of prev.keys()) {
+        if ((attachments.get(id) || []).length > 0) {
+          prev.get(id).forEach((p) => { try { URL.revokeObjectURL(p.url); } catch { /* */ } });
+          next.delete(id); changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [attachments]);
+
+  // Auto-dismiss transient errors.
+  useEffect(() => {
+    if (!error) return undefined;
+    const t = setTimeout(() => setError(null), 6000);
+    return () => clearTimeout(t);
+  }, [error]);
 
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages]);
 
@@ -398,11 +446,23 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
     const hasFiles = files.length > 0;
     const outBody = body || (hasFiles ? " " : "");
     if (!outBody) return;
-    const { message } = await sendMessage(convId, outBody, userId, kind);
-    if (!message) return;
+    const { message, error: sendErr } = await sendMessage(convId, outBody, userId, kind);
+    if (sendErr || !message) { setError(sendErr?.message || "Couldn't send your message. Please try again."); return; }
     setMessages((prev) => (prev.some((x) => x.id === message.id) ? prev : [...prev, message]));
+
     if (hasFiles) {
-      await Promise.all(files.map((f) => attachToMessage(f, convId, message.id)));
+      // Optimistic inline image previews so images appear instantly; cleared once
+      // the real attachment rows load (see the attachments effect above).
+      const previews = files.filter((f) => f.type?.startsWith("image/")).map((f, i) => ({
+        id: `pending-${message.id}-${i}`, url: URL.createObjectURL(f), mime: f.type, name: f.name, bytes: f.size,
+      }));
+      if (previews.length) {
+        setPendingAtt((prev) => new Map(prev).set(message.id, previews));
+        previews.forEach((p) => setTimeout(() => { try { URL.revokeObjectURL(p.url); } catch { /* */ } }, 60000));
+      }
+      const results = await Promise.all(files.map((f) => attachToMessage(f, convId, message.id)));
+      const failed = results.filter((r) => r?.error);
+      if (failed.length) setError(`${failed.length} of ${files.length} file${files.length > 1 ? "s" : ""} failed to upload${failed[0]?.error?.message ? ` (${failed[0].error.message})` : ""}.`);
       const at = await listAttachments([message.id]);
       setAttachments((prev) => new Map([...prev, ...at]));
     }
@@ -429,13 +489,15 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
   const saveEdit = async (messageId) => {
     const body = editDraft.trim();
     if (!body) { setEditing(null); return; }
-    const { message } = await editMessage(messageId, body);
+    const { message, error: e } = await editMessage(messageId, body);
+    if (e) { setError("Couldn't save your edit. Please try again."); return; }
     if (message) setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, body: message.body, edited_at: message.edited_at } : m)));
     setEditing(null);
   };
   const onDelete = async (messageId) => {
     if (!window.confirm("Delete this message?")) return;
-    await deleteMessage(messageId);
+    const { error: e } = await deleteMessage(messageId);
+    if (e) { setError("Couldn't delete the message. Please try again."); return; }
     setMessages((prev) => prev.filter((m) => m.id !== messageId));
   };
 
@@ -463,7 +525,8 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
           const prev = messages[i - 1];
           const mine = m.sender_id === userId;
           const author = memberById.get(m.sender_id);
-          const atts = attachments.get(m.id) || [];
+          const realAtts = attachments.get(m.id) || [];
+          const atts = realAtts.length ? realAtts : (pendingAtt.get(m.id) || []);
           const hasText = (m.body || "").trim().length > 0;
           const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
           const grouped = !newDay && prev && prev.sender_id === m.sender_id && (new Date(m.created_at) - new Date(prev.created_at)) < GROUP_WINDOW_MS;
@@ -537,6 +600,13 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
           </div>
         )}
       </div>
+
+      {error && (
+        <div className="shrink-0 mx-3 mb-1 flex items-center gap-2 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-[13px] text-red-500">
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
 
       <Composer onSend={onSend} onTyping={signalTyping} candidates={candidates} dark={dark}
         placeholder={conversation?.post_policy === "admins" && !canManageChannel ? "Only admins can post in this channel" : `Message ${isChannel ? "#" + (name || "channel") : name || ""}`}
@@ -776,7 +846,7 @@ export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
-  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, markRead, subscribeConversation, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
@@ -825,7 +895,7 @@ export default function MessagesPage() {
             conversation={active} name={nameOf(active)} memberById={memberById} candidates={others}
             userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
             onBack={() => open(null)} markRead={markRead}
-            subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions} onChannelMetaSaved={reload} dark={dark}
+            subscribeConversation={subscribeConversation} onChannelMetaSaved={reload} dark={dark}
           />
         ) : (
           <EmptyPane dark={dark} onNew={() => setComposing(true)} />
