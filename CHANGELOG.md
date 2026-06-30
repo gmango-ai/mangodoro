@@ -3,6 +3,20 @@
 Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first.
 
+## 2026-06-30
+
+- Handle token mint failures in LiveKit cooldown
+- DB: re-apply message-attachments sender upload policy as a new migration
+- Video: make call preview opt-in to stop the LiveKit 429 storm
+- Fix message attachment preview URL cleanup
+- Messaging UI: Slack/Teams-grade redesign
+- Restrict message attachment uploads to senders
+- Messaging v2: create message-attachments storage bucket
+- Fix channel pin unread state
+- Fix messaging channel state bugs
+- Messaging v2: org-scoped inbox, team channels, richer chat
+- Office: add knock-to-enter for locked rooms (code + department-gated)
+
 ## 2026-06-29
 
 - Fix clock-out modal path, pin policy save, and video badge count
