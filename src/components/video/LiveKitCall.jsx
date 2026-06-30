@@ -2106,7 +2106,10 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
           const t = await fetchLiveKitToken(room, displayName);
           if (!cancelled) setToken(t);
         } catch (e) {
-          if (!cancelled) onError?.(e?.message || "Could not get a LiveKit token");
+          if (!cancelled) {
+            noteConnectFailure();
+            onError?.(e?.message || "Could not get a LiveKit token");
+          }
         }
       })();
     }, delay);
