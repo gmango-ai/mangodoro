@@ -28,7 +28,7 @@ import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livek
 import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
 import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { PREF, loadPref, savePref } from "./callPrefs";
-import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt } from "./livekitConnect";
+import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt, connectCooldownMs, noteConnectFailure } from "./livekitConnect";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
@@ -2095,8 +2095,9 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
     const room = liveKitRoomName(roomId);
     // Throttle: if we connected to this room very recently (StrictMode double-
     // mount, an HMR remount, or a rapid rejoin), wait out the cooldown before
-    // minting a token + connecting again, so we stop spamming the backend.
-    const delay = connectDelayFor(room);
+    // minting a token + connecting again, so we stop spamming the backend. Also
+    // honor the global post-failure breaker so a 429 backs off the next connect.
+    const delay = Math.max(connectDelayFor(room), connectCooldownMs());
     const timer = setTimeout(() => {
       if (cancelled) return;
       markConnectAttempt(room);
@@ -2164,7 +2165,7 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
           }
           onLeft?.(name);
         }}
-        onError={(e) => onError?.(e?.message || "LiveKit connection error")}
+        onError={(e) => { noteConnectFailure(); onError?.(e?.message || "LiveKit connection error"); }}
       >
         <PublishController publish={publish} choices={choices} micMuted={micMuted} />
         <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} chromeless={chromeless} />
