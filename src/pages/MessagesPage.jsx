@@ -182,6 +182,7 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
   const [mentionQ, setMentionQ] = useState(null);
   const taRef = useRef(null);
   const fileRef = useRef(null);
+  const filesRef = useRef(files);
 
   const matches = useMemo(() => {
     if (mentionQ == null) return [];
@@ -189,7 +190,14 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
     return candidates.filter((m) => (m.name || "").toLowerCase().includes(q)).slice(0, 6);
   }, [mentionQ, candidates]);
 
-  useEffect(() => () => files.forEach((f) => f._url && URL.revokeObjectURL(f._url)), [files]);
+  useEffect(() => {
+    filesRef.current.forEach((f) => {
+      if (f._url && !files.includes(f)) URL.revokeObjectURL(f._url);
+    });
+    filesRef.current = files;
+  }, [files]);
+
+  useEffect(() => () => filesRef.current.forEach((f) => f._url && URL.revokeObjectURL(f._url)), []);
 
   const grow = (el) => { if (el) { el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 160)}px`; } };
 
