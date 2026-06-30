@@ -4,8 +4,8 @@
 -- client's getPublicUrl() works without signed-URL plumbing. Paths are
 -- `${conversationId}/${messageId}/${ts}-${rand}.${ext}`, so folder[1] is the
 -- conversation id. Uploads are gated to people who can access that conversation
--- (DM/group participants or channel members) via can_access_conversation; the
--- dm_message_attachments row INSERT additionally restricts to the message sender.
+-- (DM/group participants or channel members) and own the message folder; the
+-- dm_message_attachments row INSERT applies the same message-sender restriction.
 --
 -- Privacy note: a public bucket serves files via the CDN to anyone holding the
 -- (unguessable, uuid-pathed) URL. If DM attachments need hard isolation later,
@@ -38,7 +38,14 @@ create policy "message-attachments: members upload"
   with check (
     bucket_id = 'message-attachments'
     and (storage.foldername(name))[1] is not null
+    and (storage.foldername(name))[2] is not null
     and public.can_access_conversation(((storage.foldername(name))[1])::uuid)
+    and exists (
+      select 1 from public.dm_messages m
+       where m.id = ((storage.foldername(name))[2])::uuid
+         and m.conversation_id = ((storage.foldername(name))[1])::uuid
+         and m.sender_id = auth.uid()
+    )
   );
 
 -- Uploader may remove their own files (storage sets owner = uploader uid).
