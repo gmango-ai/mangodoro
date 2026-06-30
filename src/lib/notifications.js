@@ -9,6 +9,7 @@ export const NOTIFICATION_TYPES = [
   { type: "follow_focus", label: "Someone you follow is focusing", description: "A person you follow starts a focus session.", channels: ["inapp", "desktop"] },
   { type: "mention", label: "Mentions", description: "You're @mentioned in room chat or a whiteboard comment.", channels: ["inapp", "desktop"] },
   { type: "room_joined", label: "Someone joined your room", description: "A teammate joins a room you're in.", channels: ["inapp"] },
+  { type: "channel", label: "Channel messages", description: "A new message in one of your team channels.", channels: ["inapp"] },
   { type: "knock", label: "Someone wants to join your room", description: "A teammate knocks to be let into a locked room you're in.", channels: ["inapp", "desktop"] },
   { type: "lunch_start", label: "Teammate went to lunch", description: "Someone on your team heads out to lunch.", channels: ["inapp"] },
   { type: "lunch_return", label: "Back from lunch", description: "A teammate is back from lunch.", channels: ["inapp"] },
