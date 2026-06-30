@@ -82,7 +82,7 @@ export default function VideoCall({ roomId, displayName, compact, publish, liste
   // for real prod sessions in PostHog — a disconnect that isn't our own leave
   // (e.g. duplicate_identity, join_failure) is the "bounced back to green room"
   // bug. Then bubble up so the call actually tears down.
-  const handleLeft = (reason) => {
+  const handleLeft = (reason, report) => {
     if (connectedAtRef.current && reason && reason !== "client_initiated") {
       track("video_call_disconnected", {
         provider,
@@ -90,6 +90,15 @@ export default function VideoCall({ roomId, displayName, compact, publish, liste
         is_mobile: isMobileClient(),
         reason,
         duration_s: Math.round((Date.now() - connectedAtRef.current) / 1000),
+        // The lead-up captured by <ConnectionDiagnostics> (LiveKit only — Jitsi
+        // passes no report) so PostHog can separate network drops from kicks:
+        // a drop after reconnect attempts / a quality collapse / going offline is
+        // the member's connection; a clean drop at full quality is server-side.
+        reconnects: report?.reconnects ?? null,
+        last_quality: report?.lastQuality ?? null,
+        was_online: report?.env?.online ?? null,
+        visibility: report?.env?.visibility ?? null,
+        effective_type: report?.env?.effectiveType ?? null,
       });
     }
     onLeft?.();

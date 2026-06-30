@@ -84,7 +84,10 @@ export default function PersistentVideoCall() {
       if (curRoom) {
         startCall(curRoom, call.displayName, { mode: call.mode, choices: call.choices, listen: call.listen });
       } else {
-        endCall();
+        // The sync session lost its room (left to the hallway, or the room reset
+        // out from under us). This is the prime app-layer "force disconnect"
+        // suspect — tag it so it's unmistakable in the log.
+        endCall("sync-session-room-cleared");
       }
     }
   }, [syncSession?.room_id, call, startCall, endCall]);
@@ -160,7 +163,7 @@ export default function PersistentVideoCall() {
         // Join / Watch / settings. Avoids two stacked bottom bars.
         chromeless={call.mode === "spectate"}
         onJoinIn={() => updateCall({ mode: "join" })}
-        onLeft={() => endCall()}
+        onLeft={() => endCall("livekit-disconnected")}
       />
 
       {/* PiP-only chrome: a thin header with back-to-room + leave-call. */}
@@ -179,7 +182,7 @@ export default function PersistentVideoCall() {
             </button>
             <button
               type="button"
-              onClick={() => endCall()}
+              onClick={() => endCall("user-leave-pip")}
               aria-label="Leave call"
               title="Leave call"
               className="p-1 rounded hover:bg-red-500/40"
