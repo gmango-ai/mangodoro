@@ -5,6 +5,7 @@ semantic versions. Newest first.
 
 ## 2026-06-30
 
+- Video: full disconnect diagnostics + true fullscreen
 - Handle token mint failures in LiveKit cooldown
 - DB: re-apply message-attachments sender upload policy as a new migration
 - Video: make call preview opt-in to stop the LiveKit 429 storm
