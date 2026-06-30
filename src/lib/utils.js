@@ -268,3 +268,23 @@ function blobToBase64(blob) {
     reader.readAsDataURL(blob);
   });
 }
+
+// ── Clock notes (per-pomodoro reflections accumulated through the workday) ──
+// Each focus-block reflection appends { at, text, status } to clockIn.notes; at
+// clock-out they're formatted into the entry's description so the day's log
+// writes itself.
+export const CLOCK_NOTE_STATUSES = [
+  { id: "in_progress", label: "In progress" },
+  { id: "done", label: "Done" },
+  { id: "blocked", label: "Blocked" },
+];
+const _CLOCK_NOTE_LABEL = Object.fromEntries(CLOCK_NOTE_STATUSES.map((s) => [s.id, s.label]));
+
+// Join the day's notes into a readable, editable description (one bullet per
+// focus block, with its status if set).
+export function formatClockNotes(notes) {
+  return (notes || [])
+    .filter((n) => n?.text?.trim())
+    .map((n) => `• ${n.text.trim()}${n.status ? ` — ${_CLOCK_NOTE_LABEL[n.status] || n.status}` : ""}`)
+    .join("\n");
+}

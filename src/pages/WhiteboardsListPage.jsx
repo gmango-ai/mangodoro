@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTeam } from "../context/TeamContext";
+import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +30,8 @@ const TEMPLATE_ACCENT = {
 
 export default function WhiteboardsListPage() {
   const { activeTeamId, isAdmin } = useTeam();
+  const { session } = useApp();
+  const userId = session?.user?.id;
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -43,14 +46,14 @@ export default function WhiteboardsListPage() {
     async function load() {
       if (!activeTeamId) { setBoards([]); setLoading(false); return; }
       setLoading(true);
-      const { data } = await listTeamWhiteboards(activeTeamId, { includeArchived: true });
+      const { data } = await listTeamWhiteboards(activeTeamId, { includeArchived: true, ownerId: userId });
       if (cancelled) return;
       setBoards(data || []);
       setLoading(false);
     }
     load();
     return () => { cancelled = true; };
-  }, [activeTeamId]);
+  }, [activeTeamId, userId]);
 
   const counts = useMemo(() => {
     let active = 0, archived = 0;
@@ -184,8 +187,13 @@ function BoardCard({ board, dark, isAdmin, onArchive, onUnarchive, onDelete }) {
           >
             {board.title || "Untitled whiteboard"}
           </Link>
-          <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
-            {tpl.name} · updated {updated}
+          <p className={`text-[11px] flex items-center gap-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            {board.scope === "personal" && (
+              <span className={`px-1.5 py-px rounded-full text-[9px] font-bold uppercase tracking-wider ${dark ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
+                Personal
+              </span>
+            )}
+            <span className="truncate">{tpl.name} · updated {updated}</span>
           </p>
         </div>
       </div>

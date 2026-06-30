@@ -3,7 +3,7 @@ import { Plus, Check, X, Target, Lock, Globe, Pin, PinOff, Pencil, ChevronUp, Ch
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
-import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, reorderGoals, horizonShort } from "../../lib/goals";
+import { listTeamGoals, listGoalRooms, listGoalKeyResults, createGoal, updateGoal, deleteGoal, reorderGoals, timeframeOf, timeframeToParams, timeframeShort } from "../../lib/goals";
 import GoalHorizonSelect from "../goals/GoalHorizonSelect";
 import GoalRoomsButton from "../goals/GoalRoomsButton";
 import GoalProgress from "../goals/GoalProgress";
@@ -30,7 +30,7 @@ export default function ProfileGoals({ userId }) {
   const [goals, setGoals] = useState([]);
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState(false);
-  const [addHorizon, setAddHorizon] = useState("none");
+  const [addTimeframe, setAddTimeframe] = useState("none");
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
   const [roomMap, setRoomMap] = useState({}); // goalId → [roomId]
@@ -60,10 +60,16 @@ export default function ProfileGoals({ userId }) {
     const body = draft.trim();
     if (!body || !isMe) return;
     setDraft(""); setAdding(false);
-    await createGoal({ teamId: activeTeamId, ownerType: "user", ownerId: userId, ownerName: settings?.name || "", body, horizon: addHorizon });
+    const { horizon, weekStart } = timeframeToParams(addTimeframe);
+    await createGoal({ teamId: activeTeamId, ownerType: "user", ownerId: userId, ownerName: settings?.name || "", body, horizon, weekStart });
     load();
   };
-  const changeHorizon = async (g, h) => { if (!isMe) return; await updateGoal({ id: g.id, horizon: h }); load(); };
+  const changeHorizon = async (g, key) => {
+    if (!isMe) return;
+    const { horizon, weekStart } = timeframeToParams(key);
+    await updateGoal({ id: g.id, horizon, weekStart });
+    load();
+  };
   const togglePin = async (g) => { if (!isMe) return; await updateGoal({ id: g.id, pinned: g.pinned === false }); load(); };
   const moveGoal = async (g, dir) => {
     if (!isMe) return;
@@ -163,11 +169,11 @@ export default function ProfileGoals({ userId }) {
               <MarkdownText dark={dark} compact>{g.body}</MarkdownText>
             </div>
             {isMe ? (
-              <GoalHorizonSelect value={g.horizon} onChange={(h) => changeHorizon(g, h)} dark={dark} />
+              <GoalHorizonSelect value={timeframeOf(g)} onChange={(key) => changeHorizon(g, key)} dark={dark} />
             ) : (
-              g.horizon && g.horizon !== "none" && (
+              timeframeShort(g) && (
                 <span className={`shrink-0 mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${dark ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-500"}`}>
-                  {horizonShort(g.horizon)}
+                  {timeframeShort(g)}
                 </span>
               )
             )}
@@ -236,7 +242,7 @@ export default function ProfileGoals({ userId }) {
           <div className="flex items-center justify-between gap-2 mt-1.5">
             <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>Markdown supported</span>
             <div className="flex items-center gap-2">
-              <GoalHorizonSelect value={addHorizon} onChange={setAddHorizon} dark={dark} />
+              <GoalHorizonSelect value={addTimeframe} onChange={setAddTimeframe} dark={dark} />
               <button type="button" onClick={() => { setAdding(false); setDraft(""); }} className={`text-xs px-2 py-1 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
                 Cancel
               </button>

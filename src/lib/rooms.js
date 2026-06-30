@@ -7,7 +7,7 @@ export async function listRooms(teamId) {
   const { data, error } = await supabase
     .from("rooms")
     .select(`
-      id, team_id, name, kind, color, invite_code, created_by, created_at, archived_at,
+      id, team_id, name, kind, color, entry_policy, pin_policy, created_by, created_at, archived_at,
       layout_x, layout_y, layout_w, layout_h, max_duration_minutes,
       room_teams ( org_team_id )
     `)
@@ -17,14 +17,14 @@ export async function listRooms(teamId) {
   return { data: data || [], error };
 }
 
-// v2 (updated 2026-06-15): kinds are now `general` (was `department`),
-// `meeting`, and `private`. Private rooms NO LONGER receive a code at
-// creation — the server mints one only on first join via the
-// sync_session trigger, so a brand-new private room is "unlocked"
-// for whoever opens it first. Meeting rooms accept a maxDurationMinutes
-// that auto-closes the sync_session via the server-side sweeper.
-// Layout coords are optional; when omitted the server scans for the
-// first open w×h slot in the team's grid and uses that.
+// v2 (updated 2026-06-27): kinds are `general` (was `department`),
+// `meeting`, and `private`. Private rooms are created with an enforced
+// `code` entry policy and a server-seeded shareable PIN (viewable in Room
+// settings) — they're locked but immediately usable. Other kinds default
+// to the `open` policy. Meeting rooms accept a maxDurationMinutes that
+// auto-closes the sync_session via the server-side sweeper. Layout coords
+// are optional; when omitted the server scans for the first open w×h slot
+// in the team's grid and uses that.
 export async function createRoomV2(teamId, {
   name, kind, color = "#14b8a6", orgTeamIds = [], layout, maxDurationMinutes, userId,
 }) {
@@ -49,7 +49,15 @@ export async function createRoomV2(teamId, {
     p_color: color,
     p_max_duration_minutes: maxDurationMinutes ?? null,
   });
-  return { data: data ? { id: data, name: trimmed, kind, color, invite_code: null, created_by: userId } : null, error };
+  return {
+    data: data
+      ? {
+          id: data, name: trimmed, kind, color, created_by: userId,
+          entry_policy: kind === "private" ? "code" : "open",
+        }
+      : null,
+    error,
+  };
 }
 
 export async function setRoomColor(roomId, color) {
@@ -124,10 +132,50 @@ export async function renameRoom(roomId, name) {
   return { data, error };
 }
 
-export async function resolveRoomByInviteCode(code) {
-  const { data, error } = await supabase.rpc("resolve_room_by_invite_code", { p_code: code });
-  if (error) return { error };
-  return { data };
+// ── Room privacy (entry policy + access code) ──────────────────────
+// `entry_policy` is a non-secret column on the room ('open' | 'code').
+// The code itself lives in room_secrets, readable only by the room's
+// managers (owner / admin / gating-team lead) via RLS.
+
+export async function setRoomEntryPolicy(roomId, policy) {
+  const { error } = await supabase.rpc("set_room_entry_policy", {
+    p_room_id: roomId,
+    p_policy: policy,
+  });
+  return { error };
+}
+
+// Who may pin a participant into everyone's view:
+// 'admins' | 'leaders' | 'both' | 'everyone'. Server enforces the manager check.
+export async function setRoomPinPolicy(roomId, policy) {
+  const { error } = await supabase.rpc("set_room_pin_policy", {
+    p_room_id: roomId,
+    p_policy: policy,
+  });
+  return { error };
+}
+
+// Pass null / "" to clear the code. Server enforces the manager check and
+// stores the PIN uppercased + trimmed.
+export async function setRoomAccessCode(roomId, code) {
+  const { error } = await supabase.rpc("set_room_access_code", {
+    p_room_id: roomId,
+    p_code: code ?? "",
+  });
+  return { error };
+}
+
+// Returns the room's current PIN, or null if none set / not permitted.
+// RLS on room_secrets returns a row only to the room's managers, so a
+// non-manager silently gets null.
+export async function getRoomAccessCode(roomId) {
+  if (!roomId) return { data: null, error: null };
+  const { data, error } = await supabase
+    .from("room_secrets")
+    .select("code")
+    .eq("room_id", roomId)
+    .maybeSingle();
+  return { data: data?.code ?? null, error };
 }
 
 // Returns the active sync_session row for a room (if any). Used when the

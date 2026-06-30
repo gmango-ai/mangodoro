@@ -20,13 +20,14 @@ export default function NewWhiteboardModal({ open, onClose, teamId, onCreated })
 
   const [title, setTitle] = useState("");
   const [choice, setChoice] = useState("blank"); // "blank" | template id
+  const [scope, setScope] = useState("org"); // "org" (team) | "personal"
   const [templates, setTemplates] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    setTitle(""); setChoice("blank"); setBusy(false); setError("");
+    setTitle(""); setChoice("blank"); setScope(teamId ? "org" : "personal"); setBusy(false); setError("");
     let alive = true;
     listWhiteboardTemplates(teamId).then(({ data }) => { if (alive) setTemplates(data || []); });
     return () => { alive = false; };
@@ -36,7 +37,7 @@ export default function NewWhiteboardModal({ open, onClose, teamId, onCreated })
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!teamId) { setError("Pick a team first."); return; }
+    if (scope === "org" && !teamId) { setError("Pick a team first."); return; }
     setBusy(true); setError("");
     let snapshot = null;
     if (choice !== "blank") {
@@ -46,6 +47,7 @@ export default function NewWhiteboardModal({ open, onClose, teamId, onCreated })
     }
     const { data, error: err } = await createWhiteboard({
       teamId,
+      scope,
       title: title.trim() || "Whiteboard",
       createdBy: session?.user?.id,
       snapshot,
@@ -118,6 +120,26 @@ export default function NewWhiteboardModal({ open, onClose, teamId, onCreated })
         </p>
 
         <div className="mb-4">
+          <label className={labelCls}>Save to</label>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Card
+              active={scope === "org"}
+              onClick={() => teamId && setScope("org")}
+              Icon={Users}
+              name="Team"
+              sub={teamId ? "Everyone on the team" : "Join a team first"}
+            />
+            <Card
+              active={scope === "personal"}
+              onClick={() => setScope("personal")}
+              Icon={UserIcon}
+              name="Personal"
+              sub="Just you · room-linkable"
+            />
+          </div>
+        </div>
+
+        <div className="mb-4">
           <label className={labelCls}>Start from</label>
           <div className="mt-2 grid grid-cols-1 gap-2 max-h-[260px] overflow-y-auto pr-0.5">
             <Card active={choice === "blank"} onClick={() => setChoice("blank")} Icon={PenLine} name="Blank board" sub="A clean infinite canvas" />
@@ -157,7 +179,7 @@ export default function NewWhiteboardModal({ open, onClose, teamId, onCreated })
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !teamId}>
+          <Button type="submit" disabled={busy || (scope === "org" && !teamId)}>
             {busy ? "Creating…" : "Create whiteboard"}
           </Button>
         </div>

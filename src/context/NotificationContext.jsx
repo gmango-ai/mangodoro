@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
-import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead } from "../lib/notifications";
+import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll } from "../lib/notifications";
 
 // Notification layer — in-app delivery.
 //
@@ -96,6 +96,17 @@ export function NotificationProvider({ children }) {
     await apiMarkAllRead();
   }, []);
 
-  const value = { items, unread, toasts, dismissToast, markRead, markAllRead };
+  // Clear = remove from the inbox entirely (delete). Optimistic.
+  const clearOne = useCallback(async (id) => {
+    setItems((prev) => prev.filter((n) => n.id !== id));
+    await apiClearOne(id);
+  }, []);
+
+  const clearAll = useCallback(async () => {
+    setItems([]);
+    await apiClearAll();
+  }, []);
+
+  const value = { items, unread, toasts, dismissToast, markRead, markAllRead, clearOne, clearAll };
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }

@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import {
-  Hash, Briefcase, MessageSquare, Lock,
+  Hash, Briefcase, MessageSquare, Lock, Globe,
   LogIn, LogOut, Play, Pause, PanelLeftOpen, PanelLeftClose, ChevronDown, Settings,
+  Copy, Check,
 } from "lucide-react";
+import { getRoomAccessCode } from "../../lib/rooms";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { openPomodoroSurface } from "../../lib/pomodoroSurface";
 import RoomLayout from "./roomLayout/RoomLayout";
@@ -14,6 +16,9 @@ import LayoutBar from "./roomLayout/LayoutBar";
 import { useRoomLayout } from "./roomLayout/useRoomLayout";
 import { PANEL_IDS, ROOM_PANELS } from "./roomLayout/panels";
 import { panelsIn } from "./roomLayout/layoutTree";
+import { useRoomPanelActivity } from "./roomLayout/useRoomPanelActivity";
+import { useRoomWeb } from "./roomLayout/useRoomWeb";
+import WebPanel, { parseEmbed } from "./roomLayout/WebPanel";
 
 const KIND_ICON = {
   general: Hash,
@@ -94,13 +99,34 @@ export default function RoomView({
 }) {
   const { theme } = useTheme();
   const { session } = useApp();
-  const { syncSession: currentSyncSession, leaderPresent } = useSyncSession();
+  const { syncSession: currentSyncSession } = useSyncSession();
   const dark = theme === "dark";
 
   // Modular panel layout (per-user, per-room). Replaces the old fixed
   // view modes — see ./roomLayout. Panels = video, chat, whiteboard.
-  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
+  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
   const [arranging, setArranging] = useState(false);
+
+  // Access code for a code-gated room — fetched only for managers (RLS on
+  // room_secrets returns nothing to anyone else), so it can be grabbed and
+  // shared straight from the header.
+  const [accessCode, setAccessCode] = useState("");
+  const [codeCopied, setCodeCopied] = useState(false);
+  const isCodeRoom = room?.entry_policy === "code";
+  useEffect(() => {
+    if (!isCodeRoom || !canEditRoom || !room?.id) { setAccessCode(""); return; }
+    let cancelled = false;
+    getRoomAccessCode(room.id).then(({ data }) => { if (!cancelled) setAccessCode(data || ""); });
+    return () => { cancelled = true; };
+  }, [room?.id, isCodeRoom, canEditRoom]);
+  async function copyAccessCode() {
+    if (!accessCode) return;
+    try {
+      await navigator.clipboard.writeText(accessCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  }
 
   if (!room) return null;
 
@@ -111,13 +137,29 @@ export default function RoomView({
   }));
 
   // Whiteboard link flows through the sync session (session.whiteboard_id),
-  // mirroring the old retro link. Leader — or any member when the host is
-  // away — may attach one (matches the server's leader fallback).
+  // mirroring the old retro link. Anyone in the room may attach/swap it — it's a
+  // shared surface; the server gates on session participation, not leadership.
   const displayName = session?.user?.user_metadata?.name || session?.user?.email || "Guest";
   const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
   const linkedWhiteboardId = inThisRoomSession ? (currentSyncSession.whiteboard_id || null) : null;
-  const canLinkWhiteboard = inThisRoomSession
-    && (currentSyncSession.leader_id === session?.user?.id || !leaderPresent);
+  const canLinkWhiteboard = inThisRoomSession;
+
+  // Activity on CLOSED panels → header-toggle badges (people in the call /
+  // editing the board, unread chat) so you can tell what's live without opening
+  // each panel.
+  const activity = useRoomPanelActivity({
+    roomId: room.id,
+    userId: session?.user?.id,
+    whiteboardId: linkedWhiteboardId,
+    videoOpen: activePanels.includes("video"),
+    chatOpen: activePanels.includes("chat"),
+    whiteboardOpen: activePanels.includes("whiteboard"),
+  });
+  const panelBadges = {
+    video: activity.video > 0 ? { count: activity.video, live: true } : null,
+    chat: activity.chat > 0 ? { count: activity.chat } : null,
+    whiteboard: activity.whiteboard > 0 ? { count: activity.whiteboard, live: true } : null,
+  };
   const panelCtx = {
     room,
     userId: session?.user?.id,
@@ -125,6 +167,59 @@ export default function RoomView({
     dark,
     whiteboardId: linkedWhiteboardId,
     canLink: canLinkWhiteboard,
+  };
+
+  // ── Shared website views ─────────────────────────────────────
+  // Room-shared set of web tiles (everyone sees the same sites) + their URLs.
+  // Each web instance becomes a real layout tile (panel id "web:<id>"); the
+  // layout tree is reconciled below so a site added by anyone appears for all.
+  const { webs, playback: webPlayback, addWeb, removeWeb, setWebUrl, sendPlayback } = useRoomWeb(room.id, session?.user?.id);
+
+  // Dynamic panel registry = the fixed panels + one entry per shared web view.
+  const panels = useMemo(() => {
+    const map = { ...ROOM_PANELS };
+    for (const w of webs) {
+      const label = parseEmbed(w.url)?.kind === "youtube" ? "YouTube" : (() => {
+        try { return new URL(w.url.includes("://") ? w.url : `https://${w.url}`).hostname.replace(/^www\./, ""); }
+        catch { return "Web"; }
+      })();
+      map[`web:${w.id}`] = {
+        id: `web:${w.id}`,
+        title: label,
+        icon: Globe,
+        min: 320,
+        render: () => (
+          <WebPanel
+            url={w.url}
+            onSetUrl={(u) => setWebUrl(w.id, u)}
+            dark={dark}
+            playback={webPlayback[w.id]}
+            onPlayback={(p) => sendPlayback(w.id, p)}
+            meId={session?.user?.id}
+          />
+        ),
+      };
+    }
+    return map;
+  }, [webs, webPlayback, setWebUrl, sendPlayback, dark, session?.user?.id]);
+
+  // Reconcile the layout tree with the shared web set: add a tile for each web
+  // that isn't shown yet, and drop tiles whose web was removed. Idempotent, so
+  // it converges and stops (no loop). A web closed from its tile header calls
+  // removeWeb (below), which broadcasts and clears it for everyone.
+  const desiredWebPanels = useMemo(() => webs.map((w) => `web:${w.id}`), [webs]);
+  useEffect(() => {
+    const present = panelsIn(tree).filter((p) => p.startsWith("web:"));
+    desiredWebPanels.forEach((id) => { if (!present.includes(id)) addPanel(id); });
+    present.forEach((id) => { if (!desiredWebPanels.includes(id)) closePanel(id); });
+  }, [desiredWebPanels, tree, addPanel, closePanel]);
+
+  // Closing a web tile (its header X / drag-to-toolbox) should remove the SHARED
+  // web, not just hide it locally — so wrap closePanel to route web ids to
+  // removeWeb (which broadcasts), and pass everything else through.
+  const handleClosePanel = (panelId) => {
+    if (typeof panelId === "string" && panelId.startsWith("web:")) removeWeb(panelId.slice(4));
+    else closePanel(panelId);
   };
 
   const Icon = KIND_ICON[room.kind] || Hash;
@@ -196,7 +291,7 @@ export default function RoomView({
                 </h1>
                 <p className={`text-[10px] uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
                   {KIND_LABEL[room.kind] || room.kind}
-                  {room.kind === "private" && room.invite_code && (
+                  {room.entry_policy === "code" && (
                     <span className={`ml-2 ${dark ? "text-amber-300" : "text-amber-600"}`}>
                       · Locked
                     </span>
@@ -204,6 +299,30 @@ export default function RoomView({
                 </p>
               </div>
             </button>
+
+            {/* Access code chip — managers can grab + share the room's
+                code without opening settings. Click copies to clipboard.
+                Only rendered when a code exists (RLS hides it from
+                non-managers, so this never leaks). */}
+            {isCodeRoom && canEditRoom && accessCode && (
+              <button
+                type="button"
+                onClick={copyAccessCode}
+                title="Copy access code — share it to let people in"
+                aria-label={`Room access code ${accessCode}. Click to copy.`}
+                className={`inline-flex items-center gap-1.5 shrink-0 h-8 px-2.5 rounded-lg border text-xs font-mono tracking-widest transition-colors ${
+                  dark
+                    ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-amber-200 hover:border-amber-400/50"
+                    : "bg-amber-50 border-amber-200 text-amber-700 hover:border-amber-300"
+                }`}
+              >
+                <Lock className="w-3 h-3 opacity-70" />
+                <span>{accessCode}</span>
+                {codeCopied
+                  ? <Check className="w-3.5 h-3.5" />
+                  : <Copy className="w-3.5 h-3.5 opacity-70" />}
+              </button>
+            )}
 
             {/* Room settings — opens the same RoomSettingsModal used on
                 the team page (name, color, team gating, meeting duration,
@@ -284,7 +403,9 @@ export default function RoomView({
               onToggleArrange={() => setArranging((v) => !v)}
               panels={quickPanels}
               activePanels={activePanels}
+              badges={panelBadges}
               onTogglePanel={togglePanel}
+              onAddWeb={() => addWeb("")}
             />
           </div>
         </div>
@@ -298,11 +419,12 @@ export default function RoomView({
         <RoomLayout
           tree={tree}
           ctx={panelCtx}
+          panels={panels}
           onRatioChange={setRatio}
           arranging={arranging}
           onMove={movePanel}
           onAddAt={addPanelAt}
-          onClose={closePanel}
+          onClose={handleClosePanel}
         />
       </div>
     </div>

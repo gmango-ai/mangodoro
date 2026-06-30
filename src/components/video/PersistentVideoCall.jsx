@@ -155,6 +155,10 @@ export default function PersistentVideoCall() {
         publish={call.mode !== "spectate"}
         listen={call.listen !== false}
         choices={call.choices}
+        // While spectating, the call fills the tile but its own control bar is
+        // suppressed — the Lobby (RoomVideoStage) overlays the only dock, with
+        // Join / Watch / settings. Avoids two stacked bottom bars.
+        chromeless={call.mode === "spectate"}
         onJoinIn={() => updateCall({ mode: "join" })}
         onLeft={() => endCall()}
       />

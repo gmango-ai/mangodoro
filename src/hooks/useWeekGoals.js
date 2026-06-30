@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { listShownGoals } from "../lib/retro";
-import { listTeamGoals, listGoalRooms, listGoalKeyResults, goalProgress } from "../lib/goals";
+import { listTeamGoals, listGoalRooms, listGoalKeyResults, goalProgress, weekBucket } from "../lib/goals";
 
 // Loads the goals to surface in the office widget + pomodoro, normalized
 // to one shape and scoped to the viewer:
@@ -60,6 +60,11 @@ export function useWeekGoals(roomId = null) {
         .filter((g) => {
           if (g.status === "done") return false; // completed goals don't surface
           if (g.pinned === false) return false; // backgrounded goals don't surface
+          // Rolling week view: a goal scheduled for a SPECIFIC week only
+          // surfaces during that week. 'next'/'past' weeks stay out of the
+          // office until they become the current week (rolls over each Monday).
+          const wb = weekBucket(g); // 'this' | 'next' | 'past' | null
+          if (wb === "next" || wb === "past") return false;
           const scope = scopeByGoal.get(g.id);
           if (scope && scope.size) { if (!roomId || !scope.has(roomId)) return false; }
           if (g.owner_type === "user") return g.owner_id === myUserId;
@@ -78,6 +83,7 @@ export function useWeekGoals(roomId = null) {
             health: g.health && g.health !== "none" ? g.health : null,
             tier: g.owner_type, // company | department | user — for ordering
             ownerId: g.owner_id, // for a stable group key (labels can collide)
+            week: weekBucket(g) === "this" ? "this" : null, // dedicated "This week" section
           };
         })
         .filter((g) => g.body.length > 0);

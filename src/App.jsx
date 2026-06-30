@@ -13,18 +13,20 @@ import { SyncSessionProvider, useSyncSession } from "./context/SyncSessionContex
 import { PomodoroProvider } from "./pomodoro/PomodoroContext";
 import { VideoCallProvider } from "./context/VideoCallContext";
 import { NotificationProvider } from "./context/NotificationContext";
+import { MessagesProvider } from "./context/MessagesContext";
+import MessagesPage from "./pages/MessagesPage";
 import { ProfileProvider } from "./context/ProfileContext";
 import LunchReminder from "./components/LunchReminder";
 import HealthReminders from "./components/HealthReminders";
 import PresenceSync from "./components/PresenceSync";
 import IdlePresence from "./components/IdlePresence";
 import ReflectionPrompt from "./components/ReflectionPrompt";
+import ClockOutModal from "./components/ClockOutModal";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import WhatsNew from "./components/WhatsNew";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
-import ClockBanner from "./components/ClockBanner";
 import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
 import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
@@ -180,6 +182,8 @@ function AppLayout({ session }) {
       <IdlePresence />
       {/* "What did you work on?" capture around pomodoro phases. */}
       <ReflectionPrompt />
+      {/* Save/edit-your-time modal on clock-out (skips the trip to /log). */}
+      <ClockOutModal />
       {/* Transient in-app notification toasts. */}
       <NotificationToaster />
       {/* "What's new" toast + changelog modal (reads CHANGELOG.md). */}
@@ -281,7 +285,9 @@ function AppLayout({ session }) {
         <div className="relative z-10 min-h-screen">
           {!isEmbed && <Nav onOpenPomodoro={() => setShowPomodoro(true)} />}
           {!isEmbed && <InvoiceModal />}
-          {!isEmbed && <ClockBanner />}
+          {/* ClockBanner (fixed bottom tracking bar) disabled — the top-bar
+              WorkClockBar now owns clock display + controls; the bottom bar was
+              redundant and overlapped content. Component kept for reference. */}
           {!isEmbed && !onPomodoroPage && (
             <PomodoroSurface
               variant="floating"
@@ -318,6 +324,7 @@ function AppLayout({ session }) {
             <Route path="/time-tracker" element={<TimeTrackerPage />} />
             <Route path="/time-tracker/:tab" element={<TimeTrackerPage />} />
             <Route path="/team" element={<TeamPage />} />
+            <Route path="/messages" element={<MessagesPage />} />
             <Route path="/u/:userId" element={<ProfilePage />} />
             <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
             {/* Retros section. /team/retro is the legacy URL — redirect. */}
@@ -369,9 +376,11 @@ function AuthenticatedApp({ session }) {
           <PomodoroProvider userId={session.user.id}>
             <VideoCallProvider>
               <NotificationProvider>
-                <ProfileProvider>
-                  <AppLayout session={session} />
-                </ProfileProvider>
+                <MessagesProvider>
+                  <ProfileProvider>
+                    <AppLayout session={session} />
+                  </ProfileProvider>
+                </MessagesProvider>
               </NotificationProvider>
             </VideoCallProvider>
           </PomodoroProvider>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles, Volume2, VolumeX, Users } from "lucide-react";
 import { usePreviewTracks, usePersistentUserChoices } from "@livekit/components-react";
 import "@livekit/components-styles";
@@ -10,6 +11,7 @@ import UserAvatar from "../UserAvatar";
 import { useRoomCallPresence } from "./useRoomCallPresence";
 import { createRefinedBackgroundProcessor } from "./refinedBackground";
 import { bgToOptions, loadBgPref, loadBgCustomPref, saveBgPref, BLUR_LEVELS, BG_PRESETS } from "./backgroundEffects";
+import { PREF, loadPref, savePref } from "./callPrefs";
 
 // Applies the SAME background processor the call uses to a pre-join preview
 // track, driven by the shared localStorage pref — so the blur/background you see
@@ -97,23 +99,149 @@ function BgPicker({ bg, onChange }) {
   );
 }
 
+// A labelled on/off toggle row for the lobby settings popover — mirrors the
+// in-call mic-menu toggles (noise cancellation, push-to-talk) so the lobby reads
+// as the same settings surface.
+function LobbyToggleRow({ label, hint, active, onClick }) {
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={active}
+      onClick={onClick}
+      className="call-menu-item"
+    >
+      <span className="flex-1 min-w-0">
+        <span className="block">{label}</span>
+        {hint && <span className="block text-[10.5px] opacity-50">{hint}</span>}
+      </span>
+      <span className={`text-[10px] font-bold uppercase tracking-wide ${active ? "text-[var(--color-accent)]" : "opacity-50"}`}>
+        {active ? "On" : "Off"}
+      </span>
+    </button>
+  );
+}
+
 function DeviceSelect({ label, devices, value, onChange }) {
   return (
-    <label className="block mb-1.5 last:mb-0">
-      <span className="block text-[10px] uppercase tracking-wider opacity-60 mb-0.5">{label}</span>
-      <select
-        value={value || ""}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md bg-white/10 px-2 py-1.5 text-[12px] outline-none cursor-pointer"
-      >
-        {devices.length === 0 && <option value="">System default</option>}
-        {devices.map((d, i) => (
-          <option key={d.deviceId || i} value={d.deviceId} className="text-slate-900">
-            {d.label || `${label} ${i + 1}`}
-          </option>
-        ))}
-      </select>
+    <label className="block">
+      <span className="call-menu-label block">{label}</span>
+      <div className="px-1.5 pb-1.5">
+        <select
+          value={value || ""}
+          onChange={(e) => onChange(e.target.value)}
+          className="call-select"
+        >
+          {devices.length === 0 && <option value="">System default</option>}
+          {devices.map((d, i) => (
+            <option key={d.deviceId || i} value={d.deviceId}>
+              {d.label || `${label} ${i + 1}`}
+            </option>
+          ))}
+        </select>
+      </div>
     </label>
+  );
+}
+
+// Shared lobby settings gear (camera / mic / speaker pickers + noise cancel +
+// push-to-talk), used by BOTH pre-join surfaces — the start lobby (GreenRoom)
+// and the watch-the-call lobby (SpectatePreJoin) — so they read as one settings
+// surface. Speaker / noise / PTT write the SAME localStorage keys the live call
+// reads, so the choices apply on join. Camera + mic device ids come from the
+// caller's usePersistentUserChoices (LiveKit's own persistence).
+function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickMic }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+  const [rect, setRect] = useState(null); // the gear button's viewport rect
+  const [devices, setDevices] = useState({ cams: [], mics: [], speakers: [] });
+  const [spk, setSpk] = useState(() => loadPref(PREF.speaker, ""));
+  const [noise, setNoise] = useState(() => loadPref(PREF.noise, "1") === "1");
+  const [ptt, setPtt] = useState(() => loadPref(PREF.ptt, "0") === "1");
+  const pickSpeaker = (id) => { setSpk(id); savePref(PREF.speaker, id); };
+  const toggleNoise = () => setNoise((v) => { savePref(PREF.noise, v ? "0" : "1"); return !v; });
+  const togglePtt = () => setPtt((v) => { savePref(PREF.ptt, v ? "0" : "1"); return !v; });
+
+  // The popover is PORTALED to <body> with fixed positioning so it escapes the
+  // panel's overflow-hidden clipping (a short tile / PiP was cutting it off top
+  // and right). We measure the gear button and clamp the popover into the
+  // viewport, opening upward and right-aligned to the button.
+  useEffect(() => {
+    if (!open) return undefined;
+    let alive = true;
+    navigator.mediaDevices?.enumerateDevices?.()
+      .then((ds) => {
+        if (!alive) return;
+        setDevices({
+          cams: ds.filter((d) => d.kind === "videoinput"),
+          mics: ds.filter((d) => d.kind === "audioinput"),
+          speakers: ds.filter((d) => d.kind === "audiooutput"),
+        });
+      })
+      .catch(() => { /* not enumerable yet */ });
+    const measure = () => { const r = btnRef.current?.getBoundingClientRect(); if (r) setRect(r); };
+    measure();
+    const onDown = (e) => {
+      if (btnRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      alive = false;
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // Fixed-position style, clamped to the viewport.
+  const W = 256;
+  const popStyle = rect
+    ? {
+        position: "fixed",
+        // Sit just above the button; clamp the height to the space above so the
+        // top never goes off-screen (scrolls internally if taller).
+        bottom: Math.round(window.innerHeight - rect.top + 8),
+        left: Math.round(Math.min(Math.max(8, rect.right - W), window.innerWidth - W - 8)),
+        width: W,
+        maxHeight: Math.max(160, Math.round(rect.top - 16)),
+        zIndex: 200,
+      }
+    : null;
+
+  return (
+    <div className="relative">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="Call settings"
+        aria-label="Call settings"
+        aria-expanded={open}
+        className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/15 text-white hover:bg-white/25 shrink-0"
+      >
+        <Settings className="w-5 h-5" />
+      </button>
+      {open && popStyle && createPortal(
+        <div ref={popRef} style={popStyle} className="call-menu overflow-y-auto">
+          <DeviceSelect label="Camera" devices={devices.cams} value={videoDeviceId} onChange={onPickCamera} />
+          <DeviceSelect label="Microphone" devices={devices.mics} value={audioDeviceId} onChange={onPickMic} />
+          {devices.speakers.length > 0 && (
+            <DeviceSelect label="Speaker" devices={devices.speakers} value={spk} onChange={pickSpeaker} />
+          )}
+          <div className="call-menu-sep" />
+          <LobbyToggleRow label="Noise cancellation" active={noise} onClick={toggleNoise} />
+          <LobbyToggleRow label="Push to talk" hint="hold Space in the call" active={ptt} onClick={togglePtt} />
+        </div>,
+        document.body,
+      )}
+    </div>
   );
 }
 
@@ -140,7 +268,9 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     saveVideoInputEnabled,
     saveAudioInputDeviceId,
     saveVideoInputDeviceId,
-  } = usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: true, audioEnabled: true } });
+    // Camera OFF by default — walking up to a room shouldn't grab your webcam;
+    // you opt in by toggling it on to preview. The choice persists thereafter.
+  } = usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: false, audioEnabled: true } });
 
   const camOn = userChoices.videoEnabled;
   const micOn = userChoices.audioEnabled;
@@ -177,23 +307,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     };
   }, [videoTrack]);
 
-  // Device lists (re-enumerate once the camera grant lands so labels show).
-  const [devices, setDevices] = useState({ cams: [], mics: [] });
-  useEffect(() => {
-    let alive = true;
-    navigator.mediaDevices?.enumerateDevices?.()
-      .then((ds) => {
-        if (!alive) return;
-        setDevices({
-          cams: ds.filter((d) => d.kind === "videoinput"),
-          mics: ds.filter((d) => d.kind === "audioinput"),
-        });
-      })
-      .catch(() => { /* not enumerable yet */ });
-    return () => { alive = false; };
-  }, [camOn, videoTrack]);
-
-  const [gearOpen, setGearOpen] = useState(false);
+  // Device + audio settings live in the shared <LobbySettingsGear> below.
   // "I'm in this room" — join the room's shared audio muted so co-located people
   // don't echo on entry. Persisted (a laptop that lives in the room stays set).
   const [inRoom, setInRoom] = useState(() => {
@@ -286,13 +400,15 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
         dark ? "border-[var(--color-border)] bg-slate-950" : "border-slate-200 bg-slate-900"
       }`}
     >
-      <button
-        type="button"
-        onClick={onBack}
-        className="absolute top-3 left-3 z-20 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/70 hover:bg-black/90 text-white text-[13px] font-semibold shadow-lg ring-1 ring-white/15 transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" /> Back
-      </button>
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="absolute top-3 left-3 z-20 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/70 hover:bg-black/90 text-white text-[13px] font-semibold shadow-lg ring-1 ring-white/15 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back
+        </button>
+      )}
 
       {compact ? (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-4 text-center">
@@ -346,23 +462,12 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
             <div className="flex items-center justify-center gap-2">
               {toggles}
               <BgPicker bg={bg} onChange={setBg} />
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setGearOpen((v) => !v)}
-                  title="Devices"
-                  aria-label="Choose devices"
-                  className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/15 text-white hover:bg-white/25 shrink-0"
-                >
-                  <Settings className="w-5 h-5" />
-                </button>
-                {gearOpen && (
-                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-56 rounded-xl bg-slate-900/95 backdrop-blur p-2 text-white shadow-xl">
-                    <DeviceSelect label="Camera" devices={devices.cams} value={userChoices.videoDeviceId} onChange={saveVideoInputDeviceId} />
-                    <DeviceSelect label="Microphone" devices={devices.mics} value={userChoices.audioDeviceId} onChange={saveAudioInputDeviceId} />
-                  </div>
-                )}
-              </div>
+              <LobbySettingsGear
+                videoDeviceId={userChoices.videoDeviceId}
+                onPickCamera={saveVideoInputDeviceId}
+                audioDeviceId={userChoices.audioDeviceId}
+                onPickMic={saveAudioInputDeviceId}
+              />
             </div>
             <div className="flex justify-center">{inRoomToggle}</div>
             {joinRow}
@@ -373,16 +478,18 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   );
 }
 
-// Pre-join experience for a room that's ALREADY in a call: your own camera shown
-// big (proper call size) with your blur/background applied; the parent shrinks the
-// live call (others) into a corner. Camera stays OFF until you explicitly turn it
-// on here (persisted join intent never grabs the webcam), then the hero shows your
-// processed self-view. Join upgrades spectate→publish in place with these AV +
-// background choices. Returns a fragment (hero + control dock) so the parent can
-// keep the live-call corner as a stable sibling.
-function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave }) {
-  const { userChoices, saveAudioInputEnabled, saveVideoInputEnabled } =
-    usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: false, audioEnabled: true } });
+// Watching-the-call lobby overlay. The LIVE CALL fills the tile behind this (the
+// parent's stageRef) — "walk into the office, see everyone". This overlays the
+// only dock (Join / Watch-audio / settings) plus an OPTIONAL small self-preview
+// PiP. Camera stays OFF until you turn it on (persisted join intent never grabs
+// the webcam); turning it on shows your processed self-view as the PiP so you can
+// check yourself before joining. Join upgrades spectate→publish in place with
+// these AV + background choices.
+function SpectatePreJoin({ displayName, participants = [], listen, onToggleListen, onJoin, onLeave }) {
+  const {
+    userChoices, saveAudioInputEnabled, saveVideoInputEnabled,
+    saveAudioInputDeviceId, saveVideoInputDeviceId,
+  } = usePersistentUserChoices({ defaults: { username: displayName, videoEnabled: false, audioEnabled: true } });
   const camOn = userChoices.videoEnabled;
   const micOn = userChoices.audioEnabled;
   const [camPreview, setCamPreview] = useState(camOn);
@@ -445,29 +552,31 @@ function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave 
 
   return (
     <>
-      {/* Hero self-preview (z-0, behind the corner call). */}
-      <div className="absolute inset-0 z-0 flex items-center justify-center p-3">
-        {camPreview && videoTrack ? (
-          <div
-            className="relative max-w-full max-h-full rounded-xl overflow-hidden shadow-2xl"
-            style={{ aspectRatio: String(aspect) }}
-          >
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="w-full h-full object-cover"
-              style={{ transform: "scaleX(-1)" }}
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2 text-center">
-            <UserAvatar url="" name={displayName} size={72} />
-            <span className="text-white/70 text-sm font-medium">Camera off — turn it on to preview</span>
-          </div>
-        )}
+      {/* "You're watching" pill, top-left, over the live call. */}
+      <div className="absolute top-3 left-3 z-40 inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-black/55 backdrop-blur text-white text-[11px] font-semibold pointer-events-none">
+        <Eye className="w-3.5 h-3.5 opacity-80" />
+        Watching{participants.length ? ` · ${participants.length} in call` : ""}
       </div>
+
+      {/* Optional self-preview PiP (only when you turn your camera on to check
+          yourself before joining) — small, bottom-left, above the dock. When the
+          camera's off there's no PiP at all; the live call just fills. */}
+      {camPreview && videoTrack && (
+        <div
+          className="absolute bottom-20 left-3 z-40 w-32 sm:w-40 rounded-lg overflow-hidden ring-1 ring-white/25 shadow-2xl bg-slate-900"
+          style={{ aspectRatio: String(aspect) }}
+        >
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+            style={{ transform: "scaleX(-1)" }}
+          />
+          <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/55 text-white text-[9px] font-medium">You</span>
+        </div>
+      )}
 
       {/* Control dock. */}
       <div className="absolute inset-x-0 bottom-4 z-40 flex justify-center pointer-events-none">
@@ -506,6 +615,12 @@ function SpectatePreJoin({ displayName, listen, onToggleListen, onJoin, onLeave 
             <Users className="w-5 h-5" />
           </button>
           <BgPicker bg={bg} onChange={setBg} />
+          <LobbySettingsGear
+            videoDeviceId={userChoices.videoDeviceId}
+            onPickCamera={saveVideoInputDeviceId}
+            audioDeviceId={userChoices.audioDeviceId}
+            onPickMic={saveAudioInputDeviceId}
+          />
           <button
             type="button"
             onClick={join}
@@ -546,7 +661,6 @@ export default function RoomVideoStage({ roomId, displayName }) {
   const dark = theme === "dark";
   const { session } = useApp();
   const userId = session?.user?.id;
-  const [setupOpen, setSetupOpen] = useState(false);
 
   const { call, startCall, setStageEl, updateCall, endCall } = useVideoCall();
   const inCall = call?.roomId === roomId;
@@ -593,32 +707,28 @@ export default function RoomVideoStage({ roomId, displayName }) {
   // the call into a nearby participant's mic). Tap Listen in the dock to hear.
   // `autoRef` fires it once per room visit; `dismissed` respects "Stop watching".
   useEffect(() => {
-    if (othersInCall && !inCall && !inAnotherCall && !setupOpen && !dismissed && !autoRef.current) {
+    if (othersInCall && !inCall && !inAnotherCall && !dismissed && !autoRef.current) {
       autoRef.current = true;
       startCall(roomId, displayName, { mode: "spectate", listen: false });
     }
-  }, [othersInCall, inCall, inAnotherCall, setupOpen, dismissed, roomId, displayName, startCall]);
+  }, [othersInCall, inCall, inAnotherCall, dismissed, roomId, displayName, startCall]);
 
   // ── In the call ──────────────────────────────────────────────
-  // The persistent call (LiveKitCall) portals INTO stageRef. stageRef stays the
-  // SAME element across spectate↔join (only its className changes), so the call
-  // never re-glues / flashes PiP on join. When SPECTATING it's shrunk to a corner
-  // (z-30) and SpectatePreJoin renders your big self-preview behind it (z-0) + the
-  // control dock (z-40); when JOINED it fills the tile. The pre-join pieces are
-  // SIBLINGS of stageRef, never children, so React nodes and the manual call host
-  // don't share a parent.
+  // The persistent call (LiveKitCall) portals INTO stageRef. stageRef ALWAYS
+  // fills the tile — the live call is the big thing the moment you're connected,
+  // whether you're spectating ("walk into the office, see everyone") or joined.
+  // While spectating, the call renders CHROMELESS (its own bar suppressed, see
+  // PersistentVideoCall) and SpectatePreJoin overlays the only dock (z-40) plus
+  // an OPTIONAL small self-preview PiP. stageRef keeps the same element across
+  // spectate↔join (only siblings change), so the call never re-glues on join.
   if (inCall) {
     return (
       <div className="relative w-full h-full rounded-xl overflow-hidden" style={{ background: "#0f172a" }}>
-        <div
-          ref={stageRef}
-          className={spectating
-            ? "absolute top-3 right-3 w-40 sm:w-52 lg:w-60 aspect-video rounded-lg overflow-hidden ring-1 ring-white/25 shadow-2xl z-30 bg-slate-900"
-            : "absolute inset-0"}
-        />
+        <div ref={stageRef} className="absolute inset-0" />
         {spectating && (
           <SpectatePreJoin
             displayName={displayName}
+            participants={observed.participants}
             listen={call?.listen === true}
             onToggleListen={() => updateCall({ listen: !(call?.listen === true) })}
             onJoin={(choices) => updateCall({ mode: "join", choices })}
@@ -638,25 +748,10 @@ export default function RoomVideoStage({ roomId, displayName }) {
     dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-slate-900"
   }`;
 
-  // ── Green room (camera preview + always-visible Join) ────────
-  if (setupOpen) {
-    return (
-      <GreenRoom
-        displayName={displayName}
-        othersInCall={othersInCall}
-        participants={observed.participants}
-        onJoin={(choices) => join(choices)}
-        onWatch={watch}
-        onBack={() => setSetupOpen(false)}
-        dark={dark}
-      />
-    );
-  }
-
-  // ── Auto-preview connecting ──────────────────────────────────
-  // Others are in the call and we haven't been dismissed → the effect above is
-  // about to flip us into spectate. Show a neutral fill instead of flashing the
-  // choice card for a frame.
+  // ── Others in the call ───────────────────────────────────────
+  // The auto-preview effect drops you straight into a live (muted) spectate so
+  // you SEE the call the moment you walk up. While that connects, show a neutral
+  // fill rather than flashing a card for a frame.
   if (othersInCall && !dismissed) {
     return (
       <div className={`${shellCls} items-center justify-center`}>
@@ -665,57 +760,54 @@ export default function RoomVideoStage({ roomId, displayName }) {
     );
   }
 
-  // ── Choice card (you dismissed the preview, or no one's in the call) ─────────
-  return (
-    <div className={`${shellCls} items-center justify-center text-center px-6`}>
-      {othersInCall ? (
-        <>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <p className="text-sm font-semibold text-white">{observed.participants.length} in call</p>
-          </div>
-          <div className="flex items-center justify-center gap-1.5 mb-4">
-            {observed.participants.slice(0, 6).map((p) => (
-              <span key={p.user_id} className="ring-2 ring-white/30 rounded-full">
-                <UserAvatar url="" name={p.display_name || "Member"} size={32} />
-              </span>
-            ))}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="p-3 rounded-full bg-white/10 backdrop-blur-sm mb-3">
-            <Video className="w-6 h-6 text-white/80" />
-          </div>
-          <p className="text-sm font-semibold text-white">No one's in the call</p>
-          <p className="text-xs text-white/60 max-w-[320px] mt-1 mb-4">
-            Set up your camera and mic, then start a call — teammates in this room get a join prompt.
-          </p>
-        </>
-      )}
-
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <Button
-          onClick={() => setSetupOpen(true)}
-          className="rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
-        >
-          <LogIn className="w-4 h-4 mr-1.5" />
-          {othersInCall ? "Set up & join" : "Set up & start"}
-        </Button>
-        {othersInCall && (
+  // ── You stopped watching, but a call is still running ────────
+  // A compact rejoin card (not the full lobby) — peek at who's in, then Join or
+  // watch again.
+  if (othersInCall && dismissed) {
+    return (
+      <div className={`${shellCls} items-center justify-center text-center px-6`}>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <p className="text-sm font-semibold text-white">{observed.participants.length} in call</p>
+        </div>
+        <div className="flex items-center justify-center gap-1.5 mb-4">
+          {observed.participants.slice(0, 6).map((p) => (
+            <span key={p.user_id} className="ring-2 ring-white/30 rounded-full">
+              <UserAvatar url="" name={p.display_name || "Member"} size={32} />
+            </span>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2">
           <Button
             onClick={watch}
+            className="rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
+          >
+            <Eye className="w-4 h-4 mr-1.5" /> Watch again
+          </Button>
+          <Button
+            onClick={() => join({ videoEnabled: false, audioEnabled: true })}
             variant="outline"
             className="rounded-full border-white/20 text-white hover:bg-white/10"
           >
-            <Eye className="w-4 h-4 mr-1.5" />
-            Just watch
+            <LogIn className="w-4 h-4 mr-1.5" /> Join call
           </Button>
-        )}
+        </div>
       </div>
-      <p className="text-[11px] text-white/50 mt-3">
-        {othersInCall ? "Watch without turning on your camera, or set up and join in." : "Your camera + mic stay off until you start."}
-      </p>
-    </div>
+    );
+  }
+
+  // ── Empty room → the start lobby directly (no choice-card hop) ───────────────
+  // GreenRoom IS the lobby: self-preview (camera off until you opt in) + a
+  // primary "Start call". No Back — there's nothing behind it now.
+  return (
+    <GreenRoom
+      displayName={displayName}
+      othersInCall={othersInCall}
+      participants={observed.participants}
+      onJoin={(choices) => join(choices)}
+      onWatch={watch}
+      onBack={null}
+      dark={dark}
+    />
   );
 }

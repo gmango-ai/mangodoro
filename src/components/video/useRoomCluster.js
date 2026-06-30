@@ -196,8 +196,13 @@ export function useRoomCluster({ manage = false } = {}) {
   }, [participants, cluster, myId, members]);
 
   const setAttrs = useCallback(
-    (delta) => (localParticipant ? localParticipant.setAttributes(delta).catch(() => {}) : Promise.resolve()),
-    [localParticipant],
+    // setAttributes is a signal request — a no-op (and a "cannot send signal
+    // request before connected" warning) until the room is connected.
+    (delta) =>
+      localParticipant && room?.state === "connected"
+        ? localParticipant.setAttributes(delta).catch(() => {})
+        : Promise.resolve(),
+    [localParticipant, room],
   );
 
   // Found a room (device-less): become its mic + speakers.

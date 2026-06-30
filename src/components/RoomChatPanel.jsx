@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Send, Pencil, Trash2, Check, X, Clock } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useApp } from "../context/AppContext";
-import { useTeam } from "../context/TeamContext";
+import { useTeamOptional } from "../context/TeamContext";
 import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
 import { emitMention } from "../lib/notifications";
@@ -169,8 +169,11 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false, read
 
   // @mentions: an autocomplete over teammates; selected user_ids accumulate in
   // mentionedRef and fire a `mention` notification on send.
-  const { settings } = useApp();
-  const { teamMembers } = useTeam();
+  // useApp / useTeam are absent in the read-only device kiosk, which mounts this
+  // panel without the member context stack — guard so it still renders (the
+  // kiosk can't post, so the @mention/teammate features it powers aren't needed).
+  const { settings } = useApp() || {};
+  const { teamMembers } = useTeamOptional() || {};
   const { openProfile } = useProfileCard();
   const taRef = useRef(null);
 

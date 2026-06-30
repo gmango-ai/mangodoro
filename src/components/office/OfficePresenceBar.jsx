@@ -3,9 +3,15 @@ import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
 import { useProfileCard } from "../../context/ProfileContext";
 import { useClockedIn } from "../../hooks/useClockedIn";
+import { useTeamPresence } from "../../hooks/useTeamPresence";
 import UserAvatar from "../UserAvatar";
 import { presenceRing, presenceLabel } from "../../lib/presence";
 import { Crown } from "lucide-react";
+
+// Presence states that count as "around in the hallway" when not clocked in —
+// the engaged/at-desk ones. Idle (away) and explicitly-away (lunch/commuting)
+// are online but not "here", so we leave them out of the hallway.
+const HALLWAY_PRESENT = new Set(["active", "available", "heads_down", "in_meeting"]);
 
 // Ambient "who's in the office" strip for the hallway header.
 //
@@ -21,6 +27,7 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
   const { session, settings } = useApp();
   const { openProfile } = useProfileCard();
   const clocked = useClockedIn();
+  const online = useTeamPresence();
   const myId = session?.user?.id;
 
   // People in rooms (first session a person appears in wins).
@@ -44,21 +51,43 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
   const inRoomIds = useMemo(() => new Set(people.map((p) => p.user_id)), [people]);
   const memberById = useMemo(() => new Map((teamMembers || []).map((m) => [m.user_id, m])), [teamMembers]);
 
-  // Clocked in but not in a room → standing in the hallway.
+  // In the hallway = NOT in a room, and either clocked in OR detected online
+  // (Realtime Presence) in a "present" state. Clocked-in people show their work
+  // status; online-only people show as "active" via their presence ring.
   const hallway = useMemo(() => {
-    return (clocked || [])
-      .filter((r) => r.clocked_in_at && !inRoomIds.has(r.user_id) && (memberById.has(r.user_id) || r.user_id === myId))
-      .map((r) => {
-        const m = memberById.get(r.user_id);
-        return {
-          user_id: r.user_id,
-          name: m?.name || (r.user_id === myId ? settings?.name : "") || "Member",
-          avatar_url: m?.avatar_url || (r.user_id === myId ? settings?.avatarUrl : "") || "",
-          on_break: r.on_break,
-          task: r.task,
-        };
+    const map = new Map();
+    // Clocked in (existing) — keep self too.
+    for (const r of clocked || []) {
+      if (!r.clocked_in_at || inRoomIds.has(r.user_id)) continue;
+      if (!(memberById.has(r.user_id) || r.user_id === myId)) continue;
+      const m = memberById.get(r.user_id);
+      map.set(r.user_id, {
+        user_id: r.user_id,
+        name: m?.name || (r.user_id === myId ? settings?.name : "") || "Member",
+        avatar_url: m?.avatar_url || (r.user_id === myId ? settings?.avatarUrl : "") || "",
+        clocked: true,
+        on_break: r.on_break,
+        task: r.task,
+        presence_state: null,
       });
-  }, [clocked, inRoomIds, memberById, myId, settings]);
+    }
+    // Online but not clocked in — teammates only (not self), present states.
+    for (const p of online || []) {
+      if (p.user_id === myId || inRoomIds.has(p.user_id) || map.has(p.user_id)) continue;
+      if (!memberById.has(p.user_id) || !HALLWAY_PRESENT.has(p.presence_state)) continue;
+      const m = memberById.get(p.user_id);
+      map.set(p.user_id, {
+        user_id: p.user_id,
+        name: m?.name || p.name || "Member",
+        avatar_url: m?.avatar_url || p.avatar_url || "",
+        clocked: false,
+        on_break: false,
+        task: "",
+        presence_state: p.presence_state,
+      });
+    }
+    return [...map.values()];
+  }, [clocked, online, inRoomIds, memberById, myId, settings]);
 
   if (people.length === 0 && hallway.length === 0) return null;
 
@@ -103,7 +132,9 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
           <span className={label}>In the hallway</span>
           <div className="flex items-center">
             {hallway.slice(0, MAX).map((p) => {
-              const title = `${p.name} — ${p.on_break ? "On lunch" : "Working"}${p.task?.trim() ? ` · ${p.task}` : ""} · in the hallway`;
+              const ring = p.clocked ? (p.on_break ? "ring-orange-500" : "ring-emerald-500") : presenceRing(p.presence_state);
+              const status = p.clocked ? (p.on_break ? "On lunch" : "Working") : presenceLabel(p.presence_state);
+              const title = `${p.name} — ${status}${p.task?.trim() ? ` · ${p.task}` : ""} · in the hallway`;
               return (
                 <button
                   key={p.user_id}
@@ -111,7 +142,7 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
                   onClick={(e) => openProfile?.(p.user_id, e.currentTarget.getBoundingClientRect())}
                   title={title}
                   aria-label={title}
-                  className={`relative shrink-0 rounded-full ring-2 ${p.on_break ? "ring-orange-500" : "ring-emerald-500"} -ml-2 first:ml-0 transition-transform hover:-translate-y-0.5 hover:z-10`}
+                  className={`relative shrink-0 rounded-full ring-2 ${ring} -ml-2 first:ml-0 transition-transform hover:-translate-y-0.5 hover:z-10`}
                 >
                   <UserAvatar url={p.avatar_url} name={p.name} size={28} />
                 </button>

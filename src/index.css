@@ -473,3 +473,244 @@ html.electron-popover body::before {
 }
 .wb-sticky::before { left: 7px; transform: rotate(-3.5deg); }
 .wb-sticky::after { right: 7px; transform: rotate(3.5deg); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   In-call (LiveKit) UI polish. The call relied on LiveKit's default component
+   styles, which read dated; these overrides give a cohesive modern look —
+   clean glass controls, soft tiles, glassy name pills — scoped to the call
+   surface ([data-lk-theme]) so nothing else is touched.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-lk-theme] {
+  --lk-border-radius: 12px;
+}
+
+/* One cohesive popover/menu style for the whole call surface — a NEUTRAL dark
+   glass (not blue) that matches the control bar, with consistent padding,
+   section labels, rows and dividers. Used by every call menu so they read as
+   one polished system instead of ad-hoc panels. */
+@keyframes call-menu-in { from { opacity: 0; } to { opacity: 1; } }
+.call-menu {
+  background: rgba(22, 24, 29, 0.97);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  box-shadow: 0 18px 44px -14px rgba(0, 0, 0, 0.72);
+  color: #e8eaef;
+  padding: 6px;
+  /* Opacity-only so it never fights a centering transform on the popover. */
+  animation: call-menu-in 0.13s ease both;
+}
+.call-menu-label {
+  padding: 6px 8px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(232, 234, 239, 0.42);
+}
+.call-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.25;
+  color: #e8eaef;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.call-menu-item { transition: background 0.12s ease, transform 0.1s ease; }
+.call-menu-item:hover { background: rgba(255, 255, 255, 0.07); }
+.call-menu-item:active { transform: scale(0.985); }
+.call-menu-item--active { background: rgba(255, 255, 255, 0.06); }
+.call-menu-sep { height: 1px; margin: 6px 4px; background: rgba(255, 255, 255, 0.08); }
+
+/* Dropdowns inside the menus — same neutral fill as the menu so the controls
+   don't read as a different colour from the panel. */
+.call-select {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 9px;
+  padding: 9px 10px;
+  font-size: 13px;
+  color: #e8eaef;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.call-select:hover { background: rgba(255, 255, 255, 0.08); }
+.call-select:focus { border-color: var(--color-accent, #22d3ee); }
+.call-select option { color: #0f172a; }
+
+/* Layout-picker preview cards (Grid / Presenter / Spotlight). */
+.call-layout-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px 7px;
+  border-radius: 11px;
+  border: 1.5px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease, transform 0.12s ease;
+}
+.call-layout-card:hover { background: rgba(255, 255, 255, 0.07); transform: translateY(-1.5px); }
+.call-layout-card:active { transform: scale(0.97); }
+/* The mini-diagram cells gently lift on hover for a little life. */
+.call-layout-card .lc-cell { transition: background 0.14s ease; }
+.call-layout-card--active {
+  border-color: var(--color-accent, #22d3ee);
+  background: color-mix(in srgb, var(--color-accent, #22d3ee) 14%, transparent);
+}
+.call-layout-card .lc-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #cbd2de;
+}
+.call-layout-card--active .lc-label { color: #fff; }
+/* The mini diagram cells. */
+.lc-cell { background: rgba(255, 255, 255, 0.22); border-radius: 2.5px; }
+.call-layout-card--active .lc-cell { background: var(--color-accent, #22d3ee); }
+
+/* The control bar uses the same neutral surface so bar + menus match. */
+[data-lk-theme] .lk-call-bar {
+  background: rgba(22, 24, 29, 0.82) !important;
+}
+
+/* People sidebar — a floating glass sheet that slides in from the right.
+   Same palette as the menus so it reads as one system. */
+.call-sheet {
+  background: rgba(20, 22, 27, 0.94);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow: -14px 0 44px -16px rgba(0, 0, 0, 0.7), 0 0 0 0.5px rgba(0, 0, 0, 0.4);
+  animation: call-sheet-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes call-sheet-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+/* Each person row fades+rises in, lightly staggered via inline delay. */
+@keyframes call-row-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.call-person-row { animation: call-row-in 0.26s ease both; }
+
+/* Speaking avatar: accent ring with a soft breathing pulse. */
+.call-avatar--speaking {
+  box-shadow: 0 0 0 2px var(--color-accent, #22d3ee);
+  animation: call-avatar-pulse 1.7s ease-in-out infinite;
+}
+@keyframes call-avatar-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--color-accent, #22d3ee); }
+  50% { box-shadow: 0 0 0 3px var(--color-accent, #22d3ee), 0 0 11px -1px var(--color-accent, #22d3ee); }
+}
+
+/* Control-bar buttons → uniform circular glass with smooth feedback. */
+[data-lk-theme] .lk-button {
+  background: rgba(255, 255, 255, 0.07);
+  border: none;
+  border-radius: 9999px;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
+  color: #f1f5f9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s ease, transform 0.1s ease, color 0.15s ease;
+}
+[data-lk-theme] .lk-button:hover { background: rgba(255, 255, 255, 0.16); }
+[data-lk-theme] .lk-button:active { transform: scale(0.92); }
+
+/* Toggled-on control (raised hand) — amber so "on" reads at a glance. */
+[data-lk-theme] .lk-button--raised { background: rgba(245, 158, 11, 0.92); color: #fff; }
+[data-lk-theme] .lk-button--raised:hover { background: rgba(245, 158, 11, 1); }
+
+/* Raised-hand glyph: a gentle wave so it catches the eye without nagging. */
+@keyframes call-hand-wave {
+  0%, 55%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(15deg); }
+  30% { transform: rotate(-9deg); }
+  45% { transform: rotate(11deg); }
+}
+.call-hand-wave { animation: call-hand-wave 2.4s ease-in-out infinite; transform-origin: 65% 80%; }
+@media (prefers-reduced-motion: reduce) { .call-hand-wave { animation: none; } }
+
+/* The device-chooser caret next to mic/camera → a slim, secondary control that
+   tucks against its button instead of reading as a third equal circle. */
+[data-lk-theme] .lk-caret-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 42px;
+  border: none;
+  background: transparent;
+  color: rgba(241, 245, 249, 0.55);
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+[data-lk-theme] .lk-caret-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+[data-lk-theme] .lk-button:focus-visible,
+[data-lk-theme] .lk-caret-btn:focus-visible {
+  outline: 2px solid var(--color-accent, #22d3ee);
+  outline-offset: 2px;
+}
+
+/* "Leave" → a clean red pill, distinct from the round controls. */
+[data-lk-theme] .lk-disconnect-button {
+  background: rgba(244, 63, 94, 0.92);
+  border: none;
+  border-radius: 9999px;
+  height: 42px;
+  padding: 0 18px;
+  color: #fff;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+[data-lk-theme] .lk-disconnect-button:hover { background: rgb(244, 63, 94); }
+[data-lk-theme] .lk-disconnect-button:active { transform: scale(0.96); }
+
+/* Participant tiles → soft corners, no harsh default border. */
+[data-lk-theme] .lk-participant-tile {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+  border: none;
+}
+[data-lk-theme] .lk-participant-placeholder {
+  background: radial-gradient(circle at 50% 38%, #1e293b, #0b1220);
+}
+
+/* We render our own name/mute pill in ClusterParticipantTile (so it sits above
+   the camera-off avatar overlay), so hide LiveKit's default metadata bar. */
+[data-lk-theme] .lk-participant-metadata { display: none; }
+
+/* Hover focus/pin toggle on a tile → subtle rounded glass. */
+[data-lk-theme] .lk-focus-toggle-button {
+  border: none;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+}

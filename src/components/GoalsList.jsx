@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Target, ChevronDown, ChevronRight } from "lucide-react";
+import { Target, ChevronDown, ChevronRight, CalendarClock } from "lucide-react";
 import MarkdownText from "./MarkdownText";
 import { GOAL_HEALTH } from "../lib/goals";
 
@@ -19,10 +19,15 @@ function loadCollapsed() {
 }
 
 export default function GoalsList({ goals, retros, dark, compact = false }) {
-  const items = goals ?? retros ?? [];
+  const allItems = goals ?? retros ?? [];
   const [collapsed, setCollapsed] = useState(loadCollapsed);
-  if (!items.length) return null;
+  if (!allItems.length) return null;
   const barBg = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+
+  // "This week" goals get their own dedicated section at the top (rolls over
+  // automatically — see useWeekGoals); everything else groups by owner below.
+  const weekItems = allItems.filter((g) => g.week === "this");
+  const items = allItems.filter((g) => g.week !== "this");
 
   // Group by a STABLE owner key (tier:ownerId), not the display name — two
   // owners can share a name. Preserve first-seen order; capture color + tier.
@@ -85,9 +90,45 @@ export default function GoalsList({ goals, retros, dark, compact = false }) {
     );
   };
 
+  const weekCollapsed = collapsed.has("week:this");
   let prevTier = null;
   return (
     <div className={compact ? "space-y-2.5" : "space-y-3"}>
+      {weekItems.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => toggle("week:this")}
+            title={weekCollapsed ? "Show this week's goals" : "Hide this week's goals"}
+            className="flex items-center gap-1 w-full text-left uppercase tracking-wider font-bold text-[9px] mb-1"
+            style={{ color: "var(--color-accent)" }}
+          >
+            {weekCollapsed ? <ChevronRight className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />}
+            <CalendarClock className="w-3 h-3 shrink-0" />
+            <span className="truncate">This week</span>
+            <span className="opacity-50 font-semibold">{weekItems.length}</span>
+          </button>
+          {!weekCollapsed && (
+            <ul className={`ml-1 ${compact ? "space-y-2" : "space-y-2.5"}`}>
+              {weekItems.map((g) => (
+                <li key={g.id} className={itemCls}>
+                  {g.label && (
+                    <span className="flex items-center gap-1 mb-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: g.color || "var(--color-accent)" }} />
+                      <span className={`text-[9px] uppercase tracking-wider font-bold ${dark ? "text-slate-500" : "text-slate-400"}`}>{g.label}</span>
+                    </span>
+                  )}
+                  {g.href ? (
+                    <Link to={g.href} className={`block ${dark ? "hover:text-slate-50" : "hover:text-slate-900"}`}><MarkdownText dark={dark} compact>{g.body}</MarkdownText></Link>
+                  ) : (
+                    <MarkdownText dark={dark} compact>{g.body}</MarkdownText>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {groups.map((grp) => {
         const isCollapsed = collapsed.has(grp.gkey);
         const showTier = grp.tier !== prevTier;

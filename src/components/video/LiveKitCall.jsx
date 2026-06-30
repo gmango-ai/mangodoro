@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -14,10 +14,12 @@ import {
   useLocalParticipant,
   useRoomContext,
   useMaybeTrackRefContext,
+  useIsSpeaking,
+  useConnectionQualityIndicator,
 } from "@livekit/components-react";
-import { Track, RoomEvent, setLogLevel } from "livekit-client";
+import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, Mic, MicOff, UserX, X, DoorOpen, Volume2, Sparkles, Pin, PinOff } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -25,8 +27,12 @@ import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
 import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
+import { PREF, loadPref, savePref } from "./callPrefs";
+import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt } from "./livekitConnect";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
+import AdaptiveStage from "./AdaptiveStage";
+import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
 
 // LiveKit's client logs at "info" by default, which floods the console with
 // per-connection play-by-play (signal connecting, connection state changes,
@@ -77,22 +83,8 @@ const LK_DISCONNECT_REASON = {
 // Per-device preferences for the local self-view processors + layout. Kept in
 // localStorage so they persist across calls and apply even in PiP (which has
 // no control bar to toggle them).
-const PREF = { bg: "ql_lk_bg", bgCustom: "ql_lk_bg_custom", noise: "ql_lk_noise", layout: "ql_lk_layout", autoMic: "ql_lk_automic" };
-function loadPref(key, fallback) {
-  try {
-    const v = localStorage.getItem(key);
-    return v === null ? fallback : v;
-  } catch {
-    return fallback;
-  }
-}
-function savePref(key, val) {
-  try {
-    localStorage.setItem(key, val);
-  } catch {
-    /* ignore */
-  }
-}
+// Shared with the pre-join lobby so a setting chosen there carries into the call.
+// (PREF/loadPref/savePref now live in callPrefs.js.)
 
 function refKey(t) {
   return t ? `${t.participant?.identity || ""}:${t.source}` : "";
@@ -175,6 +167,121 @@ function bgToOptions(bg, customBg) {
   return null;
 }
 
+// Per-device self-view prefs shared from the control bar down to the tiles:
+//   mirror — flip your own camera horizontally (your view only)
+//   float  — render your own tile as a draggable PiP instead of a grid cell
+const SelfViewContext = createContext({ mirror: true, float: true, setMirror: () => {}, setFloat: () => {} });
+
+// "Pin for everyone" control, shared from the call down to each tile + the
+// People panel so the affordance shows wherever it's useful. `canPin` is gated
+// by the room's pin_policy; the server re-checks, so this only decides the UI.
+const PinControlContext = createContext({ canPin: false, pinnedId: null, pin: () => {}, unpin: () => {}, busyId: null });
+
+function usePinControlValue(roomId) {
+  const { isAdmin, isOwner, rooms } = useTeam();
+  const { syncSession } = useSyncSession();
+  const { localParticipant } = useLocalParticipant();
+  const globalPinId = useGlobalPin();
+  const myId = localParticipant?.identity;
+  const policy = (rooms || []).find((r) => r.id === roomId)?.pin_policy || "admins";
+  const isOrgAdmin = !!isAdmin || !!isOwner;
+  const isLeader = !!syncSession?.leader_id && syncSession.leader_id === myId;
+  const canPin =
+    policy === "everyone" ||
+    (policy === "admins" && isOrgAdmin) ||
+    (policy === "leaders" && isLeader) ||
+    (policy === "both" && (isOrgAdmin || isLeader));
+  const [busyId, setBusyId] = useState(null);
+  const pin = async (id) => {
+    setBusyId(id);
+    const { error } = await setRoomPin(roomId, id);
+    setBusyId(null);
+    if (error) console.warn("pin:", error.message);
+  };
+  const unpin = async () => {
+    setBusyId(globalPinId || "_");
+    const { error } = await clearRoomPin(roomId);
+    setBusyId(null);
+    if (error) console.warn("unpin:", error.message);
+  };
+  return useMemo(
+    () => ({ canPin, policy, pinnedId: globalPinId, pin, unpin, busyId }),
+    // pin/unpin are stable enough for our use; re-memo on the values that matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canPin, policy, globalPinId, busyId],
+  );
+}
+
+// Raise-hand — a self-set participant attribute (`hand` = the raise timestamp,
+// "" = lowered). Attributes (not data messages) so it persists for late joiners
+// and needs no server round-trip, mirroring how `role`/cluster state is carried.
+// Ordered by raise time so a host sees who's been waiting longest. Shared from
+// ConferenceLayout (above both the Stage and the control bar) via context.
+const ATTR_HAND = "hand";
+
+const HandRaiseContext = createContext({
+  raisedIds: new Set(),
+  order: new Map(),
+  myRaised: false,
+  toggle: () => {},
+  count: 0,
+});
+
+function useHandRaiseValue() {
+  const room = useRoomContext();
+  const { localParticipant } = useLocalParticipant();
+  const participants = useParticipants();
+  // useParticipants doesn't re-render on a pure attribute change, so nudge it.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!room) return undefined;
+    const bump = () => setTick((n) => n + 1);
+    room.on(RoomEvent.ParticipantAttributesChanged, bump);
+    return () => room.off(RoomEvent.ParticipantAttributesChanged, bump);
+  }, [room]);
+
+  // Auto-lower your own hand once you start talking — you've got the floor, so a
+  // still-raised hand is stale and would keep you in the queue (Meet/Zoom do the
+  // same). Reads the authoritative isSpeaking + attribute at event time.
+  useEffect(() => {
+    if (!room) return undefined;
+    const onActive = () => {
+      if (localParticipant?.isSpeaking && localParticipant.attributes?.[ATTR_HAND]) {
+        localParticipant.setAttributes({ [ATTR_HAND]: "" }).catch(() => {});
+        setTick((n) => n + 1);
+      }
+    };
+    room.on(RoomEvent.ActiveSpeakersChanged, onActive);
+    return () => room.off(RoomEvent.ActiveSpeakersChanged, onActive);
+  }, [room, localParticipant]);
+
+  const raised = useMemo(
+    () =>
+      participants
+        .map((p) => ({ identity: p.identity, ts: Number(p.attributes?.[ATTR_HAND]) || 0 }))
+        .filter((x) => x.ts > 0)
+        .sort((a, b) => a.ts - b.ts),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [participants, tick],
+  );
+
+  const myId = localParticipant?.identity;
+  const myRaised = !!myId && raised.some((r) => r.identity === myId);
+
+  const toggle = useCallback(() => {
+    if (!localParticipant || room?.state !== "connected") return;
+    const raisedNow = !!localParticipant.attributes?.[ATTR_HAND];
+    localParticipant.setAttributes({ [ATTR_HAND]: raisedNow ? "" : String(Date.now()) }).catch(() => {});
+    setTick((n) => n + 1); // optimistic — don't wait for the echo
+  }, [localParticipant, room]);
+
+  return useMemo(() => {
+    const raisedIds = new Set(raised.map((r) => r.identity));
+    const order = new Map(raised.map((r, i) => [r.identity, i + 1]));
+    return { raisedIds, order, myRaised, toggle, count: raised.length };
+  }, [raised, myRaised, toggle]);
+}
+
 function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
@@ -215,24 +322,33 @@ function PublishController({ publish, choices, micMuted }) {
   }, [publish, inRoom, mergeTarget, joinRoom]);
 
   useEffect(() => {
-    if (!localParticipant) return;
-    // Tag our role so every client can render spectators as a name list
-    // instead of giving them a (camera-off) tile in the grid.
-    localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
-    const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
-    // Your mic is live only when YOU haven't muted it AND (solo, or you're the
-    // room's mic source). The in-room gate is the "behind the scenes" auto-mute —
-    // it doesn't flip your personal mute button; that stays your own control.
-    // While entering "in this room" but not yet clustered, hold the mic off so
-    // it can't squeal before the follower/mic-source role resolves.
-    const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
-    localParticipant
-      .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
-      .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
-    localParticipant
-      .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
-      .catch(() => { /* */ });
-  }, [localParticipant, publish, choices, cluster, isMicSource, micMuted]);
+    if (!localParticipant || !room) return undefined;
+    const apply = () => {
+      // Tag our role so every client can render spectators as a name list
+      // instead of giving them a (camera-off) tile in the grid.
+      localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
+      const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
+      // Your mic is live only when YOU haven't muted it AND (solo, or you're the
+      // room's mic source). The in-room gate is the "behind the scenes" auto-mute —
+      // it doesn't flip your personal mute button; that stays your own control.
+      // While entering "in this room" but not yet clustered, hold the mic off so
+      // it can't squeal before the follower/mic-source role resolves.
+      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
+      localParticipant
+        .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
+        .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
+      localParticipant
+        .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
+        .catch(() => { /* */ });
+    };
+    // These are all signal requests — only valid once connected. Touching them
+    // earlier (e.g. while a connect is still failing) logs "cannot send signal
+    // request before connected" and wastes the call. Apply on connect, and
+    // re-apply on every (re)connection.
+    room.on(RoomEvent.Connected, apply);
+    if (room.state === "connected") apply();
+    return () => room.off(RoomEvent.Connected, apply);
+  }, [localParticipant, room, publish, choices, cluster, isMicSource, micMuted, inRoom]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
@@ -247,7 +363,12 @@ function PublishController({ publish, choices, micMuted }) {
     let cancelled = false;
     (async () => {
       try {
-        const best = await pickBestMicrophone();
+        // Label-only scoring (measure:false) — this runs DURING a live call, and
+        // level-probing opens getUserMedia on every candidate mic (plus a
+        // transient AudioContext), which can hiccup the call's own capture. The
+        // label heuristic still upgrades a built-in to a dedicated/USB mic, which
+        // is the main win for a room-leader device.
+        const best = await pickBestMicrophone({ measure: false });
         if (!cancelled && best?.deviceId) await room.switchActiveDevice("audioinput", best.deviceId);
       } catch {
         /* keep the current mic */
@@ -263,6 +384,24 @@ function PublishController({ publish, choices, micMuted }) {
 // Mounted exactly once (it owns the `manage` side-effects); renders nothing.
 function RoomClusterManager() {
   useRoomCluster({ manage: true });
+  return null;
+}
+
+// Re-applies the saved audio-output device (chosen in a prior call or the lobby)
+// once connected, so your speaker choice persists across calls. switchActiveDevice
+// fails soft if the device is gone (unplugged headphones → default).
+function SavedSpeakerApplier() {
+  const room = useRoomContext();
+  useEffect(() => {
+    if (!room) return undefined;
+    const apply = () => {
+      const saved = loadPref(PREF.speaker, "");
+      if (saved) room.switchActiveDevice("audiooutput", saved).catch(() => { /* device gone */ });
+    };
+    if (room.state === "connected") apply();
+    room.on(RoomEvent.Connected, apply);
+    return () => { room.off(RoomEvent.Connected, apply); };
+  }, [room]);
   return null;
 }
 
@@ -408,6 +547,39 @@ function EffectsController({ bg, customBg, noiseEnabled }) {
   return null;
 }
 
+// Speaker (audio output) picker, shown inside the mic menu so all audio
+// settings live together. Switching calls room.switchActiveDevice("audiooutput")
+// under the hood (setSinkId on the call's <audio> elements). Renders nothing
+// where output selection isn't supported (Safari/iOS expose no audiooutput
+// devices), so the menu just omits it there instead of showing an empty list.
+function OutputDeviceSection() {
+  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind: "audiooutput" });
+  if (!devices || devices.length === 0) return null;
+  return (
+    <div>
+      <div className="call-menu-label flex items-center gap-1.5"><Volume2 className="w-3.5 h-3.5 opacity-70" /> Speaker</div>
+      <div className="max-h-32 overflow-auto">
+        {devices.map((d) => {
+          const selected = d.deviceId === activeDeviceId;
+          return (
+            <button
+              key={d.deviceId}
+              type="button"
+              role="menuitemradio"
+              aria-checked={selected}
+              onClick={() => { setActiveMediaDevice(d.deviceId); savePref(PREF.speaker, d.deviceId); }}
+              className={`call-menu-item ${selected ? "call-menu-item--active" : ""}`}
+            >
+              <span className="flex-1 truncate">{d.label || "Unnamed device"}</span>
+              {selected && <Check className="w-4 h-4 shrink-0 text-[var(--color-accent)]" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // A settings row inside a device menu — a labelled on/off toggle (e.g. blur,
 // noise cancellation) that lives alongside the device list.
 function SettingRow({ icon: Icon, label, active, onClick }) {
@@ -417,11 +589,11 @@ function SettingRow({ icon: Icon, label, active, onClick }) {
       role="menuitemcheckbox"
       aria-checked={active}
       onClick={onClick}
-      className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10"
+      className="call-menu-item"
     >
-      <Icon className="w-3.5 h-3.5 opacity-80 shrink-0" />
+      <Icon className="w-4 h-4 opacity-70 shrink-0" />
       <span className="flex-1 truncate">{label}</span>
-      <span className={`text-[10px] font-bold uppercase tracking-wide ${active ? "text-[var(--lk-accent-bg,#22d3ee)]" : "opacity-50"}`}>
+      <span className={`text-[10px] font-bold uppercase tracking-wide ${active ? "text-[var(--color-accent)]" : "opacity-50"}`}>
         {active ? "On" : "Off"}
       </span>
     </button>
@@ -521,24 +693,24 @@ function DeviceSettingsMenu({ kind, label, children }) {
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative -ml-1.5">
       <button
         type="button"
-        className="lk-button"
+        className="lk-caret-btn"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${label} settings`}
         title={`${label} settings`}
       >
-        <ChevronDown className="w-4 h-4" />
+        <ChevronDown className="w-3.5 h-3.5" />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-60 max-h-[70vh] overflow-y-auto rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1.5 shadow-xl text-[12px]">
-          <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">{label}</div>
+        <div className="call-menu absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-64 max-h-[70vh] overflow-y-auto">
+          <div className="call-menu-label">{label}</div>
           <div className="max-h-44 overflow-auto">
             {devices.length === 0 ? (
-              <div className="px-2.5 py-1.5 opacity-60">No devices found</div>
+              <div className="px-2.5 py-2 text-[13px] opacity-55">No devices found</div>
             ) : (
               devices.map((d) => {
                 const selected = d.deviceId === activeDeviceId;
@@ -549,16 +721,21 @@ function DeviceSettingsMenu({ kind, label, children }) {
                     role="menuitemradio"
                     aria-checked={selected}
                     onClick={() => { setActiveMediaDevice(d.deviceId); setOpen(false); }}
-                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10"
+                    className={`call-menu-item ${selected ? "call-menu-item--active" : ""}`}
                   >
                     <span className="flex-1 truncate">{d.label || "Unnamed device"}</span>
-                    {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    {selected && <Check className="w-4 h-4 shrink-0 text-[var(--color-accent)]" />}
                   </button>
                 );
               })
             )}
           </div>
-          {children && <div className="mt-1 pt-1 border-t border-white/10">{children}</div>}
+          {children && (
+            <>
+              <div className="call-menu-sep" />
+              {children}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -598,13 +775,13 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
         className="lk-button"
         title={
           joining
-            ? `Join ${existingCluster.leaderName || "the"} room — mutes your mic & call audio (for when you're together in person)`
-            : "Make this the room speaker — others sharing your room join muted so it doesn't echo"
+            ? `In the room with ${existingCluster.leaderName || "others"}? Join their shared audio (mutes your mic + call audio so you don't echo)`
+            : "In a room with teammates? Make this the room speaker so you don't echo each other"
         }
-        aria-label={joining ? "Join room" : "Make this the room speaker"}
+        aria-label={joining ? "Join the room's shared audio" : "Make this the room speaker"}
         onClick={() => (joining ? joinRoom(existingCluster) : startRoom())}
       >
-        <DoorOpen className="w-5 h-5" />
+        <UsersRound className="w-5 h-5" />
       </button>
     );
   }
@@ -621,14 +798,14 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
         title={isMicSource ? "You're the room mic" : "You're in a shared room (muted)"}
         onClick={() => setOpen((v) => !v)}
       >
-        <DoorOpen className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
+        <UsersRound className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-60 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-2 shadow-xl text-[12px]">
-          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider opacity-60">
+        <div className="call-menu absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-64">
+          <div className="call-menu-label">
             {isMicSource ? "You're the room mic" : "In this room · muted"}
           </div>
-          <ul className="max-h-40 overflow-auto mb-1.5">
+          <ul className="max-h-40 overflow-auto mb-1 px-1">
             {members.map((p) => {
               const r = roles.get(p.identity) || {};
               const tag = r.isDevice
@@ -641,84 +818,75 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
                       ? "speaker"
                       : null;
               return (
-                <li key={p.identity} className="flex items-center gap-1.5 px-1 py-0.5">
+                <li key={p.identity} className="flex items-center gap-1.5 px-1.5 py-1 text-[12.5px]">
                   <span className="flex-1 min-w-0 truncate">
                     {p.name || p.identity}
-                    {p.isLocal && <span className="opacity-60"> (you)</span>}
+                    {p.isLocal && <span className="opacity-50"> (you)</span>}
                   </span>
                   {tag ? (
-                    <span className="inline-flex items-center gap-1 text-amber-300 shrink-0">
-                      <Volume2 className="w-3.5 h-3.5" />
+                    <span className="inline-flex items-center gap-1 text-amber-300 text-[11px] font-medium shrink-0">
+                      <Volume2 className="w-3 h-3" />
                       {tag}
                     </span>
                   ) : (
-                    <MicOff className="w-3.5 h-3.5 opacity-50 shrink-0" title="Muted" />
+                    <MicOff className="w-3.5 h-3.5 opacity-40 shrink-0" title="Muted" />
                   )}
                 </li>
               );
             })}
           </ul>
-          <div className="space-y-1">
-            {isMicSource ? (
-              <button
-                type="button"
-                onClick={() => { stepDown(); setOpen(false); }}
-                className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
-              >
-                {deviceInRoom ? "Give mic back to room device" : "Step down as room mic"}
+          <div className="call-menu-sep" />
+          {isMicSource ? (
+            <button type="button" onClick={() => { stepDown(); setOpen(false); }} className="call-menu-item">
+              <MicOff className="w-4 h-4 opacity-70 shrink-0" />
+              {deviceInRoom ? "Give mic back to room device" : "Step down as room mic"}
+            </button>
+          ) : (
+            <button type="button" onClick={() => { takeSpeaker(); setOpen(false); }} className="call-menu-item">
+              <Mic className="w-4 h-4 opacity-70 shrink-0" />
+              Take over the room mic
+            </button>
+          )}
+          {deviceInRoom && (
+            isAudioSink ? (
+              <button type="button" onClick={() => { releaseSink(); setOpen(false); }} className="call-menu-item">
+                <Volume2 className="w-4 h-4 opacity-70 shrink-0" />
+                Give room speakers back to device
               </button>
             ) : (
               <button
                 type="button"
-                onClick={() => { takeSpeaker(); setOpen(false); }}
-                className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
+                onClick={() => { takeSink(); setOpen(false); }}
+                className="call-menu-item"
+                title="Play the call through this computer's speakers instead of the device's."
               >
-                Take over the room mic
+                <Volume2 className="w-4 h-4 opacity-70 shrink-0" />
+                Use my speakers for the room
               </button>
-            )}
-            {deviceInRoom && (
-              isAudioSink ? (
-                <button
-                  type="button"
-                  onClick={() => { releaseSink(); setOpen(false); }}
-                  className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
-                >
-                  Give room speakers back to device
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => { takeSink(); setOpen(false); }}
-                  className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left font-medium"
-                  title="Play the call through this computer's speakers instead of the device's."
-                >
-                  Use my speakers for the room
-                </button>
-              )
-            )}
-            <button
-              type="button"
-              onClick={() => { leaveRoom(); setOpen(false); }}
-              className="w-full px-2 py-1.5 rounded-md bg-white/10 hover:bg-white/15 text-left"
-            >
-              Leave room
-            </button>
-          </div>
+            )
+          )}
+          <button type="button" onClick={() => { leaveRoom(); setOpen(false); }} className="call-menu-item text-rose-300">
+            <X className="w-4 h-4 opacity-70 shrink-0" />
+            Leave room
+          </button>
           {deviceInRoom && (
-            <button
-              type="button"
-              role="menuitemcheckbox"
-              aria-checked={!!autoMic}
-              onClick={() => onToggleAutoMic?.()}
-              className="mt-1.5 pt-1.5 border-t border-white/10 w-full flex items-center gap-2 px-2 py-1 text-left rounded-md hover:bg-white/10"
-              title="Experimental: automatically hand the room mic to whoever's speaking (their closer mic)."
-            >
-              <Sparkles className="w-3.5 h-3.5 opacity-80 shrink-0" />
-              <span className="flex-1">Auto-switch mic to the speaker</span>
-              <span className={`text-[10px] font-bold uppercase tracking-wide ${autoMic ? "text-[var(--lk-accent-bg,#22d3ee)]" : "opacity-50"}`}>
-                {autoMic ? "On" : "Off"}
-              </span>
-            </button>
+            <>
+              <div className="call-menu-sep" />
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={!!autoMic}
+                onClick={() => onToggleAutoMic?.()}
+                className="call-menu-item"
+                title="Experimental: automatically hand the room mic to whoever's speaking (their closer mic)."
+              >
+                <Sparkles className="w-4 h-4 opacity-70 shrink-0" />
+                <span className="flex-1">Auto-switch mic to the speaker</span>
+                <span className={`text-[10px] font-bold uppercase tracking-wide ${autoMic ? "text-[var(--color-accent)]" : "opacity-50"}`}>
+                  {autoMic ? "On" : "Off"}
+                </span>
+              </button>
+            </>
           )}
         </div>
       )}
@@ -776,6 +944,33 @@ function LayoutMenu({ mode, onSet }) {
     { id: "spotlight", label: "Spotlight", Icon: Focus },
   ];
   const Cur = (items.find((i) => i.id === mode) || items[0]).Icon;
+  // Tiny diagram of each layout so the picker shows what it does, not just a word.
+  const Diagram = ({ id }) => {
+    const box = "w-[60px] h-[38px] rounded-md p-1 flex gap-1";
+    if (id === "grid") {
+      return (
+        <div className={`${box} grid grid-cols-2 grid-rows-2`}>
+          {[0, 1, 2, 3].map((i) => <span key={i} className="lc-cell w-full h-full" />)}
+        </div>
+      );
+    }
+    if (id === "presenter") {
+      return (
+        <div className={box}>
+          <span className="lc-cell flex-1 h-full" />
+          <span className="flex flex-col gap-1 w-[14px]">
+            <span className="lc-cell w-full flex-1" />
+            <span className="lc-cell w-full flex-1" />
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div className={box}>
+        <span className="lc-cell w-full h-full" />
+      </div>
+    );
+  };
   return (
     <div ref={ref} className="relative">
       <button
@@ -789,24 +984,26 @@ function LayoutMenu({ mode, onSet }) {
         <Cur className="w-5 h-5" />
       </button>
       {open && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-40 rounded-lg bg-slate-900/95 backdrop-blur-sm text-white p-1 shadow-xl text-[12px]">
-          {items.map((it) => {
-            const sel = mode === it.id;
-            return (
-              <button
-                key={it.id}
-                type="button"
-                role="menuitemradio"
-                aria-checked={sel}
-                onClick={() => { onSet(it.id); setOpen(false); }}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md hover:bg-white/10 ${sel ? "text-[var(--lk-accent-bg,#22d3ee)]" : ""}`}
-              >
-                <it.Icon className="w-4 h-4 shrink-0" />
-                <span className="flex-1 text-left">{it.label}</span>
-                {sel && <Check className="w-3.5 h-3.5 shrink-0" />}
-              </button>
-            );
-          })}
+        <div className="call-menu absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-[252px]">
+          <div className="call-menu-label">Layout</div>
+          <div className="grid grid-cols-3 gap-1.5 p-1">
+            {items.map((it) => {
+              const sel = mode === it.id;
+              return (
+                <button
+                  key={it.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={sel}
+                  onClick={() => { onSet(it.id); setOpen(false); }}
+                  className={`call-layout-card ${sel ? "call-layout-card--active" : ""}`}
+                >
+                  <Diagram id={it.id} />
+                  <span className="lc-label">{it.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -828,12 +1025,16 @@ function CallControlBar({
   bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
   autoMic, onToggleAutoMic,
+  ptt, onTogglePtt,
+  mirror, onToggleMirror,
+  selfFloat, onToggleSelfFloat,
   micMuted, onToggleMic,
   peopleOpen, onTogglePeople,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [reactionsOpen, setReactionsOpen] = useState(false);
+  const { myRaised, toggle: toggleHand, count: handCount } = useContext(HandRaiseContext);
   // Mirror the overlay's charge + recents so the shared <EmoteBar> shows the
   // same glow and custom emojis here without re-rendering the whole call.
   const [charge, setCharge] = useState(null);
@@ -843,7 +1044,7 @@ function CallControlBar({
 
   return (
     <div
-      className="relative flex items-center justify-center flex-wrap gap-1.5 px-2.5 py-2 rounded-2xl bg-black/45 backdrop-blur-md shadow-xl ring-1 ring-white/10"
+      className="lk-call-bar relative flex items-center justify-center flex-wrap gap-1.5 px-2.5 py-2 rounded-2xl backdrop-blur-md shadow-xl ring-1 ring-white/10"
       style={{ "--lk-border-radius": "9999px" }}
     >
       {reactionsOpen && (
@@ -868,13 +1069,19 @@ function CallControlBar({
           <MicButton micMuted={micMuted} onToggleMic={onToggleMic} />
           {!tight && (
             <DeviceSettingsMenu kind="audioinput" label="Microphone">
+              <OutputDeviceSection />
+              <div className="my-1 border-t border-white/10" />
               <SettingRow icon={Waves} label="Noise cancellation" active={noiseEnabled} onClick={onToggleNoise} />
+              <SettingRow icon={Radio} label="Push to talk (hold Space)" active={ptt} onClick={onTogglePtt} />
             </DeviceSettingsMenu>
           )}
           <TrackToggle source={Track.Source.Camera} />
           {!tight && (
             <DeviceSettingsMenu kind="videoinput" label="Camera">
               <BackgroundEffects value={bg} onChange={onChangeBg} customBg={customBg} onUpload={onUploadBg} />
+              <div className="my-1 border-t border-white/10" />
+              <SettingRow icon={FlipHorizontal2} label="Mirror my video" active={mirror} onClick={onToggleMirror} />
+              <SettingRow icon={PictureInPicture2} label="Float my video" active={selfFloat} onClick={onToggleSelfFloat} />
             </DeviceSettingsMenu>
           )}
           <TrackToggle source={Track.Source.ScreenShare} />
@@ -883,19 +1090,38 @@ function CallControlBar({
         </>
       )}
 
+      {/* Raise hand — available whether or not you publish (a spectator can ask
+          to speak). Amber while yours is up. */}
+      <button
+        type="button"
+        className={`lk-button ${myRaised ? "lk-button--raised" : ""}`}
+        onClick={toggleHand}
+        aria-pressed={myRaised}
+        title={myRaised ? "Lower hand" : "Raise hand"}
+      >
+        <Hand className={`w-5 h-5 ${myRaised ? "call-hand-wave" : ""}`} />
+      </button>
+
       {/* Layout picker (viewing — available whether or not you publish). */}
       <LayoutMenu mode={layoutMode} onSet={onSetLayout} />
 
-      {/* People / moderation roster. */}
-      <button
-        type="button"
-        className="lk-button"
-        onClick={onTogglePeople}
-        aria-pressed={peopleOpen}
-        title="People in this call"
-      >
-        <Users className="w-5 h-5" />
-      </button>
+      {/* People / moderation roster. A badge surfaces raised hands when closed. */}
+      <span className="relative inline-flex">
+        <button
+          type="button"
+          className="lk-button"
+          onClick={onTogglePeople}
+          aria-pressed={peopleOpen}
+          title={handCount > 0 ? `People · ${handCount} hand${handCount > 1 ? "s" : ""} up` : "People in this call"}
+        >
+          <Users className="w-5 h-5" />
+        </button>
+        {handCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none ring-2 ring-[rgba(22,24,29,0.82)] pointer-events-none">
+            {handCount}
+          </span>
+        )}
+      </span>
 
       <button
         type="button"
@@ -918,7 +1144,7 @@ function SpectatorList({ spectators }) {
   const [open, setOpen] = useState(false);
   if (!spectators.length) return null;
   return (
-    <div className="absolute top-2 right-2 z-10 text-white flex flex-col items-end">
+    <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 text-white flex flex-col items-center">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -968,21 +1194,29 @@ function useGlobalPin() {
 }
 
 function PeoplePanel({ roomId, onClose }) {
-  const { theme } = useTheme();
-  const dark = theme === "dark";
   const participants = useParticipants();
+  const speaking = useSpeakingParticipants();
   const { localParticipant } = useLocalParticipant();
   const { syncSession } = useSyncSession();
-  const { isAdmin, isOwner } = useTeam();
+  const { teamMembers } = useTeam();
   const myId = localParticipant?.identity;
   const leaderId = syncSession?.leader_id || null;
   const isHost = !!leaderId && leaderId === myId;
-  // Pinning for everyone is a team admin power (server re-checks against the
-  // room's team; this just gates the affordance).
-  const isOrgAdmin = !!isAdmin || !!isOwner;
+  // Pinning for everyone is gated by the room's pin policy (server re-checks).
+  const { canPin } = useContext(PinControlContext);
+  const { raisedIds, order: handOrder } = useContext(HandRaiseContext);
   const globalPinId = useGlobalPin();
   const [busy, setBusy] = useState(null);
   const [confirmKick, setConfirmKick] = useState(null);
+
+  // Org members get a real profile (photo + name); everyone else is a guest
+  // shown with an initials avatar.
+  const memberMap = useMemo(() => {
+    const m = new Map();
+    for (const tm of teamMembers || []) m.set(tm.user_id, tm);
+    return m;
+  }, [teamMembers]);
+  const speakingIds = useMemo(() => new Set(speaking.map((p) => p.identity)), [speaking]);
 
   const doKick = async (id) => {
     setBusy(id);
@@ -1012,102 +1246,201 @@ function PeoplePanel({ roomId, onClose }) {
     if (error) console.warn("unpin:", error.message);
   };
 
+  const orgPeople = [];
+  const guests = [];
+  for (const p of participants) (memberMap.has(p.identity) ? orgPeople : guests).push(p);
+
+  const Row = (p, i) => {
+    const member = memberMap.get(p.identity);
+    const isSelf = p.identity === myId;
+    const isLeader = p.identity === leaderId;
+    const isSpectator = p.attributes?.role === "spectator";
+    const isPinned = p.identity === globalPinId;
+    const isSpk = speakingIds.has(p.identity);
+    const micPub = p.getTrackPublication?.(Track.Source.Microphone);
+    const micOn = !!micPub && !micPub.isMuted;
+    const name = p.name || member?.name || "Guest";
+    const handUp = raisedIds.has(p.identity);
+    const handPos = handUp ? handOrder.get(p.identity) : null;
+    const canModerate = canPin || (isHost && !isSelf);
+    const status = isSpectator ? "Watching" : isSpk ? "Speaking" : micOn ? "Mic on" : "Muted";
+    return (
+      <div
+        key={p.identity}
+        className="call-person-row group flex items-center gap-2.5 rounded-xl px-1.5 py-1.5 hover:bg-white/[0.06] transition-colors"
+        style={{ animationDelay: `${Math.min(i, 8) * 28}ms` }}
+      >
+        <CallAvatar name={name} src={member?.avatar_url} id={p.identity} size={34} speaking={isSpk} dimmed={isSpectator} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="truncate font-medium text-slate-100">{name}</span>
+            {isSelf && <span className="shrink-0 text-[10px] px-1 py-px rounded bg-white/10 text-slate-300">you</span>}
+            {isLeader && <span className="shrink-0 text-amber-300" title="Session leader">★</span>}
+            {isPinned && <Pin className="w-3 h-3 text-amber-300 shrink-0" />}
+            {handUp && (
+              <span className="shrink-0 inline-flex items-center text-amber-300" title={handPos ? `Hand raised (#${handPos} in line)` : "Hand raised"}>
+                <Hand className="w-3 h-3 call-hand-wave" />
+                {handPos && handPos > 1 ? <span className="text-[9px] font-bold ml-px">{handPos}</span> : null}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1 text-[10.5px] leading-tight">
+            <span className={isSpk ? "text-emerald-300" : "text-slate-400"}>{status}</span>
+          </div>
+        </div>
+        {!isSpectator && (
+          <span className="shrink-0" title={micOn ? "Mic on" : "Muted"}>
+            {micOn ? <Mic className="w-3.5 h-3.5 text-slate-300" /> : <MicOff className="w-3.5 h-3.5 text-slate-500" />}
+          </span>
+        )}
+        {canModerate && (
+          <span className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            {canPin && (
+              isPinned ? (
+                <button
+                  type="button"
+                  title="Unpin for everyone"
+                  disabled={busy === p.identity}
+                  onClick={() => doUnpin(p.identity)}
+                  className="p-1 rounded-lg text-amber-300 hover:bg-white/15 active:scale-90 transition disabled:opacity-40"
+                >
+                  <PinOff className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title="Pin for everyone"
+                  disabled={busy === p.identity}
+                  onClick={() => doPin(p.identity)}
+                  className="p-1 rounded-lg text-slate-300 hover:bg-white/15 active:scale-90 transition disabled:opacity-40"
+                >
+                  <Pin className="w-3.5 h-3.5" />
+                </button>
+              )
+            )}
+            {isHost && !isSelf && micOn && (
+              <button
+                type="button"
+                title="Mute mic"
+                disabled={busy === p.identity}
+                onClick={() => doMute(p)}
+                className="p-1 rounded-lg text-slate-300 hover:bg-white/15 active:scale-90 transition disabled:opacity-40"
+              >
+                <MicOff className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {isHost && !isSelf && (
+              confirmKick === p.identity ? (
+                <button
+                  type="button"
+                  disabled={busy === p.identity}
+                  onClick={() => doKick(p.identity)}
+                  className="px-1.5 py-0.5 rounded-lg bg-rose-500/85 hover:bg-rose-500 text-[10px] font-semibold active:scale-95 transition disabled:opacity-40"
+                >
+                  Remove?
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title="Remove from call"
+                  onClick={() => setConfirmKick(p.identity)}
+                  className="p-1 rounded-lg text-rose-300 hover:bg-rose-500/20 active:scale-90 transition"
+                >
+                  <UserX className="w-3.5 h-3.5" />
+                </button>
+              )
+            )}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div
-      className={`absolute top-2 left-2 z-20 w-64 max-h-[85%] overflow-auto rounded-lg backdrop-blur-sm p-2 shadow-xl text-[12px] ${
-        dark ? "bg-slate-900/95 text-slate-100" : "bg-slate-900/90 text-white"
-      }`}
-    >
-      <div className="flex items-center justify-between px-1 pb-1.5">
-        <span className="font-semibold">In this call · {participants.length}</span>
-        <button type="button" onClick={onClose} aria-label="Close" className="p-0.5 rounded hover:bg-white/10">
+    <div className="call-sheet absolute top-2 bottom-2 right-2 z-20 w-72 max-w-[82%] flex flex-col text-[12.5px] text-slate-100">
+      <div className="flex items-center justify-between px-3.5 pt-3 pb-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <UsersRound className="w-4 h-4 opacity-80 shrink-0" />
+          <span className="font-semibold tracking-tight">People</span>
+          <span className="text-[11px] px-1.5 py-px rounded-full bg-white/10 text-slate-300">{participants.length}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="p-1 rounded-lg hover:bg-white/10 active:scale-90 transition"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
-      <ul className="space-y-0.5">
-        {participants.map((p) => {
-          const isSelf = p.identity === myId;
-          const isLeader = p.identity === leaderId;
-          const isSpectator = p.attributes?.role === "spectator";
-          const isPinned = p.identity === globalPinId;
-          const micPub = p.getTrackPublication?.(Track.Source.Microphone);
-          const micOn = !!micPub && !micPub.isMuted;
-          return (
-            <li key={p.identity} className="flex items-center gap-1.5 px-1 py-1 rounded hover:bg-white/5">
-              <span className="flex-1 min-w-0 truncate">
-                {p.name || p.identity}
-                {isSelf && <span className="opacity-60"> (you)</span>}
-                {isLeader && <span className="text-amber-300"> ★</span>}
-                {isPinned && <Pin className="inline w-3 h-3 text-amber-300 ml-1 -mt-0.5" />}
-                {isSpectator && <span className="opacity-50"> · watching</span>}
-              </span>
-              {(isOrgAdmin || (isHost && !isSelf)) && (
-                <span className="flex items-center gap-0.5 shrink-0">
-                  {isOrgAdmin && (
-                    isPinned ? (
-                      <button
-                        type="button"
-                        title="Unpin for everyone"
-                        disabled={busy === p.identity}
-                        onClick={() => doUnpin(p.identity)}
-                        className="p-1 rounded text-amber-300 hover:bg-white/15 disabled:opacity-40"
-                      >
-                        <PinOff className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        title="Pin for everyone"
-                        disabled={busy === p.identity}
-                        onClick={() => doPin(p.identity)}
-                        className="p-1 rounded hover:bg-white/15 disabled:opacity-40"
-                      >
-                        <Pin className="w-3.5 h-3.5" />
-                      </button>
-                    )
-                  )}
-                  {isHost && !isSelf && micOn && (
-                    <button
-                      type="button"
-                      title="Mute mic"
-                      disabled={busy === p.identity}
-                      onClick={() => doMute(p)}
-                      className="p-1 rounded hover:bg-white/15 disabled:opacity-40"
-                    >
-                      <MicOff className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  {isHost && !isSelf && (
-                    confirmKick === p.identity ? (
-                      <button
-                        type="button"
-                        disabled={busy === p.identity}
-                        onClick={() => doKick(p.identity)}
-                        className="px-1.5 py-0.5 rounded bg-red-500/80 hover:bg-red-500 text-[10px] font-semibold disabled:opacity-40"
-                      >
-                        Remove?
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        title="Remove from call"
-                        onClick={() => setConfirmKick(p.identity)}
-                        className="p-1 rounded text-red-300 hover:bg-red-500/20"
-                      >
-                        <UserX className="w-3.5 h-3.5" />
-                      </button>
-                    )
-                  )}
-                </span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-2.5">
+        {orgPeople.length > 0 && (
+          <div>
+            <div className="call-menu-label px-1.5">In your org · {orgPeople.length}</div>
+            <div className="mt-1 space-y-0.5">{orgPeople.map(Row)}</div>
+          </div>
+        )}
+        {guests.length > 0 && (
+          <div>
+            <div className="call-menu-label px-1.5">Guests · {guests.length}</div>
+            <div className="mt-1 space-y-0.5">{guests.map(Row)}</div>
+          </div>
+        )}
+        {participants.length === 0 && (
+          <p className="px-3 py-6 text-center text-slate-400">No one here yet.</p>
+        )}
+      </div>
       {!isHost && (
-        <p className="px-1 pt-1.5 text-[10px] opacity-50">Only the session leader can mute or remove.</p>
+        <p className="px-3.5 py-2 border-t border-white/[0.07] text-[10.5px] text-slate-400">
+          Only the session leader can mute or remove.
+        </p>
       )}
     </div>
+  );
+}
+
+// A soft, deterministic per-person gradient for the camera-off initials avatar.
+function avatarGradient(id) {
+  let h = 0;
+  for (let i = 0; i < (id || "").length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  return `linear-gradient(135deg, hsl(${hue} 52% 48%), hsl(${(hue + 38) % 360} 55% 34%))`;
+}
+
+// First+last initial for an initials avatar / fallback.
+function getInitials(name) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// A round person avatar: real photo when we have one, otherwise initials on the
+// person's deterministic gradient. `speaking` adds the accent breathing ring.
+function CallAvatar({ name, src, id, size = 34, speaking = false, dimmed = false }) {
+  const [broken, setBroken] = useState(false);
+  const showImg = src && !broken;
+  return (
+    <span
+      className={`relative inline-flex shrink-0 items-center justify-center rounded-full overflow-hidden ${
+        speaking ? "call-avatar--speaking" : "ring-1 ring-white/10"
+      }`}
+      style={{
+        width: size,
+        height: size,
+        background: showImg ? "rgba(255,255,255,0.06)" : avatarGradient(id || name),
+        opacity: dimmed ? 0.6 : 1,
+        transition: "opacity 0.15s ease",
+      }}
+    >
+      {showImg ? (
+        <img src={src} alt="" className="w-full h-full object-cover" onError={() => setBroken(true)} />
+      ) : (
+        <span className="font-semibold text-white leading-none" style={{ fontSize: Math.round(size * 0.4) }}>
+          {getInitials(name)}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -1126,9 +1459,35 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   const participant = trackRef?.participant;
   const roles = useClusterRoles();
   const globalPinId = useGlobalPin();
+  const { canPin, pin, unpin, busyId } = useContext(PinControlContext);
+  const { raisedIds, order: handOrder } = useContext(HandRaiseContext);
+  const handRaised = !!participant?.identity && raisedIds.has(participant.identity);
+  const handPos = handRaised ? handOrder.get(participant.identity) : null;
   const role = participant ? roles.get(participant.identity) : null;
   const isPinned = !!participant?.identity && participant.identity === globalPinId;
+  // A hover pin toggle so you can set everyone's focus straight from a tile —
+  // no need to open the People list. Shown only when the room's pin policy lets
+  // you (server re-checks). Hidden on placeholder tiles (no identity yet).
+  const canPinHere = canPin && !!participant?.identity;
+  const pinBusy = busyId === participant?.identity || (isPinned && busyId === "_");
   const inRoom = !!role?.inRoom;
+  // Tile chrome: a speaking ring (glows while this person talks) and a
+  // connection-quality dot (shown only when degraded, so it reads as a warning
+  // not clutter). Hooks accept an optional participant → safe on placeholders.
+  const isSpeaking = useIsSpeaking(participant);
+  const { quality } = useConnectionQualityIndicator({ participant });
+  const weak = quality === ConnectionQuality.Poor || quality === ConnectionQuality.Lost;
+  // Mirror only YOUR OWN camera (the convention — your self-view reads like a
+  // mirror), and only the camera, never a screen share. `[&_video]` flips the
+  // <video> LiveKit renders inside ParticipantTile.
+  const { mirror } = useContext(SelfViewContext);
+  const flip = mirror && participant?.isLocal && trackRef?.source === Track.Source.Camera;
+  // Camera off → cover LiveKit's generic gray silhouette with a clean initials
+  // avatar (a soft per-person gradient), which reads far more modern.
+  const camOff = trackRef?.source === Track.Source.Camera && (!trackRef?.publication || trackRef.publication.isMuted);
+  const micOff = !!participant && participant.isMicrophoneEnabled === false;
+  const dispName = participant?.name || participant?.identity || "Guest";
+  const initial = (dispName.trim()[0] || "?").toUpperCase();
   // Amber for whoever carries the room's audio I/O — the device, the current mic
   // source, or the speakers — muted chip for the rest.
   const active = !!role && (role.isDevice || role.isMicSource || role.isAudioSink);
@@ -1142,10 +1501,91 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
           ? "Room speaker"
           : "In room";
   return (
-    <div style={{ position: "relative", display: "flex", width: "100%", height: "100%" }}>
+    <div
+      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""}`}
+    >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
-      {(isPinned || inRoom) && (
+
+      {/* Hover pin toggle (bottom-right) — set/clear everyone's focus from the
+          tile. Lives on the bottom edge so it never collides with the room
+          panel's window controls (maximize/close), which own the top-right. */}
+      {canPinHere && (
+        <button
+          type="button"
+          onClick={() => (isPinned ? unpin() : pin(participant.identity))}
+          disabled={pinBusy}
+          title={isPinned ? "Unpin for everyone" : "Pin for everyone"}
+          className={`absolute bottom-1.5 right-1.5 z-30 inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 disabled:opacity-40 ${
+            isPinned
+              ? "bg-amber-500/85 text-white opacity-100"
+              : "bg-black/55 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-black/75"
+          }`}
+        >
+          {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+        </button>
+      )}
+
+      {/* Name + mute, glassy pill bottom-left (replaces LiveKit's metadata bar,
+          which our avatar overlay would otherwise cover). */}
+      <div className="absolute bottom-1.5 left-1.5 z-10 inline-flex items-center gap-1 max-w-[calc(100%-12px)] px-2 py-0.5 rounded-md bg-black/55 backdrop-blur-sm pointer-events-none">
+        {micOff && <MicOff className="w-3 h-3 text-rose-300 shrink-0" />}
+        <span className="text-[11px] font-medium text-white truncate">
+          {dispName}{participant?.isLocal ? " (You)" : ""}
+        </span>
+        {/* Connection-quality dot — only when degraded (amber = poor, red =
+            lost). Folded into the name pill so the bottom-right corner is free
+            for the pin button. */}
+        {weak && (
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${quality === ConnectionQuality.Lost ? "bg-red-500" : "bg-amber-400"}`}
+            title={quality === ConnectionQuality.Lost ? "Connection lost" : "Weak connection"}
+          />
+        )}
+      </div>
+
+      {/* Camera-off: an initials avatar over LiveKit's default silhouette. */}
+      {camOff && (
+        <div
+          className="absolute inset-0 z-[1] flex items-center justify-center"
+          style={{ background: "radial-gradient(circle at 50% 36%, #1b2840, #0b1220)" }}
+        >
+          <div
+            className="rounded-full flex items-center justify-center text-white font-semibold ring-1 ring-white/10 shadow-lg"
+            style={{
+              width: "clamp(44px, 26%, 116px)",
+              aspectRatio: "1",
+              fontSize: "clamp(16px, 4vw, 40px)",
+              background: avatarGradient(participant?.identity || dispName),
+            }}
+          >
+            {initial}
+          </div>
+        </div>
+      )}
+
+      {/* Speaking ring — an inset glow so it never shifts layout. Matches the
+          tile's rounding; pulses softly while the person is talking. */}
+      {isSpeaking && (
+        <div
+          className="absolute inset-0 z-20 pointer-events-none animate-pulse"
+          style={{
+            borderRadius: "var(--lk-border-radius, 0.75rem)",
+            boxShadow: "inset 0 0 0 3px rgba(16,185,129,0.95), 0 0 14px -2px rgba(16,185,129,0.6)",
+          }}
+        />
+      )}
+
+      {(isPinned || inRoom || handRaised) && (
         <div className="absolute top-1.5 left-1.5 z-10 flex flex-col items-start gap-1 pointer-events-none">
+          {handRaised && (
+            <div
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm bg-amber-500/90 text-white"
+              title={handPos ? `Hand raised (#${handPos} in line)` : "Hand raised"}
+            >
+              <Hand className="w-3 h-3 shrink-0 call-hand-wave" />
+              {handPos && handPos > 1 ? handPos : "Hand"}
+            </div>
+          )}
           {isPinned && (
             <div
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm bg-amber-500/85 text-white"
@@ -1210,23 +1650,130 @@ function useSize(ref) {
   return size;
 }
 
-// A uniform, aspect-clamped grid of tiles (replaces LiveKit's GridLayout, whose
-// cells filled arbitrary shapes and cropped faces). Every tile is the same
-// ~16:9 box, sized as large as possible to fit them all, centered.
-function VideoGrid({ tracks, aspect = 16 / 9, gap = 8 }) {
-  const ref = useRef(null);
-  const { w, h } = useSize(ref);
-  const { cols, tileW, tileH } = bestGrid(tracks.length, w, h, aspect, gap);
+// Largest tile count that still fits at a comfortable minimum width — the cap
+// before the grid spills into the audience row. Walks the same bestGrid the grid
+// uses so the threshold matches what would actually render.
+function capFor(w, h, minW = 130, aspect = 16 / 9, gap = 8) {
+  if (w <= 0 || h <= 0) return 99;
+  let best = 1;
+  for (let n = 1; n <= 60; n++) {
+    const { tileW } = bestGrid(n, w, h, aspect, gap);
+    if (tileW >= minW) best = n; else break;
+  }
+  return best;
+}
+
+// Order tiles so the grid keeps who matters when it overflows: the featured /
+// active speakers first, then cameras-on, then cameras-off. Stable within a tier
+// (original order) so tiles don't shuffle every render — only a new speaker
+// promotes into view.
+function rankTiles(tracks, featuredId, speaking) {
+  const speakingIds = new Set((speaking || []).map((p) => p.identity));
+  const score = (t) => {
+    const id = t.participant?.identity;
+    if (id && (id === featuredId || speakingIds.has(id))) return 0;
+    const camOn = !!t.publication && !t.publication.isMuted;
+    return camOn ? 1 : 2;
+  };
+  return tracks
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) => score(a.t) - score(b.t) || a.i - b.i)
+    .map((x) => x.t);
+}
+
+// One overflow person — initials avatar with a speaking pulse. Speaking promotes
+// them back into the grid (rankTiles), so the pulse here is the "they're talking,
+// watch them pop up" cue.
+function AudienceChip({ participant }) {
+  const isSpeaking = useIsSpeaking(participant);
+  const name = participant?.name || participant?.identity || "Guest";
+  const initial = (name.trim()[0] || "?").toUpperCase();
   return (
-    <div ref={ref} className="absolute inset-0 p-1">
-      <div
-        className="grid w-full h-full place-content-center"
-        style={{ gap, gridTemplateColumns: `repeat(${Math.max(1, cols)}, ${tileW}px)`, gridAutoRows: `${tileH}px` }}
-      >
-        {tracks.map((tr) => (
-          <ClusterParticipantTile key={refKey(tr)} trackRef={tr} />
-        ))}
+    <div className="flex flex-col items-center gap-1 w-14 shrink-0" title={name}>
+      <div className={`relative w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold text-sm bg-slate-700 ${isSpeaking ? "ring-2 ring-emerald-400" : "ring-1 ring-white/15"}`}>
+        {initial}
+        {isSpeaking && <span className="absolute inset-0 rounded-full ring-2 ring-emerald-400 animate-ping pointer-events-none" />}
       </div>
+      <span className="text-[10px] text-slate-300 truncate max-w-full">{name}</span>
+    </div>
+  );
+}
+
+// The audience row — overflow participants past the grid cap, as a scrollable
+// strip of chips.
+function AudienceRow({ tracks }) {
+  return (
+    <div className="shrink-0 h-[80px] flex items-center gap-2 px-3 overflow-x-auto bg-black/30 border-t border-white/10">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-white/50 shrink-0 mr-1">
+        +{tracks.length}
+      </span>
+      {tracks.map((t) => <AudienceChip key={refKey(t)} participant={t.participant} />)}
+    </div>
+  );
+}
+
+// Your own camera as a floating, draggable, minimizable PiP (Meet's signature
+// self-view) — pulled out of the grid so it doesn't eat a cell. Drag to
+// reposition (clamped to the stage); hover for shrink + dock-to-grid controls.
+// It renders a ClusterParticipantTile, so it picks up the mirror pref too.
+function FloatingSelfView({ trackRef, onDock }) {
+  const [pos, setPos] = useState({ right: 14, bottom: 14 });
+  const [minimized, setMinimized] = useState(false);
+  const dragRef = useRef(null);
+
+  const onMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.sx;
+    const dy = e.clientY - d.sy;
+    const maxR = Math.max(8, (d.parent?.width || 9999) - d.w - 8);
+    const maxB = Math.max(8, (d.parent?.height || 9999) - d.h - 8);
+    setPos({
+      right: Math.min(maxR, Math.max(8, d.right - dx)),
+      bottom: Math.min(maxB, Math.max(8, d.bottom - dy)),
+    });
+  };
+  const endDrag = () => {
+    dragRef.current = null;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", endDrag);
+  };
+  const startDrag = (e) => {
+    if (e.target.closest("button")) return; // don't drag when hitting a control
+    e.preventDefault();
+    const self = e.currentTarget.getBoundingClientRect();
+    const parent = e.currentTarget.parentElement?.getBoundingClientRect();
+    dragRef.current = { sx: e.clientX, sy: e.clientY, right: pos.right, bottom: pos.bottom, parent, w: self.width, h: self.height };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", endDrag);
+  };
+
+  return (
+    <div
+      onPointerDown={startDrag}
+      className="group/self absolute z-40 rounded-xl overflow-hidden ring-1 ring-white/25 shadow-2xl bg-slate-900 cursor-grab active:cursor-grabbing"
+      style={{ right: pos.right, bottom: pos.bottom, width: minimized ? 132 : 188, aspectRatio: "16 / 9", touchAction: "none" }}
+    >
+      <ClusterParticipantTile trackRef={trackRef} />
+      <div className="absolute top-1 right-1 z-10 flex items-center gap-0.5 opacity-0 group-hover/self:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={() => setMinimized((v) => !v)}
+          title={minimized ? "Enlarge" : "Shrink"}
+          className="p-1 rounded bg-black/55 text-white/90 hover:text-white"
+        >
+          {minimized ? <Maximize2 className="w-3 h-3" /> : <Minimize2 className="w-3 h-3" />}
+        </button>
+        <button
+          type="button"
+          onClick={onDock}
+          title="Show my video in the grid instead"
+          className="p-1 rounded bg-black/55 text-white/90 hover:text-white"
+        >
+          <LayoutGrid className="w-3 h-3" />
+        </button>
+      </div>
+      <span className="absolute bottom-1 left-1.5 text-[9px] font-medium text-white/80 px-1 rounded bg-black/40 pointer-events-none">You</span>
     </div>
   );
 }
@@ -1249,16 +1796,13 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   const speaking = useSpeakingParticipants();
   const pinned = usePinnedTracks();
   const globalPinId = useGlobalPin();
+  const pinControl = usePinControlValue(roomId);
   const rootRef = useRef(null);
   const { w, h } = useSize(rootRef);
 
-  // Keep the last active speaker so the focus doesn't fall away during a silence
-  // between turns.
-  const [stickySpeaker, setStickySpeaker] = useState(null);
-  const topSpeaker = speaking?.[0]?.identity;
-  useEffect(() => {
-    if (topSpeaker) setStickySpeaker(topSpeaker);
-  }, [topSpeaker]);
+  // Featured speaker with a decay so the focus rides through pauses between turns
+  // instead of snapping away mid-conversation.
+  const featuredSpeaker = useFeaturedSpeaker(speaking, { decayMs: 2500 });
 
   // Spectators are listed by name; publishers (even camera-off) get a tile.
   const spectators = participants.filter((p) => p.attributes?.role === "spectator" && !p.isLocal);
@@ -1271,8 +1815,8 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   });
 
   const screenTrack = shown.find((t) => t.source === Track.Source.ScreenShare);
-  const speakerTrack = stickySpeaker
-    ? shown.find((t) => t.participant?.identity === stickySpeaker && t.source === Track.Source.Camera)
+  const speakerTrack = featuredSpeaker
+    ? shown.find((t) => t.participant?.identity === featuredSpeaker && t.source === Track.Source.Camera)
     : null;
   // The admin's global pin (room metadata) focuses this participant for everyone,
   // unless you've locally pinned someone else. Their screen share wins over their
@@ -1287,47 +1831,72 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   const forcedFocus = (pinned && pinned[0]) || globalPinTrack || screenTrack || null;
   const focusTrack = forcedFocus || speakerTrack || shown[0] || null;
 
+  // Floating self-view: pull your own camera tile out of the grid into a PiP
+  // (unless it's the focus — then it stays big). Everyone else still sees you as
+  // a normal tile; this is purely your local arrangement.
+  const { float, setFloat } = useContext(SelfViewContext);
+  const localCamTrack = shown.find(
+    (t) => t.participant?.isLocal && t.source === Track.Source.Camera && t.publication && !t.publication.isMuted,
+  );
+  const floatLocal = float && publish && !!localCamTrack && (!focusTrack || refKey(localCamTrack) !== refKey(focusTrack));
+  const baseTiles = floatLocal ? shown.filter((t) => t !== localCamTrack) : shown;
+
   // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
   const squished = (h > 0 && h < 200) || (w > 0 && w < 220);
   let mode = layoutMode;
   if (squished) mode = "spotlight";
   else if (forcedFocus && layoutMode === "grid") mode = "presenter";
 
-  const others = focusTrack ? shown.filter((t) => refKey(t) !== refKey(focusTrack)) : [];
+  // Map the resolved mode to the adaptive stage: grid = even tiles; presenter =
+  // focus + filmstrip; spotlight = focus only. In GRID mode, once there are more
+  // people than fit at a comfortable size, the extras spill into the audience
+  // row (avatar chips) — the grid keeps the speakers + cameras-on (rankTiles),
+  // and a chip speaking promotes them back up.
+  let stageTiles;
+  let stageFocusKey = null;
+  let audienceTiles = [];
+  const AUDIENCE_H = 80;
+  if (mode === "spotlight" && focusTrack) {
+    stageTiles = [focusTrack];
+    stageFocusKey = refKey(focusTrack);
+  } else if (mode === "presenter" && focusTrack) {
+    stageTiles = baseTiles;
+    stageFocusKey = refKey(focusTrack);
+  } else if (baseTiles.length > capFor(w, h)) {
+    const cap = capFor(w, h - AUDIENCE_H);
+    const ordered = rankTiles(baseTiles, featuredSpeaker, speaking);
+    stageTiles = ordered.slice(0, cap);
+    audienceTiles = ordered.slice(cap);
+  } else {
+    stageTiles = baseTiles;
+  }
 
   return (
-    <div ref={rootRef} className="relative flex-1 min-h-0">
-      {mode === "grid" && <VideoGrid tracks={shown} />}
-
-      {/* VideoGrid (even for one tile) applies the aspect clamp, so the focus is
-          letterboxed to ~16:9 instead of object-cover slicing a wide/short tile. */}
-      {mode === "spotlight" && focusTrack && <VideoGrid tracks={[focusTrack]} />}
-
-      {mode === "presenter" && focusTrack && (
-        <div className="absolute inset-0 flex flex-col gap-1.5 p-1">
-          <div className="relative flex-1 min-h-0">
-            <VideoGrid tracks={[focusTrack]} />
-          </div>
-          {others.length > 0 && (
-            <div className="relative shrink-0 h-[22%] min-h-[76px] max-h-[150px]">
-              <VideoGrid tracks={others} />
-            </div>
-          )}
+    <PinControlContext.Provider value={pinControl}>
+      <div ref={rootRef} className="relative flex-1 min-h-0 flex flex-col">
+        <div className="relative flex-1 min-h-0">
+          <AdaptiveStage
+            tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
+            focusKey={stageFocusKey}
+          />
         </div>
-      )}
+        {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
 
-      <SpectatorList spectators={spectators} />
-      {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}
+        {floatLocal && <FloatingSelfView trackRef={localCamTrack} onDock={() => setFloat(false)} />}
 
-      {/* The spectator → publisher control lives in RoomVideoStage's JoinDock,
-          overlaid on this call (it owns the persisted mic/camera join intent and
-          the live preview context). PiP has no join affordance — go back to the
-          room to join. onJoinIn is still wired for any future in-call use. */}
-    </div>
+        <SpectatorList spectators={spectators} />
+        {peopleOpen && <PeoplePanel roomId={roomId} onClose={onClosePeople} />}
+
+        {/* The spectator → publisher control lives in RoomVideoStage's JoinDock,
+            overlaid on this call (it owns the persisted mic/camera join intent and
+            the live preview context). PiP has no join affordance — go back to the
+            room to join. onJoinIn is still wired for any future in-call use. */}
+      </div>
+    </PinControlContext.Provider>
   );
 }
 
-function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic }) {
+function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, chromeless }) {
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
   const rootRef = useRef(null);
@@ -1378,11 +1947,56 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const [noiseEnabled, setNoiseEnabled] = useState(() => loadPref(PREF.noise, "1") === "1");
   // Proximity auto mic-switching is experimental → defaults OFF.
   const [autoMic, setAutoMic] = useState(() => loadPref(PREF.autoMic, "0") === "1");
+  // Push-to-talk: when on, the mic stays muted and a held Space key opens it for
+  // the duration of the press. Off by default.
+  const [ptt, setPtt] = useState(() => loadPref(PREF.ptt, "0") === "1");
+  // Self-view: mirror your own camera + float it as a PiP. Both default ON (the
+  // Meet convention).
+  const [mirror, setMirror] = useState(() => loadPref(PREF.mirror, "1") === "1");
+  const [selfFloat, setSelfFloat] = useState(() => loadPref(PREF.selfFloat, "1") === "1");
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.bg, bg), [bg]);
   useEffect(() => savePref(PREF.noise, noiseEnabled ? "1" : "0"), [noiseEnabled]);
   useEffect(() => savePref(PREF.autoMic, autoMic ? "1" : "0"), [autoMic]);
+  useEffect(() => savePref(PREF.ptt, ptt ? "1" : "0"), [ptt]);
+  useEffect(() => savePref(PREF.mirror, mirror ? "1" : "0"), [mirror]);
+  useEffect(() => savePref(PREF.selfFloat, selfFloat ? "1" : "0"), [selfFloat]);
+  const selfView = useMemo(() => ({ mirror, float: selfFloat, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat]);
+
+  // Push-to-talk key handling. micMuted lives in the parent; we drive it via the
+  // passed toggle, reading the latest value through a ref so the listeners never
+  // capture a stale state. Enabling PTT mutes you to start; then Space (held)
+  // unmutes while pressed. Ignored while typing in a field, and key-repeat is
+  // dropped so a long hold doesn't thrash.
+  const micMutedRef = useRef(micMuted);
+  micMutedRef.current = micMuted;
+  useEffect(() => {
+    if (!ptt) return undefined;
+    if (!micMutedRef.current) onToggleMic?.(); // start muted when PTT turns on
+    const typing = () => {
+      const el = document.activeElement;
+      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    };
+    const onDown = (e) => {
+      if (e.code !== "Space" || e.repeat || typing()) return;
+      e.preventDefault();
+      if (micMutedRef.current) onToggleMic?.(); // open the mic while held
+    };
+    const onUp = (e) => {
+      if (e.code !== "Space" || typing()) return;
+      e.preventDefault();
+      if (!micMutedRef.current) onToggleMic?.(); // close it on release
+    };
+    window.addEventListener("keydown", onDown);
+    window.addEventListener("keyup", onUp);
+    return () => {
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+    };
+    // onToggleMic is stable from the parent; depend only on the enable flag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ptt]);
 
   const onUploadBg = async (file) => {
     try {
@@ -1395,7 +2009,12 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     }
   };
 
+  // Raise-hand state lives here so both the Stage (tile badges + People panel)
+  // and the control-bar toggle read the same source.
+  const handRaise = useHandRaiseValue();
+
   return (
+    <HandRaiseContext.Provider value={handRaise}>
     <div
       ref={rootRef}
       className="relative flex flex-col w-full h-full"
@@ -1404,18 +2023,20 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     >
       <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
       <AutoMicController enabled={autoMic} />
-      <LayoutContextProvider>
-        <Stage
-          compact={compact}
-          publish={publish}
-          onJoinIn={onJoinIn}
-          layoutMode={layoutMode}
-          roomId={roomId}
-          peopleOpen={peopleOpen}
-          onClosePeople={() => setPeopleOpen(false)}
-        />
-      </LayoutContextProvider>
-      {!compact && (
+      <SelfViewContext.Provider value={selfView}>
+        <LayoutContextProvider>
+          <Stage
+            compact={compact}
+            publish={publish}
+            onJoinIn={onJoinIn}
+            layoutMode={layoutMode}
+            roomId={roomId}
+            peopleOpen={peopleOpen}
+            onClosePeople={() => setPeopleOpen(false)}
+          />
+        </LayoutContextProvider>
+      </SelfViewContext.Provider>
+      {!compact && !chromeless && (
         <div
           className={`absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-3 pointer-events-none transition-opacity duration-300 ${
             controlsShown ? "opacity-100" : "opacity-0"
@@ -1440,6 +2061,12 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onToggleNoise={() => setNoiseEnabled((v) => !v)}
               autoMic={autoMic}
               onToggleAutoMic={() => setAutoMic((v) => !v)}
+              ptt={ptt}
+              onTogglePtt={() => setPtt((v) => !v)}
+              mirror={mirror}
+              onToggleMirror={() => setMirror((v) => !v)}
+              selfFloat={selfFloat}
+              onToggleSelfFloat={() => setSelfFloat((v) => !v)}
               micMuted={micMuted}
               onToggleMic={onToggleMic}
               peopleOpen={peopleOpen}
@@ -1449,10 +2076,11 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
         </div>
       )}
     </div>
+    </HandRaiseContext.Provider>
   );
 }
 
-export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, onJoinIn, emote, onJoined, onLeft, onError }) {
+export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, chromeless = false, onJoinIn, emote, onJoined, onLeft, onError }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [token, setToken] = useState(null);
@@ -1464,15 +2092,24 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
   useEffect(() => {
     let cancelled = false;
     setToken(null);
-    (async () => {
-      try {
-        const t = await fetchLiveKitToken(liveKitRoomName(roomId), displayName);
-        if (!cancelled) setToken(t);
-      } catch (e) {
-        if (!cancelled) onError?.(e?.message || "Could not get a LiveKit token");
-      }
-    })();
-    return () => { cancelled = true; };
+    const room = liveKitRoomName(roomId);
+    // Throttle: if we connected to this room very recently (StrictMode double-
+    // mount, an HMR remount, or a rapid rejoin), wait out the cooldown before
+    // minting a token + connecting again, so we stop spamming the backend.
+    const delay = connectDelayFor(room);
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      markConnectAttempt(room);
+      (async () => {
+        try {
+          const t = await fetchLiveKitToken(room, displayName);
+          if (!cancelled) setToken(t);
+        } catch (e) {
+          if (!cancelled) onError?.(e?.message || "Could not get a LiveKit token");
+        }
+      })();
+    }, delay);
+    return () => { cancelled = true; clearTimeout(timer); };
     // Re-mint only on room change (identity is the user, not the name).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
@@ -1512,6 +2149,10 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         // when publishing so spectate↔join flips without a reconnect.
         video={false}
         audio={false}
+        // Capped-backoff reconnect + bounded initial retries so a failed
+        // connect can't 429-storm LiveKit Cloud across every region.
+        options={LK_ROOM_OPTIONS}
+        connectOptions={LK_CONNECT_OPTIONS}
         style={{ height: "100%" }}
         onConnected={() => onJoined?.()}
         onDisconnected={(reason) => {
@@ -1526,9 +2167,11 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         onError={(e) => onError?.(e?.message || "LiveKit connection error")}
       >
         <PublishController publish={publish} choices={choices} micMuted={micMuted} />
-        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} />
+        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} chromeless={chromeless} />
         {/* Owns in-room cluster management (leader handoff). Mount once. */}
         <RoomClusterManager />
+        {/* Restore the saved audio-output device on connect. */}
+        <SavedSpeakerApplier />
         {/* In-room followers receive no audio at all (the room speaker carries
             it for them); everyone else plays normally. holdForEntry keeps a
             still-clustering "in this room" joiner silent during the entry window. */}

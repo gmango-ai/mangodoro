@@ -5,8 +5,9 @@ import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
-import { listTeamWhiteboards, createWhiteboard } from "../../lib/whiteboard";
+import { listTeamWhiteboards } from "../../lib/whiteboard";
 import { linkWhiteboardToSession } from "../../lib/syncSession";
+import NewWhiteboardModal from "../NewWhiteboardModal";
 
 // Modal that lets a session leader attach a whiteboard to the current
 // sync session — the whiteboard analogue of RetroPicker. Lists the team's
@@ -23,15 +24,18 @@ export default function WhiteboardPicker({ open, onClose }) {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [newOpen, setNewOpen] = useState(false);
 
   useEffect(() => {
     if (!open || !activeTeamId) return;
     setLoading(true);
-    listTeamWhiteboards(activeTeamId).then(({ data }) => {
+    // Include the user's own personal boards — they can bring one into the
+    // room (link_whiteboard_to_session allows linking a personal board you own).
+    listTeamWhiteboards(activeTeamId, { ownerId: session?.user?.id }).then(({ data }) => {
       setBoards(data || []);
       setLoading(false);
     });
-  }, [open, activeTeamId]);
+  }, [open, activeTeamId, session?.user?.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -54,20 +58,6 @@ export default function WhiteboardPicker({ open, onClose }) {
     onClose();
   }
 
-  async function createAndAttach() {
-    setBusy(true); setError("");
-    const { data, error: e } = await createWhiteboard({
-      teamId: activeTeamId,
-      title: "Room whiteboard",
-      createdBy: session?.user?.id,
-    });
-    if (e || !data) {
-      setBusy(false);
-      setError(e?.message || "Couldn't create a whiteboard");
-      return;
-    }
-    await attach(data.id);
-  }
 
   return (
     <div
@@ -98,7 +88,7 @@ export default function WhiteboardPicker({ open, onClose }) {
 
         <div className="p-3">
           <Button
-            onClick={createAndAttach}
+            onClick={() => setNewOpen(true)}
             disabled={busy || !activeTeamId}
             className="w-full justify-start"
             variant="outline"
@@ -162,6 +152,16 @@ export default function WhiteboardPicker({ open, onClose }) {
           </div>
         )}
       </div>
+
+      {/* Full create dialog (name + scope + org/personal templates) — replaces
+          the old instant blank "Room whiteboard". On create, link it to the
+          session and close. */}
+      <NewWhiteboardModal
+        open={newOpen}
+        onClose={() => setNewOpen(false)}
+        teamId={activeTeamId}
+        onCreated={(board) => { setNewOpen(false); if (board?.id) attach(board.id); }}
+      />
     </div>
   );
 }

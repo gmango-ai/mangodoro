@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTheme } from "../../context/ThemeContext";
+import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useVideoCall } from "../../context/VideoCallContext";
 import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
+import { Menu, Lock } from "lucide-react";
 import WidgetsSidebar from "./WidgetsSidebar";
 import RoomView from "./RoomView";
 import HallwayView from "./HallwayView";
@@ -62,12 +63,14 @@ function saveSidebarOpen(v) {
 // utility widgets that DO need to be glance-able.
 export default function OfficeShell({
   activeTeam, rooms, lockedRooms, sessionByRoomId, orgTeams,
-  onlineCount, canEdit, busy, onJoin, onStart, onEditOffice,
+  onlineCount, canEdit, busy, onJoin, onStart, onEnterRoom, onEditOffice,
   onEditRoom, canEditRoom,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
+  const { session } = useApp();
+  const currentUserId = session?.user?.id;
   const { roomId } = useParams();
   const [sidebarOpen, setSidebarOpenRaw] = useState(loadSidebarOpen);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -94,6 +97,17 @@ export default function OfficeShell({
   const { syncSession, leaveSession } = useSyncSession();
   const { call, endCall } = useVideoCall();
   const autoOpenedRef = useRef(false);
+
+  // Is the selected room locked FOR ME right now? A code-gated room is
+  // "open until occupied": once someone is inside, anyone who isn't the
+  // owner and isn't already in this room's session is held at a code gate
+  // and can't even see the room until they enter the code. An empty code
+  // room is open — the first person in just walks in.
+  const inThisRoomSession = !!syncSession?.room_id && !!selectedRoom
+    && syncSession.room_id === selectedRoom.id;
+  const isRoomOwner = !!selectedRoom?.created_by && selectedRoom.created_by === currentUserId;
+  const roomLocked = selectedRoom?.entry_policy === "code"
+    && !!activeSession && !inThisRoomSession && !isRoomOwner;
 
   // Explicit leave. Connection-aware model: incidental navigation never
   // leaves a room (you keep heartbeating, so you stay "in" it until your
@@ -149,9 +163,9 @@ export default function OfficeShell({
   // boundRoomRef de-dupes the effect across re-renders triggered by
   // sessionByRoomId / syncSession updates — we only want to act on
   // actual URL transitions, not whenever the realtime list refreshes.
-  // Private rooms with an active invite_code are skipped on auto-start:
-  // onStart would pop the code prompt, and we don't want that prompt
-  // appearing just because the user typed a URL.
+  // Code-gated rooms are skipped on auto-entry for non-managers: we don't
+  // want the code prompt appearing (or a live session auto-joined) just
+  // because the user typed/opened a URL. They click Start/Join to enter.
   const boundRoomRef = useRef(null);
   const inFlightRef = useRef(false);
   useEffect(() => {
@@ -171,10 +185,13 @@ export default function OfficeShell({
           if (currentSessionRoom !== target) {
             const active = sessionByRoomId?.get(target) || null;
             const room = (rooms || []).find((r) => r.id === target);
-            if (room?.kind === "private" && room.invite_code && !active) {
-              // Locked private rooms still need explicit code entry.
-              // The user can hit "Start a session" to surface the
-              // prompt manually.
+            const ownerOfRoom = !!room?.created_by && room.created_by === currentUserId;
+            const lockedOut = room?.entry_policy === "code" && !!active && !ownerOfRoom;
+            if (lockedOut) {
+              // Occupied code room and I'm not the owner: held at the gate.
+              // Don't auto-join — the render shows the lock gate and the
+              // user enters the code there. (An EMPTY code room is open, so
+              // it falls through and auto-starts: first one in, no code.)
             } else if (active) {
               await onJoin?.(room);
             } else if (room) {
@@ -278,20 +295,30 @@ export default function OfficeShell({
           </p>
         </div>
 
-        <RoomView
-          room={selectedRoom}
-          activeSession={activeSession}
-          orgTeams={orgTeams}
-          busy={busy}
-          onJoin={() => onJoin?.(selectedRoom)}
-          onStart={() => onStart?.(selectedRoom)}
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          onOpenRoomSwitcher={() => setOverlayOpen(true)}
-          onLeaveRoom={handleLeaveRoom}
-          onEditRoom={onEditRoom}
-          canEditRoom={canEditRoom?.(selectedRoom)}
-        />
+        {roomLocked ? (
+          <RoomLockGate
+            room={selectedRoom}
+            busy={busy}
+            dark={dark}
+            onEnter={(code) => onEnterRoom?.(selectedRoom, code)}
+            onBack={() => navigate("/office")}
+          />
+        ) : (
+          <RoomView
+            room={selectedRoom}
+            activeSession={activeSession}
+            orgTeams={orgTeams}
+            busy={busy}
+            onJoin={() => onJoin?.(selectedRoom)}
+            onStart={() => onStart?.(selectedRoom)}
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            onOpenRoomSwitcher={() => setOverlayOpen(true)}
+            onLeaveRoom={handleLeaveRoom}
+            onEditRoom={onEditRoom}
+            canEditRoom={canEditRoom?.(selectedRoom)}
+          />
+        )}
       </div>
 
       <OfficeOverlay
@@ -303,6 +330,73 @@ export default function OfficeShell({
         selectedRoomId={resolvedRoomId}
         onLeaveToHallway={handleLeaveRoom}
       />
+    </div>
+  );
+}
+
+// Lock gate shown in place of the room view when a code-gated room is
+// occupied and the viewer isn't the owner / already inside. You can't see
+// the room's chat / video / timer until you enter the code. onEnter returns
+// a promise<boolean>; a falsy result keeps the gate open with an error.
+function RoomLockGate({ room, onEnter, onBack, busy, dark }) {
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    const clean = code.trim().toUpperCase();
+    if (!clean || submitting || busy) return;
+    setSubmitting(true);
+    setErr("");
+    const ok = await onEnter?.(clean);
+    setSubmitting(false);
+    if (!ok) setErr("Incorrect or expired code.");
+  }
+
+  const working = submitting || busy;
+
+  return (
+    <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+      <div
+        className={`w-full max-w-sm rounded-2xl border p-6 text-center ${
+          dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+        }`}
+      >
+        <div
+          className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full ${
+            dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-600"
+          }`}
+        >
+          <Lock className="w-5 h-5" />
+        </div>
+        <h2 className={`text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
+          {room?.name} is locked
+        </h2>
+        <p className={`text-xs mt-1 mb-4 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+          Someone's working in here. Enter the access code to join them.
+        </p>
+        <input
+          autoFocus
+          value={code}
+          onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 16)); setErr(""); }}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          placeholder="ACCESS CODE"
+          className={`w-full px-3 py-2 rounded-lg border text-center text-sm font-mono uppercase tracking-[0.3em] ${
+            dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"
+          }`}
+        />
+        {err && (
+          <p className={`text-xs mt-2 ${dark ? "text-red-400" : "text-red-600"}`}>{err}</p>
+        )}
+        <div className="flex gap-2 mt-4">
+          <Button variant="outline" size="sm" className="flex-1" onClick={onBack} disabled={working}>
+            Back to hallway
+          </Button>
+          <Button size="sm" className="flex-1" onClick={submit} disabled={!code.trim() || working}>
+            {working ? "Entering…" : "Enter room"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

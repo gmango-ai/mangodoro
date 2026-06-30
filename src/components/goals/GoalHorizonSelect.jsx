@@ -1,7 +1,8 @@
-import { GOAL_HORIZONS } from "../../lib/goals";
+import { GOAL_TIMEFRAMES } from "../../lib/goals";
 
-// Compact horizon picker (Ongoing / This week / month / quarter / year). Used
-// in the goal add-rows and per-goal for editing.
+// Compact timeframe picker (Ongoing / This week / Next week / month / quarter
+// / year). `value` is a timeframe KEY (see GOAL_TIMEFRAMES); onChange emits a
+// key. Callers turn the key into { horizon, weekStart } via timeframeToParams.
 export default function GoalHorizonSelect({ value, onChange, dark }) {
   return (
     <select
@@ -11,8 +12,8 @@ export default function GoalHorizonSelect({ value, onChange, dark }) {
         dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-300" : "bg-white border-slate-200 text-slate-600"
       }`}
     >
-      {GOAL_HORIZONS.map((h) => (
-        <option key={h.value} value={h.value}>{h.label}</option>
+      {GOAL_TIMEFRAMES.map((t) => (
+        <option key={t.key} value={t.key}>{t.label}</option>
       ))}
     </select>
   );

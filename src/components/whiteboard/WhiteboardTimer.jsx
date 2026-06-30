@@ -3,6 +3,7 @@ import {
   Play, Pause, Square, ChevronDown, Music, Volume2, VolumeX, Timer as TimerIcon,
 } from "lucide-react";
 import { supabase } from "../../supabase";
+import { getAudioContext } from "../../lib/audioContext";
 
 // A plain shared countdown for the board — "set 5 minutes while everyone
 // writes their thoughts, then chat." Background music loops for as long
@@ -26,14 +27,22 @@ function fmt(sec) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// Chime/tick run on the app-wide shared AudioContext (lib/audioContext.js).
+// The old code constructed a FRESH context per beep and closed it on a timer —
+// tick() fires once a second through the final 15s, so a single countdown
+// churned ~16 short-lived contexts, right against the browser's ~6-context cap
+// (close() is async, so they overlap). Hitting it throws AND, because the page
+// shares one audio session, disrupted the in-room LiveKit call's audio. The
+// shared, never-closed context never trips it. Oscillators are one-shot nodes
+// (created, scheduled, GC'd after stop()), so there's nothing to clean up.
+
 // A short "time's up" chime — three ascending notes. Synthesized so it
 // never has to load a file and can't be silently swallowed the way the
 // looping background track was.
 function chime() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
     const notes = [659.25, 880, 1174.66]; // E5 · A5 · D6
     const noteDur = 0.18;
     notes.forEach((freq, i) => {
@@ -49,17 +58,15 @@ function chime() {
       o.start(t0);
       o.stop(t0 + noteDur + 0.02);
     });
-    setTimeout(() => { try { ctx.close(); } catch { /* */ } }, (notes.length * noteDur + 0.3) * 1000);
   } catch { /* */ }
 }
 
 // A soft, short tick for the final wrap-up countdown — percussive enough to
 // notice over the music, quiet enough not to nag.
 function tick() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.connect(g); g.connect(ctx.destination);
@@ -71,7 +78,6 @@ function tick() {
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.06);
     o.start(t0);
     o.stop(t0 + 0.08);
-    setTimeout(() => { try { ctx.close(); } catch { /* */ } }, 150);
   } catch { /* */ }
 }
 

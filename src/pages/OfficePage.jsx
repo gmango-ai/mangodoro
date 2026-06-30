@@ -10,7 +10,15 @@ import { Button } from "@/components/ui/button";
 import { Pencil } from "lucide-react";
 import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { getSessionCreatePrefs } from "../pomodoro/storage";
-import { resolveRoomByInviteCode } from "../lib/rooms";
+
+// Turn the server's machine error into something a human can read. The
+// access RPCs raise/return the marker `room_entry_denied`.
+function friendlyEntryError(message) {
+  if (message && /room_entry_denied/i.test(message)) {
+    return "Incorrect or missing access code.";
+  }
+  return message || "Could not enter the room.";
+}
 
 // /office — sidebar (minimap + room list) on the left, the selected
 // room's view on the right. Joining or starting a session keeps the
@@ -27,7 +35,6 @@ export default function OfficePage() {
   const dark = theme === "dark";
   const navigate = useNavigate();
 
-  const [codePromptRoom, setCodePromptRoom] = useState(null);
   const [roomBusy, setRoomBusy] = useState(false);
   const [joinError, setJoinError] = useState("");
   const [roomToEdit, setRoomToEdit] = useState(null);
@@ -60,47 +67,61 @@ export default function OfficePage() {
     );
   }
 
-  async function joinSessionRow(s) {
+  async function joinSessionRow(s, accessCode) {
     setRoomBusy(true); setJoinError("");
-    const { data, error } = await joinSyncSession(s.join_code, displayName());
+    const { data, error } = await joinSyncSession(s.join_code, displayName(), accessCode);
     setRoomBusy(false);
-    if (error) { setJoinError(error.message || "Could not join."); return false; }
+    if (error) { setJoinError(friendlyEntryError(error.message)); return false; }
     if (data?.session) joinSyncCtx(data.session);
     return true;
   }
 
-  async function startSessionInRoom(room) {
+  async function startSessionInRoom(room, accessCode) {
     setRoomBusy(true); setJoinError("");
     const { data, error } = await createSyncSession(session.user.id, displayName(), {
       teamId: activeTeamId,
       roomId: room.id,
       visibility: "team",
+      accessCode,
       ...getSessionCreatePrefs(),
     });
     setRoomBusy(false);
-    if (error) { setJoinError(error.message || "Could not start session."); return false; }
+    if (error) { setJoinError(friendlyEntryError(error.message)); return false; }
     if (data) joinSyncCtx(data);
     return true;
   }
 
-  // The two CTAs the RoomView surfaces. "Join" → existing session in
-  // this room; "Start" → spin one up (with private-code gating if the
-  // room has been locked by a prior visit).
+  // RoomView CTAs. "Join" → the room's live session; "Start" → spin one
+  // up. No code prompt here: a code-gated room that's occupied by others is
+  // blocked at the door by OfficeShell's lock gate (you never reach these
+  // CTAs without already being allowed in), and an empty code room is open
+  // to the first person in. The server is the backstop either way.
   async function handleJoin(room) {
     const active = sessionByRoomId.get(room.id);
     if (active) await joinSessionRow(active);
   }
 
   async function handleStart(room) {
-    if (room.kind === "private" && room.invite_code) {
-      setCodePromptRoom(room);
-      return;
-    }
     await startSessionInRoom(room);
   }
 
+  // Entering a locked room from the shell's code gate: join the live
+  // session (or be the first to start one) with the supplied code.
+  // Returns whether entry succeeded so the gate can stay open on a bad code.
+  async function enterRoomWithCode(room, code) {
+    const active = sessionByRoomId.get(room.id);
+    return active
+      ? await joinSessionRow(active, code)
+      : await startSessionInRoom(room, code);
+  }
+
   const canEdit = isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0);
-  const hasRooms = (visibleRooms || []).length > 0;
+  // Count locked rooms too: rooms gated to a team you're not in still render as
+  // locked tiles (so you can see what exists across the office). Without this,
+  // a member whose only rooms are department-locked falls through to the "No
+  // rooms" empty state and those rooms disappear entirely instead of showing
+  // locked.
+  const hasRooms = (visibleRooms || []).length > 0 || (lockedRooms || []).length > 0;
 
   // Can the current user edit THIS specific room? Mirrors the server-side
   // RPC checks (admin OR room creator OR lead of a team gating the room) so
@@ -160,6 +181,7 @@ export default function OfficePage() {
         busy={roomBusy}
         onJoin={handleJoin}
         onStart={handleStart}
+        onEnterRoom={enterRoomWithCode}
         onEditOffice={() => navigate("/team#office")}
         onEditRoom={(room) => setRoomToEdit(room)}
         canEditRoom={canEditRoom}
@@ -185,71 +207,6 @@ export default function OfficePage() {
           navigate("/office");
         }}
       />
-
-      {/* Private room → "Enter code" sheet */}
-      {codePromptRoom && (
-        <PrivateRoomCodeSheet
-          room={codePromptRoom}
-          onClose={() => setCodePromptRoom(null)}
-          onConfirm={async (code) => {
-            setRoomBusy(true); setJoinError("");
-            const { data: resolvedRoomId, error } = await resolveRoomByInviteCode(code.trim().toUpperCase());
-            setRoomBusy(false);
-            if (error) { setJoinError(error.message || "Invalid code."); return; }
-            if (resolvedRoomId !== codePromptRoom.id) {
-              setJoinError("That code belongs to a different room.");
-              return;
-            }
-            const target = codePromptRoom;
-            setCodePromptRoom(null);
-            const active = sessionByRoomId.get(target.id);
-            if (active) await joinSessionRow(active);
-            else await startSessionInRoom(target);
-          }}
-          dark={dark}
-        />
-      )}
     </>
-  );
-}
-
-// Tiny sheet for entering a private room's invite code. Mirrors the
-// equivalent on PomodoroPage so muscle memory carries.
-function PrivateRoomCodeSheet({ room, onClose, onConfirm, dark }) {
-  const [code, setCode] = useState("");
-  return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className={`relative w-full max-w-sm rounded-2xl border p-5 ${
-          dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-        }`}
-      >
-        <h2 className={`text-base font-bold mb-1 ${dark ? "text-slate-100" : "text-slate-800"}`}>
-          Enter {room.name}
-        </h2>
-        <p className={`text-xs mb-3 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          This room requires an invite code.
-        </p>
-        <input
-          autoFocus
-          value={code}
-          onChange={(e) => setCode(e.target.value.slice(0, 12))}
-          placeholder="ABCDEF"
-          className={`w-full px-3 py-2 rounded-lg border text-sm font-mono uppercase tracking-widest ${
-            dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"
-          }`}
-        />
-        <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!code.trim()} onClick={() => onConfirm(code)}>
-            Join
-          </Button>
-        </div>
-      </div>
-    </div>
   );
 }

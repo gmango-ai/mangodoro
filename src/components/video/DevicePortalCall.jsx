@@ -1,9 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import {
   LiveKitRoom,
-  GridLayout,
-  FocusLayout,
-  CarouselLayout,
   ParticipantTile,
   RoomAudioRenderer,
   useTracks,
@@ -59,7 +56,12 @@ function DeviceMediaPicker({ kind, label, storageKey }) {
   );
 }
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
+import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt } from "./livekitConnect";
 import { ATTR_CLUSTER, ATTR_LEADER, ATTR_ROOM_DEVICE, pickMicSource, pickAudioSink } from "./useRoomCluster";
+import AdaptiveStage from "./AdaptiveStage";
+import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
+
+const refKey = (t) => (t ? `${t.participant?.identity || ""}:${t.source}` : "");
 
 // Advertises the locked device as its room's default mic + speakers (companion
 // mode). The device is always-on and already publishes mic + plays the call
@@ -129,33 +131,25 @@ function PortalStage() {
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });
   const screens = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }], { onlySubscribed: false });
   const speaking = useSpeakingParticipants();
+  // Decay so a paused speaker doesn't snap off the big tile — the kiosk's worst
+  // offender (it used to fall straight back to cameras[0] the instant they
+  // stopped). A touch longer than the member call since it's a passive display.
+  const featuredId = useFeaturedSpeaker(speaking, { decayMs: 3500 });
 
-  if (!screens.length && cameras.length <= 2) {
-    return (
-      <GridLayout tracks={cameras} style={{ height: "100%" }}>
-        <ParticipantTile />
-      </GridLayout>
-    );
-  }
-
-  const speakerCam = speaking.length
-    ? cameras.find((t) => t.participant?.identity === speaking[0]?.identity)
-    : null;
-  const focus = screens[0] || speakerCam || cameras[0];
-  const strip = cameras.filter((t) => t !== focus);
+  // Even grid for a small call with no screen share; otherwise spotlight the
+  // screen / featured speaker with the rest in an aspect-adaptive filmstrip.
+  const evenGrid = !screens.length && cameras.length <= 2;
+  const speakerCam = featuredId ? cameras.find((t) => t.participant?.identity === featuredId) : null;
+  const focus = evenGrid ? null : (screens[0] || speakerCam || cameras[0] || null);
+  const ordered = focus ? [focus, ...cameras.filter((t) => t !== focus)] : cameras;
 
   return (
-    <div className="flex flex-col h-full gap-3 p-3">
-      <div className="flex-1 min-h-0 rounded-2xl overflow-hidden bg-black/30">
-        <FocusLayout trackRef={focus} style={{ height: "100%" }} />
-      </div>
-      {strip.length > 0 && (
-        <div className="h-[20%] min-h-[88px]">
-          <CarouselLayout tracks={strip} orientation="horizontal">
-            <ParticipantTile />
-          </CarouselLayout>
-        </div>
-      )}
+    <div className="relative w-full h-full">
+      <AdaptiveStage
+        tiles={ordered.map((t) => ({ key: refKey(t), content: <ParticipantTile trackRef={t} /> }))}
+        focusKey={focus ? refKey(focus) : null}
+        gap={12}
+      />
     </div>
   );
 }
@@ -331,17 +325,33 @@ export default function DevicePortalCall({ roomId, displayName }) {
     let cancelled = false;
     setToken(null);
     setFailed(false);
-    fetchLiveKitToken(liveKitRoomName(roomId), displayName)
-      .then((t) => { if (!cancelled) setToken(t); })
-      .catch(() => { if (!cancelled) setFailed(true); });
-    return () => { cancelled = true; };
+    const room = liveKitRoomName(roomId);
+    // Same connection throttle as the app call: don't re-mint/reconnect to the
+    // same room inside the cooldown (kiosk reloads can otherwise churn).
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      markConnectAttempt(room);
+      fetchLiveKitToken(room, displayName)
+        .then((t) => { if (!cancelled) setToken(t); })
+        .catch(() => { if (!cancelled) setFailed(true); });
+    }, connectDelayFor(room));
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [roomId, displayName]);
 
   if (failed || !token) return null;
 
   return (
     <div data-lk-theme="default" className="w-full h-full bg-slate-900">
-      <LiveKitRoom serverUrl={LIVEKIT_URL} token={token} connect video audio style={{ height: "100%" }}>
+      <LiveKitRoom
+        serverUrl={LIVEKIT_URL}
+        token={token}
+        connect
+        video
+        audio
+        options={LK_ROOM_OPTIONS}
+        connectOptions={LK_CONNECT_OPTIONS}
+        style={{ height: "100%" }}
+      >
         <DevicePortalInner />
       </LiveKitRoom>
     </div>

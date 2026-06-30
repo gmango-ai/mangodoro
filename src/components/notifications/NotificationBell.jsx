@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, Check } from "lucide-react";
+import { Bell, Check, Trash2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useNotifications } from "../../context/NotificationContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -15,7 +15,7 @@ function timeAgo(ts) {
 // Bell + unread badge in the nav; opens an inbox dropdown. Clicking an item
 // marks it read and routes via payload.route. Closes on outside click.
 export default function NotificationBell() {
-  const { items, unread, markRead, markAllRead } = useNotifications();
+  const { items, unread, markRead, markAllRead, clearOne, clearAll } = useNotifications();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [open, setOpen] = useState(false);
@@ -62,30 +62,51 @@ export default function NotificationBell() {
         >
           <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: dark ? "var(--color-border)" : "rgb(241,245,249)" }}>
             <span className={`text-sm font-bold ${dark ? "text-slate-200" : "text-slate-700"}`}>Notifications</span>
-            {unread > 0 && (
-              <button type="button" onClick={markAllRead} className={`text-xs inline-flex items-center gap-1 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-                <Check className="w-3.5 h-3.5" /> Mark all read
-              </button>
-            )}
+            <div className="flex items-center gap-2.5">
+              {unread > 0 && (
+                <button type="button" onClick={markAllRead} title="Mark all read" className={`text-xs inline-flex items-center gap-1 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                  <Check className="w-3.5 h-3.5" /> Read
+                </button>
+              )}
+              {items.length > 0 && (
+                <button type="button" onClick={clearAll} title="Clear all notifications" className={`text-xs inline-flex items-center gap-1 ${dark ? "text-slate-400 hover:text-rose-300" : "text-slate-500 hover:text-rose-600"}`}>
+                  <Trash2 className="w-3.5 h-3.5" /> Clear all
+                </button>
+              )}
+            </div>
           </div>
           <div className="max-h-[60vh] overflow-y-auto">
             {(!items || items.length === 0) && (
               <div className={`px-3 py-8 text-center text-sm ${dark ? "text-slate-500" : "text-slate-400"}`}>You're all caught up.</div>
             )}
             {items.map((n) => (
-              <button
+              <div
                 key={n.id}
-                type="button"
-                onClick={() => onItem(n)}
-                className={`w-full text-left px-3 py-2.5 flex gap-2.5 items-start border-b last:border-b-0 transition-colors ${dark ? "hover:bg-white/5 border-[var(--color-border)]" : "hover:bg-slate-50 border-slate-100"}`}
+                className={`relative group border-b last:border-b-0 ${dark ? "border-[var(--color-border)]" : "border-slate-100"}`}
               >
-                <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.read_at ? "bg-transparent" : "bg-sky-500"}`} />
-                <span className="flex-1 min-w-0">
-                  <span className={`block text-[13px] font-semibold leading-snug ${dark ? "text-slate-200" : "text-slate-700"}`}>{n.title}</span>
-                  {n.body && <span className={`block text-[12px] leading-snug ${dark ? "text-slate-400" : "text-slate-500"}`}>{n.body}</span>}
-                  <span className={`block text-[10px] mt-0.5 ${dark ? "text-slate-600" : "text-slate-400"}`}>{timeAgo(n.created_at)}</span>
-                </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onItem(n)}
+                  className={`w-full text-left px-3 py-2.5 pr-9 flex gap-2.5 items-start transition-colors ${dark ? "hover:bg-white/5" : "hover:bg-slate-50"}`}
+                >
+                  <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.read_at ? "bg-transparent" : "bg-sky-500"}`} />
+                  <span className="flex-1 min-w-0">
+                    <span className={`block text-[13px] font-semibold leading-snug ${dark ? "text-slate-200" : "text-slate-700"}`}>{n.title}</span>
+                    {n.body && <span className={`block text-[12px] leading-snug ${dark ? "text-slate-400" : "text-slate-500"}`}>{n.body}</span>}
+                    <span className={`block text-[10px] mt-0.5 ${dark ? "text-slate-600" : "text-slate-400"}`}>{timeAgo(n.created_at)}</span>
+                  </span>
+                </button>
+                {/* Per-item clear — sibling of the row button (not nested). */}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); clearOne(n.id); }}
+                  title="Clear"
+                  aria-label="Clear notification"
+                  className={`absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity ${dark ? "text-slate-400 hover:text-rose-300 hover:bg-white/10" : "text-slate-400 hover:text-rose-600 hover:bg-slate-100"}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         </div>

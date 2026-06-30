@@ -5,6 +5,7 @@ import {
   calcWorked, roundTimeStr, currentTimeStr, todayStr, weekStart,
   makeEmptyForm, formatDuration, formatDecimal, formatMoney, formatMonthLabel,
   weekRangeLabel, toDisplayTime, downloadFile, unpaidBreakMins,
+  formatClockNotes,
 } from "../lib/utils";
 import {
   startTaskSegment, stopTaskSegment, updateOpenTaskSegment,
@@ -142,10 +143,16 @@ export function AppProvider({ session, children }) {
         return;
       }
 
-      // Sync clock-in state from DB (handles cross-device tracking).
-      // Only override local state if DB has an active session; if DB is null
-      // it might just mean this device hasn't synced yet — visibilitychange
-      // handles the "stopped on another device" case after initial load.
+      // Sync clock-in state from DB (handles cross-device tracking). The DB is
+      // authoritative for an ACTIVE clock and for an EXPLICIT stop:
+      //   • active clock  → adopt it (refresh / other device clocked in).
+      //   • { stopped:true } → CLEAR any stale local clock. This is the fix for
+      //     "clock out on one device, the others auto-restart": a device that was
+      //     closed during the clock-out reopens with a stale localStorage clock;
+      //     without this it kept that clock and its write-back effect re-wrote it
+      //     to the DB, undoing the clock-out everywhere.
+      //   • null → ambiguous (this device may just not have synced yet); keep
+      //     local so an offline clock-in isn't lost — visibilitychange reconciles.
       const dbClock = settingsRes.data?.active_clock ?? null;
       if (dbClock && !dbClock.stopped) {
         clockInFromDBRef.current = true;
@@ -156,6 +163,10 @@ export function AppProvider({ session, children }) {
         fetchCurrentTaskSegment().then(({ data: seg }) => {
           if (seg) setCurrentTask({ id: seg.id, description: seg.description, started_at: seg.started_at });
         });
+      } else if (dbClock?.stopped === true) {
+        clockInFromDBRef.current = true;
+        setClockIn(null);
+        try { localStorage.removeItem("ql_clock_in"); } catch { /* */ }
       }
       const loadedTemplates = (templatesRes.data ?? []).map(normalizeTemplate);
       const loadedSettings = settingsRes.data ? normalizeSettings(settingsRes.data) : {};
@@ -422,6 +433,20 @@ export function AppProvider({ session, children }) {
     });
   }
 
+  // Append a per-pomodoro reflection to the running day-log + keep `description`
+  // pointed at the latest (so presence/work_status shows the current focus). The
+  // accumulated `notes` become the entry's description at clock-out.
+  function addClockNote(note) {
+    if (!note?.text?.trim()) return;
+    setClockIn((prev) => {
+      if (!prev) return prev;
+      const entry = { at: new Date().toISOString(), text: note.text.trim(), status: note.status || null };
+      const updated = { ...prev, notes: [...(prev.notes || []), entry], description: entry.text };
+      localStorage.setItem("ql_clock_in", JSON.stringify(updated));
+      return updated;
+    });
+  }
+
   // `meta` lets a caller mark the break paid/unpaid + tag its kind (e.g. the
   // quick "On lunch" button passes { unpaid: !lunchBreakPaid, kind: "lunch" }).
   function startClockBreak(meta) {
@@ -464,7 +489,11 @@ export function AppProvider({ session, children }) {
       start: clockIn.start,
       end,
       minutes,
-      description: clockIn.description || "",
+      // The day's accumulated pomodoro notes become the entry description (one
+      // bullet per focus block); fall back to the single description if none.
+      description: (clockIn.notes && clockIn.notes.length)
+        ? formatClockNotes(clockIn.notes)
+        : (clockIn.description || ""),
       breaks,
       projectIds: clockIn.projectIds || [],
       billable: clockIn.billable !== false,
@@ -1519,7 +1548,7 @@ export function AppProvider({ session, children }) {
     importEntriesRef, importProfileRef, logHoursRef, dateInputRef,
     // clock
     clockIn, clockedTick, handleClockIn, handleClockOut, clockedElapsed, breakElapsed,
-    updateClockIn, startClockBreak, endClockBreak,
+    updateClockIn, addClockNote, startClockBreak, endClockBreak,
     // tasks within a clock-in session
     currentTask, switchTask, renameCurrentTask,
     clockOutAndFill: () => { const p = handleClockOut(); if (p) setPendingEntry(p); },

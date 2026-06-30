@@ -94,6 +94,7 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
   // button's grow/glow indicator: { glyph, level (0..1) } or null.
   const [charge, setCharge] = useState(null);
   const containerRef = useRef(null);
+  const rectRef = useRef(null);
   const particlesRef = useRef([]);
   const rafRef = useRef({ running: false, lastT: 0 });
   const channelRef = useRef(null);
@@ -162,7 +163,7 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
   const burst = useCallback((glyph, x01 = 0.5, name = "") => {
     const cont = containerRef.current;
     if (!cont || !glyph) return;
-    const r = cont.getBoundingClientRect();
+    const r = rectRef.current || cont.getBoundingClientRect();
     const ps = particlesRef.current;
     while (ps.length >= 120) {
       const old = ps.shift();
@@ -245,6 +246,21 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
       channelRef.current = null;
     };
   }, [channelKey, enabled, burst, burstMany]);
+
+  // Cache the container's size so burst() doesn't call getBoundingClientRect per
+  // particle — that read, interleaved with the rAF loop's per-frame style
+  // writes, forced a synchronous layout on every spawn and made dense
+  // fountains/streams thrash. burst() only needs width/height, which change on
+  // resize (not scroll), so a ResizeObserver keeps the cache fresh cheaply.
+  useEffect(() => {
+    const cont = containerRef.current;
+    if (!cont) return undefined;
+    const update = () => { rectRef.current = cont.getBoundingClientRect(); };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(cont);
+    return () => ro.disconnect();
+  }, []);
 
   // Clean up particles + any active charge timer on unmount.
   useEffect(() => {

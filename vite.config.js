@@ -42,8 +42,14 @@ export default defineConfig({
         ],
       },
       workbox: {
-        skipWaiting: true,
-        clientsClaim: true,
+        // NOTE: do NOT set skipWaiting/clientsClaim here. With registerType
+        // "prompt", the app drives activation: PWAUpdater calls
+        // updateServiceWorker(true), which posts SKIP_WAITING to the WAITING
+        // worker and reloads on `controllerchange`. A workbox-level skipWaiting
+        // makes the new SW self-activate on install instead of waiting, so that
+        // handshake misfires — the new SW serves new assets while the page keeps
+        // running the OLD in-memory JS until a manual reload ("stuck on the old
+        // version"). Letting it wait makes the auto-apply + reload reliable.
         cleanupOutdatedCaches: true,
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
         // The LiveKit self-view processors (MediaPipe background blur, Krisp
@@ -87,24 +93,16 @@ export default defineConfig({
     },
   },
   server: {
-    // Cross-origin isolation so SharedArrayBuffer is available → onnxruntime-web
-    // can run RVM matting on multiple WASM threads (see rvmWorker.js). COEP
-    // `credentialless` (not `require-corp`) keeps the blast radius small: no-cors
-    // subresources (MediaPipe/ORT CDN wasm, fonts, PostHog) load without
-    // credentials instead of being blocked, and CORS resources (Supabase) still
-    // send their auth headers. Safari/iOS ignore it → they just stay single-thread.
-    headers: {
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "credentialless",
-    },
+    // NOTE: no COOP/COEP here. Cross-origin isolation (which would let
+    // onnxruntime-web run RVM matting multi-threaded via SharedArrayBuffer)
+    // BLOCKS cross-origin iframes — the shared web-view tiles (YouTube, docs,
+    // dashboards) can't embed under COEP, and the `credentialless` workaround is
+    // Chrome-only + strips cookies (breaking logged-in embeds like Google Docs).
+    // Production (vercel.json) sets no COEP either, so RVM already runs
+    // single-threaded there ("slower, never broken" — see rvmWorker.js); keeping
+    // dev headerless matches prod AND lets the web views embed in every browser.
     watch: {
       ignored: ["**/_tmp_AltDesign/**"],
-    },
-  },
-  preview: {
-    headers: {
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "credentialless",
     },
   },
   build: {
