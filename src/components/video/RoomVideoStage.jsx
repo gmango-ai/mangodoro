@@ -713,7 +713,7 @@ export default function RoomVideoStage({ roomId, displayName }) {
             listen={call?.listen === true}
             onToggleListen={() => updateCall({ listen: !(call?.listen === true) })}
             onJoin={(choices) => updateCall({ mode: "join", choices })}
-            onLeave={() => endCall()}
+            onLeave={() => endCall("user-leave-prejoin")}
           />
         )}
       </div>

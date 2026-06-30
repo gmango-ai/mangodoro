@@ -29,6 +29,7 @@ import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "..
 import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { PREF, loadPref, savePref } from "./callPrefs";
 import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt, connectCooldownMs, noteConnectFailure } from "./livekitConnect";
+import { diagReset, diagRecord, diagReport, diagEnv } from "./livekitDiagnostics";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
@@ -402,6 +403,71 @@ function SavedSpeakerApplier() {
     room.on(RoomEvent.Connected, apply);
     return () => { room.off(RoomEvent.Connected, apply); };
   }, [room]);
+  return null;
+}
+
+// Records the connection-health events that precede a force disconnect into a
+// per-room ring buffer (livekitDiagnostics), so a silent "bounced to the green
+// room" can be explained instead of just guessed at. On its own this is quiet —
+// it only console.warns the genuinely alarming events (reconnecting, a local
+// quality collapse, a media-device failure); the full timeline is dumped by the
+// disconnect handler. Listens on the live Room via context so it sees the same
+// engine the call is using. Mount once inside <LiveKitRoom>.
+function ConnectionDiagnostics({ roomId }) {
+  const room = useRoomContext();
+  useEffect(() => {
+    if (!room) return undefined;
+    const roomName = liveKitRoomName(roomId);
+    // Start (or restart) the buffer for the current session. If we mounted
+    // already-connected (e.g. a remount over a live room), seed it now.
+    if (room.state === "connected") diagReset(roomName);
+
+    const onConnected = () => diagReset(roomName);
+    const onReconnecting = () => {
+      const env = diagEnv();
+      diagRecord(roomName, "reconnecting", env);
+      // A reconnect is the single best early warning of an impending drop — make
+      // it visible with the network context that usually explains it.
+      console.warn(`[livekit-diag] reconnecting (room ${roomId})`, env);
+    };
+    const onReconnected = () => {
+      diagRecord(roomName, "reconnected");
+      console.info(`[livekit-diag] reconnected (room ${roomId})`);
+    };
+    const onSignalConnected = () => diagRecord(roomName, "signal_connected");
+    const onStateChanged = (state) => diagRecord(roomName, "state", { state: String(state) });
+    const onQuality = (quality, participant) => {
+      // Only the LOCAL participant's quality matters for whether WE get dropped;
+      // remote-quality churn would just be noise.
+      if (!participant?.isLocal) return;
+      const q = String(quality);
+      diagRecord(roomName, "quality", { quality: q });
+      if (q === "poor" || q === "lost") {
+        console.warn(`[livekit-diag] local connection quality: ${q} (room ${roomId})`);
+      }
+    };
+    const onMediaError = (e) => {
+      diagRecord(roomName, "media_error", { message: e?.message || String(e) });
+      console.warn(`[livekit-diag] media device error (room ${roomId}):`, e?.message || e);
+    };
+
+    room.on(RoomEvent.Connected, onConnected);
+    room.on(RoomEvent.Reconnecting, onReconnecting);
+    room.on(RoomEvent.Reconnected, onReconnected);
+    room.on(RoomEvent.SignalConnected, onSignalConnected);
+    room.on(RoomEvent.ConnectionStateChanged, onStateChanged);
+    room.on(RoomEvent.ConnectionQualityChanged, onQuality);
+    room.on(RoomEvent.MediaDevicesError, onMediaError);
+    return () => {
+      room.off(RoomEvent.Connected, onConnected);
+      room.off(RoomEvent.Reconnecting, onReconnecting);
+      room.off(RoomEvent.Reconnected, onReconnected);
+      room.off(RoomEvent.SignalConnected, onSignalConnected);
+      room.off(RoomEvent.ConnectionStateChanged, onStateChanged);
+      room.off(RoomEvent.ConnectionQualityChanged, onQuality);
+      room.off(RoomEvent.MediaDevicesError, onMediaError);
+    };
+  }, [room, roomId]);
   return null;
 }
 
@@ -1010,6 +1076,48 @@ function LayoutMenu({ mode, onSet }) {
   );
 }
 
+// Native fullscreen (the Fullscreen API) for the call — takes over the whole
+// physical screen, not just the browser window, which "maximize the window"
+// can't do. Targets the passed element (the ConferenceLayout root, which holds
+// the stage + control bar). Tracks the ACTUAL fullscreen state via the
+// fullscreenchange event so the button stays correct when the user exits with
+// Esc or the browser drops out of fullscreen on its own. webkit* fallbacks
+// cover Safari; where element fullscreen isn't supported at all (iOS Safari only
+// fullscreens <video> elements), `supported` is false and the button hides.
+function useFullscreen(targetRef) {
+  const [isFs, setIsFs] = useState(false);
+  useEffect(() => {
+    const onChange = () => {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement || null;
+      setIsFs(!!fsEl && fsEl === targetRef.current);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    document.addEventListener("webkitfullscreenchange", onChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      document.removeEventListener("webkitfullscreenchange", onChange);
+    };
+  }, [targetRef]);
+  const supported =
+    typeof document !== "undefined" &&
+    !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  const toggle = useCallback(async () => {
+    const el = targetRef.current;
+    if (!el) return;
+    try {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+      if (fsEl) {
+        await (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.());
+      } else {
+        await (el.requestFullscreen?.({ navigationUI: "hide" }) ?? el.webkitRequestFullscreen?.());
+      }
+    } catch {
+      /* denied / not allowed (e.g. not a user gesture, or sandboxed) — no-op */
+    }
+  }, [targetRef]);
+  return { isFs, supported, toggle };
+}
+
 // Custom control bar (replaces LiveKit's <ControlBar>) so reactions + the
 // layout toggle sit where we want and it collapses to icon-only when the tile
 // is narrow — keeping a small video usable rather than forcing a large minimum
@@ -1030,6 +1138,7 @@ function CallControlBar({
   selfFloat, onToggleSelfFloat,
   micMuted, onToggleMic,
   peopleOpen, onTogglePeople,
+  fullscreenSupported, isFullscreen, onToggleFullscreen,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -1133,6 +1242,22 @@ function CallControlBar({
       >
         <Smile className="w-5 h-5" />
       </button>
+
+      {/* True fullscreen — takes over the whole screen, not just the window.
+          Hidden where the browser can't fullscreen an element (e.g. iOS Safari). */}
+      {fullscreenSupported && (
+        <button
+          type="button"
+          className="lk-button"
+          onClick={onToggleFullscreen}
+          aria-pressed={isFullscreen}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+        >
+          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+        </button>
+      )}
+
       <DisconnectButton>{tight ? <PhoneOff className="w-4 h-4" /> : "Leave"}</DisconnectButton>
     </div>
   );
@@ -1902,6 +2027,9 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const rootRef = useRef(null);
   const [tight, setTight] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
+  // Fullscreen the call's own root (stage + controls), so it takes over the
+  // whole screen rather than just maximizing the browser window.
+  const { isFs: isFullscreen, supported: fullscreenSupported, toggle: toggleFullscreen } = useFullscreen(rootRef);
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
@@ -2017,7 +2145,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     <HandRaiseContext.Provider value={handRaise}>
     <div
       ref={rootRef}
-      className="relative flex flex-col w-full h-full"
+      className={`relative flex flex-col w-full h-full ${isFullscreen ? "bg-slate-950" : ""}`}
       onPointerMove={compact ? undefined : reveal}
       onPointerDown={compact ? undefined : reveal}
     >
@@ -2071,6 +2199,9 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onToggleMic={onToggleMic}
               peopleOpen={peopleOpen}
               onTogglePeople={() => setPeopleOpen((v) => !v)}
+              fullscreenSupported={fullscreenSupported}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={toggleFullscreen}
             />
           </div>
         </div>
@@ -2107,8 +2238,11 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
           if (!cancelled) setToken(t);
         } catch (e) {
           if (!cancelled) {
+            const msg = e?.message || "Could not get a LiveKit token";
+            console.warn(`[livekit] token mint failed (room ${roomId}): ${msg}`);
+            diagRecord(room, "token_error", { message: msg });
             noteConnectFailure();
-            onError?.(e?.message || "Could not get a LiveKit token");
+            onError?.(msg);
           }
         }
       })();
@@ -2158,19 +2292,45 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         options={LK_ROOM_OPTIONS}
         connectOptions={LK_CONNECT_OPTIONS}
         style={{ height: "100%" }}
-        onConnected={() => onJoined?.()}
+        onConnected={() => {
+          // A plain breadcrumb so a session has a visible start in the console to
+          // bound the disconnect dump against. (ConnectionDiagnostics resets its
+          // buffer on this same event.)
+          console.info(`[livekit] connected (room ${roomId})`);
+          onJoined?.();
+        }}
         onDisconnected={(reason) => {
           const name = LK_DISCONNECT_REASON[reason] ?? `code_${reason ?? "none"}`;
-          // Anything other than our own leave is unexpected — make it loud so a
-          // silent bounce becomes diagnosable, and pass the reason up for analytics.
+          // Pull the full lead-up (duration, reconnect count, quality history,
+          // online/visibility at drop) recorded by <ConnectionDiagnostics>.
+          const report = diagReport(liveKitRoomName(roomId), name, reason ?? null);
+          // Anything other than our own leave is unexpected — dump the whole
+          // timeline so a silent bounce becomes diagnosable (network reconnect
+          // storm vs. server kick vs. went offline), and pass it up for analytics.
           if (reason !== undefined && reason !== 1) {
-            console.warn(`[livekit] disconnected: ${name} (room ${roomId})`);
+            console.warn(
+              `[livekit] disconnected: ${name} (room ${roomId}) after ${report.durationS}s` +
+                `${report.reconnects ? `, ${report.reconnects} reconnect attempt(s)` : ""}` +
+                `, last quality ${report.lastQuality}, online=${report.env.online}`,
+              report,
+            );
           }
-          onLeft?.(name);
+          onLeft?.(name, report);
         }}
-        onError={(e) => { noteConnectFailure(); onError?.(e?.message || "LiveKit connection error"); }}
+        onError={(e) => {
+          // A room-level error (often the prelude to a drop) — record it into the
+          // timeline and surface it, then arm the cooldown + bubble up as before.
+          const msg = e?.message || "LiveKit connection error";
+          diagRecord(liveKitRoomName(roomId), "error", { message: msg });
+          console.warn(`[livekit] room error (room ${roomId}): ${msg}`);
+          noteConnectFailure();
+          onError?.(msg);
+        }}
       >
         <PublishController publish={publish} choices={choices} micMuted={micMuted} />
+        {/* Silent connection-health recorder — feeds the disconnect report so a
+            force disconnect can be explained, not just observed. */}
+        <ConnectionDiagnostics roomId={roomId} />
         <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} chromeless={chromeless} />
         {/* Owns in-room cluster management (leader handoff). Mount once. */}
         <RoomClusterManager />
