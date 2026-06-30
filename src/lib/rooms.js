@@ -7,7 +7,7 @@ export async function listRooms(teamId) {
   const { data, error } = await supabase
     .from("rooms")
     .select(`
-      id, team_id, name, kind, color, entry_policy, pin_policy, created_by, created_at, archived_at,
+      id, team_id, name, kind, color, entry_policy, pin_policy, knock_enabled, created_by, created_at, archived_at,
       layout_x, layout_y, layout_w, layout_h, max_duration_minutes,
       room_teams ( org_team_id )
     `)
@@ -161,6 +161,37 @@ export async function setRoomAccessCode(roomId, code) {
   const { error } = await supabase.rpc("set_room_access_code", {
     p_room_id: roomId,
     p_code: code ?? "",
+  });
+  return { error };
+}
+
+// Whether a code room accepts knocks while occupied. Server enforces the
+// manager check (owner / admin / gating-team lead).
+export async function setRoomKnockEnabled(roomId, enabled) {
+  const { error } = await supabase.rpc("set_room_knock_enabled", {
+    p_room_id: roomId,
+    p_enabled: !!enabled,
+  });
+  return { error };
+}
+
+// ── Knock-to-enter ─────────────────────────────────────────────────
+// When held at the lock gate (occupied code room, no code), a user can knock
+// to ask the people inside to let them in. request_room_entry pings every live
+// occupant; any of them calls decide_room_entry to approve/deny. An approved
+// knock then admits the caller through can_enter_room for ~5 minutes.
+
+export async function requestRoomEntry(roomId) {
+  const { data, error } = await supabase.rpc("request_room_entry", {
+    p_room_id: roomId,
+  });
+  return { data: data ?? null, error };
+}
+
+export async function decideRoomEntry(requestId, approve) {
+  const { error } = await supabase.rpc("decide_room_entry", {
+    p_request_id: requestId,
+    p_approve: !!approve,
   });
   return { error };
 }

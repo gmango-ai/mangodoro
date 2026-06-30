@@ -11,6 +11,7 @@ import {
 import { getRoomAccessCode } from "../../lib/rooms";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { openPomodoroSurface } from "../../lib/pomodoroSurface";
+import KnockRequests from "./KnockRequests";
 import RoomLayout from "./roomLayout/RoomLayout";
 import LayoutBar from "./roomLayout/LayoutBar";
 import { useRoomLayout } from "./roomLayout/useRoomLayout";
@@ -410,6 +411,10 @@ export default function RoomView({
           </div>
         </div>
       </header>
+
+      {/* Knock requests — people held at the lock gate asking to be let in.
+          Only occupants see these (RLS-scoped); any of them can admit. */}
+      <KnockRequests roomId={room.id} enabled={inThisRoomSession} dark={dark} />
 
       {/* Body — a modular tiling layout. Pick a preset from the header,
           drag the dividers to resize. Tiles are absolutely positioned

@@ -5,7 +5,9 @@ import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useVideoCall } from "../../context/VideoCallContext";
 import { Button } from "@/components/ui/button";
-import { Menu, Lock } from "lucide-react";
+import { Menu, Lock, Bell, Loader2 } from "lucide-react";
+import { supabase } from "../../supabase";
+import { requestRoomEntry } from "../../lib/rooms";
 import WidgetsSidebar from "./WidgetsSidebar";
 import RoomView from "./RoomView";
 import HallwayView from "./HallwayView";
@@ -84,8 +86,13 @@ export default function OfficeShell({
   // Resolve the active room from URL. We deliberately do NOT auto-
   // redirect when the URL is bare /office — that path now lands the
   // user in the hallway. /office/r/:id stays in that room.
-  const resolvedRoomId = (roomId && (rooms || []).some((r) => r.id === roomId)) ? roomId : null;
-  const selectedRoom = resolvedRoomId ? rooms.find((r) => r.id === resolvedRoomId) : null;
+  //
+  // Look the room up across BOTH visible and locked (department-gated) rooms:
+  // a dept-locked room can't be entered, but we still resolve it so the shell
+  // can render the knock gate instead of bouncing to the hallway.
+  const allRooms = [...(rooms || []), ...(lockedRooms || [])];
+  const resolvedRoomId = (roomId && allRooms.some((r) => r.id === roomId)) ? roomId : null;
+  const selectedRoom = resolvedRoomId ? allRooms.find((r) => r.id === resolvedRoomId) : null;
   const activeSession = selectedRoom ? (sessionByRoomId?.get(selectedRoom.id) || null) : null;
 
   // Auto-open into the room the user is already in.
@@ -106,8 +113,27 @@ export default function OfficeShell({
   const inThisRoomSession = !!syncSession?.room_id && !!selectedRoom
     && syncSession.room_id === selectedRoom.id;
   const isRoomOwner = !!selectedRoom?.created_by && selectedRoom.created_by === currentUserId;
-  const roomLocked = selectedRoom?.entry_policy === "code"
-    && !!activeSession && !inThisRoomSession && !isRoomOwner;
+  // Managers (owner / org admin / gating-team lead) can always enter: the
+  // server's can_enter_room admits them, so the client must NOT strand them at
+  // a gate (and knocking would be rejected — they don't need to). canEditRoom
+  // mirrors that exact predicate, so reuse it as the bypass.
+  const canManageRoom = isRoomOwner || !!(selectedRoom && canEditRoom?.(selectedRoom));
+  // Two lock kinds end at the same knock gate:
+  //   • code lock — an occupied code room I'm not in / can't manage.
+  //   • dept lock — a department-gated room I'm not a member of (it lives in
+  //     lockedRooms). Either way I'm held until admitted or I can manage it.
+  const isDeptLockedForMe = !!selectedRoom && (lockedRooms || []).some((r) => r.id === selectedRoom.id);
+  const codeLocked = selectedRoom?.entry_policy === "code"
+    && !!activeSession && !inThisRoomSession && !canManageRoom;
+  const deptLocked = isDeptLockedForMe && !inThisRoomSession && !canManageRoom;
+  const roomLocked = codeLocked || deptLocked;
+  // Names of the org_teams gating a dept-locked room — shown in the gate copy.
+  const gatingLabel = deptLocked
+    ? (selectedRoom?.room_teams || [])
+        .map((rt) => (orgTeams || []).find((t) => t.id === rt.org_team_id)?.name)
+        .filter(Boolean)
+        .join(", ")
+    : "";
 
   // Explicit leave. Connection-aware model: incidental navigation never
   // leaves a room (you keep heartbeating, so you stay "in" it until your
@@ -184,10 +210,16 @@ export default function OfficeShell({
           // rehydrate landed us here), do nothing — we're aligned.
           if (currentSessionRoom !== target) {
             const active = sessionByRoomId?.get(target) || null;
-            const room = (rooms || []).find((r) => r.id === target);
+            const room = (rooms || []).find((r) => r.id === target)
+              || (lockedRooms || []).find((r) => r.id === target);
             const ownerOfRoom = !!room?.created_by && room.created_by === currentUserId;
-            const lockedOut = room?.entry_policy === "code" && !!active && !ownerOfRoom;
-            if (lockedOut) {
+            const managerOfRoom = ownerOfRoom || !!(room && canEditRoom?.(room));
+            const deptLockedRoom = (lockedRooms || []).some((r) => r.id === target);
+            const codeLockedOut = room?.entry_policy === "code" && !!active && !managerOfRoom;
+            if (deptLockedRoom && !managerOfRoom) {
+              // Department-gated room I'm not in: held at the knock gate.
+              // Don't auto-join — the user knocks there to be let in.
+            } else if (codeLockedOut) {
               // Occupied code room and I'm not the owner: held at the gate.
               // Don't auto-join — the render shows the lock gate and the
               // user enters the code there. (An EMPTY code room is open, so
@@ -300,6 +332,9 @@ export default function OfficeShell({
             room={selectedRoom}
             busy={busy}
             dark={dark}
+            codeRoom={selectedRoom?.entry_policy === "code" && !!activeSession}
+            deptLocked={deptLocked}
+            gatingLabel={gatingLabel}
             onEnter={(code) => onEnterRoom?.(selectedRoom, code)}
             onBack={() => navigate("/office")}
           />
@@ -338,14 +373,32 @@ export default function OfficeShell({
 // occupied and the viewer isn't the owner / already inside. You can't see
 // the room's chat / video / timer until you enter the code. onEnter returns
 // a promise<boolean>; a falsy result keeps the gate open with an error.
-function RoomLockGate({ room, onEnter, onBack, busy, dark }) {
+//
+// When the room accepts knocks (room.knock_enabled), a held-out user can knock
+// instead of entering the code: requestRoomEntry pings the occupants, and we
+// subscribe to our own request row — an approval auto-enters via onEnter(null)
+// (can_enter_room honors the fresh grant), a denial / no-answer offers a retry.
+const KNOCK_TIMEOUT_MS = 120000;
+
+function RoomLockGate({ room, onEnter, onBack, busy, dark, codeRoom = false, deptLocked = false, gatingLabel = "" }) {
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // 'idle' (code entry) → 'waiting' → 'denied' | 'timeout'
+  const [phase, setPhase] = useState("idle");
+  const [requestId, setRequestId] = useState(null);
+
+  // onEnter is a fresh closure each parent render; keep it in a ref so the
+  // realtime subscription effect doesn't tear down/resubscribe every render.
+  const onEnterRef = useRef(onEnter);
+  useEffect(() => { onEnterRef.current = onEnter; }, [onEnter]);
+
+  const knockable = !!room?.knock_enabled;
+  const working = submitting || busy;
 
   async function submit() {
     const clean = code.trim().toUpperCase();
-    if (!clean || submitting || busy) return;
+    if (!clean || working) return;
     setSubmitting(true);
     setErr("");
     const ok = await onEnter?.(clean);
@@ -353,50 +406,178 @@ function RoomLockGate({ room, onEnter, onBack, busy, dark }) {
     if (!ok) setErr("Incorrect or expired code.");
   }
 
-  const working = submitting || busy;
+  async function startKnock() {
+    if (working) return;
+    setErr("");
+    setSubmitting(true);
+    const { data, error } = await requestRoomEntry(room.id);
+    setSubmitting(false);
+    if (error || !data) { setErr(error?.message || "Couldn't knock — try again."); return; }
+    setRequestId(data);
+    setPhase("waiting");
+  }
 
-  return (
+  // While waiting, watch our own request row for the occupant's decision.
+  useEffect(() => {
+    if (phase !== "waiting" || !requestId) return;
+    const channel = supabase.channel(`knock:${requestId}`);
+    channel.on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "room_knock_requests", filter: `id=eq.${requestId}` },
+      async (payload) => {
+        const status = payload.new?.status;
+        if (status === "approved") {
+          const ok = await onEnterRef.current?.(null);
+          if (!ok) { setPhase("idle"); setErr("You were let in, but entry failed — try the code."); }
+          // On success the parent swaps RoomView in over this gate.
+        } else if (status === "denied") {
+          setPhase("denied");
+        }
+      }
+    );
+    channel.subscribe();
+    const timer = setTimeout(() => setPhase("timeout"), KNOCK_TIMEOUT_MS);
+    return () => { supabase.removeChannel(channel); clearTimeout(timer); };
+  }, [phase, requestId]);
+
+  const card = (children) => (
     <div className="flex-1 min-h-0 flex items-center justify-center p-6">
       <div
         className={`w-full max-w-sm rounded-2xl border p-6 text-center ${
           dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
         }`}
       >
-        <div
-          className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full ${
-            dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-600"
-          }`}
-        >
-          <Lock className="w-5 h-5" />
-        </div>
-        <h2 className={`text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>
-          {room?.name} is locked
-        </h2>
-        <p className={`text-xs mt-1 mb-4 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          Someone's working in here. Enter the access code to join them.
-        </p>
-        <input
-          autoFocus
-          value={code}
-          onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 16)); setErr(""); }}
-          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-          placeholder="ACCESS CODE"
-          className={`w-full px-3 py-2 rounded-lg border text-center text-sm font-mono uppercase tracking-[0.3em] ${
-            dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"
-          }`}
-        />
-        {err && (
-          <p className={`text-xs mt-2 ${dark ? "text-red-400" : "text-red-600"}`}>{err}</p>
-        )}
-        <div className="flex gap-2 mt-4">
-          <Button variant="outline" size="sm" className="flex-1" onClick={onBack} disabled={working}>
-            Back to hallway
-          </Button>
-          <Button size="sm" className="flex-1" onClick={submit} disabled={!code.trim() || working}>
-            {working ? "Entering…" : "Enter room"}
-          </Button>
-        </div>
+        {children}
       </div>
     </div>
+  );
+
+  const iconBubble = (Icon, tone = "amber") => (
+    <div
+      className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full ${
+        tone === "amber"
+          ? dark ? "bg-amber-500/15 text-amber-300" : "bg-amber-50 text-amber-600"
+          : dark ? "bg-teal-500/15 text-teal-300" : "bg-teal-50 text-teal-600"
+      }`}
+    >
+      <Icon className="w-5 h-5" />
+    </div>
+  );
+
+  const title = (text) => (
+    <h2 className={`text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>{text}</h2>
+  );
+  const sub = (text) => (
+    <p className={`text-xs mt-1 mb-4 ${dark ? "text-slate-400" : "text-slate-500"}`}>{text}</p>
+  );
+
+  if (phase === "waiting") {
+    return card(
+      <>
+        <div
+          className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full ${
+            dark ? "bg-teal-500/15 text-teal-300" : "bg-teal-50 text-teal-600"
+          }`}
+        >
+          <Loader2 className="w-5 h-5 animate-spin" />
+        </div>
+        {title(`Knocking on ${room?.name}…`)}
+        {sub("Waiting for someone inside to let you in.")}
+        <Button variant="outline" size="sm" className="w-full" onClick={() => { setPhase("idle"); setRequestId(null); }}>
+          Cancel
+        </Button>
+      </>
+    );
+  }
+
+  if (phase === "denied" || phase === "timeout") {
+    return card(
+      <>
+        {iconBubble(Lock)}
+        {title(phase === "denied" ? "Knock declined" : "No answer")}
+        {sub(phase === "denied"
+          ? "Someone inside declined your request."
+          : "Nobody answered your knock.")}
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1" onClick={onBack}>
+            Back to hallway
+          </Button>
+          <Button size="sm" className="flex-1" onClick={() => { setErr(""); setPhase("idle"); }}>
+            Try again
+          </Button>
+        </div>
+      </>
+    );
+  }
+
+  return card(
+    <>
+      {iconBubble(Lock)}
+      {title(`${room?.name} is locked`)}
+      {sub(deptLocked
+        ? `This room is for ${gatingLabel || "another team"}. Knock to ask to be let in.`
+        : "Someone's working in here. Enter the access code to join them.")}
+
+      {codeRoom ? (
+        <>
+          <input
+            autoFocus
+            value={code}
+            onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 16)); setErr(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+            placeholder="ACCESS CODE"
+            className={`w-full px-3 py-2 rounded-lg border text-center text-sm font-mono uppercase tracking-[0.3em] ${
+              dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"
+            }`}
+          />
+          {err && (
+            <p className={`text-xs mt-2 ${dark ? "text-red-400" : "text-red-600"}`}>{err}</p>
+          )}
+          <div className="flex gap-2 mt-4">
+            <Button variant="outline" size="sm" className="flex-1" onClick={onBack} disabled={working}>
+              Back to hallway
+            </Button>
+            <Button size="sm" className="flex-1" onClick={submit} disabled={!code.trim() || working}>
+              {working ? "Entering…" : "Enter room"}
+            </Button>
+          </div>
+          {knockable && (
+            <button
+              type="button"
+              onClick={startKnock}
+              disabled={working}
+              className={`mt-3 inline-flex items-center justify-center gap-1.5 w-full text-xs font-medium ${
+                dark ? "text-teal-300 hover:text-teal-200" : "text-teal-600 hover:text-teal-700"
+              } disabled:opacity-50`}
+            >
+              <Bell className="w-3.5 h-3.5" />
+              Knock to ask to be let in
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          {err && (
+            <p className={`text-xs mb-2 ${dark ? "text-red-400" : "text-red-600"}`}>{err}</p>
+          )}
+          <div className="flex gap-2 mt-2">
+            <Button variant="outline" size="sm" className="flex-1" onClick={onBack} disabled={working}>
+              Back to hallway
+            </Button>
+            {knockable && (
+              <Button size="sm" className="flex-1" onClick={startKnock} disabled={working}>
+                <Bell className="w-3.5 h-3.5 mr-1.5" />
+                {working ? "Knocking…" : "Knock"}
+              </Button>
+            )}
+          </div>
+          {!knockable && (
+            <p className={`text-[11px] mt-3 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              This room isn’t accepting knocks right now.
+            </p>
+          )}
+        </>
+      )}
+    </>
   );
 }

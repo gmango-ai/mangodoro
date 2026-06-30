@@ -92,11 +92,10 @@ export default function OfficeMinimap({
           <button
             key={room.id}
             type="button"
-            onClick={() => { if (!locked) onSelect?.(room.id); }}
-            disabled={locked}
+            onClick={() => onSelect?.(room.id)}
             title={
               locked
-                ? `${room.name} — locked`
+                ? `${room.name} — knock to ask to be let in`
                 : `${room.name}${active ? ` · ${occupants.length} here` : ""}`
             }
             style={{
@@ -107,7 +106,7 @@ export default function OfficeMinimap({
             }}
             className={`relative rounded-md border-2 transition-all overflow-hidden flex flex-col items-center justify-center gap-1 ${
               locked
-                ? "opacity-50 cursor-not-allowed"
+                ? "opacity-60 hover:brightness-110"
                 : isSelected ? "shadow-md" : "hover:brightness-110"
             }`}
           >

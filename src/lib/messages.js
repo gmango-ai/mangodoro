@@ -1,8 +1,10 @@
 import { supabase } from "../supabase";
 
-// Direct & group messaging data layer. Conversations + participants + messages
-// sit behind RLS (you only ever see your own conversations); creation goes
-// through SECURITY DEFINER RPCs (get_or_create_dm / create_group_conversation).
+// Direct / group / channel messaging data layer. DMs & groups sit behind RLS
+// (you only see conversations you participate in); channels are bound to an
+// org_team and visibility is virtual (org_team_members). Creation goes through
+// SECURITY DEFINER RPCs. The list comes from list_my_conversations(), which
+// computes each conversation's org scope server-side.
 
 export async function getOrCreateDm(otherUserId) {
   const { data, error } = await supabase.rpc("get_or_create_dm", { p_other: otherUserId });
@@ -14,15 +16,55 @@ export async function createGroupConversation(title, userIds) {
   return { id: data || null, error };
 }
 
-// My conversations + their participants (RLS scopes both), combined into a list
-// with the other participants and an unread flag. `userId` = the current user.
+// Admin / org_team lead: create a channel bound to an org_team (Phase 2 RPC).
+export async function createOrgTeamChannel(orgTeamId, title) {
+  const { data, error } = await supabase.rpc("create_org_team_channel", {
+    p_org_team_id: orgTeamId,
+    p_title: title || null,
+  });
+  return { id: data || null, error };
+}
+
+const isUnread = (lastMessageAt, lastReadAt) =>
+  !!lastMessageAt && (!lastReadAt || new Date(lastMessageAt) > new Date(lastReadAt));
+
+// My conversations + computed org scope, in one round-trip. Falls back to the
+// legacy table reads if the RPC isn't on the (shared) DB yet, so the client is
+// safe to deploy before the migration applies — the page's roster filter keeps
+// the active-org inbox correct in the meantime.
 export async function listConversations(userId) {
+  const { data, error } = await supabase.rpc("list_my_conversations");
+  if (!error && Array.isArray(data)) {
+    return data.map((c) => ({
+      id: c.id,
+      kind: c.kind || (c.is_group ? "group" : "dm"),
+      is_group: c.kind === "group",            // legacy field, kept until Phase 3 reads use kind
+      title: c.title,
+      last_message_at: c.last_message_at,
+      last_read_at: c.last_read_at,
+      participant_ids: c.participant_ids || [],
+      org_team_id: c.org_team_id || null,
+      org_team_color: c.org_team_color || null,
+      org_ids: c.org_ids || [],
+      pinned_at: c.pinned_at || null,
+      muted_at: c.muted_at || null,
+      topic: c.topic || null,
+      post_policy: c.post_policy || "all",
+      unread: isUnread(c.last_message_at, c.last_read_at) && !c.muted_at,
+    }));
+  }
+  return listConversationsLegacy(userId);
+}
+
+// Pre-Phase-1 behavior: raw table reads (RLS scopes both). org_ids is empty
+// here; the page filters by the active-org roster instead.
+async function listConversationsLegacy(userId) {
   const [{ data: convos }, { data: parts }] = await Promise.all([
-    supabase.from("conversations").select("id, is_group, title, last_message_at, created_by").order("last_message_at", { ascending: false }),
+    supabase.from("conversations").select("id, is_group, kind, title, last_message_at, created_by").order("last_message_at", { ascending: false }),
     supabase.from("conversation_participants").select("conversation_id, user_id, last_read_at"),
   ]);
-  const myRead = new Map();   // conversation_id -> my last_read_at
-  const others = new Map();   // conversation_id -> [other user_id]
+  const myRead = new Map();
+  const others = new Map();
   for (const p of parts || []) {
     if (p.user_id === userId) myRead.set(p.conversation_id, p.last_read_at);
     else { const a = others.get(p.conversation_id) || []; a.push(p.user_id); others.set(p.conversation_id, a); }
@@ -31,12 +73,21 @@ export async function listConversations(userId) {
     const lastRead = myRead.get(c.id);
     return {
       id: c.id,
+      kind: c.kind || (c.is_group ? "group" : "dm"),
       is_group: c.is_group,
       title: c.title,
       created_by: c.created_by,
       last_message_at: c.last_message_at,
+      last_read_at: lastRead,
       participant_ids: others.get(c.id) || [],
-      unread: !!c.last_message_at && (!lastRead || new Date(c.last_message_at) > new Date(lastRead)),
+      org_team_id: null,
+      org_team_color: null,
+      org_ids: [],
+      pinned_at: null,
+      muted_at: null,
+      topic: null,
+      post_policy: "all",
+      unread: isUnread(c.last_message_at, lastRead),
     };
   });
 }
@@ -52,21 +103,136 @@ export async function listMessages(conversationId, limit = 80) {
   return data || [];
 }
 
-export async function sendMessage(conversationId, body, userId) {
+export async function sendMessage(conversationId, body, userId, kind = "dm") {
   const { data, error } = await supabase
     .from("dm_messages")
     .insert({ conversation_id: conversationId, sender_id: userId, body })
     .select()
     .single();
-  if (!error) markConversationRead(conversationId, userId); // my own send shouldn't read as unread
+  if (!error) markConversationRead(conversationId, userId, kind); // my own send shouldn't read as unread
   return { message: data || null, error };
 }
 
-export async function markConversationRead(conversationId, userId) {
+// Edit / soft-delete (RLS: sender only).
+export async function editMessage(messageId, body) {
+  const { data, error } = await supabase
+    .from("dm_messages")
+    .update({ body, edited_at: new Date().toISOString() })
+    .eq("id", messageId)
+    .select()
+    .single();
+  return { message: data || null, error };
+}
+
+export async function deleteMessage(messageId) {
+  const { error } = await supabase
+    .from("dm_messages")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", messageId);
+  return { error };
+}
+
+// Read cursor: channels keep theirs in channel_read_state (virtual membership
+// means no conversation_participants row to update); dm/group use the
+// participant row.
+export async function markConversationRead(conversationId, userId, kind = "dm") {
   if (!conversationId || !userId) return;
+  const now = new Date().toISOString();
+  if (kind === "channel") {
+    await supabase
+      .from("channel_read_state")
+      .upsert({ conversation_id: conversationId, user_id: userId, last_read_at: now }, { onConflict: "conversation_id,user_id" });
+    return;
+  }
   await supabase
     .from("conversation_participants")
-    .update({ last_read_at: new Date().toISOString() })
+    .update({ last_read_at: now })
     .eq("conversation_id", conversationId)
     .eq("user_id", userId);
+}
+
+// ── Reactions (Phase 5) ──
+export async function listReactions(messageIds, userId) {
+  if (!messageIds || messageIds.length === 0) return new Map();
+  const { data } = await supabase
+    .from("dm_message_reactions")
+    .select("message_id, user_id, emoji")
+    .in("message_id", messageIds);
+  // message_id -> emoji -> { count, mine }
+  const byMessage = new Map();
+  for (const r of data || []) {
+    const m = byMessage.get(r.message_id) || new Map();
+    const cur = m.get(r.emoji) || { count: 0, mine: false };
+    cur.count += 1;
+    if (r.user_id === userId) cur.mine = true;
+    m.set(r.emoji, cur);
+    byMessage.set(r.message_id, m);
+  }
+  return byMessage;
+}
+
+export async function toggleReaction(messageId, emoji, userId, mine) {
+  if (!messageId || !emoji || !userId) return { error: null };
+  if (mine) {
+    const { error } = await supabase
+      .from("dm_message_reactions")
+      .delete()
+      .eq("message_id", messageId)
+      .eq("user_id", userId)
+      .eq("emoji", emoji);
+    return { error };
+  }
+  const { error } = await supabase
+    .from("dm_message_reactions")
+    .insert({ message_id: messageId, user_id: userId, emoji });
+  return { error };
+}
+
+// ── Read marks / seen-by (Phase 6) ──
+export async function listReadMarks(conversationId) {
+  const { data, error } = await supabase.rpc("conversation_read_marks", { p_conversation_id: conversationId });
+  if (error) return [];
+  return data || []; // [{ user_id, last_read_at }]
+}
+
+// ── Pin / mute (Phase 8) ──
+export async function setConversationPinned(conversationId, userId, pinned, kind = "dm") {
+  const at = pinned ? new Date().toISOString() : null;
+  if (kind === "channel") {
+    await supabase
+      .from("channel_read_state")
+      .upsert({ conversation_id: conversationId, user_id: userId, pinned_at: at }, { onConflict: "conversation_id,user_id" });
+    return;
+  }
+  await supabase
+    .from("conversation_participants")
+    .update({ pinned_at: at })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId);
+}
+
+export async function setConversationMuted(conversationId, userId, muted, kind = "dm") {
+  const at = muted ? new Date().toISOString() : null;
+  if (kind === "channel") {
+    await supabase
+      .from("channel_read_state")
+      .upsert({ conversation_id: conversationId, user_id: userId, muted_at: at }, { onConflict: "conversation_id,user_id" });
+    return;
+  }
+  await supabase
+    .from("conversation_participants")
+    .update({ muted_at: at })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId);
+}
+
+// ── Channel admin (Phase 9) ──
+export async function setChannelMeta(conversationId, { title, topic, postPolicy }) {
+  const { error } = await supabase.rpc("set_channel_meta", {
+    p_conversation_id: conversationId,
+    p_title: title ?? null,
+    p_topic: topic ?? null,
+    p_post_policy: postPolicy ?? null,
+  });
+  return { error };
 }

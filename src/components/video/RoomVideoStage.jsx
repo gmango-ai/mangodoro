@@ -676,19 +676,6 @@ export default function RoomVideoStage({ roomId, displayName }) {
     return () => setStageEl(null);
   }, [inCall, setStageEl]);
 
-  // `dismissed` (set when you Stop watching) stops us immediately re-spectating;
-  // it resets when you move to another room so re-entering previews again.
-  const [dismissed, setDismissed] = useState(false);
-  const autoRef = useRef(false);
-  const wasInCallRef = useRef(false);
-  useEffect(() => { setDismissed(false); autoRef.current = false; }, [roomId]);
-
-  // If a spectate session ends without "Stop watching", allow auto-preview to retry.
-  useEffect(() => {
-    if (wasInCallRef.current && !inCall && !dismissed) autoRef.current = false;
-    wasInCallRef.current = inCall;
-  }, [inCall, dismissed]);
-
   // Spectators announce as "observe" so they don't show up as participants
   // in the room's call-presence; publishers announce as "join".
   const observed = useRoomCallPresence({
@@ -700,18 +687,12 @@ export default function RoomVideoStage({ roomId, displayName }) {
   const join = (choices) => startCall(roomId, displayName, { mode: "join", choices });
   const watch = () => startCall(roomId, displayName, { mode: "spectate" });
 
-  // Auto-preview: when others are already in the call, drop straight into a live
-  // subscribe-only spectate so you SEE the room before deciding, instead of a
-  // static card. SILENT by default (listen:false) — auto-playing the call audio
-  // the moment you walk up risks an in-room feedback loop (your speaker replaying
-  // the call into a nearby participant's mic). Tap Listen in the dock to hear.
-  // `autoRef` fires it once per room visit; `dismissed` respects "Stop watching".
-  useEffect(() => {
-    if (othersInCall && !inCall && !inAnotherCall && !dismissed && !autoRef.current) {
-      autoRef.current = true;
-      startCall(roomId, displayName, { mode: "spectate", listen: false });
-    }
-  }, [othersInCall, inCall, inAnotherCall, dismissed, roomId, displayName, startCall]);
+  // Watching/joining is OPT-IN: we never auto-connect to LiveKit just because
+  // someone else is in the room's call. The "N in a call" count comes free from
+  // Supabase presence (above) — a LiveKit connection starts ONLY when the user
+  // clicks Watch or Join below. (Auto-spectate used to connect every passive
+  // viewer; each connect fanned across every LiveKit region and 429-stormed the
+  // free tier, which dropped real calls. See the static card render below.)
 
   // ── In the call ──────────────────────────────────────────────
   // The persistent call (LiveKitCall) portals INTO stageRef. stageRef ALWAYS
@@ -732,7 +713,7 @@ export default function RoomVideoStage({ roomId, displayName }) {
             listen={call?.listen === true}
             onToggleListen={() => updateCall({ listen: !(call?.listen === true) })}
             onJoin={(choices) => updateCall({ mode: "join", choices })}
-            onLeave={() => { setDismissed(true); endCall(); }}
+            onLeave={() => endCall()}
           />
         )}
       </div>
@@ -752,18 +733,10 @@ export default function RoomVideoStage({ roomId, displayName }) {
   // The auto-preview effect drops you straight into a live (muted) spectate so
   // you SEE the call the moment you walk up. While that connects, show a neutral
   // fill rather than flashing a card for a frame.
-  if (othersInCall && !dismissed) {
-    return (
-      <div className={`${shellCls} items-center justify-center`}>
-        <span className="text-white/55 text-sm font-medium">Connecting preview…</span>
-      </div>
-    );
-  }
-
-  // ── You stopped watching, but a call is still running ────────
-  // A compact rejoin card (not the full lobby) — peek at who's in, then Join or
-  // watch again.
-  if (othersInCall && dismissed) {
+  // ── Others are in the call ───────────────────────────────────
+  // Opt-in card (no auto-connect): peek at who's in via presence, then Watch
+  // (subscribe-only) or Join. A LiveKit connection starts only on click.
+  if (othersInCall) {
     return (
       <div className={`${shellCls} items-center justify-center text-center px-6`}>
         <div className="flex items-center gap-2 mb-3">
@@ -782,7 +755,7 @@ export default function RoomVideoStage({ roomId, displayName }) {
             onClick={watch}
             className="rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
           >
-            <Eye className="w-4 h-4 mr-1.5" /> Watch again
+            <Eye className="w-4 h-4 mr-1.5" /> Watch
           </Button>
           <Button
             onClick={() => join({ videoEnabled: false, audioEnabled: true })}
