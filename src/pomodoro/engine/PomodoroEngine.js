@@ -350,6 +350,7 @@ export class PomodoroEngine {
   _applyFollowerSnapshot(snapshot) {
     if (!snapshot || typeof snapshot !== "object") return;
     const prevMode = this._state.mode;
+    const prevPending = this._state.pendingMode;
     const prevPhase = this._phaseFingerprint();
     const prevEndsAt = this._refs.endsAtMsRef.current;
     this._refs.completionHandledRef.current = null;
@@ -385,6 +386,7 @@ export class PomodoroEngine {
         prevMode,
         this._state.mode,
         this._state.pendingMode,
+        prevPending,
       );
       if (event) {
         void this._tryPlayPhaseAlarm(event, phaseAlarmKey(prevPhase, event), {
@@ -456,12 +458,13 @@ export class PomodoroEngine {
     if (result.action === "skip") return;
 
     const prevMode = this._state.mode;
+    const prevPending = this._state.pendingMode;
     const prevEndsAt = this._refs.endsAtMsRef.current;
     this._applyPatch(result.patch);
     this._mergeRowPreferences(row);
 
     if (this._deps.syncSession?.id && prevPhase !== this._phaseFingerprint()) {
-      this._maybePlaySyncPhaseSound(prevMode, prevPhase, prevEndsAt);
+      this._maybePlaySyncPhaseSound(prevMode, prevPhase, prevEndsAt, prevPending);
     }
   }
 
@@ -555,7 +558,7 @@ export class PomodoroEngine {
     if (Object.keys(patch).length) this._patchState(patch);
   }
 
-  _maybePlaySyncPhaseSound(prevMode, prevPhase, prevEndsAt) {
+  _maybePlaySyncPhaseSound(prevMode, prevPhase, prevEndsAt, prevPending = null) {
     if (!this._deps.syncSession) return;
     // Only ring on a real completion — not when the controller manually
     // switched modes (the previous phase's deadline was still in the future).
@@ -564,6 +567,7 @@ export class PomodoroEngine {
       prevMode,
       this._state.mode,
       this._state.pendingMode,
+      prevPending,
     );
     if (!event) return;
     void this._tryPlayPhaseAlarm(event, phaseAlarmKey(prevPhase, event), {
