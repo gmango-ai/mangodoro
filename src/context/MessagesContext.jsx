@@ -1,12 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
-import { listConversations, getOrCreateDm, createGroupConversation, markConversationRead } from "../lib/messages";
+import { useTeamOptional } from "./TeamContext";
+import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead } from "../lib/messages";
 
-// Direct/group messaging — in-app layer. One realtime channel on dm_messages
-// (RLS scopes delivery to my conversations) drives the conversation list +
-// unread badge, and streams new messages to whatever thread is open. Mirrors
-// NotificationContext's shape.
+// Direct / group / channel messaging — in-app layer. One realtime channel on
+// dm_messages (RLS scopes delivery to my conversations + my channels) drives
+// the list + unread badges and streams new messages to whatever thread is open.
+// A second listener on dm_message_reactions keeps reaction counts live.
+//
+// Org scope is computed in list_my_conversations() and returned as org_ids per
+// row. `activeConversations` is the active org's inbox; `unread` is global (so
+// the nav dot means "any org has unread"); `unreadByOrg` powers the per-org
+// switcher counts.
 
 const MessagesContext = createContext(null);
 export const useMessages = () => useContext(MessagesContext) || {};
@@ -14,8 +20,14 @@ export const useMessages = () => useContext(MessagesContext) || {};
 export function MessagesProvider({ children }) {
   const { session } = useApp();
   const userId = session?.user?.id;
+  // useTeamOptional so the provider still mounts in contexts without a full
+  // TeamProvider (e.g. the kiosk); falls back to an unscoped inbox there.
+  const team = useTeamOptional() || {};
+  const activeTeamId = team.activeTeamId || null;
+  const teamMembers = team.teamMembers || [];
   const [conversations, setConversations] = useState([]);
   const msgListeners = useRef(new Set());
+  const reactionListeners = useRef(new Set());
   const reloadTimer = useRef(null);
 
   const reload = useCallback(async () => {
@@ -33,6 +45,9 @@ export function MessagesProvider({ children }) {
         if (reloadTimer.current) clearTimeout(reloadTimer.current);
         reloadTimer.current = setTimeout(reload, 250);
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "dm_message_reactions" }, (payload) => {
+        for (const fn of reactionListeners.current) { try { fn(payload); } catch { /* */ } }
+      })
       .subscribe();
     return () => {
       try { supabase.removeChannel(channel); } catch { /* */ }
@@ -40,7 +55,34 @@ export function MessagesProvider({ children }) {
     };
   }, [userId, reload]);
 
+  const memberIds = useMemo(() => new Set(teamMembers.map((m) => m.user_id)), [teamMembers]);
+
+  // Active-org inbox. Channels scope by org_ids (their org_team's org); dm/group
+  // by the roster rule — "every other participant is in the active org" — which
+  // is exactly `activeTeamId ∈ org_ids` and also works in the legacy fallback
+  // where org_ids is empty.
+  const activeConversations = useMemo(() => {
+    return conversations.filter((c) =>
+      c.kind === "channel"
+        ? (c.org_ids || []).includes(activeTeamId)
+        : c.participant_ids.every((id) => memberIds.has(id)),
+    );
+  }, [conversations, memberIds, activeTeamId]);
+
+  // Global: any org with unread (drives the nav dot). Muted convos already drop
+  // their unread flag in listConversations.
   const unread = useMemo(() => conversations.filter((c) => c.unread).length, [conversations]);
+
+  // Per-org unread counts for the OrgSwitcher. Needs org_ids (RPC path); empty
+  // in the legacy fallback until the migration applies.
+  const unreadByOrg = useMemo(() => {
+    const m = new Map();
+    for (const c of conversations) {
+      if (!c.unread) continue;
+      for (const oid of c.org_ids || []) m.set(oid, (m.get(oid) || 0) + 1);
+    }
+    return m;
+  }, [conversations]);
 
   const startDm = useCallback(async (otherId) => {
     const { id } = await getOrCreateDm(otherId);
@@ -54,18 +96,31 @@ export function MessagesProvider({ children }) {
     return id;
   }, [reload]);
 
-  const markRead = useCallback(async (convId) => {
+  const createChannel = useCallback(async (orgTeamId, title) => {
+    const { id } = await createOrgTeamChannel(orgTeamId, title);
+    if (id) await reload();
+    return id;
+  }, [reload]);
+
+  const markRead = useCallback(async (convId, kind = "dm") => {
     if (!userId || !convId) return;
     setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, unread: false } : c)));
-    await markConversationRead(convId, userId);
+    await markConversationRead(convId, userId, kind);
   }, [userId]);
 
-  // The open thread registers here to receive new messages live.
+  // The open thread registers here to receive new messages / reaction changes live.
   const subscribeMessages = useCallback((fn) => {
     msgListeners.current.add(fn);
     return () => msgListeners.current.delete(fn);
   }, []);
+  const subscribeReactions = useCallback((fn) => {
+    reactionListeners.current.add(fn);
+    return () => reactionListeners.current.delete(fn);
+  }, []);
 
-  const value = { conversations, unread, reload, startDm, createGroup, markRead, subscribeMessages };
+  const value = {
+    conversations, activeConversations, unread, unreadByOrg, reload,
+    startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions,
+  };
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;
 }

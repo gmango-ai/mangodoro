@@ -1,179 +1,773 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
-import { Send, Plus, ArrowLeft, Users, MessageSquare } from "lucide-react";
+import Markdown from "react-markdown";
+import {
+  Send, Plus, ArrowLeft, Users, MessageSquare, Hash, Search, Paperclip, X,
+  SmilePlus, Pencil, Trash2, Pin, PinOff, Bell, BellOff, Megaphone, Settings2, Download,
+} from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useMessages } from "../context/MessagesContext";
 import { useTheme } from "../context/ThemeContext";
 import UserAvatar from "../components/UserAvatar";
-import { listMessages, sendMessage } from "../lib/messages";
+import { EMOTES } from "../components/emotes/presets";
+import {
+  listMessages, sendMessage, editMessage, deleteMessage,
+  listReactions, toggleReaction, listReadMarks, setChannelMeta,
+  setConversationPinned, setConversationMuted,
+} from "../lib/messages";
+import { attachToMessage, listAttachments, isImage } from "../lib/messageAttachments";
+import { emitMention } from "../lib/notifications";
+import { supabase } from "../supabase";
 
-function timeShort(ts) {
+// Quick-reaction set for the picker (presets + a few common extras, deduped).
+const QUICK_REACTIONS = [...new Set([...EMOTES.map((e) => e.glyph), "😂", "😮", "😢", "🙏", "👀", "✅"])];
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
+
+function clockTime(ts) {
+  if (!ts) return "";
+  return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+function listStamp(ts) {
   if (!ts) return "";
   const d = new Date(ts);
   const today = new Date();
   if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const days = Math.round((today - d) / 86400000);
+  if (days < 7) return d.toLocaleDateString([], { weekday: "short" });
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+function dayLabel(ts) {
+  const d = new Date(ts);
+  const today = new Date();
+  const y = new Date(today); y.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === y.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+}
+const fmtBytes = (n) => {
+  if (!n) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+};
+
+// ── light markdown body (bold/italic/code/links) ──
+function Body({ text, className = "" }) {
+  return (
+    <div className={`text-sm leading-relaxed whitespace-pre-wrap break-words [&_a]:text-[var(--color-accent)] [&_a]:underline [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:bg-black/10 [&_code]:text-[0.85em] [&_p]:m-0 [&_ul]:my-1 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-1 [&_ol]:pl-4 [&_ol]:list-decimal ${className}`}>
+      <Markdown components={{ a: ({ node, ...p }) => <a {...p} target="_blank" rel="noopener noreferrer" /> }}>
+        {text || ""}
+      </Markdown>
+    </div>
+  );
+}
+
+// ── viewport-aware emoji picker (portal so nothing clips it) ──
+function EmojiPopover({ anchor, onPick, onClose, dark }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!anchor) return;
+    const r = anchor.getBoundingClientRect();
+    const W = 296, H = 46, M = 8;
+    let left = Math.min(r.left, window.innerWidth - W - M);
+    left = Math.max(M, left);
+    let top = r.top - H - 6;
+    if (top < M) top = r.bottom + 6;
+    setPos({ top, left });
+  }, [anchor]);
+
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [onClose]);
+
+  if (!pos) return null;
+  return createPortal(
+    <div
+      ref={ref}
+      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 70 }}
+      className={`flex items-center gap-0.5 rounded-full border px-1.5 py-1 shadow-xl ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
+    >
+      {QUICK_REACTIONS.map((g) => (
+        <button key={g} type="button" onClick={() => onPick(g)} className="w-8 h-8 rounded-full text-lg leading-none hover:bg-slate-500/15 transition-transform hover:scale-110">
+          {g}
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
+// ── full-screen image lightbox ──
+function Lightbox({ url, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  if (!url) return null;
+  return createPortal(
+    <div onClick={onClose} className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm">
+      <button type="button" onClick={onClose} aria-label="Close" className="absolute top-4 right-4 text-white/80 hover:text-white"><X className="w-6 h-6" /></button>
+      <img src={url} alt="" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full rounded-lg object-contain shadow-2xl" />
+    </div>,
+    document.body,
+  );
+}
+
+// ── reaction pills under a message ──
+function ReactionPills({ reactions, onToggle, onAdd, dark }) {
+  const entries = reactions ? [...reactions.entries()] : [];
+  if (entries.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1 flex-wrap mt-1">
+      {entries.map(([emoji, { count, mine }]) => (
+        <button
+          key={emoji}
+          type="button"
+          onClick={() => onToggle(emoji, mine)}
+          className={`inline-flex items-center gap-1 px-1.5 h-6 rounded-full text-[12px] border transition-colors ${
+            mine ? "bg-[var(--color-accent-light)] border-[var(--color-accent)] text-[var(--color-accent)] font-semibold"
+                 : dark ? "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10" : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          <span className="text-sm leading-none">{emoji}</span><span>{count}</span>
+        </button>
+      ))}
+      <button type="button" onClick={(e) => onAdd(e.currentTarget)} aria-label="Add reaction"
+        className={`inline-flex items-center justify-center w-6 h-6 rounded-full border ${dark ? "border-white/10 text-slate-400 hover:bg-white/10" : "border-slate-200 text-slate-400 hover:bg-slate-100"}`}>
+        <SmilePlus className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// ── attachment rendering: images inline (no filename), files as cards ──
+function Attachments({ items, onOpenImage, dark }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2 mt-1.5">
+      {items.map((a) => (
+        isImage(a.mime) ? (
+          <button key={a.id} type="button" onClick={() => onOpenImage(a.url)} className="block overflow-hidden rounded-xl border border-black/5 hover:opacity-95 transition-opacity">
+            <img src={a.url} alt="" loading="lazy" className="max-h-72 max-w-[min(20rem,100%)] object-cover" />
+          </button>
+        ) : (
+          <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer"
+            className={`inline-flex items-center gap-2.5 rounded-xl border px-3 py-2 max-w-xs ${dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)] hover:bg-white/5" : "border-slate-200 bg-slate-50 hover:bg-slate-100"}`}>
+            <span className="w-9 h-9 rounded-lg bg-[var(--color-accent-light)] text-[var(--color-accent)] flex items-center justify-center shrink-0"><Paperclip className="w-4 h-4" /></span>
+            <span className="min-w-0">
+              <span className={`block text-sm font-medium truncate ${dark ? "text-slate-200" : "text-slate-700"}`}>{a.name || "Attachment"}</span>
+              <span className="block text-[11px] text-slate-400">{fmtBytes(a.bytes)}</span>
+            </span>
+            <Download className="w-4 h-4 text-slate-400 shrink-0" />
+          </a>
+        )
+      ))}
+    </div>
+  );
+}
+
+// ── composer (mentions + attachments + image thumbnails) ──
+function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message…", disabled }) {
+  const [draft, setDraft] = useState("");
+  const [files, setFiles] = useState([]);
+  const [mentionQ, setMentionQ] = useState(null);
+  const taRef = useRef(null);
+  const fileRef = useRef(null);
+  const filesRef = useRef(files);
+
+  const matches = useMemo(() => {
+    if (mentionQ == null) return [];
+    const q = mentionQ.toLowerCase();
+    return candidates.filter((m) => (m.name || "").toLowerCase().includes(q)).slice(0, 6);
+  }, [mentionQ, candidates]);
+
+  useEffect(() => {
+    filesRef.current.forEach((f) => {
+      if (f._url && !files.includes(f)) URL.revokeObjectURL(f._url);
+    });
+    filesRef.current = files;
+  }, [files]);
+
+  useEffect(() => () => filesRef.current.forEach((f) => f._url && URL.revokeObjectURL(f._url)), []);
+
+  const grow = (el) => { if (el) { el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 160)}px`; } };
+
+  const onChange = (e) => {
+    setDraft(e.target.value);
+    grow(e.target);
+    const upto = e.target.value.slice(0, e.target.selectionStart);
+    const m = upto.match(/@([\w]*)$/);
+    setMentionQ(m ? m[1] : null);
+    onTyping?.();
+  };
+
+  const pickMention = (member) => {
+    const ta = taRef.current;
+    const pos = ta ? ta.selectionStart : draft.length;
+    const before = draft.slice(0, pos).replace(/@([\w]*)$/, `@${(member.name || "").replace(/\s+/g, "")} `);
+    setDraft(before + draft.slice(pos));
+    setMentionQ(null);
+    setTimeout(() => ta?.focus(), 0);
+  };
+
+  const addFiles = (list) => setFiles((p) => [...p, ...Array.from(list).map((f) => Object.assign(f, { _url: f.type?.startsWith("image/") ? URL.createObjectURL(f) : null }))]);
+
+  const submit = async () => {
+    const body = draft.trim();
+    if (!body && files.length === 0) return;
+    setDraft(""); setFiles([]); setMentionQ(null);
+    if (taRef.current) taRef.current.style.height = "auto";
+    await onSend(body, files);
+  };
+
+  if (disabled) {
+    return <div className={`shrink-0 border-t px-4 py-3.5 text-center text-[13px] ${dark ? "border-[var(--color-border)] text-slate-500" : "border-slate-200 text-slate-400"}`}>{placeholder}</div>;
+  }
+
+  return (
+    <div className={`shrink-0 border-t p-3 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+      {files.length > 0 && (
+        <div className="flex gap-2 flex-wrap mb-2">
+          {files.map((f, i) => (
+            <div key={i} className="relative group/att">
+              {f._url
+                ? <img src={f._url} alt="" className="w-16 h-16 object-cover rounded-lg border border-black/10" />
+                : <div className={`w-16 h-16 rounded-lg border flex flex-col items-center justify-center gap-1 ${dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "border-slate-200 bg-slate-50"}`}>
+                    <Paperclip className="w-4 h-4 text-slate-400" /><span className="text-[8px] px-1 truncate max-w-full text-slate-400">{f.name}</span>
+                  </div>}
+              <button type="button" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} aria-label="Remove"
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center shadow"><X className="w-3 h-3" /></button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className={`relative flex items-end gap-1.5 rounded-2xl border px-1.5 py-1 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+        {matches.length > 0 && (
+          <div className={`absolute bottom-full left-0 mb-2 w-64 max-h-52 overflow-y-auto rounded-xl border shadow-lg z-30 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+            {matches.map((m) => (
+              <button key={m.user_id} type="button" onClick={() => pickMention(m)} className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm ${dark ? "hover:bg-white/5 text-slate-200" : "hover:bg-slate-50 text-slate-700"}`}>
+                <UserAvatar url={m.avatar_url || ""} name={m.name || "Member"} size={24} />{m.name || "Member"}
+              </button>
+            ))}
+          </div>
+        )}
+        <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files || []); e.target.value = ""; }} />
+        <button type="button" onClick={() => fileRef.current?.click()} aria-label="Attach"
+          className={`shrink-0 w-9 h-9 rounded-xl inline-flex items-center justify-center ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+          <Paperclip className="w-[18px] h-[18px]" />
+        </button>
+        <textarea
+          ref={taRef}
+          value={draft}
+          onChange={onChange}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && mentionQ == null) { e.preventDefault(); submit(); } }}
+          rows={1}
+          placeholder={placeholder}
+          className={`flex-1 resize-none bg-transparent py-2 text-sm outline-none max-h-40 ${dark ? "text-slate-100 placeholder:text-slate-500" : "text-slate-800 placeholder:text-slate-400"}`}
+        />
+        <button type="button" onClick={submit} disabled={!draft.trim() && files.length === 0} aria-label="Send"
+          className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-xl bg-[var(--color-accent)] text-white disabled:opacity-30 transition-opacity">
+          <Send className="w-[18px] h-[18px]" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── conversation header ──
+function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggleSettings, dark }) {
+  const kind = conversation?.kind || (conversation?.is_group ? "group" : "dm");
+  const first = memberById.get(conversation?.participant_ids?.[0]);
+  return (
+    <div className={`flex items-center gap-3 px-3 sm:px-4 h-14 shrink-0 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+      <button type="button" onClick={onBack} className={`md:hidden p-1.5 -ml-1 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Back">
+        <ArrowLeft className="w-5 h-5" />
+      </button>
+      {kind === "channel" ? (
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${conversation?.org_team_color || "#14b8a6"}22`, color: conversation?.org_team_color || "#14b8a6" }}><Hash className="w-4 h-4" /></span>
+      ) : kind === "group" ? (
+        <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
+      ) : (
+        <UserAvatar url={first?.avatar_url || ""} name={first?.name || name} size={36} />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className={`text-[15px] font-bold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>{name}</span>
+          {conversation?.post_policy === "admins" && <Megaphone className="w-3.5 h-3.5 text-amber-500 shrink-0" aria-label="Announcement channel" />}
+        </div>
+        {kind === "channel" && conversation?.topic && <span className={`block text-[12px] truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>{conversation.topic}</span>}
+      </div>
+      {canManage && (
+        <button type="button" onClick={onToggleSettings} aria-label="Channel settings" className={`p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+          <Settings2 className="w-[18px] h-[18px]" />
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ── Open conversation ──
-function Thread({ conversation, name, memberById, userId, onBack, markRead, subscribeMessages, dark }) {
+function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, markRead, subscribeMessages, subscribeReactions, onChannelMetaSaved, dark }) {
   const convId = conversation?.id;
+  const kind = conversation?.kind || (conversation?.is_group ? "group" : "dm");
+  const isChannel = kind === "channel";
+  const showAuthors = kind === "group" || isChannel;
+  const canManageChannel = isChannel && (isAdmin || myOrgTeamLeadIds?.has(conversation?.org_team_id));
   const [messages, setMessages] = useState([]);
-  const [draft, setDraft] = useState("");
+  const [reactions, setReactions] = useState(new Map());
+  const [attachments, setAttachments] = useState(new Map());
+  const [readMarks, setReadMarks] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [typers, setTypers] = useState([]);
+  const [showSettings, setShowSettings] = useState(false);
+  const [emoji, setEmoji] = useState(null);   // { messageId, anchor }
+  const [lightbox, setLightbox] = useState(null);
   const scrollRef = useRef(null);
+  const presenceRef = useRef(null);
+
+  const refreshSidecars = useCallback(async (msgs) => {
+    const ids = msgs.map((m) => m.id);
+    const [rx, at] = await Promise.all([listReactions(ids, userId), listAttachments(ids)]);
+    setReactions(rx); setAttachments(at);
+  }, [userId]);
 
   useEffect(() => {
     if (!convId) return;
-    listMessages(convId).then(setMessages);
-    markRead(convId);
-  }, [convId, markRead]);
+    let alive = true;
+    setMessages([]); setReactions(new Map()); setAttachments(new Map()); setShowSettings(false);
+    listMessages(convId).then((msgs) => { if (alive) { setMessages(msgs); refreshSidecars(msgs); } });
+    listReadMarks(convId).then((m) => alive && setReadMarks(m));
+    markRead(convId, kind);
+    return () => { alive = false; };
+  }, [convId, kind, markRead, refreshSidecars]);
 
   useEffect(() => subscribeMessages((m) => {
     if (m.conversation_id !== convId) return;
     setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-    markRead(convId);
-  }), [convId, subscribeMessages, markRead]);
+    markRead(convId, kind);
+    listReadMarks(convId).then(setReadMarks);
+  }), [convId, kind, subscribeMessages, markRead]);
+
+  useEffect(() => subscribeReactions(() => {
+    setMessages((cur) => { refreshSidecars(cur); return cur; });
+  }), [subscribeReactions, refreshSidecars]);
 
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages]);
 
-  const send = async () => {
-    const body = draft.trim();
-    if (!body || !convId) return;
-    setDraft("");
-    const { message } = await sendMessage(convId, body, userId);
-    if (message) setMessages((prev) => (prev.some((x) => x.id === message.id) ? prev : [...prev, message]));
+  // presence: typing + online
+  useEffect(() => {
+    if (!convId || !userId) return;
+    const ch = supabase.channel(`presence:conv:${convId}`, { config: { presence: { key: userId } } });
+    presenceRef.current = ch;
+    ch.on("presence", { event: "sync" }, () => {
+      const state = ch.presenceState();
+      const t = [];
+      for (const key of Object.keys(state)) {
+        if (key === userId) continue;
+        if ((state[key][0] || {}).typing) t.push({ user_id: key, name: state[key][0].name });
+      }
+      setTypers(t);
+    }).subscribe(async (status) => {
+      if (status === "SUBSCRIBED") await ch.track({ typing: false, name: memberById.get(userId)?.name || "Someone" });
+    });
+    return () => { try { supabase.removeChannel(ch); } catch { /* */ } presenceRef.current = null; };
+  }, [convId, userId, memberById]);
+
+  const typingTimer = useRef(null);
+  const signalTyping = useCallback(() => {
+    const ch = presenceRef.current;
+    if (!ch) return;
+    ch.track({ typing: true, name: memberById.get(userId)?.name || "Someone" });
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => ch.track({ typing: false, name: memberById.get(userId)?.name || "Someone" }), 2500);
+  }, [userId, memberById]);
+
+  const onSend = async (body, files) => {
+    // Body must be ≥1 char (DB constraint); for an attachment-only message send a
+    // single space and let the renderer hide whitespace-only text.
+    const hasFiles = files.length > 0;
+    const outBody = body || (hasFiles ? " " : "");
+    if (!outBody) return;
+    const { message } = await sendMessage(convId, outBody, userId, kind);
+    if (!message) return;
+    setMessages((prev) => (prev.some((x) => x.id === message.id) ? prev : [...prev, message]));
+    if (hasFiles) {
+      await Promise.all(files.map((f) => attachToMessage(f, convId, message.id)));
+      const at = await listAttachments([message.id]);
+      setAttachments((prev) => new Map([...prev, ...at]));
+    }
+    // mentions (only when there's real text)
+    if (body) {
+      const ids = new Set();
+      for (const tok of (body.match(/@([\w]+)/g) || [])) {
+        const nm = tok.slice(1).toLowerCase();
+        const hit = candidates.find((c) => (c.name || "").replace(/\s+/g, "").toLowerCase() === nm);
+        if (hit && hit.user_id !== userId) ids.add(hit.user_id);
+      }
+      for (const rid of ids) {
+        emitMention({ recipient: rid, title: `${memberById.get(userId)?.name || "Someone"} mentioned you`, body: body.slice(0, 140), payload: { route: "/messages", conversation_id: convId }, entityType: "conversation", entityId: convId });
+      }
+    }
   };
+
+  const onToggleReaction = async (messageId, glyph, mine) => {
+    setEmoji(null);
+    await toggleReaction(messageId, glyph, userId, mine);
+    setReactions(await listReactions(messages.map((m) => m.id), userId));
+  };
+
+  const saveEdit = async (messageId) => {
+    const body = editDraft.trim();
+    if (!body) { setEditing(null); return; }
+    const { message } = await editMessage(messageId, body);
+    if (message) setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, body: message.body, edited_at: message.edited_at } : m)));
+    setEditing(null);
+  };
+  const onDelete = async (messageId) => {
+    if (!window.confirm("Delete this message?")) return;
+    await deleteMessage(messageId);
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+  };
+
+  const lastMsg = messages[messages.length - 1];
+  const seenBy = useMemo(() => {
+    if (!lastMsg || lastMsg.sender_id !== userId) return [];
+    return readMarks
+      .filter((r) => r.user_id !== userId && r.last_read_at && new Date(r.last_read_at) >= new Date(lastMsg.created_at))
+      .map((r) => memberById.get(r.user_id)).filter(Boolean);
+  }, [readMarks, lastMsg, memberById, userId]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className={`flex items-center gap-2 px-3 py-2.5 border-b shrink-0 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
-        <button type="button" onClick={onBack} className={`p-1.5 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Back">
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        {conversation?.is_group ? <Users className="w-4 h-4 text-[var(--color-accent)]" /> : null}
-        <span className={`text-sm font-bold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>{name}</span>
-      </div>
+      <ConvHeader conversation={conversation} name={name} memberById={memberById} canManage={canManageChannel} onBack={onBack} onToggleSettings={() => setShowSettings((v) => !v)} dark={dark} />
 
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
+      {showSettings && canManageChannel && (
+        <ChannelSettings conversation={conversation} memberById={memberById} dark={dark} onClose={() => setShowSettings(false)} onSaved={onChannelMetaSaved} />
+      )}
+
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto py-3">
         {messages.length === 0 && (
-          <div className={`text-center text-sm py-10 ${dark ? "text-slate-500" : "text-slate-400"}`}>No messages yet — say hi.</div>
+          <div className={`text-center text-sm py-16 ${dark ? "text-slate-500" : "text-slate-400"}`}>This is the beginning of your conversation.</div>
         )}
-        {messages.map((m) => {
+        {messages.map((m, i) => {
+          const prev = messages[i - 1];
           const mine = m.sender_id === userId;
           const author = memberById.get(m.sender_id);
+          const atts = attachments.get(m.id) || [];
+          const hasText = (m.body || "").trim().length > 0;
+          const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
+          const grouped = !newDay && prev && prev.sender_id === m.sender_id && (new Date(m.created_at) - new Date(prev.created_at)) < GROUP_WINDOW_MS;
+
           return (
-            <div key={m.id} className={`flex gap-2 ${mine ? "flex-row-reverse" : ""}`}>
-              {!mine && <UserAvatar url={author?.avatar_url || ""} name={author?.name || "Member"} size={26} />}
-              <div className={`max-w-[78%] rounded-2xl px-3 py-1.5 text-sm ${
-                mine ? "bg-[var(--color-accent)] text-white"
-                : dark ? "bg-[var(--color-surface-raised)] text-slate-100" : "bg-slate-100 text-slate-800"
-              }`}>
-                {!mine && conversation?.is_group && <div className="text-[11px] font-semibold opacity-70 mb-0.5">{author?.name || "Member"}</div>}
-                <div className="whitespace-pre-wrap break-words">{m.body}</div>
-                <div className={`text-[10px] mt-0.5 ${mine ? "text-white/70" : dark ? "text-slate-500" : "text-slate-400"}`}>{timeShort(m.created_at)}</div>
+            <div key={m.id}>
+              {newDay && (
+                <div className="flex items-center gap-3 px-4 py-2">
+                  <div className={`flex-1 h-px ${dark ? "bg-white/10" : "bg-slate-200"}`} />
+                  <span className={`text-[11px] font-semibold ${dark ? "text-slate-500" : "text-slate-400"}`}>{dayLabel(m.created_at)}</span>
+                  <div className={`flex-1 h-px ${dark ? "bg-white/10" : "bg-slate-200"}`} />
+                </div>
+              )}
+              <div className={`group relative flex gap-3 px-4 ${grouped ? "mt-0.5" : "mt-3"} py-0.5 ${dark ? "hover:bg-white/[0.03]" : "hover:bg-slate-50"}`}>
+                <div className="w-9 shrink-0">
+                  {!grouped
+                    ? <UserAvatar url={author?.avatar_url || ""} name={author?.name || "Member"} size={36} />
+                    : <span className="hidden group-hover:block pt-1 text-right pr-1 text-[10px] text-slate-400 tabular-nums">{clockTime(m.created_at)}</span>}
+                </div>
+                <div className="min-w-0 flex-1">
+                  {!grouped && (
+                    <div className="flex items-baseline gap-2">
+                      <span className={`text-sm font-bold ${mine ? "text-[var(--color-accent)]" : dark ? "text-slate-100" : "text-slate-800"}`}>{mine ? "You" : (author?.name || "Member")}</span>
+                      <span className="text-[11px] text-slate-400">{clockTime(m.created_at)}</span>
+                    </div>
+                  )}
+                  {editing === m.id ? (
+                    <div className="flex flex-col gap-1.5 mt-1">
+                      <textarea value={editDraft} onChange={(e) => setEditDraft(e.target.value)} rows={2}
+                        className={`rounded-lg border px-2.5 py-1.5 text-sm ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"}`} />
+                      <div className="flex gap-3 text-[12px]">
+                        <button onClick={() => saveEdit(m.id)} className="font-semibold text-[var(--color-accent)]">Save</button>
+                        <button onClick={() => setEditing(null)} className="text-slate-400">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {hasText && <Body text={m.body} />}
+                      {m.edited_at && hasText && <span className="text-[10px] text-slate-400 ml-1">(edited)</span>}
+                      <Attachments items={atts} onOpenImage={setLightbox} dark={dark} />
+                      <ReactionPills reactions={reactions.get(m.id)} onToggle={(g, isMine) => onToggleReaction(m.id, g, isMine)} onAdd={(el) => setEmoji({ messageId: m.id, anchor: el })} dark={dark} />
+                    </>
+                  )}
+                </div>
+
+                {/* action toolbar — always visible on touch, hover-reveal on desktop */}
+                {editing !== m.id && (
+                  <div className={`absolute -top-3 right-3 flex items-center rounded-lg border shadow-sm transition-opacity opacity-100 md:opacity-0 md:group-hover:opacity-100 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+                    <button type="button" onClick={(e) => setEmoji({ messageId: m.id, anchor: e.currentTarget })} aria-label="React"
+                      className={`p-1.5 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}><SmilePlus className="w-4 h-4" /></button>
+                    {mine && <button type="button" onClick={() => { setEditing(m.id); setEditDraft(m.body); }} aria-label="Edit"
+                      className={`p-1.5 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}><Pencil className="w-4 h-4" /></button>}
+                    {mine && <button type="button" onClick={() => onDelete(m.id)} aria-label="Delete"
+                      className="p-1.5 text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
+
+        {seenBy.length > 0 && (
+          <div className="flex items-center justify-end gap-1 px-4 pt-1.5">
+            <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>Seen by</span>
+            {seenBy.slice(0, 5).map((u) => <UserAvatar key={u.user_id} url={u.avatar_url || ""} name={u.name || "Member"} size={16} />)}
+          </div>
+        )}
+        {typers.length > 0 && (
+          <div className={`px-4 pt-2 text-[12px] italic ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            {typers.map((t) => t.name || "Someone").join(", ")} {typers.length === 1 ? "is" : "are"} typing…
+          </div>
+        )}
       </div>
 
-      <div className={`flex items-end gap-2 p-2.5 border-t shrink-0 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          rows={1}
-          placeholder="Message…"
-          className={`flex-1 resize-none rounded-xl border px-3 py-2 text-sm max-h-32 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500" : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"}`}
-        />
-        <button type="button" onClick={send} disabled={!draft.trim()} aria-label="Send" className="shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-xl bg-[var(--color-accent)] text-white disabled:opacity-40">
-          <Send className="w-4 h-4" />
-        </button>
+      <Composer onSend={onSend} onTyping={signalTyping} candidates={candidates} dark={dark}
+        placeholder={conversation?.post_policy === "admins" && !canManageChannel ? "Only admins can post in this channel" : `Message ${isChannel ? "#" + (name || "channel") : name || ""}`}
+        disabled={conversation?.post_policy === "admins" && !canManageChannel} />
+
+      {emoji && <EmojiPopover anchor={emoji.anchor} dark={dark}
+        onPick={(g) => onToggleReaction(emoji.messageId, g, reactions.get(emoji.messageId)?.get(g)?.mine)}
+        onClose={() => setEmoji(null)} />}
+      <Lightbox url={lightbox} onClose={() => setLightbox(null)} />
+    </div>
+  );
+}
+
+// ── channel settings (admin/lead) ──
+function ChannelSettings({ conversation, memberById, dark, onClose, onSaved }) {
+  const [title, setTitle] = useState(conversation.title || "");
+  const [topic, setTopic] = useState(conversation.topic || "");
+  const [policy, setPolicy] = useState(conversation.post_policy || "all");
+  const [busy, setBusy] = useState(false);
+  const { teamsByUserId } = useTeam();
+  const roster = useMemo(() => {
+    const out = [];
+    for (const [uid, teams] of (teamsByUserId || new Map())) {
+      if (teams.some((t) => t.id === conversation.org_team_id)) { const m = memberById.get(uid); if (m) out.push(m); }
+    }
+    return out;
+  }, [teamsByUserId, conversation.org_team_id, memberById]);
+
+  const save = async () => {
+    setBusy(true);
+    await setChannelMeta(conversation.id, { title, topic, postPolicy: policy });
+    await onSaved?.();
+    setBusy(false);
+    onClose();
+  };
+  const inputCls = `w-full rounded-lg border px-3 py-2 text-sm ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"}`;
+  return (
+    <div className={`px-4 py-3 border-b space-y-2 ${dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "border-slate-200 bg-slate-50"}`}>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Channel name" className={inputCls} />
+      <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Topic / description" className={inputCls} />
+      <label className={`flex items-center gap-2 text-xs ${dark ? "text-slate-300" : "text-slate-700"}`}>
+        <input type="checkbox" checked={policy === "admins"} onChange={(e) => setPolicy(e.target.checked ? "admins" : "all")} />
+        Announcement channel (only admins/leads can post)
+      </label>
+      <div className="flex items-center justify-between pt-1">
+        <span className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{roster.length} members</span>
+        <div className="flex gap-3">
+          <button type="button" onClick={onClose} className="text-sm text-slate-400">Cancel</button>
+          <button type="button" onClick={save} disabled={busy} className="text-sm font-semibold text-[var(--color-accent)]">{busy ? "…" : "Save"}</button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── New message (pick teammates → DM or group) ──
-function NewMessage({ others, onCancel, onStartDm, onCreateGroup, dark }) {
+// ── New message (DM / group / channel) ──
+function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm, onCreateGroup, onCreateChannel, dark }) {
+  const [mode, setMode] = useState("people");
   const [picked, setPicked] = useState([]);
   const [title, setTitle] = useState("");
+  const [chanTeam, setChanTeam] = useState("");
+  const [chanName, setChanName] = useState("");
+  const [q, setQ] = useState("");
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const creatableTeams = orgTeams.filter((t) => leadOrAdminTeamIds.has(t.id));
+  const shown = others.filter((m) => (m.name || "").toLowerCase().includes(q.trim().toLowerCase()));
+
   const go = async () => {
+    if (mode === "channel") { if (chanTeam && chanName.trim()) await onCreateChannel(chanTeam, chanName.trim()); return; }
     if (picked.length === 0) return;
     if (picked.length === 1) await onStartDm(picked[0]);
     else await onCreateGroup(title, picked);
   };
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className={`flex items-center justify-between px-3 py-2.5 border-b shrink-0 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
-        <button type="button" onClick={onCancel} className={`p-1.5 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Back"><ArrowLeft className="w-4 h-4" /></button>
-        <span className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>New message</span>
-        <button type="button" onClick={go} disabled={picked.length === 0} className="text-sm font-semibold text-[var(--color-accent)] disabled:opacity-40">
-          {picked.length > 1 ? "Create" : "Start"}
+      <div className={`flex items-center justify-between px-4 h-14 shrink-0 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+        <button type="button" onClick={onCancel} className={`p-1.5 -ml-1 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Cancel"><X className="w-5 h-5" /></button>
+        <span className={`text-[15px] font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>New {mode === "channel" ? "channel" : "message"}</span>
+        <button type="button" onClick={go} disabled={mode === "channel" ? (!chanTeam || !chanName.trim()) : picked.length === 0} className="text-sm font-semibold text-[var(--color-accent)] disabled:opacity-40">
+          {mode === "channel" ? "Create" : picked.length > 1 ? "Create" : "Start"}
         </button>
       </div>
-      {picked.length > 1 && (
-        <div className="px-3 pt-2.5 shrink-0">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Group name (optional)" className={`w-full rounded-lg border px-3 py-2 text-sm ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500" : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"}`} />
+
+      {creatableTeams.length > 0 && (
+        <div className="flex gap-1.5 px-4 pt-3 shrink-0">
+          {[["people", "People", null], ["channel", "Channel", Hash]].map(([k, label, Icon]) => (
+            <button key={k} type="button" onClick={() => setMode(k)} className={`px-3 h-8 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5 ${mode === k ? "bg-[var(--color-accent)] text-white" : dark ? "bg-white/5 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
+              {Icon && <Icon className="w-3.5 h-3.5" />}{label}
+            </button>
+          ))}
         </div>
       )}
-      <div className="flex-1 min-h-0 overflow-y-auto p-2">
-        {others.length === 0 && <div className={`text-center text-sm py-10 ${dark ? "text-slate-500" : "text-slate-400"}`}>No teammates to message yet.</div>}
-        {others.map((m) => {
-          const on = picked.includes(m.user_id);
-          return (
-            <button key={m.user_id} type="button" onClick={() => toggle(m.user_id)} className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-left transition-colors ${on ? "bg-[var(--color-accent-light)]" : dark ? "hover:bg-white/5" : "hover:bg-slate-50"}`}>
-              <UserAvatar url={m.avatar_url || ""} name={m.name || "Member"} size={32} />
-              <span className={`flex-1 text-sm font-medium ${dark ? "text-slate-200" : "text-slate-700"}`}>{m.name || "Member"}</span>
-              <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${on ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : dark ? "border-slate-600" : "border-slate-300"}`}>
-                {on && <span className="w-2 h-2 rounded-full bg-white" />}
-              </span>
-            </button>
-          );
-        })}
+
+      {mode === "channel" ? (
+        <div className="p-4 space-y-3">
+          <select value={chanTeam} onChange={(e) => setChanTeam(e.target.value)} className={`w-full rounded-lg border px-3 py-2.5 text-sm ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"}`}>
+            <option value="">Choose a team…</option>
+            {creatableTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <div className={`flex items-center rounded-lg border px-3 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+            <Hash className="w-4 h-4 text-slate-400" />
+            <input value={chanName} onChange={(e) => setChanName(e.target.value.slice(0, 40))} placeholder="channel-name" className={`flex-1 bg-transparent px-2 py-2.5 text-sm outline-none ${dark ? "text-slate-100" : "text-slate-800"}`} />
+          </div>
+        </div>
+      ) : (
+        <>
+          {picked.length > 1 && (
+            <div className="px-4 pt-3 shrink-0">
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Group name (optional)" className={`w-full rounded-lg border px-3 py-2.5 text-sm ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500" : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"}`} />
+            </div>
+          )}
+          <div className="px-4 pt-3 shrink-0">
+            <div className={`flex items-center gap-2 rounded-lg px-3 h-9 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
+              <Search className="w-4 h-4 text-slate-400" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people" className={`flex-1 bg-transparent text-sm outline-none ${dark ? "text-slate-100 placeholder:text-slate-500" : "text-slate-800 placeholder:text-slate-400"}`} />
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto p-2">
+            {shown.length === 0 && <div className={`text-center text-sm py-10 ${dark ? "text-slate-500" : "text-slate-400"}`}>No teammates found.</div>}
+            {shown.map((m) => {
+              const on = picked.includes(m.user_id);
+              return (
+                <button key={m.user_id} type="button" onClick={() => toggle(m.user_id)} className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-left transition-colors ${on ? "bg-[var(--color-accent-light)]" : dark ? "hover:bg-white/5" : "hover:bg-slate-50"}`}>
+                  <UserAvatar url={m.avatar_url || ""} name={m.name || "Member"} size={32} />
+                  <span className={`flex-1 text-sm font-medium ${dark ? "text-slate-200" : "text-slate-700"}`}>{m.name || "Member"}</span>
+                  <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${on ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : dark ? "border-slate-600" : "border-slate-300"}`}>
+                    {on && <span className="w-2 h-2 rounded-full bg-white" />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── sidebar conversation row ──
+function Row({ c, nameOf, memberById, active, onOpen, onPin, onMute, dark }) {
+  const first = memberById.get(c.participant_ids[0]);
+  const muted = !!c.muted_at;
+  const unread = c.unread && !muted;
+  return (
+    <div className={`group relative flex items-center gap-2.5 mx-2 my-0.5 px-2.5 py-2 rounded-xl cursor-pointer transition-colors ${
+      active ? (dark ? "bg-white/10" : "bg-[var(--color-accent-light)]") : dark ? "hover:bg-white/5" : "hover:bg-slate-100"
+    }`} onClick={() => onOpen(c.id)}>
+      {c.kind === "channel" ? (
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}><Hash className="w-4 h-4" /></span>
+      ) : c.kind === "group" ? (
+        <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
+      ) : (
+        <UserAvatar url={first?.avatar_url || ""} name={first?.name || "Member"} size={36} />
+      )}
+      <span className="flex-1 min-w-0">
+        <span className={`flex items-center gap-1 text-sm truncate ${unread ? "font-bold" : "font-medium"} ${dark ? "text-slate-100" : "text-slate-800"}`}>
+          {c.pinned_at && <Pin className="w-3 h-3 opacity-50 shrink-0" />}
+          <span className="truncate">{nameOf(c)}</span>
+        </span>
+        <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{listStamp(c.last_message_at)}</span>
+      </span>
+      {/* hover actions */}
+      <div className="absolute right-2 hidden group-hover:flex items-center gap-0.5">
+        {c.kind !== "channel" && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); onPin(c); }} aria-label={c.pinned_at ? "Unpin" : "Pin"}
+            className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{c.pinned_at ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}</button>
+        )}
+        <button type="button" onClick={(e) => { e.stopPropagation(); onMute(c); }} aria-label={muted ? "Unmute" : "Mute"}
+          className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{muted ? <BellOff className="w-3.5 h-3.5" /> : <Bell className="w-3.5 h-3.5" />}</button>
+      </div>
+      {unread && <span className="group-hover:hidden w-2.5 h-2.5 rounded-full bg-[var(--color-accent)] shrink-0" />}
+    </div>
+  );
+}
+
+// ── sidebar (sectioned list) ──
+function Sidebar({ conversations, nameOf, memberById, activeId, onOpen, onNew, onPin, onMute, dark }) {
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    let list = needle ? conversations.filter((c) => nameOf(c).toLowerCase().includes(needle)) : conversations;
+    return [...list].sort((a, b) => (b.pinned_at ? 1 : 0) - (a.pinned_at ? 1 : 0));
+  }, [conversations, q, nameOf]);
+
+  const sections = [
+    { key: "channel", label: "Channels", items: filtered.filter((c) => c.kind === "channel") },
+    { key: "group", label: "Group chats", items: filtered.filter((c) => c.kind === "group") },
+    { key: "dm", label: "Direct messages", items: filtered.filter((c) => c.kind === "dm" || (!c.kind && !c.is_group)) },
+  ];
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className={`flex items-center justify-between px-4 h-14 shrink-0 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+        <span className={`text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>Messages</span>
+        <button type="button" onClick={onNew} aria-label="New message" className="inline-flex items-center gap-1.5 pl-2.5 pr-3 h-8 rounded-full bg-[var(--color-accent)] text-white text-[13px] font-semibold hover:opacity-90">
+          <Plus className="w-4 h-4" /> New
+        </button>
+      </div>
+      <div className="px-3 py-2.5 shrink-0">
+        <div className={`flex items-center gap-2 rounded-lg px-3 h-9 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
+          <Search className="w-4 h-4 text-slate-400" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search conversations" className={`flex-1 bg-transparent text-sm outline-none ${dark ? "text-slate-100 placeholder:text-slate-500" : "text-slate-800 placeholder:text-slate-400"}`} />
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto pb-3">
+        {filtered.length === 0 && (
+          <div className={`flex flex-col items-center justify-center gap-2 py-16 text-center ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            <MessageSquare className="w-7 h-7 opacity-60" />
+            <p className="text-sm">{q ? "No matches." : "No conversations yet."}</p>
+            {!q && <button type="button" onClick={onNew} className="text-[var(--color-accent)] text-sm font-semibold">Start one</button>}
+          </div>
+        )}
+        {sections.map((s) => s.items.length > 0 && (
+          <div key={s.key} className="mt-1">
+            <div className={`px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>{s.label}</div>
+            {s.items.map((c) => <Row key={c.id} c={c} nameOf={nameOf} memberById={memberById} active={c.id === activeId} onOpen={onOpen} onPin={onPin} onMute={onMute} dark={dark} />)}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// ── Conversation list ──
-function List({ conversations, nameOf, memberById, onOpen, onNew, dark }) {
+function EmptyPane({ dark, onNew }) {
   return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className={`flex items-center justify-between px-3 py-2.5 border-b shrink-0 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
-        <span className={`text-base font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>Messages</span>
-        <button type="button" onClick={onNew} className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-[var(--color-accent)] text-white text-[12px] font-semibold">
-          <Plus className="w-3.5 h-3.5" /> New
-        </button>
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {conversations.length === 0 && (
-          <div className={`flex flex-col items-center justify-center gap-2 py-16 text-center ${dark ? "text-slate-500" : "text-slate-400"}`}>
-            <MessageSquare className="w-7 h-7 opacity-60" />
-            <p className="text-sm">No conversations yet.</p>
-            <button type="button" onClick={onNew} className="text-[var(--color-accent)] text-sm font-semibold">Start one</button>
-          </div>
-        )}
-        {conversations.map((c) => {
-          const first = memberById.get(c.participant_ids[0]);
-          return (
-            <button key={c.id} type="button" onClick={() => onOpen(c.id)} className={`w-full flex items-center gap-3 px-3 py-2.5 text-left border-b last:border-b-0 transition-colors ${dark ? "hover:bg-white/5 border-[var(--color-border)]" : "hover:bg-slate-50 border-slate-100"}`}>
-              {c.is_group ? (
-                <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
-              ) : (
-                <UserAvatar url={first?.avatar_url || ""} name={first?.name || "Member"} size={36} />
-              )}
-              <span className="flex-1 min-w-0">
-                <span className={`block text-sm font-semibold truncate ${dark ? "text-slate-200" : "text-slate-800"}`}>{nameOf(c)}</span>
-                <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{timeShort(c.last_message_at)}</span>
-              </span>
-              {c.unread && <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shrink-0" />}
-            </button>
-          );
-        })}
-      </div>
+    <div className={`flex flex-col items-center justify-center h-full gap-3 text-center px-6 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${dark ? "bg-white/5" : "bg-slate-100"}`}><MessageSquare className="w-8 h-8 opacity-70" /></div>
+      <p className="text-base font-semibold">Your messages</p>
+      <p className="text-sm max-w-xs">Pick a conversation from the list, or start a new direct message or channel.</p>
+      <button type="button" onClick={onNew} className="mt-1 inline-flex items-center gap-1.5 px-4 h-9 rounded-full bg-[var(--color-accent)] text-white text-sm font-semibold"><Plus className="w-4 h-4" /> New message</button>
     </div>
   );
 }
@@ -181,8 +775,8 @@ function List({ conversations, nameOf, memberById, onOpen, onNew, dark }) {
 export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
-  const { teamMembers = [] } = useTeam();
-  const { conversations, startDm, createGroup, markRead, subscribeMessages } = useMessages();
+  const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
+  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
@@ -191,31 +785,52 @@ export default function MessagesPage() {
 
   const memberById = useMemo(() => new Map(teamMembers.map((m) => [m.user_id, m])), [teamMembers]);
   const others = useMemo(() => teamMembers.filter((m) => m.user_id !== userId), [teamMembers, userId]);
+  const leadOrAdminTeamIds = useMemo(() => (isAdmin ? new Set(orgTeams.map((t) => t.id)) : myOrgTeamLeadIds), [isAdmin, orgTeams, myOrgTeamLeadIds]);
 
   const nameOf = (c) => {
     if (!c) return "Conversation";
-    if (c.is_group) return c.title || (c.participant_ids.map((id) => memberById.get(id)?.name || "Member").join(", ") || "Group");
+    if (c.kind === "channel") return c.title || "channel";
+    if (c.kind === "group") return c.title || (c.participant_ids.map((id) => memberById.get(id)?.name || "Member").join(", ") || "Group");
     return memberById.get(c.participant_ids[0])?.name || "Member";
   };
 
-  const open = (id) => setParams(id ? { c: id } : {}, { replace: true });
-  const active = conversations.find((c) => c.id === activeId) || (activeId ? { id: activeId, is_group: false, participant_ids: [] } : null);
+  const open = (id) => { setComposing(false); setParams(id ? { c: id } : {}, { replace: true }); };
+  const active = activeConversations.find((c) => c.id === activeId) || conversations.find((c) => c.id === activeId) || (activeId ? { id: activeId, kind: "dm", participant_ids: [] } : null);
+  const showMain = composing || !!activeId;
+
+  const onPin = async (c) => { await setConversationPinned(c.id, userId, !c.pinned_at, c.kind); reload?.(); };
+  const onMute = async (c) => { await setConversationMuted(c.id, userId, !c.muted_at, c.kind); reload?.(); };
 
   return (
-    <div className={`mx-auto w-full max-w-2xl h-[calc(100dvh-3.5rem)] flex flex-col rounded-none sm:rounded-xl sm:my-3 sm:h-[calc(100dvh-5rem)] overflow-hidden sm:border ${dark ? "bg-[var(--color-surface)] sm:border-[var(--color-border)]" : "bg-white sm:border-slate-200"}`}>
-      {activeId ? (
-        <Thread conversation={active} name={nameOf(active)} memberById={memberById} userId={userId} onBack={() => open(null)} markRead={markRead} subscribeMessages={subscribeMessages} dark={dark} />
-      ) : composing ? (
-        <NewMessage
-          others={others}
-          onCancel={() => setComposing(false)}
-          onStartDm={async (id) => { const cid = await startDm(id); setComposing(false); if (cid) open(cid); }}
-          onCreateGroup={async (title, ids) => { const cid = await createGroup(title, ids); setComposing(false); if (cid) open(cid); }}
-          dark={dark}
-        />
-      ) : (
-        <List conversations={conversations} nameOf={nameOf} memberById={memberById} onOpen={open} onNew={() => setComposing(true)} dark={dark} />
-      )}
+    <div className={`mx-auto w-full max-w-6xl h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-5rem)] sm:my-3 flex overflow-hidden rounded-none sm:rounded-2xl sm:border ${dark ? "bg-[var(--color-surface)] sm:border-[var(--color-border)]" : "bg-white sm:border-slate-200"}`}>
+      {/* Sidebar — full width on mobile when nothing open; fixed column on desktop */}
+      <aside className={`${showMain ? "hidden md:flex" : "flex"} w-full md:w-[340px] md:shrink-0 flex-col md:border-r ${dark ? "md:border-[var(--color-border)]" : "md:border-slate-200"}`}>
+        <Sidebar conversations={activeConversations} nameOf={nameOf} memberById={memberById} activeId={activeId} onOpen={open} onNew={() => setComposing(true)} onPin={onPin} onMute={onMute} dark={dark} />
+      </aside>
+
+      {/* Main pane */}
+      <main className={`${showMain ? "flex" : "hidden md:flex"} flex-1 min-w-0 flex-col`}>
+        {composing ? (
+          <NewMessage
+            others={others} orgTeams={orgTeams} leadOrAdminTeamIds={leadOrAdminTeamIds}
+            onCancel={() => setComposing(false)}
+            onStartDm={async (id) => { const cid = await startDm(id); if (cid) open(cid); else setComposing(false); }}
+            onCreateGroup={async (title, ids) => { const cid = await createGroup(title, ids); if (cid) open(cid); else setComposing(false); }}
+            onCreateChannel={async (teamId, name) => { const cid = await createChannel(teamId, name); if (cid) open(cid); else setComposing(false); }}
+            dark={dark}
+          />
+        ) : activeId ? (
+          <Thread
+            key={activeId}
+            conversation={active} name={nameOf(active)} memberById={memberById} candidates={others}
+            userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
+            onBack={() => open(null)} markRead={markRead}
+            subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions} onChannelMetaSaved={reload} dark={dark}
+          />
+        ) : (
+          <EmptyPane dark={dark} onNew={() => setComposing(true)} />
+        )}
+      </main>
     </div>
   );
 }

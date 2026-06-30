@@ -1,8 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useTeam } from "../context/TeamContext";
+import { useMessages } from "../context/MessagesContext";
 import { useTheme } from "../context/ThemeContext";
 import { Check, ChevronDown, Star, Plus } from "lucide-react";
+
+// Small unread-count pill shown next to an org (per-org messaging unread).
+function UnreadPill({ count }) {
+  if (!count) return null;
+  return (
+    <span className="min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
 
 // Header chip + dropdown for picking which org the app is operating
 // against. Only renders when the user is in 2+ orgs — single-org users
@@ -13,6 +24,7 @@ import { Check, ChevronDown, Star, Plus } from "lucide-react";
 // for this session only.
 export default function OrgSwitcher({ variant = "header" }) {
   const { teams, activeTeam, activeTeamId, switchTeam, defaultTeamId, setDefaultTeam } = useTeam();
+  const { unreadByOrg } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [open, setOpen] = useState(false);
@@ -32,6 +44,10 @@ export default function OrgSwitcher({ variant = "header" }) {
 
   if (!teams || teams.length < 2) return null;
   if (!activeTeam) return null;
+
+  const orgUnread = (id) => (unreadByOrg && unreadByOrg.get ? unreadByOrg.get(id) : 0) || 0;
+  // Unread sitting in orgs the user isn't currently looking at — a hint to switch.
+  const otherOrgsUnread = teams.reduce((n, t) => (t.id === activeTeamId ? n : n + orgUnread(t.id)), 0);
 
   function handleSwitch(teamId) {
     if (teamId !== activeTeamId) switchTeam(teamId);
@@ -70,6 +86,7 @@ export default function OrgSwitcher({ variant = "header" }) {
         {defaultTeamId === activeTeamId && (
           <Star className="w-3 h-3 text-[var(--color-accent)] fill-current" aria-label="Default org" />
         )}
+        {otherOrgsUnread > 0 && <UnreadPill count={otherOrgsUnread} />}
         <ChevronDown className={`w-3.5 h-3.5 ${dark ? "text-slate-500" : "text-slate-400"}`} aria-hidden />
       </button>
 
@@ -95,6 +112,7 @@ export default function OrgSwitcher({ variant = "header" }) {
               >
                 <TeamIcon team={t} size={20} />
                 <span className="flex-1 truncate text-left">{t.name}</span>
+                <UnreadPill count={orgUnread(t.id)} />
                 {isActive && <Check className="w-3.5 h-3.5 text-[var(--color-accent)]" aria-hidden />}
                 <span
                   role="button"

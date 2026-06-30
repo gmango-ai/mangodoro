@@ -55,3 +55,22 @@ export function connectDelayFor(roomName) {
 export function markConnectAttempt(roomName) {
   lastConnectAt.set(roomName, Date.now());
 }
+
+// ── Global circuit breaker ──────────────────────────────────────────
+// A failed connect (most importantly a 429 from LiveKit Cloud's rate limiter)
+// must not be retried immediately — the SDK already fans a single connect across
+// every region, so an instant retry compounds the rate limit. After ANY connect
+// error we arm an app-wide cooldown; the connect path waits it out before the
+// next attempt to ANY room. This backs off the whole project, not just one room.
+const CONNECT_COOLDOWN_MS = 20000;
+let cooldownUntil = 0;
+
+// Call from <LiveKitRoom onError>. Arms the cooldown.
+export function noteConnectFailure() {
+  cooldownUntil = Date.now() + CONNECT_COOLDOWN_MS;
+}
+
+// Milliseconds remaining before a new connection may be initiated. 0 = clear.
+export function connectCooldownMs() {
+  return Math.max(0, cooldownUntil - Date.now());
+}
