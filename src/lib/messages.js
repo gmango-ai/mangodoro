@@ -59,18 +59,33 @@ export async function listConversations(userId) {
 // Pre-Phase-1 behavior: raw table reads (RLS scopes both). org_ids is empty
 // here; the page filters by the active-org roster instead.
 async function listConversationsLegacy(userId) {
-  const [{ data: convos }, { data: parts }] = await Promise.all([
+  const [convosRes, partsRes, channelReadsRes] = await Promise.all([
     supabase.from("conversations").select("id, is_group, kind, title, last_message_at, created_by").order("last_message_at", { ascending: false }),
-    supabase.from("conversation_participants").select("conversation_id, user_id, last_read_at"),
+    supabase.from("conversation_participants").select("conversation_id, user_id, last_read_at, pinned_at, muted_at"),
+    supabase.from("channel_read_state").select("conversation_id, last_read_at, muted_at").eq("user_id", userId),
   ]);
+  let parts = partsRes.data;
+  if (partsRes.error) {
+    const { data } = await supabase.from("conversation_participants").select("conversation_id, user_id, last_read_at");
+    parts = data;
+  }
   const myRead = new Map();
+  const myPrefs = new Map();
+  const channelReads = new Map();
+  for (const r of channelReadsRes.data || []) channelReads.set(r.conversation_id, r);
   const others = new Map();
   for (const p of parts || []) {
-    if (p.user_id === userId) myRead.set(p.conversation_id, p.last_read_at);
+    if (p.user_id === userId) {
+      myRead.set(p.conversation_id, p.last_read_at);
+      myPrefs.set(p.conversation_id, { pinned_at: p.pinned_at || null, muted_at: p.muted_at || null });
+    }
     else { const a = others.get(p.conversation_id) || []; a.push(p.user_id); others.set(p.conversation_id, a); }
   }
-  return (convos || []).map((c) => {
-    const lastRead = myRead.get(c.id);
+  return (convosRes.data || []).map((c) => {
+    const channelRead = c.kind === "channel" ? channelReads.get(c.id) : null;
+    const lastRead = channelRead?.last_read_at || myRead.get(c.id);
+    const prefs = myPrefs.get(c.id) || {};
+    const mutedAt = channelRead?.muted_at || prefs.muted_at || null;
     return {
       id: c.id,
       kind: c.kind || (c.is_group ? "group" : "dm"),
@@ -83,11 +98,11 @@ async function listConversationsLegacy(userId) {
       org_team_id: null,
       org_team_color: null,
       org_ids: [],
-      pinned_at: null,
-      muted_at: null,
+      pinned_at: prefs.pinned_at || null,
+      muted_at: mutedAt,
       topic: null,
       post_policy: "all",
-      unread: isUnread(c.last_message_at, lastRead),
+      unread: isUnread(c.last_message_at, lastRead) && !mutedAt,
     };
   });
 }

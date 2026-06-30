@@ -776,7 +776,7 @@ export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
-  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const { activeConversations = [], startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
@@ -795,8 +795,8 @@ export default function MessagesPage() {
   };
 
   const open = (id) => { setComposing(false); setParams(id ? { c: id } : {}, { replace: true }); };
-  const active = activeConversations.find((c) => c.id === activeId) || conversations.find((c) => c.id === activeId) || (activeId ? { id: activeId, kind: "dm", participant_ids: [] } : null);
-  const showMain = composing || !!activeId;
+  const active = activeConversations.find((c) => c.id === activeId) || null;
+  const showMain = composing || !!active;
 
   const onPin = async (c) => { await setConversationPinned(c.id, userId, !c.pinned_at, c.kind); reload?.(); };
   const onMute = async (c) => { await setConversationMuted(c.id, userId, !c.muted_at, c.kind); reload?.(); };
@@ -819,9 +819,9 @@ export default function MessagesPage() {
             onCreateChannel={async (teamId, name) => { const cid = await createChannel(teamId, name); if (cid) open(cid); else setComposing(false); }}
             dark={dark}
           />
-        ) : activeId ? (
+        ) : active ? (
           <Thread
-            key={activeId}
+            key={active.id}
             conversation={active} name={nameOf(active)} memberById={memberById} candidates={others}
             userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
             onBack={() => open(null)} markRead={markRead}
