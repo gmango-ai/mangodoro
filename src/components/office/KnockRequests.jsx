@@ -54,8 +54,12 @@ export function useRoomKnocks(roomId, enabled) {
   }, [roomId, enabled]);
 
   const approve = useCallback(async (id) => {
+    const { error } = await decideRoomEntry(id, true);
+    if (error) {
+      console.warn("decide_room_entry:", error.message);
+      return;
+    }
     setRequests((prev) => prev.filter((r) => r.id !== id));
-    await decideRoomEntry(id, true);
   }, []);
 
   const ignore = useCallback((id) => {

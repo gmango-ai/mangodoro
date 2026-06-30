@@ -170,7 +170,7 @@ function Composer({ onSend, candidates, dark, placeholder = "Message…" }) {
 }
 
 // ── Open conversation ──
-function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, markRead, subscribeMessages, subscribeReactions, dark }) {
+function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, markRead, subscribeMessages, subscribeReactions, onChannelMetaSaved, dark }) {
   const convId = conversation?.id;
   const kind = conversation?.kind || (conversation?.is_group ? "group" : "dm");
   const isChannel = kind === "channel";
@@ -269,7 +269,7 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
       if (hit && hit.user_id !== userId) ids.add(hit.user_id);
     }
     for (const rid of ids) {
-      emitMention({ recipient: rid, title: `${memberById.get(userId)?.name || "Someone"} mentioned you`, body: text.slice(0, 140), payload: { route: "/messages", conversation_id: convId }, entityType: "conversation", entityId: convId, dedupeKey: `mention:${convId}` });
+      emitMention({ recipient: rid, title: `${memberById.get(userId)?.name || "Someone"} mentioned you`, body: text.slice(0, 140), payload: { route: "/messages", conversation_id: convId }, entityType: "conversation", entityId: convId });
     }
   };
 
@@ -325,7 +325,7 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
       </div>
 
       {showSettings && canManageChannel && (
-        <ChannelSettings conversation={conversation} memberById={memberById} dark={dark} onClose={() => setShowSettings(false)} />
+        <ChannelSettings conversation={conversation} memberById={memberById} dark={dark} onClose={() => setShowSettings(false)} onSaved={onChannelMetaSaved} />
       )}
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
@@ -410,7 +410,7 @@ function ComposerWithTyping({ onSend, candidates, dark, onTyping, placeholder, d
 }
 
 // ── channel settings (admin/lead) ──
-function ChannelSettings({ conversation, memberById, dark, onClose }) {
+function ChannelSettings({ conversation, memberById, dark, onClose, onSaved }) {
   const [title, setTitle] = useState(conversation.title || "");
   const [topic, setTopic] = useState(conversation.topic || "");
   const [policy, setPolicy] = useState(conversation.post_policy || "all");
@@ -431,6 +431,7 @@ function ChannelSettings({ conversation, memberById, dark, onClose }) {
   const save = async () => {
     setBusy(true);
     await setChannelMeta(conversation.id, { title, topic, postPolicy: policy });
+    await onSaved?.();
     setBusy(false);
     onClose();
   };
@@ -607,7 +608,7 @@ export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
-  const { activeConversations, startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
@@ -629,9 +630,9 @@ export default function MessagesPage() {
   };
 
   const open = (id) => setParams(id ? { c: id } : {}, { replace: true });
-  const active = activeConversations.find((c) => c.id === activeId) || (activeId ? { id: activeId, kind: "dm", participant_ids: [] } : null);
+  const active = activeConversations.find((c) => c.id === activeId) || conversations.find((c) => c.id === activeId) || (activeId ? { id: activeId, kind: "dm", participant_ids: [] } : null);
 
-  const onPin = async (c) => { await setConversationPinned(c.id, userId, !c.pinned_at); reload?.(); };
+  const onPin = async (c) => { await setConversationPinned(c.id, userId, !c.pinned_at, c.kind); reload?.(); };
   const onMute = async (c) => { await setConversationMuted(c.id, userId, !c.muted_at, c.kind); reload?.(); };
 
   return (
@@ -641,7 +642,7 @@ export default function MessagesPage() {
           conversation={active} name={nameOf(active)} memberById={memberById} candidates={others}
           userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
           onBack={() => open(null)} markRead={markRead}
-          subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions} dark={dark}
+          subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions} onChannelMetaSaved={reload} dark={dark}
         />
       ) : composing ? (
         <NewMessage

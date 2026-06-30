@@ -48,6 +48,8 @@ export async function listConversations(userId) {
       org_ids: c.org_ids || [],
       pinned_at: c.pinned_at || null,
       muted_at: c.muted_at || null,
+      topic: c.topic || null,
+      post_policy: c.post_policy || "all",
       unread: isUnread(c.last_message_at, c.last_read_at) && !c.muted_at,
     }));
   }
@@ -83,6 +85,8 @@ async function listConversationsLegacy(userId) {
       org_ids: [],
       pinned_at: null,
       muted_at: null,
+      topic: null,
+      post_policy: "all",
       unread: isUnread(c.last_message_at, lastRead),
     };
   });
@@ -192,10 +196,17 @@ export async function listReadMarks(conversationId) {
 }
 
 // ── Pin / mute (Phase 8) ──
-export async function setConversationPinned(conversationId, userId, pinned) {
+export async function setConversationPinned(conversationId, userId, pinned, kind = "dm") {
+  const at = pinned ? new Date().toISOString() : null;
+  if (kind === "channel") {
+    await supabase
+      .from("channel_read_state")
+      .upsert({ conversation_id: conversationId, user_id: userId, pinned_at: at }, { onConflict: "conversation_id,user_id" });
+    return;
+  }
   await supabase
     .from("conversation_participants")
-    .update({ pinned_at: pinned ? new Date().toISOString() : null })
+    .update({ pinned_at: at })
     .eq("conversation_id", conversationId)
     .eq("user_id", userId);
 }
