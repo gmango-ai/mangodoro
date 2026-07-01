@@ -283,7 +283,9 @@ function AppLayout({ session }) {
           </div>
         )}
 
-        <div className="relative z-10 min-h-screen">
+        {/* A small right-edge gutter so the fixed pomodoro pull-tab (PomodoroFab,
+            docked to the right edge) doesn't sit on top of page content. */}
+        <div className={`relative z-10 min-h-screen ${!isEmbed && !onPomodoroPage ? "pr-2" : ""}`}>
           {!isEmbed && <Nav onOpenPomodoro={() => setShowPomodoro(true)} />}
           {/* Floating pomodoro button (replaces the old nav Pomodoro link + timer
               pill). Hidden on the pomodoro page itself, where you're already there. */}
