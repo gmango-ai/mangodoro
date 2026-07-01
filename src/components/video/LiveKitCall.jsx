@@ -7,6 +7,7 @@ import {
   DisconnectButton,
   LayoutContextProvider,
   usePinnedTracks,
+  useLayoutContext,
   useSpeakingParticipants,
   useMediaDeviceSelect,
   useTracks,
@@ -19,7 +20,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -1551,6 +1552,21 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   // you (server re-checks). Hidden on placeholder tiles (no identity yet).
   const canPinHere = canPin && !!participant?.identity;
   const pinBusy = busyId === participant?.identity || (isPinned && busyId === "_");
+  // Personal "expand" — a per-CLIENT pin (LiveKit's LayoutContext) that enlarges
+  // this tile in YOUR view only, no server/moderation involved. The Stage reads
+  // usePinnedTracks() as its top-priority focus. Available to everyone (not gated
+  // like "pin for everyone"), and kept a distinct EXPAND icon so the two don't
+  // read as the same control.
+  const layoutContext = useLayoutContext();
+  const pinnedTracks = usePinnedTracks();
+  const isSelfPinned = !!trackRef && pinnedTracks.some((t) => refKey(t) === refKey(trackRef));
+  const canExpand = !!trackRef && !!participant?.identity;
+  const togglePersonalPin = () => {
+    const dispatch = layoutContext?.pin?.dispatch;
+    if (!dispatch) return;
+    if (isSelfPinned) dispatch({ msg: "clear_pin" });
+    else dispatch({ msg: "set_pin", trackReference: trackRef });
+  };
   const inRoom = !!role?.inRoom;
   // Tile chrome: a speaking ring (glows while this person talks) and a
   // connection-quality dot (shown only when degraded, so it reads as a warning
@@ -1587,23 +1603,45 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
 
-      {/* Hover pin toggle (bottom-right) — set/clear everyone's focus from the
-          tile. Lives on the bottom edge so it never collides with the room
-          panel's window controls (maximize/close), which own the top-right. */}
-      {canPinHere && (
-        <button
-          type="button"
-          onClick={() => (isPinned ? unpin() : pin(participant.identity))}
-          disabled={pinBusy}
-          title={isPinned ? "Unpin for everyone" : "Pin for everyone"}
-          className={`absolute bottom-1.5 right-1.5 z-30 inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 disabled:opacity-40 ${
-            isPinned
-              ? "bg-amber-500/85 text-white opacity-100"
-              : "bg-black/55 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-black/75"
-          }`}
-        >
-          {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-        </button>
+      {/* Hover controls (bottom-right) — on the bottom edge so they never collide
+          with the room panel's window controls (maximize/close), which own the
+          top-right. Two distinct affordances:
+            • Expand (everyone) — a PERSONAL pin: enlarges this tile in your view
+              only. White so it reads apart from the amber "everyone" pin.
+            • Pin (admins/leaders) — pins the tile for EVERYONE (room-wide). */}
+      {(canExpand || canPinHere) && (
+        <div className="absolute bottom-1.5 right-1.5 z-30 flex items-center gap-1">
+          {canPinHere && (
+            <button
+              type="button"
+              onClick={() => (isPinned ? unpin() : pin(participant.identity))}
+              disabled={pinBusy}
+              title={isPinned ? "Unpin for everyone" : "Pin for everyone"}
+              className={`inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 disabled:opacity-40 ${
+                isPinned
+                  ? "bg-amber-500/85 text-white opacity-100"
+                  : "bg-black/55 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-black/75"
+              }`}
+            >
+              {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          {canExpand && (
+            <button
+              type="button"
+              onClick={togglePersonalPin}
+              title={isSelfPinned ? "Shrink — stop expanding this just for you" : "Expand this for yourself (only your view)"}
+              aria-pressed={isSelfPinned}
+              className={`inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 ${
+                isSelfPinned
+                  ? "bg-white/90 text-slate-900 opacity-100"
+                  : "bg-black/55 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-black/75"
+              }`}
+            >
+              {isSelfPinned ? <Shrink className="w-3.5 h-3.5" /> : <Expand className="w-3.5 h-3.5" />}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Name + mute, glassy pill bottom-left (replaces LiveKit's metadata bar,
