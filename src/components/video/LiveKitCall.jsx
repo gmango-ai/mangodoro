@@ -7,6 +7,7 @@ import {
   DisconnectButton,
   LayoutContextProvider,
   usePinnedTracks,
+  useLayoutContext,
   useSpeakingParticipants,
   useMediaDeviceSelect,
   useTracks,
@@ -19,7 +20,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -30,6 +31,8 @@ import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomClus
 import { PREF, loadPref, savePref } from "./callPrefs";
 import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt, connectCooldownMs, noteConnectFailure } from "./livekitConnect";
 import { diagReset, diagRecord, diagReport, diagEnv } from "./livekitDiagnostics";
+import { useFullscreen } from "./useFullscreen";
+import { useGlobalPin } from "./useGlobalPin";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
@@ -847,7 +850,9 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
         aria-label={joining ? "Join the room's shared audio" : "Make this the room speaker"}
         onClick={() => (joining ? joinRoom(existingCluster) : startRoom())}
       >
-        <UsersRound className="w-5 h-5" />
+        {/* Speaker (not a people icon) so this "share the room's audio" control
+            isn't confused with the People / participants button. */}
+        <Speaker className="w-5 h-5" />
       </button>
     );
   }
@@ -864,7 +869,7 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
         title={isMicSource ? "You're the room mic" : "You're in a shared room (muted)"}
         onClick={() => setOpen((v) => !v)}
       >
-        <UsersRound className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
+        <Speaker className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
       </button>
       {open && (
         <div className="call-menu absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-64">
@@ -1076,48 +1081,6 @@ function LayoutMenu({ mode, onSet }) {
   );
 }
 
-// Native fullscreen (the Fullscreen API) for the call — takes over the whole
-// physical screen, not just the browser window, which "maximize the window"
-// can't do. Targets the passed element (the ConferenceLayout root, which holds
-// the stage + control bar). Tracks the ACTUAL fullscreen state via the
-// fullscreenchange event so the button stays correct when the user exits with
-// Esc or the browser drops out of fullscreen on its own. webkit* fallbacks
-// cover Safari; where element fullscreen isn't supported at all (iOS Safari only
-// fullscreens <video> elements), `supported` is false and the button hides.
-function useFullscreen(targetRef) {
-  const [isFs, setIsFs] = useState(false);
-  useEffect(() => {
-    const onChange = () => {
-      const fsEl = document.fullscreenElement || document.webkitFullscreenElement || null;
-      setIsFs(!!fsEl && fsEl === targetRef.current);
-    };
-    document.addEventListener("fullscreenchange", onChange);
-    document.addEventListener("webkitfullscreenchange", onChange);
-    return () => {
-      document.removeEventListener("fullscreenchange", onChange);
-      document.removeEventListener("webkitfullscreenchange", onChange);
-    };
-  }, [targetRef]);
-  const supported =
-    typeof document !== "undefined" &&
-    !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
-  const toggle = useCallback(async () => {
-    const el = targetRef.current;
-    if (!el) return;
-    try {
-      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-      if (fsEl) {
-        await (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.());
-      } else {
-        await (el.requestFullscreen?.({ navigationUI: "hide" }) ?? el.webkitRequestFullscreen?.());
-      }
-    } catch {
-      /* denied / not allowed (e.g. not a user gesture, or sandboxed) — no-op */
-    }
-  }, [targetRef]);
-  return { isFs, supported, toggle };
-}
-
 // Custom control bar (replaces LiveKit's <ControlBar>) so reactions + the
 // layout toggle sit where we want and it collapses to icon-only when the tile
 // is narrow — keeping a small video usable rather than forcing a large minimum
@@ -1137,6 +1100,7 @@ function CallControlBar({
   mirror, onToggleMirror,
   selfFloat, onToggleSelfFloat,
   micMuted, onToggleMic,
+  deafened, onToggleDeafen,
   peopleOpen, onTogglePeople,
   fullscreenSupported, isFullscreen, onToggleFullscreen,
 }) {
@@ -1198,6 +1162,21 @@ function CallControlBar({
           <RoomClusterButton autoMic={autoMic} onToggleAutoMic={onToggleAutoMic} />
         </>
       )}
+
+      {/* Deafen — silence everything, incoming and outgoing, in one tap. Cuts
+          the call audio you hear and (by forcing your mic muted) what you send.
+          Grouped with the audio controls (right after the mic / room-audio
+          button); shown to spectators too, since it still mutes what you hear. */}
+      <button
+        type="button"
+        className={`lk-button ${deafened ? "lk-button--raised" : ""}`}
+        onClick={onToggleDeafen}
+        aria-pressed={deafened}
+        aria-label={deafened ? "Undeafen (turn audio back on)" : "Deafen (mute all audio in and out)"}
+        title={deafened ? "Undeafen — turn call audio back on" : "Deafen — mute all audio, incoming and outgoing"}
+      >
+        {deafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
+      </button>
 
       {/* Raise hand — available whether or not you publish (a spectator can ask
           to speak). Amber while yours is up. */}
@@ -1293,30 +1272,8 @@ function SpectatorList({ spectators }) {
 // Host moderation roster: lists everyone in the call. The session leader gets
 // mute / remove actions per participant (the action is enforced server-side by
 // the livekit-moderate edge function; this UI gate is just for affordance).
-// The room-level "global pin" — a team admin pins a participant and everyone's
-// view focuses them. Stored in LiveKit room metadata (set by livekit-moderate),
-// so it propagates to every client via RoomMetadataChanged. Returns the pinned
-// participant identity (a user uid) or null.
-function parseGlobalPin(metadata) {
-  if (!metadata) return null;
-  try {
-    return JSON.parse(metadata)?.pinnedIdentity || null;
-  } catch {
-    return null;
-  }
-}
-function useGlobalPin() {
-  const room = useRoomContext();
-  const [pinnedId, setPinnedId] = useState(() => parseGlobalPin(room?.metadata));
-  useEffect(() => {
-    if (!room) return undefined;
-    const update = () => setPinnedId(parseGlobalPin(room.metadata));
-    update();
-    room.on(RoomEvent.RoomMetadataChanged, update);
-    return () => room.off(RoomEvent.RoomMetadataChanged, update);
-  }, [room]);
-  return pinnedId;
-}
+// The room-level "global pin" (parseGlobalPin / useGlobalPin) now lives in
+// ./useGlobalPin so the kiosk can honour the same admin pin — imported above.
 
 function PeoplePanel({ roomId, onClose }) {
   const participants = useParticipants();
@@ -1595,6 +1552,21 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   // you (server re-checks). Hidden on placeholder tiles (no identity yet).
   const canPinHere = canPin && !!participant?.identity;
   const pinBusy = busyId === participant?.identity || (isPinned && busyId === "_");
+  // Personal "expand" — a per-CLIENT pin (LiveKit's LayoutContext) that enlarges
+  // this tile in YOUR view only, no server/moderation involved. The Stage reads
+  // usePinnedTracks() as its top-priority focus. Available to everyone (not gated
+  // like "pin for everyone"), and kept a distinct EXPAND icon so the two don't
+  // read as the same control.
+  const layoutContext = useLayoutContext();
+  const pinnedTracks = usePinnedTracks();
+  const isSelfPinned = !!trackRef && pinnedTracks.some((t) => refKey(t) === refKey(trackRef));
+  const canExpand = !!trackRef && !!participant?.identity;
+  const togglePersonalPin = () => {
+    const dispatch = layoutContext?.pin?.dispatch;
+    if (!dispatch) return;
+    if (isSelfPinned) dispatch({ msg: "clear_pin" });
+    else dispatch({ msg: "set_pin", trackReference: trackRef });
+  };
   const inRoom = !!role?.inRoom;
   // Tile chrome: a speaking ring (glows while this person talks) and a
   // connection-quality dot (shown only when degraded, so it reads as a warning
@@ -1631,23 +1603,45 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
 
-      {/* Hover pin toggle (bottom-right) — set/clear everyone's focus from the
-          tile. Lives on the bottom edge so it never collides with the room
-          panel's window controls (maximize/close), which own the top-right. */}
-      {canPinHere && (
-        <button
-          type="button"
-          onClick={() => (isPinned ? unpin() : pin(participant.identity))}
-          disabled={pinBusy}
-          title={isPinned ? "Unpin for everyone" : "Pin for everyone"}
-          className={`absolute bottom-1.5 right-1.5 z-30 inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 disabled:opacity-40 ${
-            isPinned
-              ? "bg-amber-500/85 text-white opacity-100"
-              : "bg-black/55 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-black/75"
-          }`}
-        >
-          {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-        </button>
+      {/* Hover controls (bottom-right) — on the bottom edge so they never collide
+          with the room panel's window controls (maximize/close), which own the
+          top-right. Two distinct affordances:
+            • Expand (everyone) — a PERSONAL pin: enlarges this tile in your view
+              only. White so it reads apart from the amber "everyone" pin.
+            • Pin (admins/leaders) — pins the tile for EVERYONE (room-wide). */}
+      {(canExpand || canPinHere) && (
+        <div className="absolute bottom-1.5 right-1.5 z-30 flex items-center gap-1">
+          {canPinHere && (
+            <button
+              type="button"
+              onClick={() => (isPinned ? unpin() : pin(participant.identity))}
+              disabled={pinBusy}
+              title={isPinned ? "Unpin for everyone" : "Pin for everyone"}
+              className={`inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 disabled:opacity-40 ${
+                isPinned
+                  ? "bg-amber-500/85 text-white opacity-100"
+                  : "bg-black/55 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-black/75"
+              }`}
+            >
+              {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          {canExpand && (
+            <button
+              type="button"
+              onClick={togglePersonalPin}
+              title={isSelfPinned ? "Shrink — stop expanding this just for you" : "Expand this for yourself (only your view)"}
+              aria-pressed={isSelfPinned}
+              className={`inline-flex items-center justify-center w-7 h-7 rounded-full backdrop-blur-sm ring-1 ring-white/15 transition active:scale-90 ${
+                isSelfPinned
+                  ? "bg-white/90 text-slate-900 opacity-100"
+                  : "bg-black/55 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-black/75"
+              }`}
+            >
+              {isSelfPinned ? <Shrink className="w-3.5 h-3.5" /> : <Expand className="w-3.5 h-3.5" />}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Name + mute, glassy pill bottom-left (replaces LiveKit's metadata bar,
@@ -2021,7 +2015,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   );
 }
 
-function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, chromeless }) {
+function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, deafened, onToggleDeafen, chromeless }) {
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
   const rootRef = useRef(null);
@@ -2197,6 +2191,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onToggleSelfFloat={() => setSelfFloat((v) => !v)}
               micMuted={micMuted}
               onToggleMic={onToggleMic}
+              deafened={deafened}
+              onToggleDeafen={onToggleDeafen}
               peopleOpen={peopleOpen}
               onTogglePeople={() => setPeopleOpen((v) => !v)}
               fullscreenSupported={fullscreenSupported}
@@ -2219,6 +2215,17 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
   // behind-the-scenes auto-mute. Seeded from the join choice.
   const [micMuted, setMicMuted] = useState(choices?.audioEnabled === false);
   const toggleMic = () => setMicMuted((v) => !v);
+  // Deafen — one control to silence ALL audio, incoming and outgoing (Discord
+  // style). Incoming is cut by not rendering the audio renderer below; outgoing
+  // by muting the mic (deafening forces micMuted on, so the mic button + publish
+  // both reflect it). Un-deafening leaves the mic muted; the user unmutes when
+  // ready.
+  const [deafened, setDeafened] = useState(false);
+  const toggleDeafen = () => {
+    const next = !deafened;
+    setDeafened(next);
+    if (next) setMicMuted(true); // deafening also mutes your mic
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -2331,7 +2338,7 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
         {/* Silent connection-health recorder — feeds the disconnect report so a
             force disconnect can be explained, not just observed. */}
         <ConnectionDiagnostics roomId={roomId} />
-        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} chromeless={chromeless} />
+        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} deafened={deafened} onToggleDeafen={toggleDeafen} chromeless={chromeless} />
         {/* Owns in-room cluster management (leader handoff). Mount once. */}
         <RoomClusterManager />
         {/* Restore the saved audio-output device on connect. */}
@@ -2346,7 +2353,7 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
             walking up to a room can't blast the call through your speakers and
             (if a live participant is nearby) feed back into the room. Publishers
             always hear; explicit watchers and join always have listen=true. */}
-        {(publish || listen) && <ClusterAudioRenderer holdForEntry={publish && !!choices?.inRoom} />}
+        {(publish || listen) && !deafened && <ClusterAudioRenderer holdForEntry={publish && !!choices?.inRoom} />}
       </LiveKitRoom>
     </div>
   );

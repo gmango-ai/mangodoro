@@ -417,9 +417,9 @@ function RoomLockGate({ room, onEnter, onBack, busy, dark, codeRoom = false, dep
     setPhase("waiting");
   }
 
-  // While waiting, watch our own request row for the occupant's decision.
+  // Watch our own request row until it resolves or the knock is cancelled.
   useEffect(() => {
-    if (phase !== "waiting" || !requestId) return;
+    if (!requestId) return;
     const channel = supabase.channel(`knock:${requestId}`);
     channel.on(
       "postgres_changes",
@@ -428,16 +428,22 @@ function RoomLockGate({ room, onEnter, onBack, busy, dark, codeRoom = false, dep
         const status = payload.new?.status;
         if (status === "approved") {
           const ok = await onEnterRef.current?.(null);
-          if (!ok) { setPhase("idle"); setErr("You were let in, but entry failed — try the code."); }
+          if (!ok) { setRequestId(null); setPhase("idle"); setErr("You were let in, but entry failed — try the code."); }
           // On success the parent swaps RoomView in over this gate.
         } else if (status === "denied") {
+          setRequestId(null);
           setPhase("denied");
         }
       }
     );
     channel.subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [requestId]);
+
+  useEffect(() => {
+    if (phase !== "waiting" || !requestId) return;
     const timer = setTimeout(() => setPhase("timeout"), KNOCK_TIMEOUT_MS);
-    return () => { supabase.removeChannel(channel); clearTimeout(timer); };
+    return () => clearTimeout(timer);
   }, [phase, requestId]);
 
   const card = (children) => (
@@ -502,7 +508,7 @@ function RoomLockGate({ room, onEnter, onBack, busy, dark, codeRoom = false, dep
           <Button variant="outline" size="sm" className="flex-1" onClick={onBack}>
             Back to hallway
           </Button>
-          <Button size="sm" className="flex-1" onClick={() => { setErr(""); setPhase("idle"); }}>
+          <Button size="sm" className="flex-1" onClick={() => { setErr(""); setRequestId(null); setPhase("idle"); }}>
             Try again
           </Button>
         </div>
