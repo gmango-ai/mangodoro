@@ -3,6 +3,14 @@
 Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first.
 
+## 2026-07-01
+
+- Video: restore the personal "expand" pin on each tile
+- Video UI: move Deafen next to the audio controls
+- Video UI: legible Join button + distinct room-audio icon
+- Video: kiosk speaker-focus fix, pin/layout/fullscreen sync, deafen
+- Fix scoped messages and knock handling
+
 ## 2026-06-30
 
 - Pomodoro: stop the focus→break alert playing twice in synced sessions
