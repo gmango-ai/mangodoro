@@ -22,7 +22,7 @@ function formatTime(totalSeconds) {
   return `${m}:${String(r).padStart(2, "0")}`;
 }
 
-export default function PomodoroFab({ onOpen }) {
+export default function PomodoroFab({ onToggle }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { mode, secondsLeft, isRunning } = usePomodoro();
@@ -48,7 +48,8 @@ export default function PomodoroFab({ onOpen }) {
   return (
     <button
       type="button"
-      onClick={() => onOpen?.()}
+      data-pomodoro-tab=""
+      onClick={() => onToggle?.()}
       title={showTimer ? `${modeLabel(mode)} · ${formatTime(safeSeconds)} left — open pomodoro` : "Open pomodoro"}
       aria-label={showTimer ? `${modeLabel(mode)} timer, ${formatTime(safeSeconds)} remaining — open pomodoro` : "Open pomodoro"}
       className={`fixed right-0 z-[111] inline-flex flex-col items-center justify-center gap-0.5 w-6 rounded-l-lg border border-r-0 shadow-md transition-colors ${bottomCls} ${

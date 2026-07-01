@@ -289,7 +289,7 @@ function AppLayout({ session }) {
           {!isEmbed && <Nav onOpenPomodoro={() => setShowPomodoro(true)} />}
           {/* Floating pomodoro button (replaces the old nav Pomodoro link + timer
               pill). Hidden on the pomodoro page itself, where you're already there. */}
-          {!isEmbed && !onPomodoroPage && <PomodoroFab onOpen={() => setShowPomodoro(true)} />}
+          {!isEmbed && !onPomodoroPage && <PomodoroFab onToggle={() => setShowPomodoro((v) => !v)} />}
           {!isEmbed && <InvoiceModal />}
           {/* ClockBanner (fixed bottom tracking bar) disabled — the top-bar
               WorkClockBar now owns clock display + controls; the bottom bar was
