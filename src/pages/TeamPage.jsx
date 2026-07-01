@@ -14,7 +14,7 @@ import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
   ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
   MoreVertical, Search, X, Star, Briefcase, Pencil, Archive, Volume2,
-  ArrowRightLeft, GitBranch, Network, Settings as SettingsIcon,
+  ArrowRightLeft, GitBranch, Settings as SettingsIcon,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
@@ -119,6 +119,17 @@ export default function TeamPage() {
   function setMemberSearch(v) { updateParam("q", v); }
   const peopleSectionRef = useRef(null);
   const canManageRooms = isAdmin || (myOrgTeamLeadIds?.size ?? 0) > 0;
+  // Which org page the side nav is showing (persisted). Clamp to People if the
+  // viewer lacks access to the stored page (e.g. a non-admin on "settings").
+  const [orgPage, setOrgPageRaw] = useState(() => {
+    try { const v = localStorage.getItem("ql_team_page"); return ["people", "rooms", "goals", "settings"].includes(v) ? v : "people"; } catch { return "people"; }
+  });
+  const setOrgPage = (p) => {
+    if (p !== orgPage && typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    setOrgPageRaw(p);
+    try { localStorage.setItem("ql_team_page", p); } catch { /* */ }
+  };
+  const orgPageEff = (orgPage === "rooms" && !canManageRooms) ? "people" : orgPage;
   function focusPeopleSection() {
     requestAnimationFrame(() => {
       peopleSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -475,29 +486,29 @@ export default function TeamPage() {
             </div>
           )}
 
-          {/* In-page side nav (rail on desktop, chips on mobile) + the content
-              column. The rail jumps to the anchor spans placed before each
-              section below, so the org page stops being one long unbroken scroll. */}
+          {/* Side nav (rail on desktop, chips on mobile) switches between grouped
+              PAGES; the content column renders only the active page's sections. */}
           <div className="lg:flex lg:gap-6 lg:items-start">
             <TeamSideNav
               dark={dark}
               isAdmin={isAdmin}
               canManageRooms={canManageRooms}
-              activeTeamId={activeTeamId}
+              page={orgPageEff}
+              onSelect={setOrgPage}
             />
             <div className="min-w-0 flex-1 space-y-6">
 
-          <span id="org-chart" className="block scroll-mt-24" aria-hidden="true" />
-          {/* ─── ORG CHART ───────────────────────────────────────── */}
-          <OrgChart dark={dark} />
+          {/* ─── ORG CHART (People) ──────────────────────────────── */}
+          {orgPageEff === "people" && <OrgChart dark={dark} />}
 
-          {/* ─── ORG PROJECTS ────────────────────────────────────── */}
-          <OrgProjects dark={dark} />
+          {/* ─── ORG PROJECTS (Goals) ────────────────────────────── */}
+          {orgPageEff === "goals" && <OrgProjects dark={dark} />}
 
-          {/* ─── DEPARTMENT GOALS ────────────────────────────────── */}
-          <TeamGoals dark={dark} />
+          {/* ─── DEPARTMENT GOALS (Goals) ────────────────────────── */}
+          {orgPageEff === "goals" && <TeamGoals dark={dark} />}
 
-          {/* ─── INVITE ──────────────────────────────────────────── */}
+          {/* ─── INVITE (People) ─────────────────────────────────── */}
+          {orgPageEff === "people" && (
           <InviteCard
             dark={dark}
             team={activeTeam}
@@ -509,10 +520,10 @@ export default function TeamPage() {
             copiedLink={copiedLink}
             memberCount={teamMembers.length}
           />
+          )}
 
-          <span id="settings" className="block scroll-mt-24" aria-hidden="true" />
-          {/* ─── ORG ─────────────────────────────────────────────── */}
-          {isAdmin && (
+          {/* ─── ORG PROFILE (Settings) ──────────────────────────── */}
+          {orgPageEff === "settings" && isAdmin && (
             <SectionHeader
               icon={Building2}
               title="Org"
@@ -522,7 +533,7 @@ export default function TeamPage() {
           )}
 
           {/* Team Settings (admin only) — name, icon, accent color */}
-          {isAdmin && (
+          {orgPageEff === "settings" && isAdmin && (
             <TeamSettingsCard
               key={activeTeam.id}
               team={activeTeam}
@@ -545,12 +556,14 @@ export default function TeamPage() {
             />
           )}
 
-          {/* Device accounts (admin only) — shared kiosks pinned to a room. */}
-          {isAdmin && <OrgDevicesPanel orgId={activeTeamId} />}
+          {/* Device accounts (admin only) — shared kiosks pinned to a room.
+              Grouped with Rooms since you set them up together. */}
+          {orgPageEff === "rooms" && isAdmin && <OrgDevicesPanel orgId={activeTeamId} />}
 
-          {/* Org-shared pomodoro sounds. Every member sees the list and
-              can pick one inside the timer's Sound panel; whether they can
-              upload depends on the team's sounds_admin_only flag. */}
+          {/* Org-shared pomodoro sounds (Goals page — with projects/goals). Every
+              member sees the list and can pick one inside the timer's Sound panel;
+              whether they can upload depends on the team's sounds_admin_only flag. */}
+          {orgPageEff === "goals" && (
           <TeamSoundsCard
             dark={dark}
             cardCls={cardCls}
@@ -582,10 +595,10 @@ export default function TeamPage() {
             }}
             onError={(msg) => setError(msg)}
           />
+          )}
 
-          <span id="departments" className="block scroll-mt-24" aria-hidden="true" />
-          {/* ─── TEAMS ───────────────────────────────────────────── */}
-          {isAdmin && (
+          {/* ─── TEAMS / DEPARTMENTS (People) ────────────────────── */}
+          {orgPageEff === "people" && isAdmin && (
             <SectionHeader
               icon={Users2}
               title="Teams"
@@ -595,7 +608,7 @@ export default function TeamPage() {
           )}
 
           {/* OrgTeamsCard — only org admins */}
-          {isAdmin && (
+          {orgPageEff === "people" && isAdmin && (
             <OrgTeamsCard
               dark={dark}
               cardCls={cardCls}
@@ -611,10 +624,9 @@ export default function TeamPage() {
             />
           )}
 
-          {/* ─── OFFICE ─────────────────────────────────────────── */}
-          {canManageRooms && (
+          {/* ─── OFFICE / ROOMS (Rooms) ─────────────────────────── */}
+          {orgPageEff === "rooms" && canManageRooms && (
             <>
-              <span id="office" className="block -mt-3" aria-hidden="true" />
               <SectionHeader
                 icon={Briefcase}
                 title="Office"
@@ -656,8 +668,8 @@ export default function TeamPage() {
             </>
           )}
 
-          {/* ─── PEOPLE ──────────────────────────────────────────── */}
-          {(() => {
+          {/* ─── PEOPLE (People) ─────────────────────────────────── */}
+          {orgPageEff === "people" && (() => {
             // Aggregate stats over the full org (not filtered) — these
             // are org-health numbers; filtering shouldn't make them lie.
             const adminCount = teamMembers.filter((m) => m.role === "admin").length;
@@ -917,7 +929,9 @@ export default function TeamPage() {
             </button>
           )}
 
-          {/* ─── DANGER ──────────────────────────────────────────── */}
+          {/* ─── DANGER (Settings) ───────────────────────────────── */}
+          {orgPageEff === "settings" && (
+          <>
           <SectionHeader
             icon={ShieldAlert}
             title="Danger zone"
@@ -953,6 +967,8 @@ export default function TeamPage() {
               )}
             </div>
           </div>
+          </>
+          )}
             </div>{/* content column */}
           </div>{/* two-column flex + side nav */}
         </>
@@ -1067,59 +1083,40 @@ export default function TeamPage() {
 // In-page navigation for the (long) org page: a sticky rail on desktop, a
 // horizontal chip scroller on mobile. Links jump to anchor spans placed before
 // each section; an IntersectionObserver highlights whichever section you're in.
-const TEAM_NAV_SECTIONS = [
+// The org page is split into a few PAGES, grouped by what you edit together, and
+// the side nav switches between them — a page renders only its own sections, so
+// it's no longer one giant scroll:
+//   • People   — org chart, departments, and the member roster (who's in the
+//                org + what team they're on).
+//   • Rooms    — the office floor plan, rooms, and kiosk devices.
+//   • Goals    — projects, goals, and org pomodoro sounds.
+//   • Settings — org profile / invite / delete (admins).
+const TEAM_PAGES = [
   { id: "people", label: "People", Icon: Users },
-  { id: "org-chart", label: "Org chart", Icon: Network },
-  { id: "departments", label: "Departments", Icon: Users2 },
-  { id: "office", label: "Rooms", Icon: Building2, roomsOnly: true },
-  { id: "settings", label: "Settings", Icon: SettingsIcon, adminOnly: true },
+  { id: "rooms", label: "Rooms", Icon: Building2, roomsOnly: true },
+  { id: "goals", label: "Goals", Icon: Target },
+  // Visible to all: org profile is admin-gated inside, but everyone needs the
+  // Danger zone here to LEAVE the org.
+  { id: "settings", label: "Settings", Icon: SettingsIcon },
 ];
 
-function TeamSideNav({ dark, isAdmin, canManageRooms, activeTeamId }) {
-  const sections = useMemo(
-    () => TEAM_NAV_SECTIONS.filter((s) =>
-      (!s.adminOnly || isAdmin) && (!s.roomsOnly || canManageRooms)
-    ),
+function TeamSideNav({ dark, isAdmin, canManageRooms, page, onSelect }) {
+  const pages = useMemo(
+    () => TEAM_PAGES.filter((p) => (!p.adminOnly || isAdmin) && (!p.roomsOnly || canManageRooms)),
     [canManageRooms, isAdmin],
   );
-  const [active, setActive] = useState(sections[0]?.id);
-
-  useEffect(() => {
-    const els = sections.map((s) => document.getElementById(s.id)).filter(Boolean);
-    if (!els.length) return undefined;
-    const updateActive = () => {
-      const activationLine = window.innerHeight * 0.2;
-      const positions = els
-        .map((el) => ({ id: el.id, top: el.getBoundingClientRect().top }))
-        .sort((a, b) => a.top - b.top);
-      const passed = positions.filter((p) => p.top <= activationLine);
-      const current = passed[passed.length - 1] || positions[0];
-      if (current) setActive(current.id);
-    };
-    const obs = new IntersectionObserver(
-      updateActive,
-      // Trip a section "active" once its anchor sits in the top slice of the viewport.
-      { rootMargin: "-15% 0px -75% 0px", threshold: 0 },
-    );
-    els.forEach((el) => obs.observe(el));
-    updateActive();
-    return () => obs.disconnect();
-  }, [activeTeamId, sections]);
-
-  const go = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const linkCls = (id) =>
     `inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
-      active === id
+      page === id
         ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
         : dark ? "text-slate-400 hover:text-slate-200 hover:bg-white/5" : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
     }`;
-
   return (
     <>
       {/* Desktop: sticky vertical rail */}
       <nav className="hidden lg:flex lg:flex-col gap-0.5 sticky top-20 w-40 shrink-0 self-start">
-        {sections.map(({ id, label, Icon }) => (
-          <button key={id} type="button" onClick={() => go(id)} className={`w-full justify-start ${linkCls(id)}`}>
+        {pages.map(({ id, label, Icon }) => (
+          <button key={id} type="button" onClick={() => onSelect(id)} aria-current={page === id ? "page" : undefined} className={`w-full justify-start ${linkCls(id)}`}>
             <Icon className="w-4 h-4 shrink-0" /> {label}
           </button>
         ))}
@@ -1131,8 +1128,8 @@ function TeamSideNav({ dark, isAdmin, canManageRooms, activeTeamId }) {
         }`}
         style={{ top: "calc(env(safe-area-inset-top) + 3.5rem)" }}
       >
-        {sections.map(({ id, label, Icon }) => (
-          <button key={id} type="button" onClick={() => go(id)} className={`shrink-0 ${linkCls(id)}`}>
+        {pages.map(({ id, label, Icon }) => (
+          <button key={id} type="button" onClick={() => onSelect(id)} aria-current={page === id ? "page" : undefined} className={`shrink-0 ${linkCls(id)}`}>
             <Icon className="w-4 h-4 shrink-0" /> {label}
           </button>
         ))}
