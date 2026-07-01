@@ -14,7 +14,7 @@ import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
   ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
   MoreVertical, Search, X, Star, Briefcase, Pencil, Archive, Volume2,
-  ArrowRightLeft, GitBranch,
+  ArrowRightLeft, GitBranch, Network, Settings as SettingsIcon,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
@@ -336,7 +336,7 @@ export default function TeamPage() {
   }
 
   return (
-    <main className="px-4 pt-6 pb-24 max-w-[720px] mx-auto space-y-6">
+    <main className="px-4 pt-6 pb-24 max-w-[1000px] mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -474,6 +474,14 @@ export default function TeamPage() {
             </div>
           )}
 
+          {/* In-page side nav (rail on desktop, chips on mobile) + the content
+              column. The rail jumps to the anchor spans placed before each
+              section below, so the org page stops being one long unbroken scroll. */}
+          <div className="lg:flex lg:gap-6 lg:items-start">
+            <TeamSideNav dark={dark} isAdmin={isAdmin} />
+            <div className="min-w-0 flex-1 space-y-6">
+
+          <span id="org-chart" className="block scroll-mt-24" aria-hidden="true" />
           {/* ─── ORG CHART ───────────────────────────────────────── */}
           <OrgChart dark={dark} />
 
@@ -496,6 +504,7 @@ export default function TeamPage() {
             memberCount={teamMembers.length}
           />
 
+          <span id="settings" className="block scroll-mt-24" aria-hidden="true" />
           {/* ─── ORG ─────────────────────────────────────────────── */}
           {isAdmin && (
             <SectionHeader
@@ -568,6 +577,7 @@ export default function TeamPage() {
             onError={(msg) => setError(msg)}
           />
 
+          <span id="departments" className="block scroll-mt-24" aria-hidden="true" />
           {/* ─── TEAMS ───────────────────────────────────────────── */}
           {isAdmin && (
             <SectionHeader
@@ -676,6 +686,7 @@ export default function TeamPage() {
 
             return (
               <>
+                <span id="people" className="block scroll-mt-24" aria-hidden="true" />
                 <SectionHeader
                   icon={Users}
                   title="People"
@@ -936,6 +947,8 @@ export default function TeamPage() {
               )}
             </div>
           </div>
+            </div>{/* content column */}
+          </div>{/* two-column flex + side nav */}
         </>
       )}
 
@@ -1045,6 +1058,74 @@ export default function TeamPage() {
 // Small section header. Used to group the page (Org → Teams →
 // Members → Quick links → Danger) so admins don't see one tall stack
 // of cards with no semantic structure.
+// In-page navigation for the (long) org page: a sticky rail on desktop, a
+// horizontal chip scroller on mobile. Links jump to anchor spans placed before
+// each section; an IntersectionObserver highlights whichever section you're in.
+const TEAM_NAV_SECTIONS = [
+  { id: "people", label: "People", Icon: Users },
+  { id: "org-chart", label: "Org chart", Icon: Network },
+  { id: "departments", label: "Departments", Icon: Users2 },
+  { id: "office", label: "Rooms", Icon: Building2 },
+  { id: "settings", label: "Settings", Icon: SettingsIcon, adminOnly: true },
+];
+
+function TeamSideNav({ dark, isAdmin }) {
+  const sections = TEAM_NAV_SECTIONS.filter((s) => !s.adminOnly || isAdmin);
+  const [active, setActive] = useState(sections[0]?.id);
+
+  useEffect(() => {
+    const els = sections.map((s) => document.getElementById(s.id)).filter(Boolean);
+    if (!els.length) return undefined;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const vis = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (vis[0]) setActive(vis[0].target.id);
+      },
+      // Trip a section "active" once its anchor sits in the top slice of the viewport.
+      { rootMargin: "-15% 0px -75% 0px", threshold: 0 },
+    );
+    els.forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
+  const go = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const linkCls = (id) =>
+    `inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
+      active === id
+        ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
+        : dark ? "text-slate-400 hover:text-slate-200 hover:bg-white/5" : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
+    }`;
+
+  return (
+    <>
+      {/* Desktop: sticky vertical rail */}
+      <nav className="hidden lg:flex lg:flex-col gap-0.5 sticky top-20 w-40 shrink-0 self-start">
+        {sections.map(({ id, label, Icon }) => (
+          <button key={id} type="button" onClick={() => go(id)} className={`w-full justify-start ${linkCls(id)}`}>
+            <Icon className="w-4 h-4 shrink-0" /> {label}
+          </button>
+        ))}
+      </nav>
+      {/* Mobile: sticky horizontal chip scroller under the app nav */}
+      <nav
+        className={`lg:hidden sticky z-20 -mx-4 px-4 py-1.5 flex gap-1.5 overflow-x-auto backdrop-blur ${
+          dark ? "bg-[var(--color-bg)]/80" : "bg-white/80"
+        }`}
+        style={{ top: "calc(env(safe-area-inset-top) + 3.5rem)" }}
+      >
+        {sections.map(({ id, label, Icon }) => (
+          <button key={id} type="button" onClick={() => go(id)} className={`shrink-0 ${linkCls(id)}`}>
+            <Icon className="w-4 h-4 shrink-0" /> {label}
+          </button>
+        ))}
+      </nav>
+    </>
+  );
+}
+
 function SectionHeader({ icon: Icon, title, subtitle, dark, danger = false }) {
   return (
     <div className="flex items-start gap-2.5 px-1 pt-3">
