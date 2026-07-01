@@ -119,16 +119,39 @@ export default function TeamPage() {
   function setMemberSearch(v) { updateParam("q", v); }
   const peopleSectionRef = useRef(null);
   const canManageRooms = isAdmin || (myOrgTeamLeadIds?.size ?? 0) > 0;
-  // Which org page the side nav is showing (persisted). Clamp to People if the
-  // viewer lacks access to the stored page (e.g. a non-admin on "settings").
+  // Which org page the side nav is showing (persisted). A People filter deep
+  // link (?team / ?q) wins over the stored page so a shared roster link opens on
+  // People instead of whatever page was last viewed.
+  const hasPeopleQuery = () => !!(searchParams.get("team") || searchParams.get("q"));
   const [orgPage, setOrgPageRaw] = useState(() => {
-    try { const v = localStorage.getItem("ql_team_page"); return ["people", "rooms", "goals", "settings"].includes(v) ? v : "people"; } catch { return "people"; }
+    try {
+      if (hasPeopleQuery()) return "people";
+      const v = localStorage.getItem("ql_team_page");
+      return ["people", "rooms", "goals", "settings"].includes(v) ? v : "people";
+    } catch { return "people"; }
   });
   const setOrgPage = (p) => {
     if (p !== orgPage && typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    // Leaving People drops its filter params so they don't linger in the URL of
+    // another page (and so a reload there doesn't bounce back to People).
+    if (p !== "people" && hasPeopleQuery()) {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("team");
+        next.delete("q");
+        return next;
+      }, { replace: true });
+    }
     setOrgPageRaw(p);
     try { localStorage.setItem("ql_team_page", p); } catch { /* */ }
   };
+  // A People filter arriving via in-app navigation (params change while mounted)
+  // also switches to People. Not persisted — it's a one-off view, not a
+  // preference change. (setOrgPage clears the params on leave, so no bounce.)
+  useEffect(() => {
+    if (hasPeopleQuery() && orgPage !== "people") setOrgPageRaw("people");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const orgPageEff = (orgPage === "rooms" && !canManageRooms) ? "people" : orgPage;
   function focusPeopleSection() {
     requestAnimationFrame(() => {
