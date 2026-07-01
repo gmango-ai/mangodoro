@@ -1162,6 +1162,21 @@ function CallControlBar({
         </>
       )}
 
+      {/* Deafen — silence everything, incoming and outgoing, in one tap. Cuts
+          the call audio you hear and (by forcing your mic muted) what you send.
+          Grouped with the audio controls (right after the mic / room-audio
+          button); shown to spectators too, since it still mutes what you hear. */}
+      <button
+        type="button"
+        className={`lk-button ${deafened ? "lk-button--raised" : ""}`}
+        onClick={onToggleDeafen}
+        aria-pressed={deafened}
+        aria-label={deafened ? "Undeafen (turn audio back on)" : "Deafen (mute all audio in and out)"}
+        title={deafened ? "Undeafen — turn call audio back on" : "Deafen — mute all audio, incoming and outgoing"}
+      >
+        {deafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
+      </button>
+
       {/* Raise hand — available whether or not you publish (a spectator can ask
           to speak). Amber while yours is up. */}
       <button
@@ -1204,20 +1219,6 @@ function CallControlBar({
         title="Reactions"
       >
         <Smile className="w-5 h-5" />
-      </button>
-
-      {/* Deafen — silence everything, incoming and outgoing, in one tap. Cuts
-          the call audio you hear and (by forcing your mic muted) what you send.
-          Available even as a spectator, since it still mutes what you hear. */}
-      <button
-        type="button"
-        className={`lk-button ${deafened ? "lk-button--raised" : ""}`}
-        onClick={onToggleDeafen}
-        aria-pressed={deafened}
-        aria-label={deafened ? "Undeafen (turn audio back on)" : "Deafen (mute all audio in and out)"}
-        title={deafened ? "Undeafen — turn call audio back on" : "Deafen — mute all audio, incoming and outgoing"}
-      >
-        {deafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
       </button>
 
       {/* True fullscreen — takes over the whole screen, not just the window.
