@@ -5,6 +5,25 @@ semantic versions. Newest first.
 
 ## 2026-07-01
 
+- Org page: People filter deep links force the People page
+- Fix pomodoro FAB pending dismiss
+- Pomodoro: floating popover closes on outside-click / Escape / tab re-click
+- Org page: real multi-page layout grouped by what you edit together
+- Nav: pomodoro is a slim clock pull-tab (no sliding FAB) + edge padding
+- Fix team side nav anchors and scroll spy
+- Nav: pomodoro FAB fully off-screen with a show/hide edge tab
+- Green room: make 'I'm in this room' its own button (out of the mic menu)
+- Green room: call-style mic/camera device menus; fold in "join room audio"
+- Nav: make the pomodoro FAB edge-peek so it stops covering UI
+- Org page: in-page side nav + image-forward team cards
+- Fix single-room rejoin enforcement
+- Sync: enforce a single active room per user across all instances
+- Fix org chart cyclic reporting roots
+- Org chart: card / list / reporting views + leadership + manager field
+- Nav: pomodoro FAB + world-clock globe dropdown
+- Video: merge Watch/Join into the green room; kiosk speaker-highlight toggle
+- Video: stop camera turning off when call settings change
+- Fix deafen mute and message deep links
 - Video: restore the personal "expand" pin on each tile
 - Video UI: move Deafen next to the audio controls
 - Video UI: legible Join button + distinct room-audio icon
