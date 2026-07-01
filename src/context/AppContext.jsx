@@ -353,6 +353,8 @@ export function AppProvider({ session, children }) {
               name: row.name ?? prev.name ?? "",
               pomodoroSoundUrl: row.pomodoro_sound_url ?? prev.pomodoroSoundUrl ?? "",
               pomodoroSoundName: row.pomodoro_sound_name ?? prev.pomodoroSoundName ?? "",
+              worldClockPersonal: Array.isArray(row.world_clock_personal) ? row.world_clock_personal : (prev.worldClockPersonal ?? []),
+              navPinnedTz: row.nav_pinned_tz ?? prev.navPinnedTz ?? "",
             }));
           }
         }
@@ -1257,6 +1259,8 @@ export function AppProvider({ session, children }) {
     if ("oooStart" in patch) dbPatch.ooo_start = patch.oooStart || null;
     if ("oooEnd" in patch) dbPatch.ooo_end = patch.oooEnd || null;
     if ("oooNote" in patch) dbPatch.ooo_note = patch.oooNote || null;
+    if ("worldClockPersonal" in patch) dbPatch.world_clock_personal = Array.isArray(patch.worldClockPersonal) ? patch.worldClockPersonal : [];
+    if ("navPinnedTz" in patch) dbPatch.nav_pinned_tz = patch.navPinnedTz || null;
     if (Object.keys(dbPatch).length === 0) return;
     if (!session?.user?.id) return;
     await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);

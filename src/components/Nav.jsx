@@ -9,15 +9,14 @@ import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as 
 import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
-import RunningTimerPill from "./RunningTimerPill";
 import BottomNav from "./BottomNav";
 import MoreSheet from "./MoreSheet";
 import NotificationBell from "./notifications/NotificationBell";
 import NavMessages from "./messages/NavMessages";
-import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import WorkClockBar from "./nav/WorkClockBar";
 import WorkingNowBar from "./nav/WorkingNowBar";
+import WorldClockNav from "./WorldClockNav";
 
 const PRESENCE_DOT_COLOR = {
   active: "bg-emerald-500",
@@ -32,11 +31,8 @@ const PRESENCE_DOT_COLOR = {
 export default function Nav({ onOpenPomodoro }) {
   const { settings, todayMins, exportMsg, dataSyncing, session, clockIn } = useApp();
   const { activeTeamSessions } = useTeam();
-  const { isRunning } = usePomodoro();
   const { syncSession } = useSyncSession();
   const hasTeamSessions = (activeTeamSessions?.length || 0) > 0;
-  // Pomodoro nav dot: only when a timer is actually running (yours or the team's).
-  const timerActive = isRunning || hasTeamSessions;
   // Office nav dot: when you're tracking hours (clocked in) or present in a room.
   const officeActive = !!clockIn || !!syncSession;
   const presenceDot = PRESENCE_DOT_COLOR[settings.presenceState] || PRESENCE_DOT_COLOR.active;
@@ -166,6 +162,7 @@ export default function Nav({ onOpenPomodoro }) {
           <div className="xl:hidden ml-auto flex items-center gap-2">
             <WorkClockBar dark={darkMode} />
             <WorkingNowBar dark={darkMode} />
+            <WorldClockNav dark={darkMode} />
             <NavMessages />
             <NotificationBell />
           </div>
@@ -175,12 +172,8 @@ export default function Nav({ onOpenPomodoro }) {
               stranded, far-right wordmark). */}
           <div className="hidden xl:flex items-center gap-3 ml-auto">
             <nav className="flex items-center gap-1">
-              <NavLink to="/pomodoro" className={desktopNavLink}>
-                Pomodoro
-                {timerActive && (
-                  <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse align-middle" />
-                )}
-              </NavLink>
+              {/* Pomodoro moved out of the (busy) nav into the floating
+                  PomodoroFab — see App.jsx. */}
               <NavLink to="/office" className={desktopNavLink}>
                 Office
                 {officeActive && (
@@ -196,12 +189,10 @@ export default function Nav({ onOpenPomodoro }) {
             <WorkClockBar dark={darkMode} />
             <WorkingNowBar dark={darkMode} />
 
-            {/* Always-visible timer pill — surfaces the live pomodoro
-                state right in the Nav. Replaces the floating bottom-
-                right FAB so the indicator is a Nav citizen and doesn't
-                cover content. */}
-            <RunningTimerPill onOpen={onOpenPomodoro} />
+            {/* Live pomodoro state now lives in the floating PomodoroFab
+                (App.jsx), keeping this nav lighter. */}
 
+            <WorldClockNav dark={darkMode} />
             <NavMessages />
             <NotificationBell />
 
@@ -293,12 +284,6 @@ export default function Nav({ onOpenPomodoro }) {
             <OrgSwitcher />
           </div>
 
-          <NavLink to="/pomodoro" className={sidebarNavLink}>
-            <Timer className="w-5 h-5" /> Pomodoro
-            {timerActive && (
-              <span className="ml-auto w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse" />
-            )}
-          </NavLink>
           <NavLink to="/office" className={sidebarNavLink}>
             <Building2 className="w-5 h-5" /> Office
             {officeActive && (

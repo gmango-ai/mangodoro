@@ -28,6 +28,7 @@ import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
 import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
+import PomodoroFab from "./components/PomodoroFab";
 import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
 import PWAUpdater from "./components/PWAUpdater";
@@ -284,6 +285,9 @@ function AppLayout({ session }) {
 
         <div className="relative z-10 min-h-screen">
           {!isEmbed && <Nav onOpenPomodoro={() => setShowPomodoro(true)} />}
+          {/* Floating pomodoro button (replaces the old nav Pomodoro link + timer
+              pill). Hidden on the pomodoro page itself, where you're already there. */}
+          {!isEmbed && !onPomodoroPage && <PomodoroFab onOpen={() => setShowPomodoro(true)} />}
           {!isEmbed && <InvoiceModal />}
           {/* ClockBanner (fixed bottom tracking bar) disabled — the top-bar
               WorkClockBar now owns clock display + controls; the bottom bar was
