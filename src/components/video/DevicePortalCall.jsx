@@ -12,11 +12,11 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent } from "livekit-client";
 import "@livekit/components-styles";
-import { Mic, MicOff, Video, VideoOff, Volume2, VolumeX, Monitor, MonitorOff, Settings, LayoutGrid, Focus, Presentation, Maximize2, Minimize2 } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, VolumeX, Monitor, MonitorOff, Settings, LayoutGrid, Focus, Presentation, Maximize2, Minimize2, ScanFace } from "lucide-react";
 
 // Per-device audio/camera choices persist locally (the kiosk is read-only, so no
 // DB) — applied on connect so a paired display keeps its mic/speaker across restarts.
-const DEV_PREF = { mic: "ql_device_mic", speaker: "ql_device_speaker", camera: "ql_device_camera", layout: "ql_device_layout" };
+const DEV_PREF = { mic: "ql_device_mic", speaker: "ql_device_speaker", camera: "ql_device_camera", layout: "ql_device_layout", followSpeaker: "ql_device_follow_speaker" };
 
 // One device <select> backed by LiveKit's device manager. Switching a kind calls
 // room.switchActiveDevice under the hood (incl. setSinkId for the speaker), and we
@@ -148,7 +148,7 @@ function useDeviceRoles() {
 // cameras or a screen share, it switches to a spotlight (the screen share, else
 // the active speaker, else the first person) with the rest in a filmstrip — the
 // glanceable "who's talking" framing you want on a big communal display.
-function PortalStage({ layoutMode = "auto" }) {
+function PortalStage({ layoutMode = "auto", followSpeaker = true }) {
   const { localParticipant } = useLocalParticipant();
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });
   const screens = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }], { onlySubscribed: false });
@@ -174,7 +174,11 @@ function PortalStage({ layoutMode = "auto" }) {
     ? (screens.find((t) => t.participant?.identity === globalPinId)
        || cameras.find((t) => t.participant?.identity === globalPinId))
     : null;
-  const speakerCam = featuredId ? cameras.find((t) => t.participant?.identity === featuredId) : null;
+  // When "follow active speaker" is off, the big tile never chases the talker —
+  // drop the featured speaker from the focus so it holds a static framing (pin >
+  // screen > first remote camera). In grid mode the speaker was never the focus
+  // anyway, so this only affects auto / spotlight.
+  const speakerCam = followSpeaker && featuredId ? cameras.find((t) => t.participant?.identity === featuredId) : null;
   const firstRemoteCam = cameras.find((t) => t.participant && t.participant.identity !== localId);
 
   // Resolve the focus tile per layout mode:
@@ -245,6 +249,7 @@ function DeviceControls({
   soundOn, soundOverridden, onToggleSound,
   screenOn, onToggleScreen,
   layout, onCycleLayout,
+  followSpeaker, onToggleFollowSpeaker,
   fullscreenSupported, isFullscreen, onToggleFullscreen,
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -303,6 +308,18 @@ function DeviceControls({
         <LayoutIcon className="w-5 h-5" />
         <span className="text-[9px] font-medium leading-none">{layoutMeta.label}</span>
       </button>
+      {/* Follow active speaker — when off, the big tile stops chasing whoever's
+          talking (amber = off, matching the other "switched off" controls). */}
+      <CtrlButton
+        on={followSpeaker}
+        onIcon={ScanFace}
+        offIcon={ScanFace}
+        label="Follow"
+        title={followSpeaker
+          ? "Following the active speaker — tap to stop highlighting whoever's talking"
+          : "Not following the speaker — tap to highlight whoever's talking"}
+        onClick={onToggleFollowSpeaker}
+      />
       {fullscreenSupported && (
         <button
           type="button"
@@ -356,6 +373,9 @@ function DevicePortalInner() {
   const [soundOn, setSoundOn] = useState(true); // the room's speaker output
   const [screenOn, setScreenOn] = useState(true); // the call video on this display
   const [layout, setLayout] = useState(() => loadDevLayout(DEV_PREF.layout));
+  const [followSpeaker, setFollowSpeaker] = useState(() => {
+    try { return localStorage.getItem(DEV_PREF.followSpeaker) !== "0"; } catch { return true; }
+  });
   const rootRef = useRef(null);
   const { isFs, supported: fsSupported, toggle: toggleFullscreen } = useFullscreen(rootRef);
 
@@ -363,6 +383,13 @@ function DevicePortalInner() {
     setLayout((cur) => {
       const next = PORTAL_LAYOUTS[(PORTAL_LAYOUTS.indexOf(cur) + 1) % PORTAL_LAYOUTS.length];
       try { localStorage.setItem(DEV_PREF.layout, next); } catch { /* */ }
+      return next;
+    });
+  };
+  const toggleFollowSpeaker = () => {
+    setFollowSpeaker((v) => {
+      const next = !v;
+      try { localStorage.setItem(DEV_PREF.followSpeaker, next ? "1" : "0"); } catch { /* */ }
       return next;
     });
   };
@@ -381,7 +408,7 @@ function DevicePortalInner() {
     <div ref={rootRef} className="relative w-full h-full bg-slate-900">
       <DeviceClusterBeacon />
       {screenOn ? (
-        <PortalStage layoutMode={layout} />
+        <PortalStage layoutMode={layout} followSpeaker={followSpeaker} />
       ) : (
         <div className="w-full h-full flex items-center justify-center text-slate-600 text-sm uppercase tracking-widest">
           Display off
@@ -400,6 +427,8 @@ function DevicePortalInner() {
         onToggleScreen={() => setScreenOn((v) => !v)}
         layout={layout}
         onCycleLayout={cycleLayout}
+        followSpeaker={followSpeaker}
+        onToggleFollowSpeaker={toggleFollowSpeaker}
         fullscreenSupported={fsSupported}
         isFullscreen={isFs}
         onToggleFullscreen={toggleFullscreen}

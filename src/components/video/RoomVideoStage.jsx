@@ -6,7 +6,6 @@ import "@livekit/components-styles";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useVideoCall } from "../../context/VideoCallContext";
-import { Button } from "@/components/ui/button";
 import UserAvatar from "../UserAvatar";
 import { useRoomCallPresence } from "./useRoomCallPresence";
 import { createRefinedBackgroundProcessor } from "./refinedBackground";
@@ -448,8 +447,17 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
           </div>
 
           {othersInCall && (
-            <div className="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 text-white text-[11px] font-semibold">
+            <div className="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/45 backdrop-blur-sm text-white text-[11px] font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              {(participants?.length || 0) > 0 && (
+                <div className="flex -space-x-1.5">
+                  {(participants || []).slice(0, 3).map((p) => (
+                    <span key={p.user_id} className="ring-2 ring-black/40 rounded-full">
+                      <UserAvatar url="" name={p.display_name || "Member"} size={18} />
+                    </span>
+                  ))}
+                </div>
+              )}
               {participants?.length || ""} in call
             </div>
           )}
@@ -725,56 +733,12 @@ export default function RoomVideoStage({ roomId, displayName }) {
     return <div className="w-full h-full rounded-xl overflow-hidden bg-slate-900" aria-label="Moving your call" />;
   }
 
-  const shellCls = `relative w-full h-full rounded-xl border overflow-hidden flex flex-col ${
-    dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-slate-900"
-  }`;
-
-  // ── Others in the call ───────────────────────────────────────
-  // The auto-preview effect drops you straight into a live (muted) spectate so
-  // you SEE the call the moment you walk up. While that connects, show a neutral
-  // fill rather than flashing a card for a frame.
-  // ── Others are in the call ───────────────────────────────────
-  // Opt-in card (no auto-connect): peek at who's in via presence, then Watch
-  // (subscribe-only) or Join. A LiveKit connection starts only on click.
-  if (othersInCall) {
-    return (
-      <div className={`${shellCls} items-center justify-center text-center px-6`}>
-        <div className="flex items-center gap-2 mb-3">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <p className="text-sm font-semibold text-white">{observed.participants.length} in call</p>
-        </div>
-        <div className="flex items-center justify-center gap-1.5 mb-4">
-          {observed.participants.slice(0, 6).map((p) => (
-            <span key={p.user_id} className="ring-2 ring-white/30 rounded-full">
-              <UserAvatar url="" name={p.display_name || "Member"} size={32} />
-            </span>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button
-            onClick={watch}
-            className="rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
-          >
-            <Eye className="w-4 h-4 mr-1.5" /> Watch
-          </Button>
-          <Button
-            onClick={() => join({ videoEnabled: false, audioEnabled: true })}
-            variant="outline"
-            // outline's default bg-background is near-white in the light theme, so
-            // white text vanished on this dark card (only legible on hover). Give
-            // it an explicit translucent fill + brighter border so it always reads.
-            className="rounded-full bg-white/10 text-white border-white/30 hover:bg-white/20 hover:text-white"
-          >
-            <LogIn className="w-4 h-4 mr-1.5" /> Join call
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Empty room → the start lobby directly (no choice-card hop) ───────────────
-  // GreenRoom IS the lobby: self-preview (camera off until you opt in) + a
-  // primary "Start call". No Back — there's nothing behind it now.
+  // ── Not yet in the call — empty room OR others already in ────────────────────
+  // GreenRoom IS the lobby for BOTH cases: a live camera/mic preview + device
+  // setup, then Start/Join (plus a Watch button when others are already in). This
+  // merges the old immediate "opt-in card" (Watch/Join with no setup) into the
+  // green room, so you always preview + choose camera/mic BEFORE joining OR
+  // watching, instead of connecting on the first click.
   return (
     <GreenRoom
       displayName={displayName}
