@@ -776,7 +776,7 @@ export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
-  const { activeConversations = [], startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
@@ -795,7 +795,7 @@ export default function MessagesPage() {
   };
 
   const open = (id) => { setComposing(false); setParams(id ? { c: id } : {}, { replace: true }); };
-  const active = activeConversations.find((c) => c.id === activeId) || null;
+  const active = activeConversations.find((c) => c.id === activeId) || conversations.find((c) => c.id === activeId) || (activeId ? { id: activeId, participant_ids: [] } : null);
   const showMain = composing || !!active;
 
   const onPin = async (c) => { await setConversationPinned(c.id, userId, !c.pinned_at, c.kind); reload?.(); };

@@ -971,22 +971,25 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
 // and the tooltip (plus the "In room" tile badge) explains why you may not be
 // transmitting. So: MicOff = you muted yourself; Mic + "In room" badge = the
 // room is carrying you.
-function MicButton({ micMuted, onToggleMic }) {
+function MicButton({ micMuted, deafened, onToggleMic }) {
   const { cluster, isMicSource } = useRoomCluster();
   const carriedByRoom = !!cluster && !isMicSource;
-  const title = micMuted
-    ? "Unmute"
-    : carriedByRoom
-      ? "You're in the room — the room mic carries your audio"
-      : "Mute";
+  const title = deafened
+    ? "Undeafen before unmuting"
+    : micMuted
+      ? "Unmute"
+      : carriedByRoom
+        ? "You're in the room — the room mic carries your audio"
+        : "Mute";
   return (
     <button
       type="button"
       className="lk-button"
       aria-pressed={micMuted}
-      aria-label={micMuted ? "Unmute microphone" : "Mute microphone"}
+      aria-label={deafened ? "Microphone muted while deafened" : micMuted ? "Unmute microphone" : "Mute microphone"}
       title={title}
       onClick={() => onToggleMic?.()}
+      disabled={deafened}
     >
       {micMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
     </button>
@@ -1139,7 +1142,7 @@ function CallControlBar({
 
       {publish && (
         <>
-          <MicButton micMuted={micMuted} onToggleMic={onToggleMic} />
+          <MicButton micMuted={micMuted} deafened={deafened} onToggleMic={onToggleMic} />
           {!tight && (
             <DeviceSettingsMenu kind="audioinput" label="Microphone">
               <OutputDeviceSection />
@@ -2214,13 +2217,16 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
   // Personal mic mute — your own control, kept separate from the room's
   // behind-the-scenes auto-mute. Seeded from the join choice.
   const [micMuted, setMicMuted] = useState(choices?.audioEnabled === false);
-  const toggleMic = () => setMicMuted((v) => !v);
   // Deafen — one control to silence ALL audio, incoming and outgoing (Discord
   // style). Incoming is cut by not rendering the audio renderer below; outgoing
   // by muting the mic (deafening forces micMuted on, so the mic button + publish
   // both reflect it). Un-deafening leaves the mic muted; the user unmutes when
   // ready.
   const [deafened, setDeafened] = useState(false);
+  const toggleMic = () => {
+    if (deafened) return;
+    setMicMuted((v) => !v);
+  };
   const toggleDeafen = () => {
     const next = !deafened;
     setDeafened(next);
