@@ -19,7 +19,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -849,7 +849,9 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
         aria-label={joining ? "Join the room's shared audio" : "Make this the room speaker"}
         onClick={() => (joining ? joinRoom(existingCluster) : startRoom())}
       >
-        <UsersRound className="w-5 h-5" />
+        {/* Speaker (not a people icon) so this "share the room's audio" control
+            isn't confused with the People / participants button. */}
+        <Speaker className="w-5 h-5" />
       </button>
     );
   }
@@ -866,7 +868,7 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
         title={isMicSource ? "You're the room mic" : "You're in a shared room (muted)"}
         onClick={() => setOpen((v) => !v)}
       >
-        <UsersRound className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
+        <Speaker className="w-5 h-5" style={{ color: "var(--lk-accent-bg, #22d3ee)" }} />
       </button>
       {open && (
         <div className="call-menu absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-20 w-64">
