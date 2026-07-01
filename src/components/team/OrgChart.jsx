@@ -73,6 +73,70 @@ export default function OrgChart({ dark }) {
   );
 
   // ── Views ──────────────────────────────────────────────────────────────
+  // A team's members as an overlapping avatar stack (the office presence-bar
+  // idiom) inside a rectangular, color-washed card — image-forward, so you scan
+  // "who's on this team" at a glance rather than reading a name list.
+  const AV_MAX = 10;
+  const TeamCard = ({ dept, members }) => {
+    const tint = dept?.color || "#64748b";
+    const leadIds = new Set(
+      dept
+        ? members.filter((m) => deptsOf(m.user_id).some((t) => String(t.id) === String(dept.id) && t.role === "lead")).map((m) => m.user_id)
+        : [],
+    );
+    const leads = members.filter((m) => leadIds.has(m.user_id));
+    const heading = dept ? dept.name : (orgTeams.length ? "Not in a department" : "Everyone");
+    return (
+      <div
+        className={`rounded-xl border p-3 flex flex-col gap-2.5 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}
+        style={{ background: dept ? `color-mix(in srgb, ${tint} 8%, ${surface})` : surface }}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: tint }} />
+          <span className={`text-[13px] font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>{heading}</span>
+          <span className={`ml-auto text-[11px] font-medium shrink-0 tabular-nums ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            {members.length} {members.length === 1 ? "person" : "people"}
+          </span>
+        </div>
+        {members.length === 0 ? (
+          <p className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>No one yet.</p>
+        ) : (
+          <>
+            <div className="flex items-center flex-wrap gap-y-1.5">
+              {members.slice(0, AV_MAX).map((m) => {
+                const lead = leadIds.has(m.user_id);
+                return (
+                  <button
+                    key={m.user_id}
+                    type="button"
+                    onClick={(e) => open(m.user_id, e)}
+                    title={`${nameOf(m)}${titleOf(m) ? ` — ${titleOf(m)}` : ""}${lead ? " · lead" : ""}`}
+                    className={`relative shrink-0 rounded-full ring-2 -ml-1.5 first:ml-0 transition-transform hover:-translate-y-0.5 hover:z-10 ${
+                      lead ? "ring-[var(--color-accent)]" : dark ? "ring-[var(--color-surface)]" : "ring-white"
+                    }`}
+                  >
+                    <UserAvatar url={avatarOf(m)} name={nameOf(m)} size={36} />
+                    {lead && <Crown className="absolute -top-1.5 -right-1 w-3 h-3 text-amber-400 drop-shadow" fill="currentColor" />}
+                  </button>
+                );
+              })}
+              {members.length > AV_MAX && (
+                <span className={`-ml-1.5 inline-flex items-center justify-center w-9 h-9 rounded-full text-[11px] font-semibold ring-2 ring-transparent ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-700"}`}>
+                  +{members.length - AV_MAX}
+                </span>
+              )}
+            </div>
+            {leads.length > 0 && (
+              <div className={`text-[10.5px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                {leads.length === 1 ? "Lead" : "Leads"}: {leads.map((m) => nameOf(m)).join(", ")}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
   const CardView = () => {
     const groups = orgTeams.map((d) => ({
       dept: d,
@@ -80,25 +144,9 @@ export default function OrgChart({ dark }) {
     }));
     const noDept = teamMembers.filter((m) => deptsOf(m.user_id).length === 0);
     return (
-      <div className="flex flex-col gap-3">
-        {groups.map(({ dept, members }) => (
-          <div key={dept.id}>
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="w-2 h-2 rounded-full" style={{ background: dept.color || "#64748b" }} />
-              <span className={`text-[12px] font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>{dept.name}</span>
-              <span className={`text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{members.length}</span>
-            </div>
-            {members.length === 0
-              ? <p className={`text-[11px] pl-3.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>No one yet.</p>
-              : <div className="pl-1">{members.map((m) => <MemberRow key={m.user_id} m={m} dept={dept} />)}</div>}
-          </div>
-        ))}
-        {noDept.length > 0 && (
-          <div>
-            <div className={`text-[12px] font-semibold mb-1 ${dark ? "text-slate-400" : "text-slate-500"}`}>{orgTeams.length ? "Not in a department" : "Everyone"}</div>
-            <div className="pl-1">{noDept.map((m) => <MemberRow key={m.user_id} m={m} />)}</div>
-          </div>
-        )}
+      <div className="grid gap-2.5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        {groups.map(({ dept, members }) => <TeamCard key={dept.id} dept={dept} members={members} />)}
+        {noDept.length > 0 && <TeamCard dept={null} members={noDept} />}
       </div>
     );
   };
