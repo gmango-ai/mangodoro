@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { useTeam } from "../context/TeamContext";
 import { useApp } from "../context/AppContext";
@@ -118,6 +118,7 @@ export default function TeamPage() {
   function setTeamFilter(v) { updateParam("team", v); }
   function setMemberSearch(v) { updateParam("q", v); }
   const peopleSectionRef = useRef(null);
+  const canManageRooms = isAdmin || (myOrgTeamLeadIds?.size ?? 0) > 0;
   function focusPeopleSection() {
     requestAnimationFrame(() => {
       peopleSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -478,7 +479,12 @@ export default function TeamPage() {
               column. The rail jumps to the anchor spans placed before each
               section below, so the org page stops being one long unbroken scroll. */}
           <div className="lg:flex lg:gap-6 lg:items-start">
-            <TeamSideNav dark={dark} isAdmin={isAdmin} />
+            <TeamSideNav
+              dark={dark}
+              isAdmin={isAdmin}
+              canManageRooms={canManageRooms}
+              activeTeamId={activeTeamId}
+            />
             <div className="min-w-0 flex-1 space-y-6">
 
           <span id="org-chart" className="block scroll-mt-24" aria-hidden="true" />
@@ -606,7 +612,7 @@ export default function TeamPage() {
           )}
 
           {/* ─── OFFICE ─────────────────────────────────────────── */}
-          {(isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0)) && (
+          {canManageRooms && (
             <>
               <span id="office" className="block -mt-3" aria-hidden="true" />
               <SectionHeader
@@ -1065,31 +1071,40 @@ const TEAM_NAV_SECTIONS = [
   { id: "people", label: "People", Icon: Users },
   { id: "org-chart", label: "Org chart", Icon: Network },
   { id: "departments", label: "Departments", Icon: Users2 },
-  { id: "office", label: "Rooms", Icon: Building2 },
+  { id: "office", label: "Rooms", Icon: Building2, roomsOnly: true },
   { id: "settings", label: "Settings", Icon: SettingsIcon, adminOnly: true },
 ];
 
-function TeamSideNav({ dark, isAdmin }) {
-  const sections = TEAM_NAV_SECTIONS.filter((s) => !s.adminOnly || isAdmin);
+function TeamSideNav({ dark, isAdmin, canManageRooms, activeTeamId }) {
+  const sections = useMemo(
+    () => TEAM_NAV_SECTIONS.filter((s) =>
+      (!s.adminOnly || isAdmin) && (!s.roomsOnly || canManageRooms)
+    ),
+    [canManageRooms, isAdmin],
+  );
   const [active, setActive] = useState(sections[0]?.id);
 
   useEffect(() => {
     const els = sections.map((s) => document.getElementById(s.id)).filter(Boolean);
     if (!els.length) return undefined;
+    const updateActive = () => {
+      const activationLine = window.innerHeight * 0.2;
+      const positions = els
+        .map((el) => ({ id: el.id, top: el.getBoundingClientRect().top }))
+        .sort((a, b) => a.top - b.top);
+      const passed = positions.filter((p) => p.top <= activationLine);
+      const current = passed[passed.length - 1] || positions[0];
+      if (current) setActive(current.id);
+    };
     const obs = new IntersectionObserver(
-      (entries) => {
-        const vis = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (vis[0]) setActive(vis[0].target.id);
-      },
+      updateActive,
       // Trip a section "active" once its anchor sits in the top slice of the viewport.
       { rootMargin: "-15% 0px -75% 0px", threshold: 0 },
     );
     els.forEach((el) => obs.observe(el));
+    updateActive();
     return () => obs.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin]);
+  }, [activeTeamId, sections]);
 
   const go = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const linkCls = (id) =>
