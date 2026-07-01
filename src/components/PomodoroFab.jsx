@@ -1,6 +1,7 @@
 import { Timer, Users } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useSyncSession } from "../context/SyncSessionContext";
+import { useTeam } from "../context/TeamContext";
 import { useVideoCall } from "../context/VideoCallContext";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
 
@@ -22,17 +23,31 @@ function formatTime(totalSeconds) {
   return `${m}:${String(r).padStart(2, "0")}`;
 }
 
+function sessionSecondsLeft(session) {
+  if (!session) return 0;
+  if (session.is_running && session.ends_at) {
+    return Math.max(0, Math.ceil((new Date(session.ends_at).getTime() - Date.now()) / 1000));
+  }
+  return Number.isFinite(session.remaining_seconds) ? session.remaining_seconds : 0;
+}
+
 export default function PomodoroFab({ onToggle }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { mode, secondsLeft, isRunning } = usePomodoro();
   const { syncSession } = useSyncSession();
+  const { activeTeamSessions } = useTeam();
   const { call, stageEl } = useVideoCall();
 
   const pipActive = !!call && !stageEl;
-  const synced = !!syncSession;
-  const showTimer = isRunning;
-  const safeSeconds = Number.isFinite(secondsLeft) ? secondsLeft : 0;
+  const teamSession = activeTeamSessions?.find((s) => s.is_running) || activeTeamSessions?.[0];
+  const hasTeamSessions = (activeTeamSessions?.length || 0) > 0;
+  const synced = !!syncSession || hasTeamSessions;
+  const showTimer = isRunning || hasTeamSessions;
+  const safeSeconds = isRunning
+    ? (Number.isFinite(secondsLeft) ? secondsLeft : 0)
+    : sessionSecondsLeft(teamSession);
+  const displayMode = isRunning ? mode : teamSession?.mode;
   const minsLeft = Math.max(0, Math.ceil(safeSeconds / 60));
 
   // Vertical position: clear the mobile BottomNav (hidden at xl) and lift above a
@@ -50,8 +65,8 @@ export default function PomodoroFab({ onToggle }) {
       type="button"
       data-pomodoro-tab=""
       onClick={() => onToggle?.()}
-      title={showTimer ? `${modeLabel(mode)} · ${formatTime(safeSeconds)} left — open pomodoro` : "Open pomodoro"}
-      aria-label={showTimer ? `${modeLabel(mode)} timer, ${formatTime(safeSeconds)} remaining — open pomodoro` : "Open pomodoro"}
+      title={showTimer ? `${modeLabel(displayMode)} · ${formatTime(safeSeconds)} left — open pomodoro` : "Open pomodoro"}
+      aria-label={showTimer ? `${modeLabel(displayMode)} timer, ${formatTime(safeSeconds)} remaining — open pomodoro` : "Open pomodoro"}
       className={`fixed right-0 z-[111] inline-flex flex-col items-center justify-center gap-0.5 w-6 rounded-l-lg border border-r-0 shadow-md transition-colors ${bottomCls} ${
         showTimer
           ? "h-14 bg-[var(--color-accent)] border-[var(--color-accent)] text-white"

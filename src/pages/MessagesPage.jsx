@@ -795,8 +795,9 @@ export default function MessagesPage() {
   };
 
   const open = (id) => { setComposing(false); setParams(id ? { c: id } : {}, { replace: true }); };
-  const active = activeConversations.find((c) => c.id === activeId) || conversations.find((c) => c.id === activeId) || (activeId ? { id: activeId, participant_ids: [] } : null);
-  const showMain = composing || !!active;
+  const active = activeConversations.find((c) => c.id === activeId) || conversations.find((c) => c.id === activeId) || null;
+  useEffect(() => { if (activeId && !active) reload?.(); }, [activeId, active, reload]);
+  const showMain = composing || !!active || !!activeId;
 
   const onPin = async (c) => { await setConversationPinned(c.id, userId, !c.pinned_at, c.kind); reload?.(); };
   const onMute = async (c) => { await setConversationMuted(c.id, userId, !c.muted_at, c.kind); reload?.(); };
