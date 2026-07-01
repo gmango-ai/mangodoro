@@ -325,6 +325,12 @@ function PublishController({ publish, choices, micMuted }) {
     joinRoom({ id: mergeTarget });
   }, [publish, inRoom, mergeTarget, joinRoom]);
 
+  // Camera + role — applied once per (re)connection and when the publish intent
+  // or device choices change. Deliberately does NOT depend on the cluster / mic
+  // state: your camera is your own live control (the ControlBar's TrackToggle),
+  // and re-running setCameraEnabled off the stale join-time `choices.videoEnabled`
+  // whenever you joined/left room audio was force-killing a camera you'd turned
+  // on mid-call. Keeping camera out of the mic-gate effect fixes that.
   useEffect(() => {
     if (!localParticipant || !room) return undefined;
     const apply = () => {
@@ -332,23 +338,32 @@ function PublishController({ publish, choices, micMuted }) {
       // instead of giving them a (camera-off) tile in the grid.
       localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
       const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
-      // Your mic is live only when YOU haven't muted it AND (solo, or you're the
-      // room's mic source). The in-room gate is the "behind the scenes" auto-mute —
-      // it doesn't flip your personal mute button; that stays your own control.
-      // While entering "in this room" but not yet clustered, hold the mic off so
-      // it can't squeal before the follower/mic-source role resolves.
-      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
       localParticipant
         .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
         .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
+    };
+    // Signal requests are only valid once connected; apply on connect + reconnect.
+    room.on(RoomEvent.Connected, apply);
+    if (room.state === "connected") apply();
+    return () => room.off(RoomEvent.Connected, apply);
+  }, [localParticipant, room, publish, choices]);
+
+  // Mic gating — re-applied on connect AND whenever the room-audio cluster state
+  // changes, because that IS the "behind the scenes" auto-mute (a follower's mic
+  // is held off so co-located people don't echo). It touches ONLY the mic, so its
+  // churn on cluster/mic-source/in-room changes can't disturb the camera above.
+  useEffect(() => {
+    if (!localParticipant || !room) return undefined;
+    const apply = () => {
+      // Your mic is live only when YOU haven't muted it AND (solo, or you're the
+      // room's mic source). While entering "in this room" but not yet clustered,
+      // hold the mic off so it can't squeal before the follower/mic-source role
+      // resolves.
+      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
       localParticipant
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
     };
-    // These are all signal requests — only valid once connected. Touching them
-    // earlier (e.g. while a connect is still failing) logs "cannot send signal
-    // request before connected" and wastes the call. Apply on connect, and
-    // re-apply on every (re)connection.
     room.on(RoomEvent.Connected, apply);
     if (room.state === "connected") apply();
     return () => room.off(RoomEvent.Connected, apply);
@@ -971,22 +986,25 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
 // and the tooltip (plus the "In room" tile badge) explains why you may not be
 // transmitting. So: MicOff = you muted yourself; Mic + "In room" badge = the
 // room is carrying you.
-function MicButton({ micMuted, onToggleMic }) {
+function MicButton({ micMuted, deafened, onToggleMic }) {
   const { cluster, isMicSource } = useRoomCluster();
   const carriedByRoom = !!cluster && !isMicSource;
-  const title = micMuted
-    ? "Unmute"
-    : carriedByRoom
-      ? "You're in the room — the room mic carries your audio"
-      : "Mute";
+  const title = deafened
+    ? "Undeafen before unmuting"
+    : micMuted
+      ? "Unmute"
+      : carriedByRoom
+        ? "You're in the room — the room mic carries your audio"
+        : "Mute";
   return (
     <button
       type="button"
       className="lk-button"
       aria-pressed={micMuted}
-      aria-label={micMuted ? "Unmute microphone" : "Mute microphone"}
+      aria-label={deafened ? "Microphone muted while deafened" : micMuted ? "Unmute microphone" : "Mute microphone"}
       title={title}
       onClick={() => onToggleMic?.()}
+      disabled={deafened}
     >
       {micMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
     </button>
@@ -1139,7 +1157,7 @@ function CallControlBar({
 
       {publish && (
         <>
-          <MicButton micMuted={micMuted} onToggleMic={onToggleMic} />
+          <MicButton micMuted={micMuted} deafened={deafened} onToggleMic={onToggleMic} />
           {!tight && (
             <DeviceSettingsMenu kind="audioinput" label="Microphone">
               <OutputDeviceSection />
@@ -2214,13 +2232,16 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
   // Personal mic mute — your own control, kept separate from the room's
   // behind-the-scenes auto-mute. Seeded from the join choice.
   const [micMuted, setMicMuted] = useState(choices?.audioEnabled === false);
-  const toggleMic = () => setMicMuted((v) => !v);
   // Deafen — one control to silence ALL audio, incoming and outgoing (Discord
   // style). Incoming is cut by not rendering the audio renderer below; outgoing
   // by muting the mic (deafening forces micMuted on, so the mic button + publish
   // both reflect it). Un-deafening leaves the mic muted; the user unmutes when
   // ready.
   const [deafened, setDeafened] = useState(false);
+  const toggleMic = () => {
+    if (deafened) return;
+    setMicMuted((v) => !v);
+  };
   const toggleDeafen = () => {
     const next = !deafened;
     setDeafened(next);

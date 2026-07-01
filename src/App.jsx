@@ -28,6 +28,7 @@ import PersistentVideoCall from "./components/video/PersistentVideoCall";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
 import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
+import PomodoroFab from "./components/PomodoroFab";
 import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
 import PWAUpdater from "./components/PWAUpdater";
@@ -282,8 +283,13 @@ function AppLayout({ session }) {
           </div>
         )}
 
-        <div className="relative z-10 min-h-screen">
+        {/* A small right-edge gutter so the fixed pomodoro pull-tab (PomodoroFab,
+            docked to the right edge) doesn't sit on top of page content. */}
+        <div className={`relative z-10 min-h-screen ${!isEmbed && !onPomodoroPage ? "pr-2" : ""}`}>
           {!isEmbed && <Nav onOpenPomodoro={() => setShowPomodoro(true)} />}
+          {/* Floating pomodoro button (replaces the old nav Pomodoro link + timer
+              pill). Hidden on the pomodoro page itself, where you're already there. */}
+          {!isEmbed && !onPomodoroPage && <PomodoroFab onToggle={() => setShowPomodoro((v) => !v)} />}
           {!isEmbed && <InvoiceModal />}
           {/* ClockBanner (fixed bottom tracking bar) disabled — the top-bar
               WorkClockBar now owns clock display + controls; the bottom bar was

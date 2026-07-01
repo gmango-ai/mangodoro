@@ -104,14 +104,20 @@ export default function PomodoroSurface({
   // PiP wiring.
   const [pipMountEl, setPipMountEl] = useState(null);
   const pipWinRef = useRef(null);
+  const panelRef = useRef(null);
   // A pending confirmation force-shows the floating panel (so it can't be
   // missed, including when a synced follower receives one). That must not
   // trap the panel open: let the X dismiss it. Reset once the pending
   // action resolves so the next one re-surfaces the panel.
   const [pendingDismissed, setPendingDismissed] = useState(false);
+  const prevOpenRef = useRef(open);
   useEffect(() => {
     if (!pendingAction) setPendingDismissed(false);
   }, [pendingAction]);
+  useEffect(() => {
+    if (prevOpenRef.current && !open && pendingAction) setPendingDismissed(true);
+    prevOpenRef.current = open;
+  }, [open, pendingAction]);
   const [pipViewMode, setPipViewMode] = useState(() => {
     try { return localStorage.getItem("ql_pip_view") || "controls"; } catch { return "controls"; }
   });
@@ -163,6 +169,28 @@ export default function PomodoroSurface({
     setPendingDismissed(true);
     onClose?.();
   }
+
+  // The floating popover closes on a click outside it or on Escape. The pomodoro
+  // tab that opens it is excluded (it toggles itself, so a click there shouldn't
+  // both close-via-outside and reopen-via-toggle). Only bind while open; defer a
+  // tick so the opening click doesn't immediately close it.
+  useEffect(() => {
+    if (cfg.container !== "floating" || !open) return undefined;
+    const onDown = (e) => {
+      if (panelRef.current?.contains(e.target)) return;
+      if (e.target?.closest?.("[data-pomodoro-tab]")) return;
+      handleClose();
+    };
+    const onKey = (e) => { if (e.key === "Escape") handleClose(); };
+    const id = setTimeout(() => document.addEventListener("mousedown", onDown), 0);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfg.container, open]);
 
   const pipSupported = typeof window !== "undefined" && "documentPictureInPicture" in window;
   const controlsLocked = !!pendingAction;
@@ -232,7 +260,7 @@ export default function PomodoroSurface({
 
   return (
     <>
-      <div className={containerCls}>
+      <div ref={panelRef} className={containerCls}>
         {/* Header — team identity on the left, utility icons on the right */}
         {(cfg.showTeamHeader || cfg.showPopout || cfg.showClose) && (
           <div className="flex items-start justify-between gap-3 mb-4">

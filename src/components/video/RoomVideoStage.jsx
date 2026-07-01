@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles, Volume2, VolumeX, Users } from "lucide-react";
+import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles, Volume2, VolumeX, Users, ChevronDown, Check } from "lucide-react";
 import { usePreviewTracks, usePersistentUserChoices } from "@livekit/components-react";
 import "@livekit/components-styles";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useVideoCall } from "../../context/VideoCallContext";
-import { Button } from "@/components/ui/button";
 import UserAvatar from "../UserAvatar";
 import { useRoomCallPresence } from "./useRoomCallPresence";
 import { createRefinedBackgroundProcessor } from "./refinedBackground";
@@ -245,6 +244,137 @@ function LobbySettingsGear({ videoDeviceId, onPickCamera, audioDeviceId, onPickM
   );
 }
 
+// A caret button that sits NEXT TO a lobby toggle (mic / camera) and opens a
+// call-style device menu — the device list plus any extra setting rows passed as
+// children — mirroring the in-call DeviceSettingsMenu so the green room reads
+// like the call. Portaled to <body> with fixed positioning so a short tile /
+// PiP can't clip it (same approach the old gear used).
+function LobbyDeviceMenu({ label, devices, value, onChange, children }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+  const [rect, setRect] = useState(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const measure = () => { const r = btnRef.current?.getBoundingClientRect(); if (r) setRect(r); };
+    measure();
+    const onDown = (e) => { if (btnRef.current?.contains(e.target) || popRef.current?.contains(e.target)) return; setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  const W = 256;
+  const popStyle = rect
+    ? {
+        position: "fixed",
+        bottom: Math.round(window.innerHeight - rect.top + 8),
+        left: Math.round(Math.min(Math.max(8, rect.right - W), window.innerWidth - W - 8)),
+        width: W,
+        maxHeight: Math.max(160, Math.round(rect.top - 16)),
+        zIndex: 200,
+      }
+    : null;
+  return (
+    <div className="relative">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={`${label} settings`}
+        aria-expanded={open}
+        className="inline-flex items-center justify-center w-5 h-10 rounded-full text-white/70 hover:text-white hover:bg-white/10"
+      >
+        <ChevronDown className="w-3.5 h-3.5" />
+      </button>
+      {open && popStyle && createPortal(
+        <div ref={popRef} style={popStyle} className="call-menu overflow-y-auto">
+          <div className="call-menu-label">{label}</div>
+          {devices.length === 0 ? (
+            <div className="px-2.5 py-2 text-[13px] opacity-55">No devices found</div>
+          ) : (
+            devices.map((d, i) => {
+              const sel = d.deviceId === value;
+              return (
+                <button
+                  key={d.deviceId || i}
+                  type="button"
+                  onClick={() => onChange(d.deviceId)}
+                  className={`call-menu-item ${sel ? "call-menu-item--active" : ""}`}
+                >
+                  <span className="flex-1 truncate">{d.label || `${label} ${i + 1}`}</span>
+                  {sel && <Check className="w-4 h-4 shrink-0 text-[var(--color-accent)]" />}
+                </button>
+              );
+            })
+          )}
+          {children && (
+            <>
+              <div className="call-menu-sep" />
+              {children}
+            </>
+          )}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+// Speaker (audio-output) picker shown inside the mic menu — all audio settings in
+// one place, mirroring the call's OutputDeviceSection.
+function LobbySpeakerSection({ devices, value, onChange }) {
+  if (!devices.length) return null;
+  return (
+    <div>
+      <div className="call-menu-label flex items-center gap-1.5"><Volume2 className="w-3.5 h-3.5 opacity-70" /> Speaker</div>
+      {devices.map((d, i) => {
+        const sel = d.deviceId === value;
+        return (
+          <button key={d.deviceId || i} type="button" onClick={() => onChange(d.deviceId)} className={`call-menu-item ${sel ? "call-menu-item--active" : ""}`}>
+            <span className="flex-1 truncate">{d.label || `Speaker ${i + 1}`}</span>
+            {sel && <Check className="w-4 h-4 shrink-0 text-[var(--color-accent)]" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Background / blur options as menu rows, shown inside the camera menu (video
+// settings together), mirroring the call's BackgroundEffects.
+function BgMenuSection({ bg, onChange }) {
+  return (
+    <div>
+      <div className="call-menu-label">Background</div>
+      <button type="button" onClick={() => onChange("none")} className={`call-menu-item ${(!bg || bg === "none") ? "call-menu-item--active" : ""}`}>None</button>
+      {BLUR_LEVELS.map((l) => (
+        <button key={l.id} type="button" onClick={() => onChange(l.id)} className={`call-menu-item ${bg === l.id ? "call-menu-item--active" : ""}`}>Blur · {l.label}</button>
+      ))}
+      <div className="grid grid-cols-5 gap-1 px-2 pt-1.5 pb-1">
+        {BG_PRESETS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            title={p.label}
+            aria-label={`Background: ${p.label}`}
+            onClick={() => onChange(`image:${p.id}`)}
+            className={`h-7 rounded-md ring-1 transition ${bg === `image:${p.id}` ? "ring-2 ring-white" : "ring-white/20 hover:ring-white/50"}`}
+            style={{ backgroundImage: `linear-gradient(135deg, ${p.colors[0]}, ${p.colors[1]})` }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Stable onError for usePreviewTracks — its effect deps are
 // [JSON.stringify(options), onError, mutex], so an INLINE onError (new identity
 // every render) re-runs the effect on every parent re-render, tearing down and
@@ -307,9 +437,9 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     };
   }, [videoTrack]);
 
-  // Device + audio settings live in the shared <LobbySettingsGear> below.
   // "I'm in this room" — join the room's shared audio muted so co-located people
   // don't echo on entry. Persisted (a laptop that lives in the room stays set).
+  // Lives inside the mic settings menu below (with the rest of the audio setup).
   const [inRoom, setInRoom] = useState(() => {
     try { return localStorage.getItem("mango:inRoomAudio") === "1"; } catch { return false; }
   });
@@ -318,6 +448,34 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     try { localStorage.setItem("mango:inRoomAudio", next ? "1" : "0"); } catch { /* */ }
     return next;
   });
+
+  // Devices + audio prefs for the call-style mic/camera menus. Enumerate on mount
+  // and whenever a device is toggled on (labels populate once permission lands)
+  // or the OS device set changes. Speaker / noise / PTT write the shared call
+  // prefs so the choices apply on join.
+  const [devices, setDevices] = useState({ cams: [], mics: [], speakers: [] });
+  useEffect(() => {
+    let alive = true;
+    const load = () => navigator.mediaDevices?.enumerateDevices?.()
+      .then((ds) => {
+        if (!alive) return;
+        setDevices({
+          cams: ds.filter((d) => d.kind === "videoinput"),
+          mics: ds.filter((d) => d.kind === "audioinput"),
+          speakers: ds.filter((d) => d.kind === "audiooutput"),
+        });
+      })
+      .catch(() => { /* not enumerable yet */ });
+    load();
+    navigator.mediaDevices?.addEventListener?.("devicechange", load);
+    return () => { alive = false; navigator.mediaDevices?.removeEventListener?.("devicechange", load); };
+  }, [camOn, micOn]);
+  const [spk, setSpk] = useState(() => loadPref(PREF.speaker, ""));
+  const [noise, setNoise] = useState(() => loadPref(PREF.noise, "1") === "1");
+  const [ptt, setPtt] = useState(() => loadPref(PREF.ptt, "0") === "1");
+  const pickSpeaker = (id) => { setSpk(id); savePref(PREF.speaker, id); };
+  const toggleNoise = () => setNoise((v) => { savePref(PREF.noise, v ? "0" : "1"); return !v; });
+  const togglePtt = () => setPtt((v) => { savePref(PREF.ptt, v ? "0" : "1"); return !v; });
 
   // Responsive: collapse to a minimal card when the tile gets small.
   const wrapRef = useRef(null);
@@ -339,20 +497,6 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     inRoom,
   });
 
-  const inRoomToggle = (
-    <button
-      type="button"
-      onClick={toggleInRoom}
-      aria-pressed={inRoom}
-      title={inRoom ? "You'll join muted (sharing this room's audio)" : "I'm in this room — join muted to avoid echo"}
-      className={`inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-full text-[12px] font-semibold transition-colors shrink-0 ${
-        inRoom ? "bg-[var(--color-accent)] text-white" : "bg-white/10 text-white/70 hover:bg-white/20"
-      }`}
-    >
-      <Users className="w-4 h-4" /> {inRoom ? "In this room · muted" : "I'm in this room"}
-    </button>
-  );
-
   const toggleBtn = (active, OnIcon, OffIcon, title, onClick) => (
     <button
       type="button"
@@ -366,11 +510,46 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
       {active ? <OnIcon className="w-5 h-5" /> : <OffIcon className="w-5 h-5" />}
     </button>
   );
-  const toggles = (
-    <>
+
+  // Mic + camera groups: the toggle icon with a caret device-menu right beside
+  // it, exactly like the in-call control bar. All audio setup (input, speaker,
+  // noise, push-to-talk, "in this room") lives under the mic caret; all video
+  // setup (camera, background) under the camera caret — audio and video settings
+  // separate, next to their mute/hide toggles.
+  const micGroup = (
+    <div className="inline-flex items-center gap-0.5">
       {toggleBtn(micOn, Mic, MicOff, micOn ? "Mute mic" : "Unmute mic", () => saveAudioInputEnabled(!micOn))}
+      <LobbyDeviceMenu label="Microphone" devices={devices.mics} value={userChoices.audioDeviceId} onChange={saveAudioInputDeviceId}>
+        <LobbySpeakerSection devices={devices.speakers} value={spk} onChange={pickSpeaker} />
+        {devices.speakers.length > 0 && <div className="call-menu-sep" />}
+        <LobbyToggleRow label="Noise cancellation" active={noise} onClick={toggleNoise} />
+        <LobbyToggleRow label="Push to talk" hint="hold Space in the call" active={ptt} onClick={togglePtt} />
+      </LobbyDeviceMenu>
+    </div>
+  );
+  // "I'm in this room" — its own button in the dock (a round toggle beside the
+  // mic/camera groups). Accent when active; joins the room's shared audio muted.
+  const inRoomBtn = (
+    <button
+      type="button"
+      onClick={toggleInRoom}
+      aria-pressed={inRoom}
+      aria-label="I'm in this room"
+      title={inRoom ? "In this room — you'll join muted so you don't echo people near you" : "I'm in this room — join muted to avoid echo"}
+      className={`inline-flex items-center justify-center w-10 h-10 rounded-full transition-colors shrink-0 ${
+        inRoom ? "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]" : "bg-white/15 text-white/80 hover:bg-white/25"
+      }`}
+    >
+      <Users className="w-5 h-5" />
+    </button>
+  );
+  const camGroup = (
+    <div className="inline-flex items-center gap-0.5">
       {toggleBtn(camOn, Video, VideoOff, camOn ? "Turn off camera" : "Turn on camera", () => saveVideoInputEnabled(!camOn))}
-    </>
+      <LobbyDeviceMenu label="Camera" devices={devices.cams} value={userChoices.videoDeviceId} onChange={saveVideoInputDeviceId}>
+        <BgMenuSection bg={bg} onChange={setBg} />
+      </LobbyDeviceMenu>
+    </div>
   );
   const joinRow = (
     <div className="flex items-center gap-2">
@@ -416,8 +595,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
           <div className="text-white font-semibold text-sm">
             {othersInCall ? `${participants?.length || ""} in call` : "Start the call"}
           </div>
-          <div className="flex items-center gap-2">{toggles}</div>
-          {inRoomToggle}
+          <div className="flex items-center gap-2">{micGroup}{camGroup}{inRoomBtn}</div>
           <div className="w-full max-w-[280px]">{joinRow}</div>
         </div>
       ) : (
@@ -448,8 +626,17 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
           </div>
 
           {othersInCall && (
-            <div className="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/40 text-white text-[11px] font-semibold">
+            <div className="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/45 backdrop-blur-sm text-white text-[11px] font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              {(participants?.length || 0) > 0 && (
+                <div className="flex -space-x-1.5">
+                  {(participants || []).slice(0, 3).map((p) => (
+                    <span key={p.user_id} className="ring-2 ring-black/40 rounded-full">
+                      <UserAvatar url="" name={p.display_name || "Member"} size={18} />
+                    </span>
+                  ))}
+                </div>
+              )}
               {participants?.length || ""} in call
             </div>
           )}
@@ -459,17 +646,11 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
               Join row could get pushed below the tile when the aspect-locked
               preview filled the height — only the top few pixels showed.) */}
           <div className="absolute bottom-0 left-0 right-0 z-10 flex flex-col gap-2 p-3 bg-gradient-to-t from-black/85 via-black/45 to-transparent">
-            <div className="flex items-center justify-center gap-2">
-              {toggles}
-              <BgPicker bg={bg} onChange={setBg} />
-              <LobbySettingsGear
-                videoDeviceId={userChoices.videoDeviceId}
-                onPickCamera={saveVideoInputDeviceId}
-                audioDeviceId={userChoices.audioDeviceId}
-                onPickMic={saveAudioInputDeviceId}
-              />
+            <div className="flex items-center justify-center gap-3">
+              {micGroup}
+              {camGroup}
+              {inRoomBtn}
             </div>
-            <div className="flex justify-center">{inRoomToggle}</div>
             {joinRow}
           </div>
         </>
@@ -725,56 +906,12 @@ export default function RoomVideoStage({ roomId, displayName }) {
     return <div className="w-full h-full rounded-xl overflow-hidden bg-slate-900" aria-label="Moving your call" />;
   }
 
-  const shellCls = `relative w-full h-full rounded-xl border overflow-hidden flex flex-col ${
-    dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-slate-900"
-  }`;
-
-  // ── Others in the call ───────────────────────────────────────
-  // The auto-preview effect drops you straight into a live (muted) spectate so
-  // you SEE the call the moment you walk up. While that connects, show a neutral
-  // fill rather than flashing a card for a frame.
-  // ── Others are in the call ───────────────────────────────────
-  // Opt-in card (no auto-connect): peek at who's in via presence, then Watch
-  // (subscribe-only) or Join. A LiveKit connection starts only on click.
-  if (othersInCall) {
-    return (
-      <div className={`${shellCls} items-center justify-center text-center px-6`}>
-        <div className="flex items-center gap-2 mb-3">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <p className="text-sm font-semibold text-white">{observed.participants.length} in call</p>
-        </div>
-        <div className="flex items-center justify-center gap-1.5 mb-4">
-          {observed.participants.slice(0, 6).map((p) => (
-            <span key={p.user_id} className="ring-2 ring-white/30 rounded-full">
-              <UserAvatar url="" name={p.display_name || "Member"} size={32} />
-            </span>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button
-            onClick={watch}
-            className="rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
-          >
-            <Eye className="w-4 h-4 mr-1.5" /> Watch
-          </Button>
-          <Button
-            onClick={() => join({ videoEnabled: false, audioEnabled: true })}
-            variant="outline"
-            // outline's default bg-background is near-white in the light theme, so
-            // white text vanished on this dark card (only legible on hover). Give
-            // it an explicit translucent fill + brighter border so it always reads.
-            className="rounded-full bg-white/10 text-white border-white/30 hover:bg-white/20 hover:text-white"
-          >
-            <LogIn className="w-4 h-4 mr-1.5" /> Join call
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Empty room → the start lobby directly (no choice-card hop) ───────────────
-  // GreenRoom IS the lobby: self-preview (camera off until you opt in) + a
-  // primary "Start call". No Back — there's nothing behind it now.
+  // ── Not yet in the call — empty room OR others already in ────────────────────
+  // GreenRoom IS the lobby for BOTH cases: a live camera/mic preview + device
+  // setup, then Start/Join (plus a Watch button when others are already in). This
+  // merges the old immediate "opt-in card" (Watch/Join with no setup) into the
+  // green room, so you always preview + choose camera/mic BEFORE joining OR
+  // watching, instead of connecting on the first click.
   return (
     <GreenRoom
       displayName={displayName}

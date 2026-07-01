@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { useTeam } from "../context/TeamContext";
 import { useApp } from "../context/AppContext";
@@ -14,7 +14,7 @@ import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
   ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
   MoreVertical, Search, X, Star, Briefcase, Pencil, Archive, Volume2,
-  ArrowRightLeft,
+  ArrowRightLeft, GitBranch, Settings as SettingsIcon,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
@@ -27,6 +27,8 @@ import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
 import CreateRoomModal from "../components/CreateRoomModal";
 import MemberHRModal from "../components/MemberHRModal";
 import MemberTeamsModal from "../components/MemberTeamsModal";
+import MemberManagerModal from "../components/MemberManagerModal";
+import { setMemberManager } from "../lib/hr";
 import InviteCard from "../components/InviteCard";
 import RemoveMemberModal from "../components/RemoveMemberModal";
 import { archiveRoomV2 } from "../lib/rooms";
@@ -46,7 +48,7 @@ const TEAM_COLORS = [
 
 export default function TeamPage() {
   const {
-    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, isOwner, orgTeams, loadOrgTeamsForActive,
+    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, isOwner, orgTeams, loadOrgTeamsForActive, loadMembers,
     teamsByUserId, orgTeamMemberCounts, myOrgTeamLeadIds,
     rooms, loadRoomsForActiveTeam,
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
@@ -91,6 +93,7 @@ export default function TeamPage() {
 // Per-member team-management modal — "what teams is Jacob on?". The
   // team-centric "who's in SWE?" lives in the People filter now.
   const [memberTeamsModalFor, setMemberTeamsModalFor] = useState(null);
+  const [managerModalFor, setManagerModalFor] = useState(null);
   const [memberToRemove, setMemberToRemove] = useState(null);
   // Open the unified RoomSettingsModal — triggered both from the floor
   // plan editor (click a tile in edit mode) and from the Rooms list
@@ -115,6 +118,41 @@ export default function TeamPage() {
   function setTeamFilter(v) { updateParam("team", v); }
   function setMemberSearch(v) { updateParam("q", v); }
   const peopleSectionRef = useRef(null);
+  const canManageRooms = isAdmin || (myOrgTeamLeadIds?.size ?? 0) > 0;
+  // Which org page the side nav is showing (persisted). A People filter deep
+  // link (?team / ?q) wins over the stored page so a shared roster link opens on
+  // People instead of whatever page was last viewed.
+  const hasPeopleQuery = () => !!(searchParams.get("team") || searchParams.get("q"));
+  const [orgPage, setOrgPageRaw] = useState(() => {
+    try {
+      if (hasPeopleQuery()) return "people";
+      const v = localStorage.getItem("ql_team_page");
+      return ["people", "rooms", "goals", "settings"].includes(v) ? v : "people";
+    } catch { return "people"; }
+  });
+  const setOrgPage = (p) => {
+    if (p !== orgPage && typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    // Leaving People drops its filter params so they don't linger in the URL of
+    // another page (and so a reload there doesn't bounce back to People).
+    if (p !== "people" && hasPeopleQuery()) {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("team");
+        next.delete("q");
+        return next;
+      }, { replace: true });
+    }
+    setOrgPageRaw(p);
+    try { localStorage.setItem("ql_team_page", p); } catch { /* */ }
+  };
+  // A People filter arriving via in-app navigation (params change while mounted)
+  // also switches to People. Not persisted — it's a one-off view, not a
+  // preference change. (setOrgPage clears the params on leave, so no bounce.)
+  useEffect(() => {
+    if (hasPeopleQuery() && orgPage !== "people") setOrgPageRaw("people");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+  const orgPageEff = (orgPage === "rooms" && !canManageRooms) ? "people" : orgPage;
   function focusPeopleSection() {
     requestAnimationFrame(() => {
       peopleSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -333,7 +371,7 @@ export default function TeamPage() {
   }
 
   return (
-    <main className="px-4 pt-6 pb-24 max-w-[720px] mx-auto space-y-6">
+    <main className="px-4 pt-6 pb-24 max-w-[1000px] mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -471,16 +509,29 @@ export default function TeamPage() {
             </div>
           )}
 
-          {/* ─── ORG CHART ───────────────────────────────────────── */}
-          <OrgChart dark={dark} />
+          {/* Side nav (rail on desktop, chips on mobile) switches between grouped
+              PAGES; the content column renders only the active page's sections. */}
+          <div className="lg:flex lg:gap-6 lg:items-start">
+            <TeamSideNav
+              dark={dark}
+              isAdmin={isAdmin}
+              canManageRooms={canManageRooms}
+              page={orgPageEff}
+              onSelect={setOrgPage}
+            />
+            <div className="min-w-0 flex-1 space-y-6">
 
-          {/* ─── ORG PROJECTS ────────────────────────────────────── */}
-          <OrgProjects dark={dark} />
+          {/* ─── ORG CHART (People) ──────────────────────────────── */}
+          {orgPageEff === "people" && <OrgChart dark={dark} />}
 
-          {/* ─── DEPARTMENT GOALS ────────────────────────────────── */}
-          <TeamGoals dark={dark} />
+          {/* ─── ORG PROJECTS (Goals) ────────────────────────────── */}
+          {orgPageEff === "goals" && <OrgProjects dark={dark} />}
 
-          {/* ─── INVITE ──────────────────────────────────────────── */}
+          {/* ─── DEPARTMENT GOALS (Goals) ────────────────────────── */}
+          {orgPageEff === "goals" && <TeamGoals dark={dark} />}
+
+          {/* ─── INVITE (People) ─────────────────────────────────── */}
+          {orgPageEff === "people" && (
           <InviteCard
             dark={dark}
             team={activeTeam}
@@ -492,9 +543,10 @@ export default function TeamPage() {
             copiedLink={copiedLink}
             memberCount={teamMembers.length}
           />
+          )}
 
-          {/* ─── ORG ─────────────────────────────────────────────── */}
-          {isAdmin && (
+          {/* ─── ORG PROFILE (Settings) ──────────────────────────── */}
+          {orgPageEff === "settings" && isAdmin && (
             <SectionHeader
               icon={Building2}
               title="Org"
@@ -504,7 +556,7 @@ export default function TeamPage() {
           )}
 
           {/* Team Settings (admin only) — name, icon, accent color */}
-          {isAdmin && (
+          {orgPageEff === "settings" && isAdmin && (
             <TeamSettingsCard
               key={activeTeam.id}
               team={activeTeam}
@@ -527,12 +579,14 @@ export default function TeamPage() {
             />
           )}
 
-          {/* Device accounts (admin only) — shared kiosks pinned to a room. */}
-          {isAdmin && <OrgDevicesPanel orgId={activeTeamId} />}
+          {/* Device accounts (admin only) — shared kiosks pinned to a room.
+              Grouped with Rooms since you set them up together. */}
+          {orgPageEff === "rooms" && isAdmin && <OrgDevicesPanel orgId={activeTeamId} />}
 
-          {/* Org-shared pomodoro sounds. Every member sees the list and
-              can pick one inside the timer's Sound panel; whether they can
-              upload depends on the team's sounds_admin_only flag. */}
+          {/* Org-shared pomodoro sounds (Goals page — with projects/goals). Every
+              member sees the list and can pick one inside the timer's Sound panel;
+              whether they can upload depends on the team's sounds_admin_only flag. */}
+          {orgPageEff === "goals" && (
           <TeamSoundsCard
             dark={dark}
             cardCls={cardCls}
@@ -564,9 +618,10 @@ export default function TeamPage() {
             }}
             onError={(msg) => setError(msg)}
           />
+          )}
 
-          {/* ─── TEAMS ───────────────────────────────────────────── */}
-          {isAdmin && (
+          {/* ─── TEAMS / DEPARTMENTS (People) ────────────────────── */}
+          {orgPageEff === "people" && isAdmin && (
             <SectionHeader
               icon={Users2}
               title="Teams"
@@ -576,7 +631,7 @@ export default function TeamPage() {
           )}
 
           {/* OrgTeamsCard — only org admins */}
-          {isAdmin && (
+          {orgPageEff === "people" && isAdmin && (
             <OrgTeamsCard
               dark={dark}
               cardCls={cardCls}
@@ -592,10 +647,9 @@ export default function TeamPage() {
             />
           )}
 
-          {/* ─── OFFICE ─────────────────────────────────────────── */}
-          {(isAdmin || (myOrgTeamLeadIds && myOrgTeamLeadIds.size > 0)) && (
+          {/* ─── OFFICE / ROOMS (Rooms) ─────────────────────────── */}
+          {orgPageEff === "rooms" && canManageRooms && (
             <>
-              <span id="office" className="block -mt-3" aria-hidden="true" />
               <SectionHeader
                 icon={Briefcase}
                 title="Office"
@@ -637,8 +691,8 @@ export default function TeamPage() {
             </>
           )}
 
-          {/* ─── PEOPLE ──────────────────────────────────────────── */}
-          {(() => {
+          {/* ─── PEOPLE (People) ─────────────────────────────────── */}
+          {orgPageEff === "people" && (() => {
             // Aggregate stats over the full org (not filtered) — these
             // are org-health numbers; filtering shouldn't make them lie.
             const adminCount = teamMembers.filter((m) => m.role === "admin").length;
@@ -673,6 +727,7 @@ export default function TeamPage() {
 
             return (
               <>
+                <span id="people" className="block scroll-mt-24" aria-hidden="true" />
                 <SectionHeader
                   icon={Users}
                   title="People"
@@ -827,6 +882,7 @@ export default function TeamPage() {
                           teamsForUser={teamsByUserId.get(m.user_id) || []}
                           onEditHR={() => setHrMember(m)}
                           onEditTeams={() => setMemberTeamsModalFor(m)}
+                          onSetManager={() => setManagerModalFor(m)}
                           onToggleRole={() => handleToggleRole(m.user_id, m.role)}
                           onRemove={() => setMemberToRemove(m)}
                           onGrantOwner={async () => {
@@ -896,7 +952,9 @@ export default function TeamPage() {
             </button>
           )}
 
-          {/* ─── DANGER ──────────────────────────────────────────── */}
+          {/* ─── DANGER (Settings) ───────────────────────────────── */}
+          {orgPageEff === "settings" && (
+          <>
           <SectionHeader
             icon={ShieldAlert}
             title="Danger zone"
@@ -932,6 +990,10 @@ export default function TeamPage() {
               )}
             </div>
           </div>
+          </>
+          )}
+            </div>{/* content column */}
+          </div>{/* two-column flex + side nav */}
         </>
       )}
 
@@ -952,6 +1014,21 @@ export default function TeamPage() {
         onSave={async (patch) => {
           if (!hrMember || !activeTeamId) return { error: { message: "No member selected" } };
           return await updateMemberHR(activeTeamId, hrMember.user_id, patch);
+        }}
+      />
+
+      <MemberManagerModal
+        open={!!managerModalFor}
+        onClose={() => setManagerModalFor(null)}
+        member={managerModalFor}
+        members={teamMembers}
+        currentManagerId={managerModalFor?.manager_id || ""}
+        nameOf={(mm) => mm.name || "Member"}
+        onSave={async (managerId) => {
+          if (!managerModalFor || !activeTeamId) return { error: { message: "No member selected" } };
+          const res = await setMemberManager(activeTeamId, managerModalFor.user_id, managerId);
+          if (!res.error) await loadMembers?.();
+          return res;
         }}
       />
 
@@ -1026,6 +1103,64 @@ export default function TeamPage() {
 // Small section header. Used to group the page (Org → Teams →
 // Members → Quick links → Danger) so admins don't see one tall stack
 // of cards with no semantic structure.
+// In-page navigation for the (long) org page: a sticky rail on desktop, a
+// horizontal chip scroller on mobile. Links jump to anchor spans placed before
+// each section; an IntersectionObserver highlights whichever section you're in.
+// The org page is split into a few PAGES, grouped by what you edit together, and
+// the side nav switches between them — a page renders only its own sections, so
+// it's no longer one giant scroll:
+//   • People   — org chart, departments, and the member roster (who's in the
+//                org + what team they're on).
+//   • Rooms    — the office floor plan, rooms, and kiosk devices.
+//   • Goals    — projects, goals, and org pomodoro sounds.
+//   • Settings — org profile / invite / delete (admins).
+const TEAM_PAGES = [
+  { id: "people", label: "People", Icon: Users },
+  { id: "rooms", label: "Rooms", Icon: Building2, roomsOnly: true },
+  { id: "goals", label: "Goals", Icon: Target },
+  // Visible to all: org profile is admin-gated inside, but everyone needs the
+  // Danger zone here to LEAVE the org.
+  { id: "settings", label: "Settings", Icon: SettingsIcon },
+];
+
+function TeamSideNav({ dark, isAdmin, canManageRooms, page, onSelect }) {
+  const pages = useMemo(
+    () => TEAM_PAGES.filter((p) => (!p.adminOnly || isAdmin) && (!p.roomsOnly || canManageRooms)),
+    [canManageRooms, isAdmin],
+  );
+  const linkCls = (id) =>
+    `inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
+      page === id
+        ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
+        : dark ? "text-slate-400 hover:text-slate-200 hover:bg-white/5" : "text-slate-600 hover:text-slate-800 hover:bg-slate-100"
+    }`;
+  return (
+    <>
+      {/* Desktop: sticky vertical rail */}
+      <nav className="hidden lg:flex lg:flex-col gap-0.5 sticky top-20 w-40 shrink-0 self-start">
+        {pages.map(({ id, label, Icon }) => (
+          <button key={id} type="button" onClick={() => onSelect(id)} aria-current={page === id ? "page" : undefined} className={`w-full justify-start ${linkCls(id)}`}>
+            <Icon className="w-4 h-4 shrink-0" /> {label}
+          </button>
+        ))}
+      </nav>
+      {/* Mobile: sticky horizontal chip scroller under the app nav */}
+      <nav
+        className={`lg:hidden sticky z-20 -mx-4 px-4 py-1.5 flex gap-1.5 overflow-x-auto backdrop-blur ${
+          dark ? "bg-[var(--color-bg)]/80" : "bg-white/80"
+        }`}
+        style={{ top: "calc(env(safe-area-inset-top) + 3.5rem)" }}
+      >
+        {pages.map(({ id, label, Icon }) => (
+          <button key={id} type="button" onClick={() => onSelect(id)} aria-current={page === id ? "page" : undefined} className={`shrink-0 ${linkCls(id)}`}>
+            <Icon className="w-4 h-4 shrink-0" /> {label}
+          </button>
+        ))}
+      </nav>
+    </>
+  );
+}
+
 function SectionHeader({ icon: Icon, title, subtitle, dark, danger = false }) {
   return (
     <div className="flex items-start gap-2.5 px-1 pt-3">
@@ -1061,7 +1196,7 @@ function SectionHeader({ icon: Icon, title, subtitle, dark, danger = false }) {
 // "who they are, what they are, what they're on, what I can do."
 function MemberCard({
   member: m, dark, isAdmin, isOwner, viewerIsOwner, viewerUserId,
-  teamsForUser, onEditHR, onEditTeams, onToggleRole, onRemove, onTeamChipClick,
+  teamsForUser, onEditHR, onEditTeams, onSetManager, onToggleRole, onRemove, onTeamChipClick,
   onGrantOwner, onRevokeOwner, onTransferOwnership,
 }) {
   const isSelf = viewerUserId === m.user_id;
@@ -1193,6 +1328,7 @@ function MemberCard({
               canRemove={!isOwner}
               onEditComp={onEditHR}
               onEditTeams={onEditTeams}
+              onSetManager={onSetManager}
               onRemove={onRemove}
               viewerIsOwner={viewerIsOwner}
               targetIsOwner={isOwner}
@@ -1317,7 +1453,7 @@ function FilterChip({ label, count, color, active, accent, dark, onClick }) {
 // (not a portal) because the row clipping isn't an issue at our card
 // widths; if we hit overflow later we can lift it into a Popover.
 function MemberActionsMenu({
-  dark, canRemove, onEditComp, onEditTeams, onRemove,
+  dark, canRemove, onEditComp, onEditTeams, onSetManager, onRemove,
   viewerIsOwner, targetIsOwner, targetIsSelf,
   onGrantOwner, onRevokeOwner, onTransferOwnership,
 }) {
@@ -1388,6 +1524,17 @@ function MemberActionsMenu({
             <Users2 className="w-3.5 h-3.5 opacity-70" />
             Edit teams
           </button>
+          {onSetManager && (
+            <button
+              type="button"
+              role="menuitem"
+              className={itemCls}
+              onClick={() => { setOpen(false); onSetManager(); }}
+            >
+              <GitBranch className="w-3.5 h-3.5 opacity-70" />
+              Set manager
+            </button>
+          )}
 
           {/* Owner-only actions. Grant + Transfer hidden for self
               (you can't promote/transfer to yourself); Revoke hidden
