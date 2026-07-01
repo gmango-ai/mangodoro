@@ -69,6 +69,9 @@ export function normalizeSettings(row) {
     // that on next save.
     customSounds: Array.isArray(row.custom_sounds) ? row.custom_sounds : [],
     accentColor: row.accent_color || "teal",
+    // Personal world-clock timezones ({ id, label, tz }) + a pinned nav zone.
+    worldClockPersonal: Array.isArray(row.world_clock_personal) ? row.world_clock_personal : [],
+    navPinnedTz: row.nav_pinned_tz || "",
   };
 }
 
