@@ -154,13 +154,36 @@ export default function OrgChart({ dark }) {
 
   const TreeView = () => {
     // Build children map from manager_id. Roots = no manager (or manager not in
-    // this org). Guard against cycles + orphans so a bad chain can't loop.
+    // this org). Closed cycles are promoted to a root so they still render.
     const childrenOf = new Map();
     const roots = [];
+    const managerOf = (m) => (m.manager_id && byId.has(m.manager_id) && m.manager_id !== m.user_id ? byId.get(m.manager_id) : null);
     for (const m of teamMembers) {
-      const mgr = m.manager_id && byId.has(m.manager_id) && m.manager_id !== m.user_id ? m.manager_id : null;
+      const mgr = managerOf(m);
       if (!mgr) roots.push(m);
-      else { if (!childrenOf.has(mgr)) childrenOf.set(mgr, []); childrenOf.get(mgr).push(m); }
+      else { if (!childrenOf.has(mgr.user_id)) childrenOf.set(mgr.user_id, []); childrenOf.get(mgr.user_id).push(m); }
+    }
+
+    const markReachable = (m, seen) => {
+      if (seen.has(m.user_id)) return;
+      seen.add(m.user_id);
+      for (const child of childrenOf.get(m.user_id) || []) markReachable(child, seen);
+    };
+    const reachable = new Set();
+    for (const root of roots) markReachable(root, reachable);
+    for (const m of teamMembers) {
+      if (reachable.has(m.user_id)) continue;
+
+      const chain = new Set();
+      let cur = m;
+      while (cur && !chain.has(cur.user_id) && !reachable.has(cur.user_id)) {
+        chain.add(cur.user_id);
+        cur = managerOf(cur);
+      }
+
+      const fallbackRoot = cur && chain.has(cur.user_id) && !reachable.has(cur.user_id) ? cur : m;
+      roots.push(fallbackRoot);
+      markReachable(fallbackRoot, reachable);
     }
     // Owner floats to the top of the roots.
     roots.sort((a, b) => (b.is_owner ? 1 : 0) - (a.is_owner ? 1 : 0) || nameOf(a).localeCompare(nameOf(b)));
