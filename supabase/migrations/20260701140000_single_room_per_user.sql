@@ -98,7 +98,7 @@ begin
   if NEW.left_at is not null then
     return NEW;
   end if;
-  if TG_OP = 'UPDATE' and NEW.joined_at is not distinct from OLD.joined_at then
+  if TG_OP = 'UPDATE' and OLD.left_at is null and NEW.joined_at is not distinct from OLD.joined_at then
     return NEW;
   end if;
 
