@@ -110,9 +110,14 @@ export default function PomodoroSurface({
   // trap the panel open: let the X dismiss it. Reset once the pending
   // action resolves so the next one re-surfaces the panel.
   const [pendingDismissed, setPendingDismissed] = useState(false);
+  const prevOpenRef = useRef(open);
   useEffect(() => {
     if (!pendingAction) setPendingDismissed(false);
   }, [pendingAction]);
+  useEffect(() => {
+    if (prevOpenRef.current && !open && pendingAction) setPendingDismissed(true);
+    prevOpenRef.current = open;
+  }, [open, pendingAction]);
   const [pipViewMode, setPipViewMode] = useState(() => {
     try { return localStorage.getItem("ql_pip_view") || "controls"; } catch { return "controls"; }
   });
