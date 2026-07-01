@@ -8,11 +8,25 @@ export function phaseAlarmKey(phaseFingerprint, event) {
 
 /**
  * Derive which end-of-phase sound to play from a mode transition.
+ *
+ * `prevPending` is the pendingMode BEFORE this transition. It exists to kill a
+ * double-alert: a synced focus→break runs in two steps — work ends (an auto-
+ * transition is announced: pendingMode set) and then ~5s later that pending
+ * RESOLVES into the break. Both steps leave "work", so without prevPending we'd
+ * ring the "time for a break" chime twice (once at focus-end, once at break-
+ * start). When the pending was already announced, the end was already signalled,
+ * so the resolve step stays silent. (break→work is single by construction — its
+ * announce step returns null since mode is still a break there.)
+ *
  * @returns {"work"|"break"|null}
  */
-export function derivePhaseEndEvent(prevMode, mode, pending) {
-  if (prevMode === "work" && (mode !== "work" || pending)) {
-    return "work";
+export function derivePhaseEndEvent(prevMode, mode, pending, prevPending = null) {
+  if (prevMode === "work") {
+    // The end was already announced when the pending was set — don't ring again
+    // when it resolves into the break.
+    if (prevPending) return null;
+    if (mode !== "work" || pending) return "work";
+    return null;
   }
   if (
     (prevMode === "shortBreak" || prevMode === "longBreak")

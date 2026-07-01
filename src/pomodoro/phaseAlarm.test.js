@@ -36,6 +36,19 @@ describe("phaseAlarm", () => {
     expect(derivePhaseEndEvent("work", "work", null)).toBe(null);
   });
 
+  it("rings the work-end chime once across a two-step focus→break transition", () => {
+    // Step 1 — focus ends, the auto-transition is announced (pendingMode set).
+    // prevPending is null here, so the chime fires.
+    expect(derivePhaseEndEvent("work", "work", "shortBreak", null)).toBe("work");
+    // Step 2 — ~5s later that pending resolves into the break. prevPending was
+    // already set, so we must NOT ring again (this was the double-alert bug).
+    expect(derivePhaseEndEvent("work", "shortBreak", null, "shortBreak")).toBe(null);
+    // A direct switch with no prior pending still rings once.
+    expect(derivePhaseEndEvent("work", "shortBreak", null, null)).toBe("work");
+    // break→work is unaffected by prevPending (single by construction).
+    expect(derivePhaseEndEvent("shortBreak", "work", null, "work")).toBe("break");
+  });
+
   it("builds stable alarm keys", () => {
     expect(phaseAlarmKey("work-0-none-paused", "work")).toBe(
       "work-0-none-paused-work",
