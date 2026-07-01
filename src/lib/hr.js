@@ -14,6 +14,17 @@ export async function setMemberHR(teamId, userId, { classification, hourlyRate, 
   return { error };
 }
 
+// Admin-only: set (or clear, with null) a member's manager. Drives the org
+// chart's reporting-tree view (team_members.manager_id).
+export async function setMemberManager(teamId, userId, managerId) {
+  const { error } = await supabase.rpc("set_member_manager", {
+    p_team_id: teamId,
+    p_user_id: userId,
+    p_manager_id: managerId || null,
+  });
+  return { error };
+}
+
 // Current ISO week minutes for the caller, summed from the entries
 // table. Used by SalaryClockCard for the weekly-progress bar.
 export async function fetchMyWeekMinutes() {

@@ -14,7 +14,7 @@ import {
   Users, Plus, LogIn, Copy, RefreshCw, Trash2, Crown, UserMinus,
   ChevronDown, FileSpreadsheet, ArrowRight, Timer, Palette, Check, Target, Users2, Building2, ShieldAlert, DollarSign,
   MoreVertical, Search, X, Star, Briefcase, Pencil, Archive, Volume2,
-  ArrowRightLeft,
+  ArrowRightLeft, GitBranch,
 } from "lucide-react";
 import UserAvatar from "../components/UserAvatar";
 import MemberIdentity from "../components/MemberIdentity";
@@ -27,6 +27,8 @@ import OfficeLayoutEditor from "../components/OfficeLayoutEditor";
 import CreateRoomModal from "../components/CreateRoomModal";
 import MemberHRModal from "../components/MemberHRModal";
 import MemberTeamsModal from "../components/MemberTeamsModal";
+import MemberManagerModal from "../components/MemberManagerModal";
+import { setMemberManager } from "../lib/hr";
 import InviteCard from "../components/InviteCard";
 import RemoveMemberModal from "../components/RemoveMemberModal";
 import { archiveRoomV2 } from "../lib/rooms";
@@ -46,7 +48,7 @@ const TEAM_COLORS = [
 
 export default function TeamPage() {
   const {
-    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, isOwner, orgTeams, loadOrgTeamsForActive,
+    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, isOwner, orgTeams, loadOrgTeamsForActive, loadMembers,
     teamsByUserId, orgTeamMemberCounts, myOrgTeamLeadIds,
     rooms, loadRoomsForActiveTeam,
     switchTeam, createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
@@ -91,6 +93,7 @@ export default function TeamPage() {
 // Per-member team-management modal — "what teams is Jacob on?". The
   // team-centric "who's in SWE?" lives in the People filter now.
   const [memberTeamsModalFor, setMemberTeamsModalFor] = useState(null);
+  const [managerModalFor, setManagerModalFor] = useState(null);
   const [memberToRemove, setMemberToRemove] = useState(null);
   // Open the unified RoomSettingsModal — triggered both from the floor
   // plan editor (click a tile in edit mode) and from the Rooms list
@@ -827,6 +830,7 @@ export default function TeamPage() {
                           teamsForUser={teamsByUserId.get(m.user_id) || []}
                           onEditHR={() => setHrMember(m)}
                           onEditTeams={() => setMemberTeamsModalFor(m)}
+                          onSetManager={() => setManagerModalFor(m)}
                           onToggleRole={() => handleToggleRole(m.user_id, m.role)}
                           onRemove={() => setMemberToRemove(m)}
                           onGrantOwner={async () => {
@@ -955,6 +959,21 @@ export default function TeamPage() {
         }}
       />
 
+      <MemberManagerModal
+        open={!!managerModalFor}
+        onClose={() => setManagerModalFor(null)}
+        member={managerModalFor}
+        members={teamMembers}
+        currentManagerId={managerModalFor?.manager_id || ""}
+        nameOf={(mm) => mm.name || "Member"}
+        onSave={async (managerId) => {
+          if (!managerModalFor || !activeTeamId) return { error: { message: "No member selected" } };
+          const res = await setMemberManager(activeTeamId, managerModalFor.user_id, managerId);
+          if (!res.error) await loadMembers?.();
+          return res;
+        }}
+      />
+
       <MemberTeamsModal
         open={!!memberTeamsModalFor}
         onClose={() => setMemberTeamsModalFor(null)}
@@ -1061,7 +1080,7 @@ function SectionHeader({ icon: Icon, title, subtitle, dark, danger = false }) {
 // "who they are, what they are, what they're on, what I can do."
 function MemberCard({
   member: m, dark, isAdmin, isOwner, viewerIsOwner, viewerUserId,
-  teamsForUser, onEditHR, onEditTeams, onToggleRole, onRemove, onTeamChipClick,
+  teamsForUser, onEditHR, onEditTeams, onSetManager, onToggleRole, onRemove, onTeamChipClick,
   onGrantOwner, onRevokeOwner, onTransferOwnership,
 }) {
   const isSelf = viewerUserId === m.user_id;
@@ -1193,6 +1212,7 @@ function MemberCard({
               canRemove={!isOwner}
               onEditComp={onEditHR}
               onEditTeams={onEditTeams}
+              onSetManager={onSetManager}
               onRemove={onRemove}
               viewerIsOwner={viewerIsOwner}
               targetIsOwner={isOwner}
@@ -1317,7 +1337,7 @@ function FilterChip({ label, count, color, active, accent, dark, onClick }) {
 // (not a portal) because the row clipping isn't an issue at our card
 // widths; if we hit overflow later we can lift it into a Popover.
 function MemberActionsMenu({
-  dark, canRemove, onEditComp, onEditTeams, onRemove,
+  dark, canRemove, onEditComp, onEditTeams, onSetManager, onRemove,
   viewerIsOwner, targetIsOwner, targetIsSelf,
   onGrantOwner, onRevokeOwner, onTransferOwnership,
 }) {
@@ -1388,6 +1408,17 @@ function MemberActionsMenu({
             <Users2 className="w-3.5 h-3.5 opacity-70" />
             Edit teams
           </button>
+          {onSetManager && (
+            <button
+              type="button"
+              role="menuitem"
+              className={itemCls}
+              onClick={() => { setOpen(false); onSetManager(); }}
+            >
+              <GitBranch className="w-3.5 h-3.5 opacity-70" />
+              Set manager
+            </button>
+          )}
 
           {/* Owner-only actions. Grant + Transfer hidden for self
               (you can't promote/transfer to yourself); Revoke hidden
