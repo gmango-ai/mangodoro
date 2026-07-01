@@ -325,6 +325,12 @@ function PublishController({ publish, choices, micMuted }) {
     joinRoom({ id: mergeTarget });
   }, [publish, inRoom, mergeTarget, joinRoom]);
 
+  // Camera + role — applied once per (re)connection and when the publish intent
+  // or device choices change. Deliberately does NOT depend on the cluster / mic
+  // state: your camera is your own live control (the ControlBar's TrackToggle),
+  // and re-running setCameraEnabled off the stale join-time `choices.videoEnabled`
+  // whenever you joined/left room audio was force-killing a camera you'd turned
+  // on mid-call. Keeping camera out of the mic-gate effect fixes that.
   useEffect(() => {
     if (!localParticipant || !room) return undefined;
     const apply = () => {
@@ -332,23 +338,32 @@ function PublishController({ publish, choices, micMuted }) {
       // instead of giving them a (camera-off) tile in the grid.
       localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
       const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
-      // Your mic is live only when YOU haven't muted it AND (solo, or you're the
-      // room's mic source). The in-room gate is the "behind the scenes" auto-mute —
-      // it doesn't flip your personal mute button; that stays your own control.
-      // While entering "in this room" but not yet clustered, hold the mic off so
-      // it can't squeal before the follower/mic-source role resolves.
-      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
       localParticipant
         .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
         .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
+    };
+    // Signal requests are only valid once connected; apply on connect + reconnect.
+    room.on(RoomEvent.Connected, apply);
+    if (room.state === "connected") apply();
+    return () => room.off(RoomEvent.Connected, apply);
+  }, [localParticipant, room, publish, choices]);
+
+  // Mic gating — re-applied on connect AND whenever the room-audio cluster state
+  // changes, because that IS the "behind the scenes" auto-mute (a follower's mic
+  // is held off so co-located people don't echo). It touches ONLY the mic, so its
+  // churn on cluster/mic-source/in-room changes can't disturb the camera above.
+  useEffect(() => {
+    if (!localParticipant || !room) return undefined;
+    const apply = () => {
+      // Your mic is live only when YOU haven't muted it AND (solo, or you're the
+      // room's mic source). While entering "in this room" but not yet clustered,
+      // hold the mic off so it can't squeal before the follower/mic-source role
+      // resolves.
+      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
       localParticipant
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
     };
-    // These are all signal requests — only valid once connected. Touching them
-    // earlier (e.g. while a connect is still failing) logs "cannot send signal
-    // request before connected" and wastes the call. Apply on connect, and
-    // re-apply on every (re)connection.
     room.on(RoomEvent.Connected, apply);
     if (room.state === "connected") apply();
     return () => room.off(RoomEvent.Connected, apply);
