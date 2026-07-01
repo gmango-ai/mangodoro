@@ -760,7 +760,10 @@ export default function RoomVideoStage({ roomId, displayName }) {
           <Button
             onClick={() => join({ videoEnabled: false, audioEnabled: true })}
             variant="outline"
-            className="rounded-full border-white/20 text-white hover:bg-white/10"
+            // outline's default bg-background is near-white in the light theme, so
+            // white text vanished on this dark card (only legible on hover). Give
+            // it an explicit translucent fill + brighter border so it always reads.
+            className="rounded-full bg-white/10 text-white border-white/30 hover:bg-white/20 hover:text-white"
           >
             <LogIn className="w-4 h-4 mr-1.5" /> Join call
           </Button>
