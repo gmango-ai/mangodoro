@@ -524,10 +524,24 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
         {devices.speakers.length > 0 && <div className="call-menu-sep" />}
         <LobbyToggleRow label="Noise cancellation" active={noise} onClick={toggleNoise} />
         <LobbyToggleRow label="Push to talk" hint="hold Space in the call" active={ptt} onClick={togglePtt} />
-        <div className="call-menu-sep" />
-        <LobbyToggleRow label="I'm in this room" hint="join muted so you don't echo people near you" active={inRoom} onClick={toggleInRoom} />
       </LobbyDeviceMenu>
     </div>
+  );
+  // "I'm in this room" — its own button in the dock (a round toggle beside the
+  // mic/camera groups). Accent when active; joins the room's shared audio muted.
+  const inRoomBtn = (
+    <button
+      type="button"
+      onClick={toggleInRoom}
+      aria-pressed={inRoom}
+      aria-label="I'm in this room"
+      title={inRoom ? "In this room — you'll join muted so you don't echo people near you" : "I'm in this room — join muted to avoid echo"}
+      className={`inline-flex items-center justify-center w-10 h-10 rounded-full transition-colors shrink-0 ${
+        inRoom ? "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]" : "bg-white/15 text-white/80 hover:bg-white/25"
+      }`}
+    >
+      <Users className="w-5 h-5" />
+    </button>
   );
   const camGroup = (
     <div className="inline-flex items-center gap-0.5">
@@ -581,7 +595,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
           <div className="text-white font-semibold text-sm">
             {othersInCall ? `${participants?.length || ""} in call` : "Start the call"}
           </div>
-          <div className="flex items-center gap-2">{micGroup}{camGroup}</div>
+          <div className="flex items-center gap-2">{micGroup}{camGroup}{inRoomBtn}</div>
           <div className="w-full max-w-[280px]">{joinRow}</div>
         </div>
       ) : (
@@ -635,6 +649,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
             <div className="flex items-center justify-center gap-3">
               {micGroup}
               {camGroup}
+              {inRoomBtn}
             </div>
             {joinRow}
           </div>
