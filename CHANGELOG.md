@@ -5,6 +5,7 @@ semantic versions. Newest first.
 
 ## 2026-06-30
 
+- Pomodoro: stop the focus→break alert playing twice in synced sessions
 - Video: full disconnect diagnostics + true fullscreen
 - Handle token mint failures in LiveKit cooldown
 - DB: re-apply message-attachments sender upload policy as a new migration
