@@ -354,7 +354,7 @@ export function AppProvider({ session, children }) {
               pomodoroSoundUrl: row.pomodoro_sound_url ?? prev.pomodoroSoundUrl ?? "",
               pomodoroSoundName: row.pomodoro_sound_name ?? prev.pomodoroSoundName ?? "",
               worldClockPersonal: Array.isArray(row.world_clock_personal) ? row.world_clock_personal : (prev.worldClockPersonal ?? []),
-              navPinnedTz: row.nav_pinned_tz ?? prev.navPinnedTz ?? "",
+              navPinnedTz: row.nav_pinned_tz === null ? "" : (row.nav_pinned_tz ?? prev.navPinnedTz ?? ""),
             }));
           }
         }
