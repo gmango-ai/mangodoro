@@ -63,11 +63,15 @@ export default function PomodoroFab({ onOpen }) {
       onClick={() => onOpen?.()}
       title={showTimer ? `${modeLabel(mode)} timer — ${formatTime(safeSeconds)} left` : "Open pomodoro"}
       aria-label={showTimer ? `${modeLabel(mode)} timer, ${formatTime(safeSeconds)} remaining` : "Open pomodoro"}
-      className={`fixed right-4 sm:right-6 z-[110] shadow-lg transition-all ${bottomCls} ${
+      className={`fixed right-4 sm:right-6 z-[110] shadow-lg transition-all duration-300 ${bottomCls} ${
         showTimer
-          ? `inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold ${activeCls}`
-          : `inline-flex items-center justify-center w-14 h-14 rounded-full ${idleCls}`
-      } ${onPomodoroPage ? "opacity-90" : ""}`}
+          ? // Timer running → always fully visible (you want to see it tick).
+            `inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold ${activeCls}`
+          : // Idle → tuck half off the corner (semi-transparent) so it stops
+            // covering the UI beneath it; slide fully in on hover / keyboard
+            // focus (touch just taps the peeking sliver). Smaller footprint too.
+            `inline-flex items-center justify-center w-12 h-12 rounded-full translate-x-1/2 opacity-60 hover:translate-x-0 hover:opacity-100 focus-visible:translate-x-0 focus-visible:opacity-100 ${idleCls}`
+      }`}
     >
       {showTimer ? (
         <>
