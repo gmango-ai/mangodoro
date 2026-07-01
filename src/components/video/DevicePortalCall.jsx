@@ -12,11 +12,11 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent } from "livekit-client";
 import "@livekit/components-styles";
-import { Mic, MicOff, Video, VideoOff, Volume2, VolumeX, Monitor, MonitorOff, Settings } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, VolumeX, Monitor, MonitorOff, Settings, LayoutGrid, Focus, Presentation, Maximize2, Minimize2 } from "lucide-react";
 
 // Per-device audio/camera choices persist locally (the kiosk is read-only, so no
 // DB) — applied on connect so a paired display keeps its mic/speaker across restarts.
-const DEV_PREF = { mic: "ql_device_mic", speaker: "ql_device_speaker", camera: "ql_device_camera" };
+const DEV_PREF = { mic: "ql_device_mic", speaker: "ql_device_speaker", camera: "ql_device_camera", layout: "ql_device_layout" };
 
 // One device <select> backed by LiveKit's device manager. Switching a kind calls
 // room.switchActiveDevice under the hood (incl. setSinkId for the speaker), and we
@@ -60,8 +60,29 @@ import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttemp
 import { ATTR_CLUSTER, ATTR_LEADER, ATTR_ROOM_DEVICE, pickMicSource, pickAudioSink } from "./useRoomCluster";
 import AdaptiveStage from "./AdaptiveStage";
 import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
+import { useGlobalPin } from "./useGlobalPin";
+import { useFullscreen } from "./useFullscreen";
 
 const refKey = (t) => (t ? `${t.participant?.identity || ""}:${t.source}` : "");
+
+// Kiosk display layouts. "auto" keeps the adaptive behaviour (even grid for a
+// small call, else a spotlight + filmstrip); "grid" forces equal tiles; and
+// "spotlight" shows only the focused tile (no filmstrip) for a single big face
+// on the wall. Persisted per device so a paired display keeps its choice.
+const PORTAL_LAYOUTS = ["auto", "grid", "spotlight"];
+const PORTAL_LAYOUT_META = {
+  auto: { label: "Auto", Icon: Presentation },
+  grid: { label: "Grid", Icon: LayoutGrid },
+  spotlight: { label: "Spotlight", Icon: Focus },
+};
+function loadDevLayout(storageKey) {
+  try {
+    const v = localStorage.getItem(storageKey);
+    return PORTAL_LAYOUTS.includes(v) ? v : "auto";
+  } catch {
+    return "auto";
+  }
+}
 
 // Advertises the locked device as its room's default mic + speakers (companion
 // mode). The device is always-on and already publishes mic + plays the call
@@ -127,21 +148,57 @@ function useDeviceRoles() {
 // cameras or a screen share, it switches to a spotlight (the screen share, else
 // the active speaker, else the first person) with the rest in a filmstrip — the
 // glanceable "who's talking" framing you want on a big communal display.
-function PortalStage() {
+function PortalStage({ layoutMode = "auto" }) {
+  const { localParticipant } = useLocalParticipant();
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });
   const screens = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }], { onlySubscribed: false });
   const speaking = useSpeakingParticipants();
-  // Decay so a paused speaker doesn't snap off the big tile — the kiosk's worst
-  // offender (it used to fall straight back to cameras[0] the instant they
-  // stopped). A touch longer than the member call since it's a passive display.
-  const featuredId = useFeaturedSpeaker(speaking, { decayMs: 3500 });
+  // Follow the same admin "pin for everyone" the member call obeys, so a pinned
+  // presenter shows on the wall display too.
+  const globalPinId = useGlobalPin();
 
-  // Even grid for a small call with no screen share; otherwise spotlight the
-  // screen / featured speaker with the rest in an aspect-adaptive filmstrip.
-  const evenGrid = !screens.length && cameras.length <= 2;
+  // The kiosk publishes the room's mic, so its own mic keeps it in the active-
+  // speaker list (room noise + the call audio echoing back through the speakers).
+  // Left in, that made the spotlight snap to the kiosk's OWN camera the instant a
+  // remote speaker paused — defeating the decay. Exclude the device itself so the
+  // decay can actually hold the last remote speaker's face through a pause.
+  const localId = localParticipant?.identity;
+  const remoteSpeaking = speaking.filter((p) => p.identity !== localId);
+  // A touch longer than the member call since the kiosk is a passive display.
+  const featuredId = useFeaturedSpeaker(remoteSpeaking, { decayMs: 3500 });
+
+  // Focus priority: an admin's global pin > a screen share > the featured remote
+  // speaker > the first REMOTE camera (prefer a person over the empty-room shot)
+  // > the first camera.
+  const pinTrack = globalPinId
+    ? (screens.find((t) => t.participant?.identity === globalPinId)
+       || cameras.find((t) => t.participant?.identity === globalPinId))
+    : null;
   const speakerCam = featuredId ? cameras.find((t) => t.participant?.identity === featuredId) : null;
-  const focus = evenGrid ? null : (screens[0] || speakerCam || cameras[0] || null);
-  const ordered = focus ? [focus, ...cameras.filter((t) => t !== focus)] : cameras;
+  const firstRemoteCam = cameras.find((t) => t.participant && t.participant.identity !== localId);
+
+  // Resolve the focus tile per layout mode:
+  //   grid     — equal tiles; only a pin or screen share forces a focus.
+  //   auto     — even grid for a small call (≤2 cams, no screen/pin), else focus.
+  //   spotlight/(default focus) — always a focus tile.
+  let focus;
+  if (layoutMode === "grid") {
+    focus = pinTrack || screens[0] || null;
+  } else {
+    focus = pinTrack || screens[0] || speakerCam || firstRemoteCam || cameras[0] || null;
+    if (layoutMode === "auto" && !pinTrack && !screens.length && cameras.length <= 2) {
+      focus = null;
+    }
+  }
+
+  // Spotlight shows ONLY the focused tile (no filmstrip); the others keep their
+  // filmstrip alongside the focus.
+  const spotlightOnly = layoutMode === "spotlight" && !!focus;
+  const ordered = spotlightOnly
+    ? [focus]
+    : focus
+      ? [focus, ...cameras.filter((t) => t !== focus)]
+      : cameras;
 
   return (
     <div className="relative w-full h-full">
@@ -187,8 +244,12 @@ function DeviceControls({
   cameraOn, onToggleCamera,
   soundOn, soundOverridden, onToggleSound,
   screenOn, onToggleScreen,
+  layout, onCycleLayout,
+  fullscreenSupported, isFullscreen, onToggleFullscreen,
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const layoutMeta = PORTAL_LAYOUT_META[layout] || PORTAL_LAYOUT_META.auto;
+  const LayoutIcon = layoutMeta.Icon;
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-stretch gap-0.5 rounded-2xl bg-black/55 backdrop-blur px-2 py-1.5 opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity">
       <CtrlButton
@@ -231,6 +292,31 @@ function DeviceControls({
         onClick={onToggleScreen}
       />
       <span className="self-stretch w-px bg-white/15 mx-1.5" aria-hidden="true" />
+      {/* Display layout — tap to cycle Auto → Grid → Spotlight for this kiosk. */}
+      <button
+        type="button"
+        onClick={onCycleLayout}
+        title={`Layout: ${layoutMeta.label} — tap to change`}
+        aria-label={`Layout: ${layoutMeta.label}. Tap to change.`}
+        className="flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-lg text-white hover:bg-white/10 transition-colors"
+      >
+        <LayoutIcon className="w-5 h-5" />
+        <span className="text-[9px] font-medium leading-none">{layoutMeta.label}</span>
+      </button>
+      {fullscreenSupported && (
+        <button
+          type="button"
+          onClick={onToggleFullscreen}
+          aria-pressed={isFullscreen}
+          title={isFullscreen ? "Exit fullscreen" : "Fill the whole screen"}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          className="flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-lg text-white hover:bg-white/10 transition-colors"
+        >
+          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+          <span className="text-[9px] font-medium leading-none">{isFullscreen ? "Exit" : "Full"}</span>
+        </button>
+      )}
+      <span className="self-stretch w-px bg-white/15 mx-1.5" aria-hidden="true" />
       {/* Device picker — set which mic / speaker / camera this kiosk uses. */}
       <div className="relative flex items-center">
         <button
@@ -269,6 +355,17 @@ function DevicePortalInner() {
   const [cameraOn, setCameraOn] = useState(true);
   const [soundOn, setSoundOn] = useState(true); // the room's speaker output
   const [screenOn, setScreenOn] = useState(true); // the call video on this display
+  const [layout, setLayout] = useState(() => loadDevLayout(DEV_PREF.layout));
+  const rootRef = useRef(null);
+  const { isFs, supported: fsSupported, toggle: toggleFullscreen } = useFullscreen(rootRef);
+
+  const cycleLayout = () => {
+    setLayout((cur) => {
+      const next = PORTAL_LAYOUTS[(PORTAL_LAYOUTS.indexOf(cur) + 1) % PORTAL_LAYOUTS.length];
+      try { localStorage.setItem(DEV_PREF.layout, next); } catch { /* */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!localParticipant) return;
@@ -281,10 +378,10 @@ function DevicePortalInner() {
   }, [localParticipant, cameraOn]);
 
   return (
-    <>
+    <div ref={rootRef} className="relative w-full h-full bg-slate-900">
       <DeviceClusterBeacon />
       {screenOn ? (
-        <PortalStage />
+        <PortalStage layoutMode={layout} />
       ) : (
         <div className="w-full h-full flex items-center justify-center text-slate-600 text-sm uppercase tracking-widest">
           Display off
@@ -301,12 +398,17 @@ function DevicePortalInner() {
         onToggleSound={() => setSoundOn((v) => !v)}
         screenOn={screenOn}
         onToggleScreen={() => setScreenOn((v) => !v)}
+        layout={layout}
+        onCycleLayout={cycleLayout}
+        fullscreenSupported={fsSupported}
+        isFullscreen={isFs}
+        onToggleFullscreen={toggleFullscreen}
       />
       {/* The device is the room's speakers by default — keep playing remote audio
           (even when someone took over the mic) unless its operator muted the
           Sound, OR someone in the room took over the speakers. */}
       {soundOn && isAudioSink && <RoomAudioRenderer />}
-    </>
+    </div>
   );
 }
 
