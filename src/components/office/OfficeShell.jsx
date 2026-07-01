@@ -146,7 +146,7 @@ export default function OfficeShell({
     // PiP doesn't linger after you've left. (The session-bound teardown
     // in PersistentVideoCall only fires when a session was tracking the
     // room; ending here covers the call regardless.)
-    if (call) endCall();
+    if (call) endCall("user-leave-room");
     await leaveSession();
     navigate("/office");
   };

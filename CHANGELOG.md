@@ -3,8 +3,78 @@
 Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first.
 
+## 2026-06-30
+
+- Video: full disconnect diagnostics + true fullscreen
+- Handle token mint failures in LiveKit cooldown
+- DB: re-apply message-attachments sender upload policy as a new migration
+- Video: make call preview opt-in to stop the LiveKit 429 storm
+- Fix message attachment preview URL cleanup
+- Messaging UI: Slack/Teams-grade redesign
+- Restrict message attachment uploads to senders
+- Messaging v2: create message-attachments storage bucket
+- Fix channel pin unread state
+- Fix messaging channel state bugs
+- Messaging v2: org-scoped inbox, team channels, richer chat
+- Office: add knock-to-enter for locked rooms (code + department-gated)
+
+## 2026-06-29
+
+- Fix clock-out modal path, pin policy save, and video badge count
+- Audio: consolidate the app's Web Audio onto one shared AudioContext
+- Call: don't probe mics mid-call — label-only best-mic on room-leader switch
+- Call: auto-lower your raised hand once you start speaking
+- Call: add raise-hand (LiveKit) — control-bar toggle, tile badge, People queue
+- Call UI: move tile pin button to bottom-right so it clears the panel window controls
+- Call UI: move "N watching" pill to top-center so it stops stacking on the tile pin button
+- livekit-moderate: name the missing secret(s) in the config-guard 500
+- Rooms: configurable pin-for-everyone policy + one-click tile pin
+- LiveKit: don't write participant signal state before connect
+- LiveKit: rate-limit connection attempts + cap reconnect backoff
+- Call UI: redesign People into an avatar-rich slide-in sidebar
+- Call UI: one cohesive menu system + visual layout picker + microinteractions
+- Call UI: own name/mute pill + distinct rounded tiles
+- Call UI: initials avatar for camera-off + slim device-chooser carets
+- Call UI: modern restyle of LiveKit defaults (first pass)
+- Lobby settings: portal the popover so it can't be clipped by the panel
+- Lobby: settings popover no longer spills off the panel
+- Video Phase 2: floating self-view + mirror toggle
+- Video Phase 2: audience overflow for big calls
+- Web view: more platform embeds + blocked-embed fallback card
+- Web view: embed Google Docs/Sheets/Slides via the /preview endpoint
+- Drop dev COEP headers; plain (cookie-bearing) iframes for web views
+- Web view: fix 'refused to connect' — credentialless iframes (COEP)
+- Web view: YouTube play/pause/seek sync via the IFrame API
+- Rooms: shared website view tiles (watch-together) — URL sync
+- Video Phase 2: tile chrome — speaking ring + connection-quality dot
+- Room: activity badges on closed panel toggles (call / whiteboard / chat)
+- Room: 'New whiteboard' uses the full create dialog (templates + name)
+- Whiteboard: anyone in the room can attach/swap it (not just the leader)
+- Lobby: shared settings gear on both pre-join surfaces
+- Lobby settings parity: speaker + noise + push-to-talk pre-join
+- Call dock: speaker-output picker + push-to-talk
+- Call lobby: unify pre-join, flip spectate to office-walk-in (Lobby slice 1)
+- Video call layout: fluid adaptive stage + speaker decay (Phase 1)
+- WIP snapshot: goals week-binding + whiteboard scope
+- Room privacy, gating, chat moderation & kiosk fixes
+- Fixes: AudioContext churn, PWA stuck-version, emote fountain perf, DM 42702
+- World clock widget: org-curated operating locations + local times
+- Whiteboard: text autosize, realtime text, region capture, room PNG download, image reactions
+- Messaging: client — /messages page, conversation list, threads, new DM/group
+- Messaging: schema + RLS + creation RPCs (Phase 1, foundation)
+- Pomodoro: accumulate per-block notes into the day-log, surfaced at clock-out
+- Clock: save/edit your time at clock-out via a modal (no trip to /log)
+- Clock: fix cross-device clock-out auto-restart on reload
+- Hallway: show people from presence detection, not just clocked-in
+- Clock: disable the fixed bottom ClockBanner (top-bar WorkClockBar owns it now)
+- Notifications: clear / dismiss from the inbox
+
 ## 2026-06-26
 
+- Fix cluster merge leaving followers on abandoned id
+- Rework late cluster-join + kiosk sleep loading gate
+- Fix tap-to-wake blocked while sleep schedule is loading
+- Fix schedule loading gate and late cluster join migration
 - Kiosk offline: scheduled active hours + manual sleep/wake
 - Video: 'I'm in this room' pre-join — join muted before entry (no squeal)
 - Revert COOP/COEP headers in prod — they broke joining the call

@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { logCallEvent } from "../components/video/livekitDiagnostics";
 
 // Owns the *one* active Jitsi room call across the whole app session.
 // The actual iframe is mounted exactly once at AppLayout (via
@@ -23,6 +24,11 @@ const VideoCallContext = createContext(null);
 export function VideoCallProvider({ children }) {
   const [call, setCall] = useState(null);
   const [stageEl, setStageElRaw] = useState(null);
+  // Mirror `call` into a ref so the stable (deps-free) start/end callbacks can
+  // read the current room for logging without taking `call` as a dep (which
+  // would change their identity and re-fire RoomVideoStage's effects).
+  const callRef = useRef(null);
+  callRef.current = call;
 
   // opts.mode: "join" (publish camera/mic) | "spectate" (subscribe-only —
   // see everyone without publishing). opts.choices: device prefs from the
@@ -33,6 +39,14 @@ export function VideoCallProvider({ children }) {
   // publish — joining always hears.
   const startCall = useCallback((roomId, displayName, opts = {}) => {
     if (!roomId) return;
+    const prev = callRef.current;
+    // "switch" = carry-over into a different room (a fresh connection); "start" =
+    // first join. Either way the VideoCall re-keys on roomId and reconnects.
+    logCallEvent(prev && prev.roomId !== roomId ? "switch" : "start", {
+      roomId,
+      from: prev?.roomId || null,
+      mode: opts.mode || "join",
+    });
     setCall({
       roomId,
       displayName: displayName || "",
@@ -42,7 +56,12 @@ export function VideoCallProvider({ children }) {
     });
   }, []);
 
-  const endCall = useCallback(() => {
+  // reason — a short string for WHY the call is ending (user leave, sync-session
+  // room cleared, etc.). Logged so a teardown that wasn't a user action stands
+  // out as a candidate for the "force disconnect" bug.
+  const endCall = useCallback((reason) => {
+    const prev = callRef.current;
+    if (prev) logCallEvent("end", { roomId: prev.roomId, reason: reason || "unspecified" });
     setCall(null);
     setStageElRaw(null);
   }, []);
@@ -50,6 +69,7 @@ export function VideoCallProvider({ children }) {
   // Patch the live call without re-creating it — used to flip a spectator
   // into a publisher ("Join in") without changing the room/identity.
   const updateCall = useCallback((partial) => {
+    logCallEvent("update", partial);
     setCall((c) => (c ? { ...c, ...partial } : c));
   }, []);
 
