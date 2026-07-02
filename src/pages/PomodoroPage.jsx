@@ -6,6 +6,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import { Users as UsersIcon, Timer, ArrowRight } from "lucide-react";
 import PomodoroSurface from "../components/pomodoro/PomodoroSurface";
+import GettingStartedChecklist from "../components/tour/GettingStartedChecklist";
 import GoalsList from "../components/GoalsList";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
 import { useWeekGoals } from "../hooks/useWeekGoals";
@@ -119,6 +120,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
           <Button
             variant="outline"
             size="sm"
+            data-tour="pomodoro-sync"
             onClick={handleSyncClick}
             className="h-8 text-xs"
           >
@@ -139,6 +141,9 @@ export default function PomodoroPage({ session, onOpenSync }) {
         </div>
 
         <aside className="space-y-4">
+          {/* Getting-started checklist — self-hides once every visible item is
+              done. This is the default landing, so it's where new users see it. */}
+          <GettingStartedChecklist />
           <div
             className={`rounded-2xl border p-4 ${
               dark

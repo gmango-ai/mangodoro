@@ -1013,7 +1013,7 @@ function MicButton({ micMuted, deafened, onToggleMic }) {
 
 // Layout-mode picker (grid / presenter / spotlight). A small popover keyed off
 // the current mode's icon, replacing the old grid↔speaker toggle.
-function LayoutMenu({ mode, onSet }) {
+function LayoutMenu({ mode, onSet, ignoreSelf, onToggleIgnoreSelf }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -1065,6 +1065,7 @@ function LayoutMenu({ mode, onSet }) {
       <button
         type="button"
         className="lk-button"
+        data-tour="call-layout"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -1093,6 +1094,13 @@ function LayoutMenu({ mode, onSet }) {
               );
             })}
           </div>
+          <div className="my-1 border-t border-white/10" />
+          <SettingRow
+            icon={UserX}
+            label="Don't spotlight me"
+            active={!!ignoreSelf}
+            onClick={onToggleIgnoreSelf}
+          />
         </div>
       )}
     </div>
@@ -1111,6 +1119,7 @@ function LayoutMenu({ mode, onSet }) {
 function CallControlBar({
   publish, tight, emote,
   layoutMode, onSetLayout,
+  ignoreSelf, onToggleIgnoreSelf,
   bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
   autoMic, onToggleAutoMic,
@@ -1209,7 +1218,7 @@ function CallControlBar({
       </button>
 
       {/* Layout picker (viewing — available whether or not you publish). */}
-      <LayoutMenu mode={layoutMode} onSet={onSetLayout} />
+      <LayoutMenu mode={layoutMode} onSet={onSetLayout} ignoreSelf={ignoreSelf} onToggleIgnoreSelf={onToggleIgnoreSelf} />
 
       {/* People / moderation roster. A badge surfaces raised hands when closed. */}
       <span className="relative inline-flex">
@@ -1921,7 +1930,7 @@ function FloatingSelfView({ trackRef, onDock }) {
 // share) forces a focused layout even in grid; a squished tile collapses to
 // spotlight. Clicking a tile's focus button pins it (LiveKit's
 // LayoutContextProvider wires that into ParticipantTile for free).
-function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onClosePeople }) {
+function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, roomId, peopleOpen, onClosePeople }) {
   const tracks = useTracks(
     [
       { source: Track.Source.Camera, withPlaceholder: true },
@@ -1937,9 +1946,19 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   const rootRef = useRef(null);
   const { w, h } = useSize(rootRef);
 
-  // Featured speaker with a decay so the focus rides through pauses between turns
-  // instead of snapping away mid-conversation.
-  const featuredSpeaker = useFeaturedSpeaker(speaking, { decayMs: 2500 });
+  // Featured speaker: HOLD the last speaker so Spotlight/Presenter stay on
+  // whoever spoke last instead of snapping back to the first tile between turns.
+  // When "don't spotlight me" is on, drop yourself from the candidates so you
+  // never feature your own tile to yourself — others still see you featured when
+  // you talk (this is purely your local view).
+  const localId = participants.find((p) => p.isLocal)?.identity || null;
+  const speakingForFeature = spotlightIgnoreSelf && localId
+    ? speaking.filter((p) => p.identity !== localId)
+    : speaking;
+  const featuredSpeaker = useFeaturedSpeaker(speakingForFeature, { decayMs: 2500, hold: true });
+  const featuredSpeakerForStage = spotlightIgnoreSelf && featuredSpeaker === localId
+    ? null
+    : featuredSpeaker;
 
   // Spectators are listed by name; publishers (even camera-off) get a tile.
   const spectators = participants.filter((p) => p.attributes?.role === "spectator" && !p.isLocal);
@@ -1952,8 +1971,11 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   });
 
   const screenTrack = shown.find((t) => t.source === Track.Source.ScreenShare);
-  const speakerTrack = featuredSpeaker
-    ? shown.find((t) => t.participant?.identity === featuredSpeaker && t.source === Track.Source.Camera)
+  const autoFocusFallback = spotlightIgnoreSelf && localId
+    ? shown.find((t) => t.participant?.identity !== localId)
+    : shown[0];
+  const speakerTrack = featuredSpeakerForStage
+    ? shown.find((t) => t.participant?.identity === featuredSpeakerForStage && t.source === Track.Source.Camera)
     : null;
   // The admin's global pin (room metadata) focuses this participant for everyone,
   // unless you've locally pinned someone else. Their screen share wins over their
@@ -1966,34 +1988,65 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
   // focused layout even in grid mode. The big tile otherwise follows the active
   // speaker, then the first tile.
   const forcedFocus = (pinned && pinned[0]) || globalPinTrack || screenTrack || null;
-  const focusTrack = forcedFocus || speakerTrack || shown[0] || null;
+  const focusTrack = forcedFocus || speakerTrack || autoFocusFallback || null;
+
+  // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
+  const squished = (h > 0 && h < 200) || (w > 0 && w < 220);
+
+  // Automatic pin + spotlight: when you've explicitly chosen Spotlight or
+  // Presenter AND something is pinned (your pin, the admin's global pin, or a
+  // screen share), show the pin AND the live speaker as two big tiles — the
+  // "room view + who's talking" view. In Spotlight those two are the whole stage;
+  // in Presenter everyone else drops into the filmstrip. Only when the speaker is
+  // a different track than the pin, and not in the cramped squished case.
+  const dualEligible =
+    !squished &&
+    !!forcedFocus &&
+    !!speakerTrack &&
+    refKey(forcedFocus) !== refKey(speakerTrack);
+  const dualSpotlight = dualEligible && layoutMode === "spotlight";
+  const dualPresenter = dualEligible && layoutMode === "presenter";
+  const dual = dualSpotlight || dualPresenter;
 
   // Floating self-view: pull your own camera tile out of the grid into a PiP
-  // (unless it's the focus — then it stays big). Everyone else still sees you as
-  // a normal tile; this is purely your local arrangement.
+  // (unless it's one of the big tiles — then it stays big). Everyone else still
+  // sees you as a normal tile; this is purely your local arrangement.
   const { float, setFloat } = useContext(SelfViewContext);
   const localCamTrack = shown.find(
     (t) => t.participant?.isLocal && t.source === Track.Source.Camera && t.publication && !t.publication.isMuted,
   );
-  const floatLocal = float && publish && !!localCamTrack && (!focusTrack || refKey(localCamTrack) !== refKey(focusTrack));
+  const localIsBig = !!localCamTrack && (
+    dual
+      ? (refKey(localCamTrack) === refKey(forcedFocus) || refKey(localCamTrack) === refKey(speakerTrack))
+      : (!!focusTrack && refKey(localCamTrack) === refKey(focusTrack))
+  );
+  const floatLocal = float && publish && !!localCamTrack && !localIsBig;
   const baseTiles = floatLocal ? shown.filter((t) => t !== localCamTrack) : shown;
 
-  // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
-  const squished = (h > 0 && h < 200) || (w > 0 && w < 220);
   let mode = layoutMode;
   if (squished) mode = "spotlight";
   else if (forcedFocus && layoutMode === "grid") mode = "presenter";
 
   // Map the resolved mode to the adaptive stage: grid = even tiles; presenter =
-  // focus + filmstrip; spotlight = focus only. In GRID mode, once there are more
-  // people than fit at a comfortable size, the extras spill into the audience
-  // row (avatar chips) — the grid keeps the speakers + cameras-on (rankTiles),
-  // and a chip speaking promotes them back up.
+  // focus + filmstrip; spotlight = focus only (or, when pinned, pin + live
+  // speaker as two big tiles). In GRID mode, once there are more people than fit
+  // at a comfortable size, the extras spill into the audience row (avatar chips)
+  // — the grid keeps the speakers + cameras-on (rankTiles), and a chip speaking
+  // promotes them back up.
   let stageTiles;
   let stageFocusKey = null;
+  let stageFocusKeys = null;
   let audienceTiles = [];
   const AUDIENCE_H = 80;
-  if (mode === "spotlight" && focusTrack) {
+  if (dualSpotlight) {
+    // Two equal big tiles — the pinned view + the live speaker. No focus keys →
+    // the adaptive stage lays them out as an even 2-cell grid, nothing else.
+    stageTiles = [forcedFocus, speakerTrack];
+  } else if (dualPresenter) {
+    // Pin + live speaker as two big tiles, everyone else in the filmstrip.
+    stageTiles = baseTiles;
+    stageFocusKeys = [refKey(forcedFocus), refKey(speakerTrack)];
+  } else if (mode === "spotlight" && focusTrack) {
     stageTiles = [focusTrack];
     stageFocusKey = refKey(focusTrack);
   } else if (mode === "presenter" && focusTrack) {
@@ -2001,7 +2054,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
     stageFocusKey = refKey(focusTrack);
   } else if (baseTiles.length > capFor(w, h)) {
     const cap = capFor(w, h - AUDIENCE_H);
-    const ordered = rankTiles(baseTiles, featuredSpeaker, speaking);
+    const ordered = rankTiles(baseTiles, featuredSpeakerForStage, speaking);
     stageTiles = ordered.slice(0, cap);
     audienceTiles = ordered.slice(cap);
   } else {
@@ -2015,6 +2068,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, roomId, peopleOpen, onC
           <AdaptiveStage
             tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
             focusKey={stageFocusKey}
+            focusKeys={stageFocusKeys}
           />
         </div>
         {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
@@ -2076,10 +2130,22 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const onBarLeave = () => { overBarRef.current = false; reveal(); };
 
   const [layoutMode, setLayoutMode] = useState(() => {
+    // One-time reset: Grid is now the default for everyone. Clear any previously
+    // saved Spotlight/Presenter choice once so all users land on Grid; after this
+    // they can freely re-pick and it persists again.
+    try {
+      if (!localStorage.getItem("ql_lk_layout_reset_grid")) {
+        localStorage.removeItem(PREF.layout);
+        localStorage.setItem("ql_lk_layout_reset_grid", "1");
+      }
+    } catch { /* ignore (private mode) */ }
     const v = loadPref(PREF.layout, "grid");
     if (v === "grid" || v === "presenter" || v === "spotlight") return v;
     return v === "speaker" ? "presenter" : "grid"; // migrate the old grid/speaker pref
   });
+  // "Don't spotlight me" — exclude yourself from the featured-speaker view so you
+  // never spotlight your own tile to yourself. Opt-in (default off).
+  const [spotlightIgnoreSelf, setSpotlightIgnoreSelf] = useState(() => loadPref(PREF.spotlightIgnoreSelf, "0") === "1");
   // Background effect descriptor: "none" | "blur:<radius>" | "image:<id|custom>".
   const [bg, setBg] = useState(() => loadPref(PREF.bg, "none"));
   const [customBg, setCustomBg] = useState(() => loadPref(PREF.bgCustom, "") || null);
@@ -2096,6 +2162,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const [selfFloat, setSelfFloat] = useState(() => loadPref(PREF.selfFloat, "1") === "1");
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
+  useEffect(() => savePref(PREF.spotlightIgnoreSelf, spotlightIgnoreSelf ? "1" : "0"), [spotlightIgnoreSelf]);
   useEffect(() => savePref(PREF.bg, bg), [bg]);
   useEffect(() => savePref(PREF.noise, noiseEnabled ? "1" : "0"), [noiseEnabled]);
   useEffect(() => savePref(PREF.autoMic, autoMic ? "1" : "0"), [autoMic]);
@@ -2170,6 +2237,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
             publish={publish}
             onJoinIn={onJoinIn}
             layoutMode={layoutMode}
+            spotlightIgnoreSelf={spotlightIgnoreSelf}
             roomId={roomId}
             peopleOpen={peopleOpen}
             onClosePeople={() => setPeopleOpen(false)}
@@ -2193,6 +2261,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               emote={emote}
               layoutMode={layoutMode}
               onSetLayout={setLayoutMode}
+              ignoreSelf={spotlightIgnoreSelf}
+              onToggleIgnoreSelf={() => setSpotlightIgnoreSelf((v) => !v)}
               bg={bg}
               onChangeBg={setBg}
               customBg={customBg}

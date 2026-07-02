@@ -12,6 +12,11 @@
 //                      row below). Fixes "the screen share takes over the centre
 //                      and shoves everyone into unviewable positions".
 //   • focus alone    → the focus fills the stage.
+//
+// `focusKeys` (an array) generalizes this to TWO big tiles — e.g. a pinned room
+// view + the live speaker (the "pin + spotlight" view). The pair shares the major
+// area as an even grid; everyone else drops into the same filmstrip. A single
+// focus still fills its area exactly (no aspect letterboxing), unchanged.
 
 // Container aspect at/above which we go focus-left + a right-hand column.
 const WIDE = 1.3;
@@ -88,35 +93,46 @@ function layoutStrip(keys, ox, oy, w, h, gap, aspect, vertical, out) {
   }
 }
 
-export function solveLayout({ tiles, focusKey, width, height, gap = 8, aspect = 16 / 9 }) {
+export function solveLayout({ tiles, focusKey, focusKeys, width, height, gap = 8, aspect = 16 / 9 }) {
   const out = new Map();
   const keys = tiles || [];
   if (!width || !height || keys.length === 0) return out;
 
-  const hasFocus = focusKey && keys.includes(focusKey);
-  if (!hasFocus) {
+  // Normalize focus into a list (supports one OR two big tiles), keeping only
+  // keys actually present so a stale pin/speaker can't leave a phantom slot.
+  const foci = (focusKeys && focusKeys.length ? focusKeys : focusKey ? [focusKey] : [])
+    .filter((k) => keys.includes(k));
+
+  if (foci.length === 0) {
     layoutGrid(keys, 0, 0, width, height, gap, aspect, out);
     return out;
   }
 
-  const others = keys.filter((k) => k !== focusKey);
+  // Fill a box with the focus tile(s): a single focus fills it exactly (content
+  // object-fits, no letterbox bars); two+ share it as an even aspect grid.
+  const placeFoci = (ox, oy, w, h) => {
+    if (foci.length === 1) out.set(foci[0], { x: ox, y: oy, w, h });
+    else layoutGrid(foci, ox, oy, w, h, gap, aspect, out);
+  };
+
+  const others = keys.filter((k) => !foci.includes(k));
   if (others.length === 0) {
-    out.set(focusKey, { x: 0, y: 0, w: width, h: height });
+    placeFoci(0, 0, width, height);
     return out;
   }
 
   const ar = width / height;
   if (ar >= WIDE) {
-    // Focus left, vertical filmstrip on the right.
+    // Focus area left, vertical filmstrip on the right.
     const stripW = Math.round(Math.min(Math.max(width * 0.2, 150), 280));
     const focusW = width - stripW - gap;
-    out.set(focusKey, { x: 0, y: 0, w: focusW, h: height });
+    placeFoci(0, 0, focusW, height);
     layoutStrip(others, focusW + gap, 0, stripW, height, gap, aspect, true, out);
   } else {
-    // Focus on top, horizontal strip below (covers tall + square-ish).
+    // Focus area on top, horizontal strip below (covers tall + square-ish).
     const stripH = Math.round(Math.min(Math.max(height * 0.22, 96), 168));
     const focusH = height - stripH - gap;
-    out.set(focusKey, { x: 0, y: 0, w: width, h: focusH });
+    placeFoci(0, 0, width, focusH);
     layoutStrip(others, 0, focusH + gap, width, stripH, gap, aspect, false, out);
   }
   return out;

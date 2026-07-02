@@ -18,22 +18,24 @@ function useSize(ref) {
 const EASE = "cubic-bezier(.22,.61,.36,1)";
 
 // Animated call stage. `tiles` = [{ key, content }]; `focusKey` marks the big
-// tile (screen share / pin / featured speaker) or null for an even grid. Each
-// tile is absolutely positioned at its solved rect (position via GPU transform,
-// size via width/height) and CSS-transitions between layouts, so joins, leaves,
+// tile (screen share / pin / featured speaker) or null for an even grid, and
+// `focusKeys` (an array) marks TWO big tiles (pin + spotlight). Each tile is
+// absolutely positioned at its solved rect (position via GPU transform, size via
+// width/height) and CSS-transitions between layouts, so joins, leaves,
 // screen-shares, resizes and speaker switches GLIDE instead of snapping. A tile
 // stays mounted across layout changes (stable React key), so its <video> never
 // re-attaches.
-export default function AdaptiveStage({ tiles, focusKey = null, gap = 8, aspect = 16 / 9, durationMs = 320 }) {
+export default function AdaptiveStage({ tiles, focusKey = null, focusKeys = null, gap = 8, aspect = 16 / 9, durationMs = 320 }) {
   const ref = useRef(null);
   const { w, h } = useSize(ref);
   const keys = tiles.map((t) => t.key);
   const keySig = keys.join("|");
+  const focusSig = focusKeys && focusKeys.length ? focusKeys.join("|") : focusKey || "";
   const rects = useMemo(
-    () => solveLayout({ tiles: keys, focusKey, width: w, height: h, gap, aspect }),
-    // keySig captures membership/order without re-running on unrelated renders.
+    () => solveLayout({ tiles: keys, focusKey, focusKeys, width: w, height: h, gap, aspect }),
+    // keySig/focusSig capture membership/order without re-running on unrelated renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [keySig, focusKey, w, h, gap, aspect],
+    [keySig, focusSig, w, h, gap, aspect],
   );
 
   return (
