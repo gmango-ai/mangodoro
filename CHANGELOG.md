@@ -4,6 +4,16 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-02
+
+### New & improved
+
+- **docs** — restructure changelog into New & improved / Fixes sections
+
+### Fixes
+
+- World clock nav pill showed city instead of pinned org label until opened
+
 ## 2026-07-01
 
 - Persist pending welcome state after onboarding
