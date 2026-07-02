@@ -64,7 +64,7 @@ export default function TeamPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Scroll to a hash target (e.g. /team#office) once the page has
+  // Scroll to a hash target (e.g. /team#rooms) once the page has
   // rendered. React Router doesn't auto-scroll on hash, so we do it
   // ourselves after content is laid out.
   useEffect(() => {
@@ -118,13 +118,18 @@ export default function TeamPage() {
   function setTeamFilter(v) { updateParam("team", v); }
   function setMemberSearch(v) { updateParam("q", v); }
   const peopleSectionRef = useRef(null);
+  const orgPageFromHash = (() => {
+    const id = location.hash.slice(1);
+    return ["people", "rooms", "goals", "settings"].includes(id) ? id : null;
+  })();
   const canManageRooms = isAdmin || (myOrgTeamLeadIds?.size ?? 0) > 0;
-  // Which org page the side nav is showing (persisted). A People filter deep
-  // link (?team / ?q) wins over the stored page so a shared roster link opens on
-  // People instead of whatever page was last viewed.
+  // Which org page the side nav is showing (persisted). Hash deep links and
+  // People filters win over the stored page so shared links open the intended
+  // sub-page instead of whatever page was last viewed.
   const hasPeopleQuery = () => !!(searchParams.get("team") || searchParams.get("q"));
   const [orgPage, setOrgPageRaw] = useState(() => {
     try {
+      if (orgPageFromHash) return orgPageFromHash;
       if (hasPeopleQuery()) return "people";
       const v = localStorage.getItem("ql_team_page");
       return ["people", "rooms", "goals", "settings"].includes(v) ? v : "people";
@@ -152,6 +157,9 @@ export default function TeamPage() {
     if (hasPeopleQuery() && orgPage !== "people") setOrgPageRaw("people");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+  useEffect(() => {
+    if (orgPageFromHash) setOrgPageRaw((page) => (page === orgPageFromHash ? page : orgPageFromHash));
+  }, [orgPageFromHash]);
   const orgPageEff = (orgPage === "rooms" && !canManageRooms) ? "people" : orgPage;
   function focusPeopleSection() {
     requestAnimationFrame(() => {
@@ -650,6 +658,7 @@ export default function TeamPage() {
           {/* ─── OFFICE / ROOMS (Rooms) ─────────────────────────── */}
           {orgPageEff === "rooms" && canManageRooms && (
             <>
+              <span id="rooms" className="block scroll-mt-24" aria-hidden="true" />
               <SectionHeader
                 icon={Briefcase}
                 title="Office"

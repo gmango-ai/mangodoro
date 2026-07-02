@@ -192,7 +192,7 @@ export const TOURS = [
     prerequisite: (ctx) => (ctx.canManageRooms
       ? { ok: true }
       : { ok: false, reason: "Only admins and team leads can add rooms — ask an admin to set one up.", remedy: { type: "blocked" } }),
-    entry: { to: "/team#office", await: '[data-tour="create-room"]' },
+    entry: { to: "/team#rooms", await: '[data-tour="create-room"]' },
     steps: [
       {
         element: '[data-tour="create-room"]',
