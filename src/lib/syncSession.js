@@ -359,13 +359,29 @@ export async function listActiveTeamSessions(teamId) {
       ...liveParts.map((p) => p.user_id),
     ]),
   ];
-  const { data: profiles } = profileIds.length
-    ? await supabase
-        .from("user_settings")
-        .select("user_id, name, avatar_url, presence_state")
-        .in("user_id", profileIds)
-    : { data: [] };
-  const profileMap = new Map((profiles || []).map((r) => [r.user_id, r]));
+  // Identity (name + avatar) comes from `profiles` — readable by any co-member
+  // (unlike user_settings, whose RLS only lets admins read teammates, which made
+  // regular members see everyone here as "Team member"). presence_state still
+  // lives on user_settings (admin/self readable); members fall back to the
+  // default dot, exactly as before this change.
+  let profileMap = new Map();
+  if (profileIds.length) {
+    const [{ data: profs }, { data: settings }] = await Promise.all([
+      supabase.from("profiles").select("user_id, display_name, avatar_url").in("user_id", profileIds),
+      supabase.from("user_settings").select("user_id, name, avatar_url, presence_state").in("user_id", profileIds),
+    ]);
+    const profById = new Map((profs || []).map((r) => [r.user_id, r]));
+    const setById = new Map((settings || []).map((r) => [r.user_id, r]));
+    profileMap = new Map(profileIds.map((id) => {
+      const p = profById.get(id);
+      const s = setById.get(id);
+      return [id, {
+        name: p?.display_name || s?.name || "",
+        avatar_url: p?.avatar_url || s?.avatar_url || "",
+        presence_state: s?.presence_state || "active",
+      }];
+    }));
+  }
 
   // Group live participants by session for the avatar stack.
   const occupantsBySession = new Map();
