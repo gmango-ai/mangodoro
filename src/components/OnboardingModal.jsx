@@ -8,7 +8,7 @@ import { Sparkles } from "lucide-react";
 import AvatarUploader from "./AvatarUploader";
 
 export default function OnboardingModal({ open, onClose, userId }) {
-  const { setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget, flash } = useApp();
+  const { settings, setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget, flash } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
 
@@ -32,6 +32,8 @@ export default function OnboardingModal({ open, onClose, userId }) {
   async function handleFinish() {
     if (!userId) return;
     setSaving(true);
+    const currentOnboarding = settings?.onboarding && typeof settings.onboarding === "object" ? settings.onboarding : {};
+    const nextOnboarding = { ...currentOnboarding, welcomeDone: currentOnboarding.welcomeDone ?? false };
     const rate = Math.round(effectiveHourly * 100) / 100;
     const daily = parseFloat(dailyGoal) || 0;
     const weekly = parseFloat(weeklyGoal) || 0;
@@ -43,6 +45,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
       daily_target: daily,
       weekly_target: weekly,
       avatar_url: avatarUrl || null,
+      onboarding: nextOnboarding,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" });
     setSaving(false);
@@ -54,7 +57,7 @@ export default function OnboardingModal({ open, onClose, userId }) {
     }
 
     // Mirror to local context state so UI updates immediately.
-    setSettings((s) => ({ ...s, name: name.trim(), avatarUrl }));
+    setSettings((s) => ({ ...s, name: name.trim(), avatarUrl, onboarding: nextOnboarding }));
     setHourlyRate(rate);
     setDailyTarget(daily);
     setWeeklyTarget(weekly);
