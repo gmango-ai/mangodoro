@@ -129,7 +129,7 @@ export default function HallwayView({
   }, [orgTeams]);
 
   return (
-    <div>
+    <div data-tour="hallway">
       <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <p className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>
@@ -320,6 +320,7 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                   <li key={room.id}>
                     <button
                       type="button"
+                      data-tour="room-tile"
                       onClick={() => onEnterRoom?.(room.id)}
                       title={locked ? `${lockedReasonFor(room)} — knock to ask to be let in` : room.name}
                       style={{ background: `color-mix(in srgb, ${tint} 10%, var(--color-surface))` }}

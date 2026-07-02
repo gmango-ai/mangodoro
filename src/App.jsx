@@ -34,6 +34,7 @@ import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
 import WelcomeFlow from "./components/tour/WelcomeFlow";
 import OnboardingFactTracker from "./components/tour/OnboardingFactTracker";
+import TourOfferToast from "./components/tour/TourOfferToast";
 import PWAUpdater from "./components/PWAUpdater";
 // PomodoroPage is the landing route, so it stays eager — no Suspense flash
 // on cold start. Every other route page is lazy-loaded: the initial bundle
@@ -196,6 +197,7 @@ function AppLayout({ session }) {
           flips getting-started checklist flags from real app activity. */}
       {!isEmbed && <WelcomeFlow />}
       {!isEmbed && <OnboardingFactTracker />}
+      {!isEmbed && <TourOfferToast />}
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis
           here makes this div a scroll container, which traps the sticky
           <header> so it scrolls away and lets content slide under the

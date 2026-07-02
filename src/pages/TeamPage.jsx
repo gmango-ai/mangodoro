@@ -660,6 +660,7 @@ export default function TeamPage() {
                 <div className="flex items-center justify-end mb-3">
                   <Button
                     size="sm"
+                    data-tour="create-room"
                     onClick={() => setShowCreateRoom(true)}
                     className="h-7 text-xs"
                   >
