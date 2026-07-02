@@ -1992,17 +1992,20 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
   const squished = (h > 0 && h < 200) || (w > 0 && w < 220);
 
-  // Automatic pin + spotlight: when you're in Spotlight AND something is pinned
-  // (your pin, the admin's global pin, or a screen share), show the pin AND the
-  // live speaker as two big side-by-side tiles — the "room view + who's talking"
-  // view. Only when the speaker is a different track than the pin, and not in the
-  // cramped squished case.
-  const dualSpotlight =
+  // Automatic pin + spotlight: when you've explicitly chosen Spotlight or
+  // Presenter AND something is pinned (your pin, the admin's global pin, or a
+  // screen share), show the pin AND the live speaker as two big tiles — the
+  // "room view + who's talking" view. In Spotlight those two are the whole stage;
+  // in Presenter everyone else drops into the filmstrip. Only when the speaker is
+  // a different track than the pin, and not in the cramped squished case.
+  const dualEligible =
     !squished &&
-    layoutMode === "spotlight" &&
     !!forcedFocus &&
     !!speakerTrack &&
     refKey(forcedFocus) !== refKey(speakerTrack);
+  const dualSpotlight = dualEligible && layoutMode === "spotlight";
+  const dualPresenter = dualEligible && layoutMode === "presenter";
+  const dual = dualSpotlight || dualPresenter;
 
   // Floating self-view: pull your own camera tile out of the grid into a PiP
   // (unless it's one of the big tiles — then it stays big). Everyone else still
@@ -2012,7 +2015,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
     (t) => t.participant?.isLocal && t.source === Track.Source.Camera && t.publication && !t.publication.isMuted,
   );
   const localIsBig = !!localCamTrack && (
-    dualSpotlight
+    dual
       ? (refKey(localCamTrack) === refKey(forcedFocus) || refKey(localCamTrack) === refKey(speakerTrack))
       : (!!focusTrack && refKey(localCamTrack) === refKey(focusTrack))
   );
@@ -2031,13 +2034,17 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   // promotes them back up.
   let stageTiles;
   let stageFocusKey = null;
+  let stageFocusKeys = null;
   let audienceTiles = [];
   const AUDIENCE_H = 80;
   if (dualSpotlight) {
-    // Two equal big tiles — the pinned view + the live speaker. No focusKey → the
-    // adaptive stage lays them out as an even 2-cell grid.
+    // Two equal big tiles — the pinned view + the live speaker. No focus keys →
+    // the adaptive stage lays them out as an even 2-cell grid, nothing else.
     stageTiles = [forcedFocus, speakerTrack];
-    stageFocusKey = null;
+  } else if (dualPresenter) {
+    // Pin + live speaker as two big tiles, everyone else in the filmstrip.
+    stageTiles = baseTiles;
+    stageFocusKeys = [refKey(forcedFocus), refKey(speakerTrack)];
   } else if (mode === "spotlight" && focusTrack) {
     stageTiles = [focusTrack];
     stageFocusKey = refKey(focusTrack);
@@ -2060,6 +2067,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
           <AdaptiveStage
             tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
             focusKey={stageFocusKey}
+            focusKeys={stageFocusKeys}
           />
         </div>
         {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
