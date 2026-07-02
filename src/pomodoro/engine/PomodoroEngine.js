@@ -61,7 +61,8 @@ export class PomodoroEngine {
     this._publicApi = null;
     this._leaderLifecycleActive = false;
     // Fingerprint of the inputs the native persistent-timer / notification
-    // side-effects depend on (endsAt + phase, NOT the per-second countdown), so
+    // side-effects depend on (endsAt + phase, and paused time, NOT the running
+    // per-second countdown), so
     // we only cross the JS↔native bridge when they actually change — see
     // _runDerivedSideEffects.
     this._lastNativeSideEffectFp = null;
@@ -1251,12 +1252,14 @@ export class PomodoroEngine {
     const endsAt = isRunning
       ? (this._refs.endsAtMsRef.current || Date.now() + secondsLeft * 1000)
       : null;
+    const pausedSecondsLeft = isRunning ? 0 : secondsLeft;
     const fp = [
       isRunning ? 1 : 0,
       phaseMode,
       endsAt ? Math.round(endsAt / 1000) : 0,
       isSynced ? 1 : 0,
       durationSeconds || 0,
+      pausedSecondsLeft,
     ].join("|");
 
     if ((isMobileApp || hasPersistentTimerSurface) && fp !== this._lastNativeSideEffectFp) {
@@ -1287,7 +1290,7 @@ export class PomodoroEngine {
           startPersistentTimer({ endsAtMs: endsAt, mode: phaseMode, isSynced, durationSeconds });
         } else {
           pausePersistentTimer({
-            pausedSecondsLeft: secondsLeft,
+            pausedSecondsLeft,
             mode: phaseMode,
             isSynced,
             durationSeconds,
