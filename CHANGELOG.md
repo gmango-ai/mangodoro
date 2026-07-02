@@ -1,7 +1,8 @@
 # Changelog
 
 Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
-semantic versions. Newest first.
+semantic versions. Newest first. Each release lists **New & improved** (features
+and changes to features) and **Fixes**.
 
 ## 2026-07-01
 
@@ -46,97 +47,65 @@ semantic versions. Newest first.
 
 ## 2026-06-30
 
-- Pomodoro: stop the focus→break alert playing twice in synced sessions
-- Video: full disconnect diagnostics + true fullscreen
-- Handle token mint failures in LiveKit cooldown
-- DB: re-apply message-attachments sender upload policy as a new migration
-- Video: make call preview opt-in to stop the LiveKit 429 storm
-- Fix message attachment preview URL cleanup
-- Messaging UI: Slack/Teams-grade redesign
-- Restrict message attachment uploads to senders
-- Messaging v2: create message-attachments storage bucket
-- Fix channel pin unread state
-- Fix messaging channel state bugs
-- Messaging v2: org-scoped inbox, team channels, richer chat
-- Office: add knock-to-enter for locked rooms (code + department-gated)
+### New & improved
+
+- **Messaging v2** — an org-scoped inbox with team channels alongside direct and group DMs, plus image/file attachments. Slack/Teams-grade redesign of the whole surface.
+- **Rooms** — knock-to-enter for locked rooms: share a code, or gate access by department.
+- **Video** — full call-disconnect diagnostics, and true fullscreen that takes over the whole screen (not just the window).
+
+### Fixes
+
+- Messaging: attachment uploads are now restricted to the sender; channel pin unread state and other channel-state bugs fixed; attachment preview URLs cleaned up.
+- Video: the call preview is opt-in, ending a LiveKit request (429) storm; token-mint failures are handled during the reconnect cooldown.
+- Pomodoro: the focus→break alert no longer plays twice in synced sessions.
 
 ## 2026-06-29
 
-- Fix clock-out modal path, pin policy save, and video badge count
-- Audio: consolidate the app's Web Audio onto one shared AudioContext
-- Call: don't probe mics mid-call — label-only best-mic on room-leader switch
-- Call: auto-lower your raised hand once you start speaking
-- Call: add raise-hand (LiveKit) — control-bar toggle, tile badge, People queue
-- Call UI: move tile pin button to bottom-right so it clears the panel window controls
-- Call UI: move "N watching" pill to top-center so it stops stacking on the tile pin button
-- livekit-moderate: name the missing secret(s) in the config-guard 500
-- Rooms: configurable pin-for-everyone policy + one-click tile pin
-- LiveKit: don't write participant signal state before connect
-- LiveKit: rate-limit connection attempts + cap reconnect backoff
-- Call UI: redesign People into an avatar-rich slide-in sidebar
-- Call UI: one cohesive menu system + visual layout picker + microinteractions
-- Call UI: own name/mute pill + distinct rounded tiles
-- Call UI: initials avatar for camera-off + slim device-chooser carets
-- Call UI: modern restyle of LiveKit defaults (first pass)
-- Lobby settings: portal the popover so it can't be clipped by the panel
-- Lobby: settings popover no longer spills off the panel
-- Video Phase 2: floating self-view + mirror toggle
-- Video Phase 2: audience overflow for big calls
-- Web view: more platform embeds + blocked-embed fallback card
-- Web view: embed Google Docs/Sheets/Slides via the /preview endpoint
-- Drop dev COEP headers; plain (cookie-bearing) iframes for web views
-- Web view: fix 'refused to connect' — credentialless iframes (COEP)
-- Web view: YouTube play/pause/seek sync via the IFrame API
-- Rooms: shared website view tiles (watch-together) — URL sync
-- Video Phase 2: tile chrome — speaking ring + connection-quality dot
-- Room: activity badges on closed panel toggles (call / whiteboard / chat)
-- Room: 'New whiteboard' uses the full create dialog (templates + name)
-- Whiteboard: anyone in the room can attach/swap it (not just the leader)
-- Lobby: shared settings gear on both pre-join surfaces
-- Lobby settings parity: speaker + noise + push-to-talk pre-join
-- Call dock: speaker-output picker + push-to-talk
-- Call lobby: unify pre-join, flip spectate to office-walk-in (Lobby slice 1)
-- Video call layout: fluid adaptive stage + speaker decay (Phase 1)
-- WIP snapshot: goals week-binding + whiteboard scope
-- Room privacy, gating, chat moderation & kiosk fixes
-- Fixes: AudioContext churn, PWA stuck-version, emote fountain perf, DM 42702
-- World clock widget: org-curated operating locations + local times
-- Whiteboard: text autosize, realtime text, region capture, room PNG download, image reactions
-- Messaging: client — /messages page, conversation list, threads, new DM/group
-- Messaging: schema + RLS + creation RPCs (Phase 1, foundation)
-- Pomodoro: accumulate per-block notes into the day-log, surfaced at clock-out
-- Clock: save/edit your time at clock-out via a modal (no trip to /log)
-- Clock: fix cross-device clock-out auto-restart on reload
-- Hallway: show people from presence detection, not just clocked-in
-- Clock: disable the fixed bottom ClockBanner (top-bar WorkClockBar owns it now)
-- Notifications: clear / dismiss from the inbox
+### New & improved
+
+- **Messaging** — first release: schema + a `/messages` page with a conversation list, threads, and new DM/group creation.
+- **Calls: raise-hand** — a control-bar toggle, a tile badge, and a People queue; your hand auto-lowers once you start talking.
+- **Call UI overhaul** — one cohesive menu system, a visual layout picker, an avatar-rich People sidebar, your own name/mute pill, distinct rounded tiles, camera-off initials avatars, and smoother microinteractions.
+- **Video (Phase 2)** — floating, mirrorable self-view; audience overflow for big calls; tile chrome with a speaking ring and connection-quality dot; a fluid adaptive stage with active-speaker decay.
+- **Pre-join lobby** — a shared settings gear on both surfaces, with speaker output, noise cancellation, and push-to-talk available before you join; unified pre-join that turns spectating into an office walk-in.
+- **Rooms: watch-together** — shared website-view tiles with URL sync; embed Google Docs/Sheets/Slides and more platforms (with a fallback card when a site blocks embedding); YouTube play/pause/seek stays in sync.
+- **Rooms & whiteboard** — pin-for-everyone policy with one-click tile pinning; anyone in the room can attach/swap the whiteboard; "New whiteboard" uses the full create dialog (templates + name); activity badges on collapsed panel toggles (call / whiteboard / chat); a world-clock widget of org-curated locations and local times.
+- **Clock & office** — save or edit your time at clock-out from a modal (no trip to `/log`); per-block pomodoro notes accumulate into the day log, surfaced at clock-out; the hallway shows people from presence detection, not just who's clocked in; the top-bar clock replaces the old fixed bottom banner.
+- **Notifications** — clear/dismiss items from the inbox.
+- **Audio** — the app's Web Audio is consolidated onto one shared AudioContext.
+
+### Fixes
+
+- Clock-out modal path, pin-policy save, video badge count, and cross-device clock-out auto-restart on reload.
+- Calls: don't probe mics mid-call (label-only best-mic on room-leader switch); don't write participant signal state before connect; connection attempts are rate-limited with a capped reconnect backoff.
+- `livekit-moderate` now names the missing secret(s) in its config-guard 500.
+- Assorted: AudioContext churn, PWA stuck-version, emote-fountain performance, DM 42702, and sync-presence rejecting valid states.
 
 ## 2026-06-26
 
-- Fix cluster merge leaving followers on abandoned id
-- Rework late cluster-join + kiosk sleep loading gate
-- Fix tap-to-wake blocked while sleep schedule is loading
-- Fix schedule loading gate and late cluster join migration
-- Kiosk offline: scheduled active hours + manual sleep/wake
-- Video: 'I'm in this room' pre-join — join muted before entry (no squeal)
-- Revert COOP/COEP headers in prod — they broke joining the call
-- Video green room: pin Join button so it can't be clipped
+### New & improved
+
+- **Kiosk** — scheduled active hours plus manual sleep/wake, so a display can rest offline and wake on tap.
+- **Video** — an "I'm in this room" pre-join that joins you muted before entry, so you don't squeal into the room.
+
+### Fixes
+
+- Cluster handoff: fixed followers being stranded on an abandoned id; reworked late cluster-join and the kiosk sleep loading gate so tap-to-wake isn't blocked while the schedule loads.
+- Reverted the prod COOP/COEP headers that broke joining a call.
+- Green room: pinned the Join button so it can't be clipped.
 
 ## 2026-06-25
 
-- Fix pinned room loading race and stale fetch in OrgDevicesPanel
-- Fix device room select when pinned room is archived
-- Device: Phase C UI — movable devices (kiosk switcher + admin controls)
-- Device: Phase C migration — movable devices (room switching)
-- Device: Phase B3 — view-only whiteboard on the kiosk
-- Device: Phase B2 — modular room layout on the kiosk (arrangeable panels)
-- Fix device RLS: active session whiteboard and chat author profiles
-- Docs: plan to reduce DB calls / Supabase load
-- Video: surface the LiveKit disconnect reason (diagnose silent green-room bounce)
-- Device: Phase B1 — read-only RLS so a kiosk can view room chat + whiteboard
-- Device: Phase A — mic / speaker / camera pickers on the kiosk
-- Fix What's new toast for same-day changelog merges and PWA reloads
-- What's new: changelog toast/modal + auto-changelog on push to main
+### New & improved
+
+- **Device kiosks** — movable devices (Phase C): a kiosk room switcher + admin controls; a modular, arrangeable room layout with a view-only whiteboard (Phase B); mic/speaker/camera pickers (Phase A); read-only access so a kiosk can view its room's chat + whiteboard.
+- **What's new** — an in-app changelog toast + modal, with the changelog auto-generated on push to main.
+- **Video** — surfaces the LiveKit disconnect reason to diagnose silent green-room bounces.
+
+### Fixes
+
+- Pinned-room loading race and a stale fetch in the org devices panel; device room select when the pinned room is archived; device RLS for the active-session whiteboard + chat author profiles.
+- The "What's new" toast now fires correctly for same-day changelog merges and PWA reloads.
 
 ## 2026-06-21 → 2026-06-23 (last 48 hours)
 
