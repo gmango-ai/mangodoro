@@ -5,6 +5,20 @@ semantic versions. Newest first.
 
 ## 2026-07-01
 
+- Persist pending welcome state after onboarding
+- Fix onboarding and message tour regressions
+- Fix chat author settings fallback
+- Fix: non-admin members saw teammates as "Member" in chat + presence roster
+- Fix create-room tour entry route
+- Onboarding P5: collaboration tours + new-feature announcements
+- Onboarding P4: Help / Learn center
+- Onboarding P3: core tours + non-blocking auto-offer
+- Onboarding P2: welcome flow + getting-started checklist
+- Onboarding P1: tutorial foundation (driver.js engine + persistence)
+- Video: extend auto pin + speaker dual view to Presenter mode
+- Fix self spotlight ignore fallback
+- Video: spotlight holds last speaker, auto pin+spotlight, ignore-self, grid default
+- Fix pomodoro and message deep-link states
 - Org page: People filter deep links force the People page
 - Fix pomodoro FAB pending dismiss
 - Pomodoro: floating popover closes on outside-click / Escape / tab re-click
