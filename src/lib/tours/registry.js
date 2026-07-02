@@ -137,6 +137,54 @@ export const TOURS = [
   },
 
   {
+    id: "messaging",
+    title: "Message your team",
+    description: "Send DMs and use channels — outside of rooms.",
+    category: "collaboration",
+    announce: { marker: TOUR_MARKER },
+    // The Messages button lives in the nav (always mounted), so no navigation
+    // needed. Gated on having someone to message.
+    prerequisite: (ctx) => ((ctx.teamMembers?.length || 0) > 1
+      ? { ok: true }
+      : { ok: false, reason: "Invite a teammate to your org first — then you can message them.", remedy: { type: "deep-link", to: "/team" } }),
+    steps: [
+      {
+        element: '[aria-label="Messages"]',
+        popover: {
+          title: "Messages",
+          description:
+            "Direct messages, group chats, and team channels live here — reach anyone in your org without having to be in the same room.",
+          side: "bottom",
+          align: "end",
+        },
+      },
+    ],
+  },
+
+  {
+    id: "synced-pomodoro",
+    title: "Focus together",
+    description: "Run a synced pomodoro with your team.",
+    category: "collaboration",
+    prerequisite: (ctx) => (ctx.activeTeam
+      ? { ok: true }
+      : { ok: false, reason: "Join or create an org to sync focus sessions with others.", remedy: { type: "deep-link", to: "/team" } }),
+    entry: { to: "/pomodoro", await: '[data-tour="pomodoro-sync"]' },
+    steps: [
+      {
+        element: '[data-tour="pomodoro-sync"]',
+        popover: {
+          title: "Focus together",
+          description:
+            "Start or join a shared timer so your whole team focuses and breaks on the same countdown. Great for coworking and body-doubling.",
+          side: "bottom",
+          align: "end",
+        },
+      },
+    ],
+  },
+
+  {
     id: "create-room",
     title: "Create a room",
     description: "Add a room to your office (admins & leads).",

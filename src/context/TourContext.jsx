@@ -79,6 +79,22 @@ export function TourProvider({ children }) {
   const isTourAvailable = useCallback((id) => calcAvailable(getTour(id), buildCtx()), [buildCtx]);
   const tourStatus = useCallback((id) => calcStatus(getTour(id), buildCtx(), onboarding), [buildCtx, onboarding]);
 
+  // "New feature" announcement: an announceable + available tour whose marker is
+  // newer than what this user has acknowledged. Dormant right now — existing
+  // users were seeded to the current marker silently — but fires when a future
+  // tour ships with a newer marker. `null` before the first-run seed lands.
+  const announcement = useMemo(() => {
+    if (onboarding.seenTourMarker == null) return null;
+    const { announceTours } = computeAnnouncements(TOURS, onboarding.seenTourMarker, buildCtx());
+    return announceTours[0] || null;
+  }, [onboarding.seenTourMarker, buildCtx]);
+
+  const ackAnnouncement = useCallback(() => {
+    const markers = TOURS.map((t) => t.announce?.marker).filter(Boolean);
+    const newest = markers.sort().at(-1);
+    if (newest) setSeenTourMarker(newest);
+  }, [setSeenTourMarker]);
+
   // "New feature" announcements (WhatsNew-style). On a user's first-ever load we
   // seed the marker to the newest one SILENTLY so existing users aren't blasted
   // with the whole backlog. Surfacing newer-than-seen tours as a toast lands in
@@ -95,7 +111,8 @@ export function TourProvider({ children }) {
   const value = useMemo(() => ({
     active, activeTourId, startTour, replayTour: startTour,
     isTourAvailable, tourStatus, tours: TOURS,
-  }), [active, activeTourId, startTour, isTourAvailable, tourStatus]);
+    announcement, ackAnnouncement,
+  }), [active, activeTourId, startTour, isTourAvailable, tourStatus, announcement, ackAnnouncement]);
 
   return <TourContext.Provider value={value}>{children}</TourContext.Provider>;
 }

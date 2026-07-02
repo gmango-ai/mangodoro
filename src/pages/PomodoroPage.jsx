@@ -120,6 +120,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
           <Button
             variant="outline"
             size="sm"
+            data-tour="pomodoro-sync"
             onClick={handleSyncClick}
             className="h-8 text-xs"
           >

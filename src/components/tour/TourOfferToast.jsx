@@ -20,7 +20,7 @@ export default function TourOfferToast() {
   const { pathname } = useLocation();
   const { theme } = useTheme();
   const { dismissTour } = useApp();
-  const { active, startTour, tourStatus } = useTour();
+  const { active, startTour, tourStatus, announcement, ackAnnouncement } = useTour();
   const dark = theme === "dark";
   const [offer, setOffer] = useState(null);
   const offerRef = useRef(null);
@@ -48,7 +48,23 @@ export default function TourOfferToast() {
   }, [pathname, active, tourStatus]);
 
   const close = () => { offerRef.current = null; setOffer(null); };
-  if (!offer || active) return null;
+  if (active) return null;
+
+  // A "new feature" announcement (whole app, WhatsNew-style) takes priority over
+  // a surface-specific offer; both render the same toast.
+  const item = announcement || offer;
+  if (!item) return null;
+  const isNew = !!announcement;
+
+  const onStart = () => {
+    const id = item.id;
+    if (isNew) ackAnnouncement(); else close();
+    startTour(id);
+  };
+  const onDismiss = () => {
+    if (isNew) ackAnnouncement();
+    else { dismissTour(item.id); close(); }
+  };
 
   return (
     <div className="fixed left-1/2 -translate-x-1/2 z-[150] bottom-[calc(5rem+env(safe-area-inset-bottom))] xl:bottom-6 w-[min(94vw,26rem)]">
@@ -61,19 +77,22 @@ export default function TourOfferToast() {
           <GraduationCap className="w-4 h-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold leading-tight truncate">{offer.title}</p>
-          <p className={`text-[12px] leading-tight truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>{offer.description}</p>
+          <p className="text-sm font-semibold leading-tight truncate">
+            {isNew && <span className="mr-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--color-accent)]">New</span>}
+            {item.title}
+          </p>
+          <p className={`text-[12px] leading-tight truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>{item.description}</p>
         </div>
         <button
           type="button"
-          onClick={() => { const id = offer.id; close(); startTour(id); }}
+          onClick={onStart}
           className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
         >
           Start
         </button>
         <button
           type="button"
-          onClick={() => { dismissTour(offer.id); close(); }}
+          onClick={onDismiss}
           aria-label="Not now"
           title="Not now"
           className={`shrink-0 p-1.5 rounded-lg ${dark ? "text-slate-400 hover:text-slate-200 hover:bg-white/10" : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"}`}
