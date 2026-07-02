@@ -72,6 +72,10 @@ export function normalizeSettings(row) {
     // Personal world-clock timezones ({ id, label, tz }) + a pinned nav zone.
     worldClockPersonal: Array.isArray(row.world_clock_personal) ? row.world_clock_personal : [],
     navPinnedTz: row.nav_pinned_tz || "",
+    // Onboarding / tutorial state (single jsonb blob — see migration
+    // 20260701150000). Shape: { welcomeDone, completedTours[], dismissedTours[],
+    // checklist{}, seenTourMarker }. Defaults to {} for users predating it.
+    onboarding: row.onboarding && typeof row.onboarding === "object" ? row.onboarding : {},
   };
 }
 

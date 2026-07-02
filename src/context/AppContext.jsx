@@ -355,6 +355,7 @@ export function AppProvider({ session, children }) {
               pomodoroSoundName: row.pomodoro_sound_name ?? prev.pomodoroSoundName ?? "",
               worldClockPersonal: Array.isArray(row.world_clock_personal) ? row.world_clock_personal : (prev.worldClockPersonal ?? []),
               navPinnedTz: row.nav_pinned_tz ?? prev.navPinnedTz ?? "",
+              onboarding: (row.onboarding && typeof row.onboarding === "object") ? row.onboarding : (prev.onboarding ?? {}),
             }));
           }
         }
@@ -1261,10 +1262,34 @@ export function AppProvider({ session, children }) {
     if ("oooNote" in patch) dbPatch.ooo_note = patch.oooNote || null;
     if ("worldClockPersonal" in patch) dbPatch.world_clock_personal = Array.isArray(patch.worldClockPersonal) ? patch.worldClockPersonal : [];
     if ("navPinnedTz" in patch) dbPatch.nav_pinned_tz = patch.navPinnedTz || null;
+    if ("onboarding" in patch) dbPatch.onboarding = patch.onboarding && typeof patch.onboarding === "object" ? patch.onboarding : {};
     if (Object.keys(dbPatch).length === 0) return;
     if (!session?.user?.id) return;
     await supabase.from("user_settings").update(dbPatch).eq("user_id", session.user.id);
   }
+
+  // ── Onboarding / tutorial state ──────────────────────────────
+  // A single jsonb blob (settings.onboarding). All mutations read-modify-write
+  // off the LATEST settings via the functional setter, then persist the merged
+  // object, so concurrent flag flips (e.g. finishing a tour while a checklist
+  // item ticks) can't clobber each other. Cross-device sync rides the existing
+  // user_settings realtime UPDATE handler below.
+  const patchOnboarding = useCallback((mutate) => {
+    if (!session?.user?.id) return;
+    setSettings((prev) => {
+      const cur = prev.onboarding && typeof prev.onboarding === "object" ? prev.onboarding : {};
+      const next = mutate(cur) || cur;
+      supabase.from("user_settings").update({ onboarding: next }).eq("user_id", session.user.id);
+      return { ...prev, onboarding: next };
+    });
+  }, [session?.user?.id]);
+
+  const addToSet = (arr, id) => (Array.isArray(arr) && arr.includes(id) ? arr : [...(arr || []), id]);
+  const markTourComplete = useCallback((id) => patchOnboarding((o) => ({ ...o, completedTours: addToSet(o.completedTours, id) })), [patchOnboarding]);
+  const dismissTour = useCallback((id) => patchOnboarding((o) => ({ ...o, dismissedTours: addToSet(o.dismissedTours, id) })), [patchOnboarding]);
+  const setChecklistItem = useCallback((id, val = true) => patchOnboarding((o) => ({ ...o, checklist: { ...(o.checklist || {}), [id]: val } })), [patchOnboarding]);
+  const setWelcomeDone = useCallback(() => patchOnboarding((o) => ({ ...o, welcomeDone: true })), [patchOnboarding]);
+  const setSeenTourMarker = useCallback((marker) => patchOnboarding((o) => ({ ...o, seenTourMarker: marker })), [patchOnboarding]);
 
   // ── Custom sounds (user) ─────────────────────────────────────
   // Stored as a JSONB array on user_settings.custom_sounds. We round-trip
@@ -1539,6 +1564,8 @@ export function AppProvider({ session, children }) {
     session, entries, projects, settings, templates, dataSyncing, dataLoaded,
     hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage, stickyColor, setStickyColor,
     setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget, updateSettingsField,
+    // onboarding / tutorial state setters (settings.onboarding jsonb)
+    markTourComplete, dismissTour, setChecklistItem, setWelcomeDone, setSeenTourMarker,
     // setters used by the SettingsPage's immediate-save flow
     setTemplates, setProjects,
     setDeepseekKey, setReminderTime, setTimeRounding,

@@ -16,6 +16,7 @@ import { NotificationProvider } from "./context/NotificationContext";
 import { MessagesProvider } from "./context/MessagesContext";
 import MessagesPage from "./pages/MessagesPage";
 import { ProfileProvider } from "./context/ProfileContext";
+import { TourProvider } from "./context/TourContext";
 import LunchReminder from "./components/LunchReminder";
 import HealthReminders from "./components/HealthReminders";
 import PresenceSync from "./components/PresenceSync";
@@ -384,7 +385,9 @@ function AuthenticatedApp({ session }) {
               <NotificationProvider>
                 <MessagesProvider>
                   <ProfileProvider>
-                    <AppLayout session={session} />
+                    <TourProvider>
+                      <AppLayout session={session} />
+                    </TourProvider>
                   </ProfileProvider>
                 </MessagesProvider>
               </NotificationProvider>
