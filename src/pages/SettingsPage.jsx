@@ -13,9 +13,10 @@ import {
 import {
   Settings as SettingsIcon, User, Palette, Timer, Clock,
   Briefcase, Bell, Database, Check, Sun, Moon, Sparkles,
-  FileText, Download, Upload, KeyRound, Volume2, CalendarClock, Plus, X, Info,
+  FileText, Download, Upload, KeyRound, Volume2, CalendarClock, Plus, X, Info, GraduationCap,
 } from "lucide-react";
 import { openWhatsNew } from "../components/WhatsNew";
+import { openHelpCenter } from "../components/tour/HelpCenter";
 import { appVersion, latestEntryId } from "../lib/changelog";
 import { ACCENTS } from "../lib/accent";
 import AvatarUploader from "../components/AvatarUploader";
@@ -1711,9 +1712,14 @@ function AboutSection({ dark }) {
             Version {appVersion || "—"}{latest ? ` · Latest update ${latest}` : ""}
           </div>
         </div>
-        <Button onClick={openWhatsNew} variant="outline" size="sm">
-          <Sparkles className="w-3.5 h-3.5 mr-1.5" /> What&rsquo;s new
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={openWhatsNew} variant="outline" size="sm">
+            <Sparkles className="w-3.5 h-3.5 mr-1.5" /> What&rsquo;s new
+          </Button>
+          <Button onClick={openHelpCenter} variant="outline" size="sm">
+            <GraduationCap className="w-3.5 h-3.5 mr-1.5" /> Learn Mangodoro
+          </Button>
+        </div>
       </div>
     </SectionCard>
   );

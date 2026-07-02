@@ -1065,6 +1065,7 @@ function LayoutMenu({ mode, onSet, ignoreSelf, onToggleIgnoreSelf }) {
       <button
         type="button"
         className="lk-button"
+        data-tour="call-layout"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}

@@ -517,7 +517,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
   // setup (camera, background) under the camera caret — audio and video settings
   // separate, next to their mute/hide toggles.
   const micGroup = (
-    <div className="inline-flex items-center gap-0.5">
+    <div className="inline-flex items-center gap-0.5" data-tour="greenroom-devices">
       {toggleBtn(micOn, Mic, MicOff, micOn ? "Mute mic" : "Unmute mic", () => saveAudioInputEnabled(!micOn))}
       <LobbyDeviceMenu label="Microphone" devices={devices.mics} value={userChoices.audioDeviceId} onChange={saveAudioInputDeviceId}>
         <LobbySpeakerSection devices={devices.speakers} value={spk} onChange={pickSpeaker} />
@@ -555,6 +555,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
     <div className="flex items-center gap-2">
       <button
         type="button"
+        data-tour="greenroom-join"
         onClick={join}
         className="flex-1 inline-flex items-center justify-center gap-1.5 h-11 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white font-semibold shadow-lg"
       >

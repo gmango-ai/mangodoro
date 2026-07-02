@@ -16,6 +16,7 @@ import { NotificationProvider } from "./context/NotificationContext";
 import { MessagesProvider } from "./context/MessagesContext";
 import MessagesPage from "./pages/MessagesPage";
 import { ProfileProvider } from "./context/ProfileContext";
+import { TourProvider } from "./context/TourContext";
 import LunchReminder from "./components/LunchReminder";
 import HealthReminders from "./components/HealthReminders";
 import PresenceSync from "./components/PresenceSync";
@@ -31,6 +32,10 @@ import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
 import PomodoroFab from "./components/PomodoroFab";
 import SyncSessionModal from "./components/SyncSessionModal";
 import OnboardingModal from "./components/OnboardingModal";
+import WelcomeFlow from "./components/tour/WelcomeFlow";
+import OnboardingFactTracker from "./components/tour/OnboardingFactTracker";
+import TourOfferToast from "./components/tour/TourOfferToast";
+import HelpCenter from "./components/tour/HelpCenter";
 import PWAUpdater from "./components/PWAUpdater";
 // PomodoroPage is the landing route, so it stays eager — no Suspense flash
 // on cold start. Every other route page is lazy-loaded: the initial bundle
@@ -189,6 +194,12 @@ function AppLayout({ session }) {
       <NotificationToaster />
       {/* "What's new" toast + changelog modal (reads CHANGELOG.md). */}
       <WhatsNew />
+      {/* First-run orientation (after OnboardingModal) + invisible tracker that
+          flips getting-started checklist flags from real app activity. */}
+      {!isEmbed && <WelcomeFlow />}
+      {!isEmbed && <OnboardingFactTracker />}
+      {!isEmbed && <TourOfferToast />}
+      {!isEmbed && <HelpCenter />}
       {/* overflow-x-clip (not overflow-hidden): clipping the vertical axis
           here makes this div a scroll container, which traps the sticky
           <header> so it scrolls away and lets content slide under the
@@ -384,7 +395,9 @@ function AuthenticatedApp({ session }) {
               <NotificationProvider>
                 <MessagesProvider>
                   <ProfileProvider>
-                    <AppLayout session={session} />
+                    <TourProvider>
+                      <AppLayout session={session} />
+                    </TourProvider>
                   </ProfileProvider>
                 </MessagesProvider>
               </NotificationProvider>

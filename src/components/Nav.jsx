@@ -5,7 +5,7 @@ import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
-import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown } from "lucide-react";
+import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown, HelpCircle } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
@@ -17,6 +17,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import WorkClockBar from "./nav/WorkClockBar";
 import WorkingNowBar from "./nav/WorkingNowBar";
 import WorldClockNav from "./WorldClockNav";
+import { openHelpCenter } from "./tour/HelpCenter";
 
 const PRESENCE_DOT_COLOR = {
   active: "bg-emerald-500",
@@ -194,6 +195,15 @@ export default function Nav({ onOpenPomodoro }) {
 
             <WorldClockNav dark={darkMode} />
             <NavMessages />
+            <button
+              type="button"
+              onClick={openHelpCenter}
+              title="Learn Mangodoro"
+              aria-label="Learn Mangodoro — tutorials"
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
+            >
+              <HelpCircle className="w-5 h-5" />
+            </button>
             <NotificationBell />
 
             {/* Single user-menu dropdown on the right — replaces the
@@ -312,6 +322,18 @@ export default function Nav({ onOpenPomodoro }) {
             }`}
           >
             <Timer className="w-5 h-5" /> Quick timer
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setSidebarOpen(false); openHelpCenter(); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
+              darkMode
+                ? "text-slate-300 hover:text-slate-100 hover:bg-[var(--color-surface-raised)]"
+                : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <HelpCircle className="w-5 h-5" /> Learn Mangodoro
           </button>
 
           <NavLink
