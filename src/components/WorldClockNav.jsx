@@ -25,13 +25,16 @@ export default function WorldClockNav({ dark }) {
   const pinnedTz = settings.navPinnedTz || "";
 
   // Load org locations when the dropdown opens (a cheap direct fetch, off the
-  // hot team-load path).
+  // hot team-load path). Also load on mount when the PINNED zone isn't one of the
+  // user's personal times — otherwise the nav pill can't find its org-curated
+  // label and falls back to the city name until the dropdown is first opened.
+  const pinnedNeedsOrg = !!pinnedTz && !personal.some((p) => p.tz === pinnedTz);
   useEffect(() => {
-    if (!open || !activeTeamId) return;
+    if ((!open && !pinnedNeedsOrg) || !activeTeamId) return;
     let cancelled = false;
     getWorldClockLocations(activeTeamId).then(({ data }) => { if (!cancelled) setOrgLocs(data || []); });
     return () => { cancelled = true; };
-  }, [open, activeTeamId]);
+  }, [open, pinnedNeedsOrg, activeTeamId]);
 
   // Keep the pinned pill + open dropdown ticking (30s is plenty for minutes).
   useEffect(() => {
