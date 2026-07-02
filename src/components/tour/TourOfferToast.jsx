@@ -34,7 +34,6 @@ export default function TourOfferToast() {
         if (wasOffered(t.id)) continue;
         const st = tourStatus(t.id);
         if (st.completed || st.dismissed || st.locked) continue;
-        markOffered(t.id);
         offerRef.current = t;
         setOffer(t);
         return;
@@ -58,12 +57,13 @@ export default function TourOfferToast() {
 
   const onStart = () => {
     const id = item.id;
-    if (isNew) ackAnnouncement(); else close();
+    if (isNew) ackAnnouncement();
+    else { markOffered(id); close(); }
     startTour(id);
   };
   const onDismiss = () => {
     if (isNew) ackAnnouncement();
-    else { dismissTour(item.id); close(); }
+    else { markOffered(item.id); dismissTour(item.id); close(); }
   };
 
   return (

@@ -772,6 +772,15 @@ function EmptyPane({ dark, onNew }) {
   );
 }
 
+function LoadingPane({ dark }) {
+  return (
+    <div className={`flex flex-col items-center justify-center h-full gap-3 text-center px-6 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+      <span className="w-7 h-7 rounded-full border-2 border-[var(--color-accent)] border-t-transparent animate-spin" />
+      <p className="text-sm font-semibold">Loading conversation…</p>
+    </div>
+  );
+}
+
 export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
@@ -782,6 +791,7 @@ export default function MessagesPage() {
   const [params, setParams] = useSearchParams();
   const activeId = params.get("c") || null;
   const [composing, setComposing] = useState(false);
+  const [loadingActiveId, setLoadingActiveId] = useState(null);
 
   const memberById = useMemo(() => new Map(teamMembers.map((m) => [m.user_id, m])), [teamMembers]);
   const others = useMemo(() => teamMembers.filter((m) => m.user_id !== userId), [teamMembers, userId]);
@@ -796,8 +806,15 @@ export default function MessagesPage() {
 
   const open = (id) => { setComposing(false); setParams(id ? { c: id } : {}, { replace: true }); };
   const active = activeConversations.find((c) => c.id === activeId) || conversations.find((c) => c.id === activeId) || null;
-  useEffect(() => { if (activeId && !active) reload?.(); }, [activeId, active, reload]);
-  const showMain = composing || !!active || !!activeId;
+  useEffect(() => {
+    if (!activeId || active) { setLoadingActiveId(null); return undefined; }
+    let alive = true;
+    setLoadingActiveId(activeId);
+    Promise.resolve(reload?.()).catch(() => {}).finally(() => { if (alive) setLoadingActiveId(null); });
+    return () => { alive = false; };
+  }, [activeId, active, reload]);
+  const loadingActive = !!activeId && !active && loadingActiveId === activeId;
+  const showMain = composing || !!active || loadingActive;
 
   const onPin = async (c) => { await setConversationPinned(c.id, userId, !c.pinned_at, c.kind); reload?.(); };
   const onMute = async (c) => { await setConversationMuted(c.id, userId, !c.muted_at, c.kind); reload?.(); };
@@ -828,6 +845,8 @@ export default function MessagesPage() {
             onBack={() => open(null)} markRead={markRead}
             subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions} onChannelMetaSaved={reload} dark={dark}
           />
+        ) : loadingActive ? (
+          <LoadingPane dark={dark} />
         ) : (
           <EmptyPane dark={dark} onNew={() => setComposing(true)} />
         )}

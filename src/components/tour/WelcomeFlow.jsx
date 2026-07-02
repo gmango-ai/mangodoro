@@ -20,19 +20,24 @@ export default function WelcomeFlow() {
   const welcomeDone = settings?.onboarding?.welcomeDone;
   const [show, setShow] = useState(false);
   const hydratedRef = useRef(false);
+  const seededLegacyRef = useRef(false);
 
   // Once settings have hydrated: if the user is ALREADY named but has no
   // welcomeDone flag, they predate onboarding → mark done silently (no modal).
   useEffect(() => {
     if (!dataLoaded || hydratedRef.current) return;
     hydratedRef.current = true;
-    if (name && welcomeDone == null) setWelcomeDone();
+    if (name && welcomeDone == null) {
+      seededLegacyRef.current = true;
+      setWelcomeDone();
+    }
   }, [dataLoaded, name, welcomeDone, setWelcomeDone]);
 
   // After hydration, a genuinely new user who just set their name (and hasn't
   // completed the welcome) gets it once.
   useEffect(() => {
     if (!hydratedRef.current || !session?.user?.id) return;
+    if (seededLegacyRef.current) return;
     if (!name || welcomeDone === true) return;
     let seenLocal = false;
     try { seenLocal = localStorage.getItem(SEEN_KEY) === "1"; } catch { /* */ }
