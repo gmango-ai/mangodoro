@@ -8,34 +8,31 @@ const PAGE_SIZE = 50;
 // profiles in a single follow-up request and stitch client-side. This
 // mirrors how listActiveTeamSessions joins occupants in syncSession.js.
 //
-// Identity comes from `profiles` (RLS: readable by ANYONE you share a team
-// with), NOT user_settings — whose RLS only lets *admins* read co-member rows,
-// so a regular member saw every teammate as "Member". `profiles` is kept in sync
-// with user_settings by a mirror trigger (migration 20260623200000). Device
-// kiosks have no team_members row (so the profiles policy returns nothing for
-// them); they fall back to user_settings, where a room-scoped policy grants them
-// their room's chat authors (migration 20260625120000).
-function authorFromProfile(p) {
-  return { user_id: p.user_id, name: p.display_name || "", avatar_url: p.avatar_url || "" };
+// Identity primarily comes from `profiles` (RLS: readable by ANYONE you share a
+// team with). user_settings fills profile blanks when readable and covers device
+// kiosks, where a room-scoped policy grants their room's chat authors.
+function authorFromIdentity(p, s) {
+  const userId = p?.user_id || s?.user_id;
+  return {
+    user_id: userId,
+    name: p?.display_name || s?.name || "",
+    avatar_url: p?.avatar_url || s?.avatar_url || "",
+  };
 }
 
 async function hydrateAuthors(rows) {
   if (!rows.length) return rows;
   const ids = [...new Set(rows.map((r) => r.user_id))];
   const byId = new Map();
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("user_id, display_name, avatar_url")
-    .in("user_id", ids);
-  for (const p of profiles || []) byId.set(p.user_id, authorFromProfile(p));
-  // Fallback for ids profiles didn't cover (device kiosks).
-  const missing = ids.filter((id) => !byId.has(id));
-  if (missing.length) {
-    const { data: settings } = await supabase
-      .from("user_settings")
-      .select("user_id, name, avatar_url")
-      .in("user_id", missing);
-    for (const s of settings || []) byId.set(s.user_id, s);
+  const [{ data: profiles }, { data: settings }] = await Promise.all([
+    supabase.from("profiles").select("user_id, display_name, avatar_url").in("user_id", ids),
+    supabase.from("user_settings").select("user_id, name, avatar_url").in("user_id", ids),
+  ]);
+  const profById = new Map((profiles || []).map((p) => [p.user_id, p]));
+  for (const p of profiles || []) byId.set(p.user_id, authorFromIdentity(p));
+  // Fallback for profile blanks and ids profiles didn't cover (device kiosks).
+  for (const s of settings || []) {
+    byId.set(s.user_id, authorFromIdentity(profById.get(s.user_id), s));
   }
   return rows.map((r) => ({ ...r, author: byId.get(r.user_id) || null }));
 }
@@ -61,8 +58,8 @@ export async function fetchRecentMessages(roomId, { before } = {}) {
 
 // Used by the realtime hook to fill in the author for a single freshly
 // inserted message (the realtime payload only carries the row itself).
-// profiles first (co-member readable), user_settings fallback for kiosks — see
-// hydrateAuthors above for the RLS reasoning.
+// profiles first (co-member readable), user_settings fallback for blanks/kiosks
+// — see hydrateAuthors above for the RLS reasoning.
 export async function fetchAuthorProfile(userId) {
   if (!userId) return { data: null, error: null };
   const { data: prof } = await supabase
@@ -70,12 +67,15 @@ export async function fetchAuthorProfile(userId) {
     .select("user_id, display_name, avatar_url")
     .eq("user_id", userId)
     .maybeSingle();
-  if (prof) return { data: authorFromProfile(prof), error: null };
+  if (prof?.display_name && prof?.avatar_url) {
+    return { data: authorFromIdentity(prof), error: null };
+  }
   const { data, error } = await supabase
     .from("user_settings")
     .select("user_id, name, avatar_url")
     .eq("user_id", userId)
     .maybeSingle();
+  if (prof) return { data: authorFromIdentity(prof, data), error: null };
   return { data, error };
 }
 
