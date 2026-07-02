@@ -820,7 +820,7 @@ export default function MessagesPage() {
   const onMute = async (c) => { await setConversationMuted(c.id, userId, !c.muted_at, c.kind); reload?.(); };
 
   return (
-    <div className={`mx-auto w-full max-w-6xl h-[calc(100dvh-var(--app-nav-h))] sm:h-[calc(100dvh-var(--app-nav-h)-1.5rem)] sm:my-3 flex overflow-hidden rounded-none sm:rounded-2xl sm:border ${dark ? "bg-[var(--color-surface)] sm:border-[var(--color-border)]" : "bg-white sm:border-slate-200"}`}>
+    <div className={`mx-auto w-full max-w-6xl h-[calc(100dvh-var(--nav-h))] sm:h-[calc(100dvh-var(--nav-h)-1.5rem)] sm:my-3 flex overflow-hidden rounded-none sm:rounded-2xl sm:border ${dark ? "bg-[var(--color-surface)] sm:border-[var(--color-border)]" : "bg-white sm:border-slate-200"}`}>
       {/* Sidebar — full width on mobile when nothing open; fixed column on desktop */}
       <aside className={`${showMain ? "hidden md:flex" : "flex"} w-full md:w-[340px] md:shrink-0 flex-col md:border-r ${dark ? "md:border-[var(--color-border)]" : "md:border-slate-200"}`}>
         <Sidebar conversations={activeConversations} nameOf={nameOf} memberById={memberById} activeId={activeId} onOpen={open} onNew={() => setComposing(true)} onPin={onPin} onMute={onMute} dark={dark} />

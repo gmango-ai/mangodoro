@@ -12,10 +12,11 @@
      include the glassmorphic bottom tab bar on touch devices below lg
      (see the bottom-nav block lower in this file). */
   --bottom-inset: env(safe-area-inset-bottom);
-  /* Height of the sticky top nav's content rows (excludes --top-inset), kept in
-     sync by Nav via a ResizeObserver so full-height pages adapt when the
-     collapsible second row shows/hides. Default ≈ one desktop row. */
-  --app-nav-h: 4rem;
+  /* Nav content height (EXCLUDING --top-inset) that full-height pages subtract
+     from 100dvh. The mobile header is two rows below xl (row 1: brand + icons;
+     row 2: clock-in + who's-working + world clock + pomodoro), a single row at
+     xl+. Row 1 is h-14 (3.5rem) / sm:h-16 (4rem); row 2 is h-10 (2.5rem). */
+  --nav-h: 6rem;            /* mobile: 3.5 + 2.5 */
   --font-size: 16px;
   --background: #ffffff;
   --foreground: oklch(0.145 0 0);
@@ -91,6 +92,12 @@
   --color-toggle-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   --color-modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
 }
+
+/* Responsive nav height (see --nav-h above). Row 2 shows below xl; the mobile
+   row 1 grows from h-14 to sm:h-16. Order matters: the xl rule must follow the
+   sm rule so it wins at width >= 1280. */
+@media (min-width: 640px) { :root { --nav-h: 6.5rem; } }  /* sm..xl: 4 + 2.5 */
+@media (min-width: 1280px) { :root { --nav-h: 4rem; } }   /* xl+: single row */
 
 .dark {
   --background: oklch(0.145 0 0);
