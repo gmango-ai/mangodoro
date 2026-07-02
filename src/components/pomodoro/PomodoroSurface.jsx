@@ -208,10 +208,10 @@ export default function PomodoroSurface({
       // call (z-150 in PersistentVideoCall) so the PiP/stage no longer
       // bleeds over the timer, while staying below ESC-able modals (180+).
       // Mobile: drop DOWN from just under the top bar (that's where the row-2
-      // pomodoro button lives), top-aligned + full width. Desktop (sm+): keep it
+      // pomodoro button lives), top-aligned + full width. Desktop (xl+): keep it
       // bottom-right, anchored near the edge pull-tab FAB. Height is capped to
       // the visible area either way so it can't run off-screen (scrolls instead).
-      return `fixed top-[calc(var(--nav-h)+var(--top-inset)+0.5rem)] right-3 left-3 sm:top-auto sm:left-auto sm:bottom-6 sm:right-6 z-[160] sm:w-[26rem] max-h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset)-1rem)] sm:max-h-[calc(100dvh-var(--top-inset)-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
+      return `fixed top-[calc(var(--nav-h)+var(--top-inset)+0.5rem)] right-3 left-3 xl:top-auto xl:left-auto xl:bottom-6 xl:right-6 z-[160] xl:w-[26rem] max-h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset)-1rem)] xl:max-h-[calc(100dvh-var(--top-inset)-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
         !open && !(controlsLocked && !pipMountEl && !pendingDismissed) ? "hidden" : ""
       } ${
         dark
