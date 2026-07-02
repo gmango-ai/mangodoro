@@ -17,6 +17,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import WorkClockBar from "./nav/WorkClockBar";
 import WorkingNowBar from "./nav/WorkingNowBar";
 import WorldClockNav from "./WorldClockNav";
+import PomodoroNavButton from "./nav/PomodoroNavButton";
 import { openHelpCenter } from "./tour/HelpCenter";
 
 const PRESENCE_DOT_COLOR = {
@@ -29,7 +30,7 @@ const PRESENCE_DOT_COLOR = {
   commuting: "bg-cyan-500",
 };
 
-export default function Nav({ onOpenPomodoro }) {
+export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
   const { settings, todayMins, exportMsg, dataSyncing, session, clockIn } = useApp();
   const { activeTeamSessions } = useTeam();
   const { syncSession } = useSyncSession();
@@ -126,7 +127,9 @@ export default function Nav({ onOpenPomodoro }) {
           </div>
         )}
 
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center gap-3">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6">
+          {/* Row 1: brand + (mobile) messages/notifications + (desktop) full nav. */}
+          <div className="h-14 sm:h-16 flex items-center gap-3">
           {/* Mobile: hamburger */}
           <button
             type="button"
@@ -159,11 +162,10 @@ export default function Nav({ onOpenPomodoro }) {
             </span>
           </NavLink>
 
-          {/* Mobile: clock + who's-working + notification bell, pinned right. */}
-          <div className="xl:hidden ml-auto flex items-center gap-2">
-            <WorkClockBar dark={darkMode} />
-            <WorkingNowBar dark={darkMode} />
-            <WorldClockNav dark={darkMode} />
+          {/* Mobile row 1: messages + notifications, pinned right. The clock /
+              who's-working / world-clock widgets (which expand into pills) live
+              on row 2 below, so they don't crowd the brand + these icons. */}
+          <div className="xl:hidden ml-auto flex items-center gap-1">
             <NavMessages />
             <NotificationBell />
           </div>
@@ -219,6 +221,21 @@ export default function Nav({ onOpenPomodoro }) {
               onToggleTheme={toggleTheme}
               session={session}
             />
+          </div>
+          </div>
+
+          {/* Row 2 (mobile only): the widgets that expand into pills — clock-in,
+              who's-working, world clock — plus a pomodoro quick-open (replaces
+              the edge FAB on mobile). Keeps row 1 uncluttered. */}
+          <div className="xl:hidden flex items-center gap-2 h-10">
+            <WorkClockBar dark={darkMode} />
+            <WorkingNowBar dark={darkMode} />
+            <WorldClockNav dark={darkMode} />
+            {!onPomodoroPage && (
+              <div className="ml-auto">
+                <PomodoroNavButton dark={darkMode} onOpen={onOpenPomodoro} />
+              </div>
+            )}
           </div>
         </div>
       </header>

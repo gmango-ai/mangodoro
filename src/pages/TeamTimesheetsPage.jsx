@@ -130,10 +130,10 @@ export default function TeamTimesheetsPage() {
   );
 
   return (
-    // Fill below the global nav: subtract the nav bar (3.5rem mobile / 4rem
-    // desktop) + the top safe-area inset. Flat `100vh - 64px` was too tall on
-    // mobile / Dynamic Island phones.
-    <main className="flex flex-col h-[calc(100dvh-3.5rem-var(--top-inset)-var(--bottom-inset))] sm:h-[calc(100dvh-4rem-var(--top-inset)-var(--bottom-inset))]">
+    // Fill below the global nav: subtract the nav bar (--nav-h; taller on
+    // mobile's two-row header) + the top safe-area inset. Flat `100vh - 64px`
+    // was too tall on mobile / Dynamic Island phones.
+    <main className="flex flex-col h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))]">
       {/* Top bar — one line: title left, month nav + icon-only exports right */}
       <div className={`px-4 sm:px-6 py-2.5 border-b ${
         dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-white"

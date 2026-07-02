@@ -2691,8 +2691,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   return (
     <main
       ref={mainRef}
-      // Subtract the nav bar (3.5rem mobile / 4rem desktop) AND both safe-area
-      // insets. Without the top env() the canvas is ~59px too tall on Dynamic
+      // Subtract the nav bar (--nav-h; taller on mobile's two-row header) AND
+      // both safe-area insets. Without the top env() the canvas is ~59px too tall on Dynamic
       // Island phones (top timer ribbon hides under the nav, bottom emote
       // island falls below the fold). The bottom env() keeps the bottom
       // controls (emote bar, zoom controls) clear of the home-indicator /
@@ -2703,7 +2703,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       }${
         embedded
           ? "h-full"
-          : "h-[calc(100dvh-3.5rem-var(--top-inset)-var(--bottom-inset))] sm:h-[calc(100dvh-4rem-var(--top-inset)-var(--bottom-inset))]"
+          : "h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))]"
       }`}
       onPointerMove={onWbPointerMove}
       onPointerDownCapture={onWbPointerDownCapture}
