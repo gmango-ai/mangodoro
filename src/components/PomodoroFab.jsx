@@ -67,7 +67,7 @@ export default function PomodoroFab({ onToggle }) {
       onClick={() => onToggle?.()}
       title={showTimer ? `${modeLabel(displayMode)} · ${formatTime(safeSeconds)} left — open pomodoro` : "Open pomodoro"}
       aria-label={showTimer ? `${modeLabel(displayMode)} timer, ${formatTime(safeSeconds)} remaining — open pomodoro` : "Open pomodoro"}
-      className={`fixed right-0 z-[111] inline-flex flex-col items-center justify-center gap-0.5 w-6 rounded-l-lg border border-r-0 shadow-md transition-colors ${bottomCls} ${
+      className={`fixed right-0 z-[111] hidden xl:inline-flex flex-col items-center justify-center gap-0.5 w-6 rounded-l-lg border border-r-0 shadow-md transition-colors ${bottomCls} ${
         showTimer
           ? "h-14 bg-[var(--color-accent)] border-[var(--color-accent)] text-white"
           : `h-12 ${idleCls}`
