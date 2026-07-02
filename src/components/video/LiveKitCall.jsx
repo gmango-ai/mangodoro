@@ -1955,6 +1955,9 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
     ? speaking.filter((p) => p.identity !== localId)
     : speaking;
   const featuredSpeaker = useFeaturedSpeaker(speakingForFeature, { decayMs: 2500, hold: true });
+  const featuredSpeakerForStage = spotlightIgnoreSelf && featuredSpeaker === localId
+    ? null
+    : featuredSpeaker;
 
   // Spectators are listed by name; publishers (even camera-off) get a tile.
   const spectators = participants.filter((p) => p.attributes?.role === "spectator" && !p.isLocal);
@@ -1967,8 +1970,11 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   });
 
   const screenTrack = shown.find((t) => t.source === Track.Source.ScreenShare);
-  const speakerTrack = featuredSpeaker
-    ? shown.find((t) => t.participant?.identity === featuredSpeaker && t.source === Track.Source.Camera)
+  const autoFocusFallback = spotlightIgnoreSelf && localId
+    ? shown.find((t) => t.participant?.identity !== localId)
+    : shown[0];
+  const speakerTrack = featuredSpeakerForStage
+    ? shown.find((t) => t.participant?.identity === featuredSpeakerForStage && t.source === Track.Source.Camera)
     : null;
   // The admin's global pin (room metadata) focuses this participant for everyone,
   // unless you've locally pinned someone else. Their screen share wins over their
@@ -1981,7 +1987,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   // focused layout even in grid mode. The big tile otherwise follows the active
   // speaker, then the first tile.
   const forcedFocus = (pinned && pinned[0]) || globalPinTrack || screenTrack || null;
-  const focusTrack = forcedFocus || speakerTrack || shown[0] || null;
+  const focusTrack = forcedFocus || speakerTrack || autoFocusFallback || null;
 
   // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
   const squished = (h > 0 && h < 200) || (w > 0 && w < 220);
@@ -2040,7 +2046,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
     stageFocusKey = refKey(focusTrack);
   } else if (baseTiles.length > capFor(w, h)) {
     const cap = capFor(w, h - AUDIENCE_H);
-    const ordered = rankTiles(baseTiles, featuredSpeaker, speaking);
+    const ordered = rankTiles(baseTiles, featuredSpeakerForStage, speaking);
     stageTiles = ordered.slice(0, cap);
     audienceTiles = ordered.slice(cap);
   } else {
