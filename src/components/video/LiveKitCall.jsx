@@ -179,6 +179,41 @@ function bgToOptions(bg, customBg) {
 //   float  — render your own tile as a draggable PiP instead of a grid cell
 const SelfViewContext = createContext({ mirror: true, float: true, setMirror: () => {}, setFloat: () => {} });
 
+const RoomEntryHoldContext = createContext({
+  entryHoldPending: false,
+  beginEntryHold: () => {},
+});
+
+function RoomEntryHoldProvider({ children }) {
+  const { cluster } = useRoomCluster();
+  const [entryHoldPending, setEntryHoldPending] = useState(false);
+
+  useEffect(() => {
+    if (cluster) setEntryHoldPending(false);
+  }, [cluster]);
+
+  useEffect(() => {
+    if (!entryHoldPending) return undefined;
+    // Do not leave the call muted forever if the signal request never lands.
+    const t = setTimeout(() => setEntryHoldPending(false), 5000);
+    return () => clearTimeout(t);
+  }, [entryHoldPending]);
+
+  const value = useMemo(
+    () => ({
+      entryHoldPending,
+      beginEntryHold: () => setEntryHoldPending(true),
+    }),
+    [entryHoldPending],
+  );
+
+  return <RoomEntryHoldContext.Provider value={value}>{children}</RoomEntryHoldContext.Provider>;
+}
+
+function useRoomEntryHold() {
+  return useContext(RoomEntryHoldContext);
+}
+
 // "Pin for everyone" control, shared from the call down to each tile + the
 // People panel so the affordance shows wherever it's useful. `canPin` is gated
 // by the room's pin_policy; the server re-checks, so this only decides the UI.
@@ -309,6 +344,7 @@ function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
   const { cluster, isMicSource, existingCluster, mergeTarget, startRoom, joinRoom } = useRoomCluster();
+  const { entryHoldPending } = useRoomEntryHold();
   const bestMicAppliedRef = useRef(false);
   const enteredRef = useRef(false);
   const inRoom = !!choices?.inRoom;
@@ -391,17 +427,18 @@ function PublishController({ publish, choices, micMuted }) {
       // room's mic source). While ENTERING "in this room" but not yet clustered,
       // hold the mic off so it can't squeal before the follower/mic-source role
       // resolves — but NOT after you've been in a cluster and left (clusteredRef),
-      // where "in this room" lingers and would otherwise keep you muted forever.
-      const holdForEntry = inRoom && !clusteredRef.current;
+      // where "in this room" lingers. Manual re-entry sets entryHoldPending for
+      // the same pre-cluster safety window.
+      const holdForEntry = entryHoldPending || (inRoom && !clusteredRef.current);
       const wantAudio = publish && !micMuted && (cluster ? isMicSource : !holdForEntry);
       localParticipant
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
     };
-    room.on(RoomEvent.Connected, applyMic);
-    if (room.state === "connected") applyMic();
-    return () => room.off(RoomEvent.Connected, applyMic);
-  }, [localParticipant, room, publish, micMuted, cluster, isMicSource, inRoom, choices?.audioDeviceId]);
+    room.on(RoomEvent.Connected, apply);
+    if (room.state === "connected") apply();
+    return () => room.off(RoomEvent.Connected, apply);
+  }, [localParticipant, room, publish, choices, cluster, isMicSource, micMuted, inRoom, entryHoldPending]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
@@ -569,13 +606,14 @@ function AutoMicController({ enabled }) {
 // room would double up and echo. Solo participants render normally.
 function ClusterAudioRenderer({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
+  const { entryHoldPending } = useRoomEntryHold();
   // holdForEntry: while joining "in this room" but before the cluster attribute
   // has landed, stay silent so our speakers can't feed a co-located mic. Only
   // hold WHILE still entering — once we've been in a cluster, leaving it must
-  // restore the call audio (holdForEntry lingers from the static pre-join choice).
+  // restore the call audio. Manual re-entry re-arms the hold until clustering lands.
   const enteredRef = useRef(false);
   if (cluster) enteredRef.current = true;
-  const hold = holdForEntry && !enteredRef.current;
+  const hold = entryHoldPending || (holdForEntry && !enteredRef.current);
   if ((cluster && !isAudioSink) || (hold && !cluster)) return null;
   return <RoomAudioRenderer />;
 }
@@ -589,11 +627,12 @@ function ClusterAudioRenderer({ holdForEntry = false }) {
 // they don't subscribe either. Re-subscribes the moment they become the sink.
 function FollowerAudioGate({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
+  const { entryHoldPending } = useRoomEntryHold();
   // Release the entry hold once we've actually clustered (see ClusterAudioRenderer)
-  // so leaving the room re-subscribes us to everyone's audio instead of staying muted.
+  // so leaving the room re-subscribes us; manual re-entry re-arms it.
   const enteredRef = useRef(false);
   if (cluster) enteredRef.current = true;
-  const hold = holdForEntry && !enteredRef.current;
+  const hold = entryHoldPending || (holdForEntry && !enteredRef.current);
   const suppress = (!!cluster && !isAudioSink) || (hold && !cluster);
   const audioTracks = useTracks(
     [Track.Source.Microphone, Track.Source.ScreenShareAudio],
@@ -880,6 +919,7 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
     cluster, members, isMicSource, isAudioSink, existingCluster,
     startRoom, joinRoom, takeSpeaker, stepDown, takeSink, releaseSink, leaveRoom,
   } = useRoomCluster();
+  const { beginEntryHold } = useRoomEntryHold();
   const roles = useClusterRoles();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -897,6 +937,11 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
 
   if (!cluster) {
     const joining = !!existingCluster;
+    const enterRoom = () => {
+      beginEntryHold();
+      if (joining) joinRoom(existingCluster);
+      else startRoom();
+    };
     return (
       <button
         type="button"
@@ -907,7 +952,7 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
             : "In a room with teammates? Make this the room speaker so you don't echo each other"
         }
         aria-label={joining ? "Join the room's shared audio" : "Make this the room speaker"}
-        onClick={() => (joining ? joinRoom(existingCluster) : startRoom())}
+        onClick={enterRoom}
       >
         {/* Speaker (not a people icon) so this "share the room's audio" control
             isn't confused with the People / participants button. */}
@@ -2516,26 +2561,28 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
           onError?.(msg);
         }}
       >
-        <PublishController publish={publish} choices={choices} micMuted={micMuted} />
-        {/* Silent connection-health recorder — feeds the disconnect report so a
-            force disconnect can be explained, not just observed. */}
-        <ConnectionDiagnostics roomId={roomId} />
-        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} deafened={deafened} onToggleDeafen={toggleDeafen} chromeless={chromeless} />
-        {/* Owns in-room cluster management (leader handoff). Mount once. */}
-        <RoomClusterManager />
-        {/* Restore the saved audio-output device on connect. */}
-        <SavedSpeakerApplier />
-        {/* In-room followers receive no audio at all (the room speaker carries
-            it for them); everyone else plays normally. holdForEntry keeps a
-            still-clustering "in this room" joiner silent during the entry window. */}
-        <FollowerAudioGate holdForEntry={publish && !!choices?.inRoom} />
-        {/* Required for participants to be audible — suppressed for in-room
-            followers so the leader's speakers don't echo back through them. Also
-            gated on `listen`: a silent auto-preview spectator plays NOTHING, so
-            walking up to a room can't blast the call through your speakers and
-            (if a live participant is nearby) feed back into the room. Publishers
-            always hear; explicit watchers and join always have listen=true. */}
-        {(publish || listen) && !deafened && <ClusterAudioRenderer holdForEntry={publish && !!choices?.inRoom} />}
+        <RoomEntryHoldProvider>
+          <PublishController publish={publish} choices={choices} micMuted={micMuted} />
+          {/* Silent connection-health recorder — feeds the disconnect report so a
+              force disconnect can be explained, not just observed. */}
+          <ConnectionDiagnostics roomId={roomId} />
+          <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} deafened={deafened} onToggleDeafen={toggleDeafen} chromeless={chromeless} />
+          {/* Owns in-room cluster management (leader handoff). Mount once. */}
+          <RoomClusterManager />
+          {/* Restore the saved audio-output device on connect. */}
+          <SavedSpeakerApplier />
+          {/* In-room followers receive no audio at all (the room speaker carries
+              it for them); everyone else plays normally. holdForEntry keeps a
+              still-clustering "in this room" joiner silent during the entry window. */}
+          <FollowerAudioGate holdForEntry={publish && !!choices?.inRoom} />
+          {/* Required for participants to be audible — suppressed for in-room
+              followers so the leader's speakers don't echo back through them. Also
+              gated on `listen`: a silent auto-preview spectator plays NOTHING, so
+              walking up to a room can't blast the call through your speakers and
+              (if a live participant is nearby) feed back into the room. Publishers
+              always hear; explicit watchers and join always have listen=true. */}
+          {(publish || listen) && !deafened && <ClusterAudioRenderer holdForEntry={publish && !!choices?.inRoom} />}
+        </RoomEntryHoldProvider>
       </LiveKitRoom>
     </div>
   );
