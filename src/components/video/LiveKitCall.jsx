@@ -37,6 +37,7 @@ import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
 import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
+import { useSquishedLayout } from "./useSquishedLayout";
 
 // LiveKit's client logs at "info" by default, which floods the console with
 // per-connection play-by-play (signal connecting, connection state changes,
@@ -325,36 +326,42 @@ function PublishController({ publish, choices, micMuted }) {
     joinRoom({ id: mergeTarget });
   }, [publish, inRoom, mergeTarget, joinRoom]);
 
-  // Camera + role — applied once per (re)connection and when the publish intent
-  // or device choices change. Deliberately does NOT depend on the cluster / mic
-  // state: your camera is your own live control (the ControlBar's TrackToggle),
-  // and re-running setCameraEnabled off the stale join-time `choices.videoEnabled`
-  // whenever you joined/left room audio was force-killing a camera you'd turned
-  // on mid-call. Keeping camera out of the mic-gate effect fixes that.
+  // Role attribute — separate from camera/mic so mic or cluster churn never
+  // re-touches either track.
   useEffect(() => {
     if (!localParticipant || !room) return undefined;
-    const apply = () => {
+    const applyRole = () => {
       // Tag our role so every client can render spectators as a name list
       // instead of giving them a (camera-off) tile in the grid.
       localParticipant.setAttributes({ role: publish ? "publisher" : "spectator" }).catch(() => { /* */ });
+    };
+    room.on(RoomEvent.Connected, applyRole);
+    if (room.state === "connected") applyRole();
+    return () => room.off(RoomEvent.Connected, applyRole);
+  }, [localParticipant, room, publish]);
+
+  // Camera — join choices + connect/reconnect only. In-call camera toggles
+  // (TrackToggle) are NOT reset when micMuted or cluster state changes.
+  // Re-running setCameraEnabled off stale join-time `choices.videoEnabled`
+  // was force-killing a camera turned on mid-call.
+  useEffect(() => {
+    if (!localParticipant || !room) return undefined;
+    const applyCamera = () => {
       const wantVideo = publish && (choices ? choices.videoEnabled !== false : true);
       localParticipant
         .setCameraEnabled(wantVideo, choices?.videoDeviceId ? { deviceId: choices.videoDeviceId } : undefined)
         .catch(() => { /* device denied/unavailable — stay subscribe-only */ });
     };
-    // Signal requests are only valid once connected; apply on connect + reconnect.
-    room.on(RoomEvent.Connected, apply);
-    if (room.state === "connected") apply();
-    return () => room.off(RoomEvent.Connected, apply);
-  }, [localParticipant, room, publish, choices]);
+    room.on(RoomEvent.Connected, applyCamera);
+    if (room.state === "connected") applyCamera();
+    return () => room.off(RoomEvent.Connected, applyCamera);
+  }, [localParticipant, room, publish, choices?.videoEnabled, choices?.videoDeviceId]);
 
   // Mic gating — re-applied on connect AND whenever the room-audio cluster state
-  // changes, because that IS the "behind the scenes" auto-mute (a follower's mic
-  // is held off so co-located people don't echo). It touches ONLY the mic, so its
-  // churn on cluster/mic-source/in-room changes can't disturb the camera above.
+  // changes (the "behind the scenes" auto-mute). Touches ONLY the mic.
   useEffect(() => {
     if (!localParticipant || !room) return undefined;
-    const apply = () => {
+    const applyMic = () => {
       // Your mic is live only when YOU haven't muted it AND (solo, or you're the
       // room's mic source). While entering "in this room" but not yet clustered,
       // hold the mic off so it can't squeal before the follower/mic-source role
@@ -364,10 +371,10 @@ function PublishController({ publish, choices, micMuted }) {
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
     };
-    room.on(RoomEvent.Connected, apply);
-    if (room.state === "connected") apply();
-    return () => room.off(RoomEvent.Connected, apply);
-  }, [localParticipant, room, publish, choices, cluster, isMicSource, micMuted, inRoom]);
+    room.on(RoomEvent.Connected, applyMic);
+    if (room.state === "connected") applyMic();
+    return () => room.off(RoomEvent.Connected, applyMic);
+  }, [localParticipant, room, publish, micMuted, cluster, isMicSource, inRoom, choices?.audioDeviceId]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
@@ -1809,17 +1816,20 @@ function capFor(w, h, minW = 130, aspect = 16 / 9, gap = 8) {
   return best;
 }
 
-// Order tiles so the grid keeps who matters when it overflows: the featured /
-// active speakers first, then cameras-on, then cameras-off. Stable within a tier
-// (original order) so tiles don't shuffle every render — only a new speaker
-// promotes into view.
-function rankTiles(tracks, featuredId, speaking) {
+// Order tiles so the grid keeps who matters when it overflows: screen share and
+// pins first, then featured / active speakers, then cameras-on, then cameras-off.
+// Stable within a tier (original order) so tiles don't shuffle every render —
+// only a new speaker or pin promotes into view.
+function rankTiles(tracks, { featuredId, speaking, globalPinId, pinnedTrackKey } = {}) {
   const speakingIds = new Set((speaking || []).map((p) => p.identity));
   const score = (t) => {
+    if (t.source === Track.Source.ScreenShare) return 0;
     const id = t.participant?.identity;
-    if (id && (id === featuredId || speakingIds.has(id))) return 0;
+    if (globalPinId && id === globalPinId) return 1;
+    if (pinnedTrackKey && refKey(t) === pinnedTrackKey) return 2;
+    if (id && (id === featuredId || speakingIds.has(id))) return 3;
     const camOn = !!t.publication && !t.publication.isMuted;
-    return camOn ? 1 : 2;
+    return camOn ? 4 : 5;
   };
   return tracks
     .map((t, i) => ({ t, i }))
@@ -1926,10 +1936,10 @@ function FloatingSelfView({ trackRef, onDock }) {
 
 // The video stage. Switches between layout modes — grid (uniform clamped
 // tiles), presenter (one big focus + a strip of the rest), and spotlight (just
-// the focus). An explicit focus (your pin, the admin's global pin, or a screen
-// share) forces a focused layout even in grid; a squished tile collapses to
-// spotlight. Clicking a tile's focus button pins it (LiveKit's
-// LayoutContextProvider wires that into ParticipantTile for free).
+// the focus). Grid always stays a true grid (screen share / pins reorder tiles,
+// not layout shape). A squished tile collapses to spotlight. Clicking a tile's
+// focus button pins it (LiveKit's LayoutContextProvider wires that into
+// ParticipantTile for free).
 function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, roomId, peopleOpen, onClosePeople }) {
   const tracks = useTracks(
     [
@@ -1984,14 +1994,20 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
     ? shown.find((t) => t.participant?.identity === globalPinId && t.source === Track.Source.ScreenShare)
       || shown.find((t) => t.participant?.identity === globalPinId && t.source === Track.Source.Camera)
     : null;
-  // An EXPLICIT focus (your pin > admin global pin > a screen share) forces a
-  // focused layout even in grid mode. The big tile otherwise follows the active
-  // speaker, then the first tile.
+  // An EXPLICIT focus (your pin > admin global pin > a screen share) picks the
+  // presenter/spotlight big tile. In grid mode these only affect tile order.
   const forcedFocus = (pinned && pinned[0]) || globalPinTrack || screenTrack || null;
   const focusTrack = forcedFocus || speakerTrack || autoFocusFallback || null;
+  const pinnedTrackKey = pinned?.[0] ? refKey(pinned[0]) : null;
+  const rankOpts = {
+    featuredId: featuredSpeakerForStage,
+    speaking,
+    globalPinId,
+    pinnedTrackKey,
+  };
 
   // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
-  const squished = (h > 0 && h < 200) || (w > 0 && w < 220);
+  const squished = useSquishedLayout(w, h);
 
   // Automatic pin + spotlight: when you've explicitly chosen Spotlight or
   // Presenter AND something is pinned (your pin, the admin's global pin, or a
@@ -2025,14 +2041,12 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
 
   let mode = layoutMode;
   if (squished) mode = "spotlight";
-  else if (forcedFocus && layoutMode === "grid") mode = "presenter";
 
   // Map the resolved mode to the adaptive stage: grid = even tiles; presenter =
   // focus + filmstrip; spotlight = focus only (or, when pinned, pin + live
   // speaker as two big tiles). In GRID mode, once there are more people than fit
   // at a comfortable size, the extras spill into the audience row (avatar chips)
-  // — the grid keeps the speakers + cameras-on (rankTiles), and a chip speaking
-  // promotes them back up.
+  // — rankTiles keeps screen shares, pins, and speakers visible in the grid cap.
   let stageTiles;
   let stageFocusKey = null;
   let stageFocusKeys = null;
@@ -2052,13 +2066,15 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   } else if (mode === "presenter" && focusTrack) {
     stageTiles = baseTiles;
     stageFocusKey = refKey(focusTrack);
-  } else if (baseTiles.length > capFor(w, h)) {
-    const cap = capFor(w, h - AUDIENCE_H);
-    const ordered = rankTiles(baseTiles, featuredSpeakerForStage, speaking);
-    stageTiles = ordered.slice(0, cap);
-    audienceTiles = ordered.slice(cap);
   } else {
-    stageTiles = baseTiles;
+    const ordered = rankTiles(baseTiles, rankOpts);
+    if (ordered.length > capFor(w, h)) {
+      const cap = capFor(w, h - AUDIENCE_H);
+      stageTiles = ordered.slice(0, cap);
+      audienceTiles = ordered.slice(cap);
+    } else {
+      stageTiles = ordered;
+    }
   }
 
   return (
