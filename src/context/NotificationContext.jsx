@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll } from "../lib/notifications";
+import { playForNotification } from "../lib/uiSounds";
 
 // Notification layer — in-app delivery.
 //
@@ -41,12 +42,21 @@ export function NotificationProvider({ children }) {
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const notificationIdsRef = useRef(new Set());
 
   const dismissToast = useCallback((id) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   const handleIncoming = useCallback((n) => {
     if (!n) return;
+    if (n.id && notificationIdsRef.current.has(n.id)) return;
+    if (n.id) notificationIdsRef.current.add(n.id);
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
+    // Audio cue for the arrival. This only runs off a realtime INSERT to me (the
+    // initial fetch doesn't call it), so it's a real "just now" notification.
+    // DM/channel/mention → chat cue; everything else → the notification cue. You
+    // only receive types you've enabled, so this implicitly respects per-type
+    // prefs; the master toggle is per-device (Settings → Notifications).
+    playForNotification(n.type);
     const channels = n.channels || [];
     if (channels.includes("inapp")) {
       const id = _toastSeq++;
@@ -66,11 +76,16 @@ export function NotificationProvider({ children }) {
 
   // Initial fetch + realtime subscription per user.
   useEffect(() => {
-    if (!userId) { setItems([]); setToasts([]); return undefined; }
+    if (!userId) { notificationIdsRef.current = new Set(); setItems([]); setToasts([]); return undefined; }
+    notificationIdsRef.current = new Set();
     let cancelled = false;
     listNotifications(40).then((rows) => {
       if (cancelled) return;
-      setItems(rows);
+      notificationIdsRef.current = new Set([...notificationIdsRef.current, ...rows.map((n) => n.id)]);
+      setItems((prev) => {
+        const fetchedIds = new Set(rows.map((n) => n.id));
+        return [...prev.filter((n) => !fetchedIds.has(n.id)), ...rows].slice(0, 60);
+      });
     });
     const channel = supabase
       .channel(`notifications:${userId}`)

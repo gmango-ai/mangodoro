@@ -34,6 +34,7 @@ import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttemp
 import { diagReset, diagRecord, diagReport, diagEnv } from "./livekitDiagnostics";
 import { useFullscreen } from "./useFullscreen";
 import { useGlobalPin } from "./useGlobalPin";
+import { playHandRaise } from "../../lib/uiSounds";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
@@ -272,6 +273,22 @@ function useHandRaiseValue() {
 
   const myId = localParticipant?.identity;
   const myRaised = !!myId && raised.some((r) => r.identity === myId);
+
+  // Play a cue when SOMEONE ELSE raises their hand (not you, and not for hands
+  // already up when you joined). Tracks the previous set of raised remote ids
+  // and fires once when a new one appears.
+  const handCueJoinedAtRef = useRef(Date.now());
+  const prevRaisedRef = useRef(null);
+  useEffect(() => {
+    if (!myId) return;
+    const remoteRaised = raised.filter((r) => r.identity && r.identity !== myId);
+    const remote = new Set(remoteRaised.map((r) => r.identity));
+    const prev = prevRaisedRef.current;
+    for (const r of remoteRaised) {
+      if ((!prev || !prev.has(r.identity)) && r.ts > handCueJoinedAtRef.current) { playHandRaise(); break; }
+    }
+    prevRaisedRef.current = remote;
+  }, [raised, myId]);
 
   const toggle = useCallback(() => {
     if (!localParticipant || room?.state !== "connected") return;
