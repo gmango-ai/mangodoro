@@ -24,6 +24,16 @@ const VideoCallContext = createContext(null);
 export function VideoCallProvider({ children }) {
   const [call, setCall] = useState(null);
   const [stageEl, setStageElRaw] = useState(null);
+  // Pop-out (Document PiP) state. The actual window/host management lives in
+  // PersistentVideoCall (it owns the re-parentable host + needs a user gesture),
+  // which registers its open/close here so the call control bar can drive it
+  // without prop-drilling through VideoCall → LiveKitCall → the bar.
+  const [poppedOut, setPoppedOut] = useState(false);
+  const [canPopOut, setCanPopOut] = useState(false);
+  const popoutApiRef = useRef({ open: null, close: null });
+  const registerPopout = useCallback((api) => { popoutApiRef.current = api || { open: null, close: null }; }, []);
+  const popOut = useCallback(() => { popoutApiRef.current.open?.(); }, []);
+  const popIn = useCallback(() => { popoutApiRef.current.close?.(); }, []);
   // Mirror `call` into a ref so the stable (deps-free) start/end callbacks can
   // read the current room for logging without taking `call` as a dep (which
   // would change their identity and re-fire RoomVideoStage's effects).
@@ -64,6 +74,7 @@ export function VideoCallProvider({ children }) {
     if (prev) logCallEvent("end", { roomId: prev.roomId, reason: reason || "unspecified" });
     setCall(null);
     setStageElRaw(null);
+    setPoppedOut(false);
   }, []);
 
   // Patch the live call without re-creating it — used to flip a spectator
@@ -78,8 +89,12 @@ export function VideoCallProvider({ children }) {
   const setStageEl = useCallback((el) => setStageElRaw(el), []);
 
   const value = useMemo(
-    () => ({ call, stageEl, startCall, endCall, updateCall, setStageEl }),
-    [call, stageEl, startCall, endCall, updateCall, setStageEl],
+    () => ({
+      call, stageEl, startCall, endCall, updateCall, setStageEl,
+      poppedOut, setPoppedOut, canPopOut, setCanPopOut, popOut, popIn, registerPopout,
+    }),
+    [call, stageEl, startCall, endCall, updateCall, setStageEl,
+      poppedOut, canPopOut, popOut, popIn, registerPopout],
   );
 
   return (
