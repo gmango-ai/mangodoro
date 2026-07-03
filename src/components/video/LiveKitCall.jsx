@@ -276,13 +276,19 @@ function useHandRaiseValue() {
   // Play a cue when SOMEONE ELSE raises their hand (not you, and not for hands
   // already up when you joined). Tracks the previous set of raised remote ids
   // and fires once when a new one appears.
+  const handCueJoinedAtRef = useRef(Date.now());
   const prevRaisedRef = useRef(null);
   useEffect(() => {
-    const remote = new Set(raised.filter((r) => r.identity && r.identity !== myId).map((r) => r.identity));
+    if (!myId) {
+      prevRaisedRef.current = null;
+      return;
+    }
+    const remoteRaised = raised.filter((r) => r.identity && r.identity !== myId);
+    const remote = new Set(remoteRaised.map((r) => r.identity));
     const prev = prevRaisedRef.current;
     if (prev) {
-      for (const id of remote) {
-        if (!prev.has(id)) { playHandRaise(); break; }
+      for (const r of remoteRaised) {
+        if (!prev.has(r.identity) && r.ts > handCueJoinedAtRef.current) { playHandRaise(); break; }
       }
     }
     prevRaisedRef.current = remote;
