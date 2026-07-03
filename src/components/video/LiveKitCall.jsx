@@ -312,6 +312,13 @@ function PublishController({ publish, choices, micMuted }) {
   const bestMicAppliedRef = useRef(false);
   const enteredRef = useRef(false);
   const inRoom = !!choices?.inRoom;
+  // Sticky "we've actually been in a cluster this call". `inRoom` is a STATIC
+  // pre-join intent that stays true after you leave the room's audio (leaveRoom
+  // clears the cluster attribute, not choices) — so on its own it wrongly keeps
+  // the mic + call audio held off forever. Once clustered, leaving must restore
+  // both; this ref is what distinguishes "still entering" from "entered & left".
+  const clusteredRef = useRef(false);
+  if (cluster) clusteredRef.current = true;
 
   // "I'm in this room" pre-join: on entry, join the room's audio cluster as a
   // muted follower (or found it if you're first) BEFORE the mic comes up, so
@@ -381,10 +388,12 @@ function PublishController({ publish, choices, micMuted }) {
     if (!localParticipant || !room) return undefined;
     const applyMic = () => {
       // Your mic is live only when YOU haven't muted it AND (solo, or you're the
-      // room's mic source). While entering "in this room" but not yet clustered,
+      // room's mic source). While ENTERING "in this room" but not yet clustered,
       // hold the mic off so it can't squeal before the follower/mic-source role
-      // resolves.
-      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
+      // resolves — but NOT after you've been in a cluster and left (clusteredRef),
+      // where "in this room" lingers and would otherwise keep you muted forever.
+      const holdForEntry = inRoom && !clusteredRef.current;
+      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !holdForEntry);
       localParticipant
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
@@ -561,8 +570,13 @@ function AutoMicController({ enabled }) {
 function ClusterAudioRenderer({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
   // holdForEntry: while joining "in this room" but before the cluster attribute
-  // has landed, stay silent so our speakers can't feed a co-located mic.
-  if ((cluster && !isAudioSink) || (holdForEntry && !cluster)) return null;
+  // has landed, stay silent so our speakers can't feed a co-located mic. Only
+  // hold WHILE still entering — once we've been in a cluster, leaving it must
+  // restore the call audio (holdForEntry lingers from the static pre-join choice).
+  const enteredRef = useRef(false);
+  if (cluster) enteredRef.current = true;
+  const hold = holdForEntry && !enteredRef.current;
+  if ((cluster && !isAudioSink) || (hold && !cluster)) return null;
   return <RoomAudioRenderer />;
 }
 
@@ -575,7 +589,12 @@ function ClusterAudioRenderer({ holdForEntry = false }) {
 // they don't subscribe either. Re-subscribes the moment they become the sink.
 function FollowerAudioGate({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
-  const suppress = (!!cluster && !isAudioSink) || (holdForEntry && !cluster);
+  // Release the entry hold once we've actually clustered (see ClusterAudioRenderer)
+  // so leaving the room re-subscribes us to everyone's audio instead of staying muted.
+  const enteredRef = useRef(false);
+  if (cluster) enteredRef.current = true;
+  const hold = holdForEntry && !enteredRef.current;
+  const suppress = (!!cluster && !isAudioSink) || (hold && !cluster);
   const audioTracks = useTracks(
     [Track.Source.Microphone, Track.Source.ScreenShareAudio],
     { onlySubscribed: false },
