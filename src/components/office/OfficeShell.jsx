@@ -272,12 +272,12 @@ export default function OfficeShell({
   // timer. This is the one surface in the app with a side rail, by design.
   //
   // Root height fills exactly below the global nav: subtract the nav bar
-  // (3.5rem mobile / 4rem desktop, matching Nav's h-14 sm:h-16) and the top
-  // safe-area inset. The old flat `100vh - 64px` was ~50px too tall on Dynamic
-  // Island phones, which pushed the room's bottom "add panels" dock off screen.
-  // env() is 0 on desktop.
+  // (--nav-h, which is taller on mobile where the header is two rows) and the
+  // top safe-area inset. The old flat `100vh - 64px` was ~50px too tall on
+  // Dynamic Island phones, which pushed the room's bottom "add panels" dock off
+  // screen. env() is 0 on desktop.
   return (
-    <div className={`flex h-[calc(100dvh-3.5rem-var(--top-inset)-var(--bottom-inset))] sm:h-[calc(100dvh-4rem-var(--top-inset)-var(--bottom-inset))] w-full ${
+    <div className={`flex h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
       {/* Desktop widgets sidebar.
