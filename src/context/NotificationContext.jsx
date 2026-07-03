@@ -82,7 +82,10 @@ export function NotificationProvider({ children }) {
     listNotifications(40).then((rows) => {
       if (cancelled) return;
       notificationIdsRef.current = new Set([...notificationIdsRef.current, ...rows.map((n) => n.id)]);
-      setItems(rows);
+      setItems((prev) => {
+        const fetchedIds = new Set(rows.map((n) => n.id));
+        return [...prev.filter((n) => !fetchedIds.has(n.id)), ...rows].slice(0, 60);
+      });
     });
     const channel = supabase
       .channel(`notifications:${userId}`)

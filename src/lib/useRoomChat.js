@@ -54,7 +54,10 @@ export function useRoomChat(roomId, userId) {
       if (err) setError(err);
       cacheAuthors(data);
       messageIdsRef.current = new Set([...messageIdsRef.current, ...data.map((m) => m.id)]);
-      setMessages(data);
+      setMessages((prev) => {
+        const fetchedIds = new Set(data.map((m) => m.id));
+        return [...data, ...prev.filter((m) => !fetchedIds.has(m.id))];
+      });
       setLoading(false);
     });
     return () => { alive = false; };
