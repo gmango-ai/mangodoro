@@ -329,6 +329,7 @@ function useHandRaiseValue() {
     if (!localParticipant || room?.state !== "connected") return;
     const raisedNow = !!localParticipant.attributes?.[ATTR_HAND];
     localParticipant.setAttributes({ [ATTR_HAND]: raisedNow ? "" : String(Date.now()) }).catch(() => {});
+    if (!raisedNow) playHandRaise(); // confirmation cue when YOU raise (Zoom-style)
     setTick((n) => n + 1); // optimistic — don't wait for the echo
   }, [localParticipant, room]);
 

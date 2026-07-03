@@ -19,6 +19,7 @@ import {
 } from "../lib/messages";
 import { attachToMessage, listAttachments, isImage } from "../lib/messageAttachments";
 import { emitMention } from "../lib/notifications";
+import { playMessage } from "../lib/uiSounds";
 import { supabase } from "../supabase";
 
 // Quick-reaction set for the picker (presets + a few common extras, deduped).
@@ -400,6 +401,7 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
     if (!outBody) return;
     const { message } = await sendMessage(convId, outBody, userId, kind);
     if (!message) return;
+    playMessage(); // cue your own send
     setMessages((prev) => (prev.some((x) => x.id === message.id) ? prev : [...prev, message]));
     if (hasFiles) {
       await Promise.all(files.map((f) => attachToMessage(f, convId, message.id)));

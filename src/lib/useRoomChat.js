@@ -131,7 +131,9 @@ export function useRoomChat(roomId, userId) {
   const send = useCallback(
     async (body, mentionedUserIds = []) => {
       if (!roomId || !userId) return { error: { message: "Not ready" } };
-      return sendMessage(roomId, userId, body, mentionedUserIds);
+      const res = await sendMessage(roomId, userId, body, mentionedUserIds);
+      if (!res?.error) playMessage(); // cue your own send (the realtime echo is skipped)
+      return res;
     },
     [roomId, userId]
   );
