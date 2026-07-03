@@ -281,17 +281,12 @@ function useHandRaiseValue() {
   const handCueJoinedAtRef = useRef(Date.now());
   const prevRaisedRef = useRef(null);
   useEffect(() => {
-    if (!myId) {
-      prevRaisedRef.current = null;
-      return;
-    }
+    if (!myId) return;
     const remoteRaised = raised.filter((r) => r.identity && r.identity !== myId);
     const remote = new Set(remoteRaised.map((r) => r.identity));
     const prev = prevRaisedRef.current;
-    if (prev) {
-      for (const r of remoteRaised) {
-        if (!prev.has(r.identity) && r.ts > handCueJoinedAtRef.current) { playHandRaise(); break; }
-      }
+    for (const r of remoteRaised) {
+      if ((!prev || !prev.has(r.identity)) && r.ts > handCueJoinedAtRef.current) { playHandRaise(); break; }
     }
     prevRaisedRef.current = remote;
   }, [raised, myId]);
