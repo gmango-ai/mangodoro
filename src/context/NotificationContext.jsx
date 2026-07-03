@@ -1,10 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
-import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll, typeMeta } from "../lib/notifications";
-import { useResolvedSelf } from "../hooks/useResolvedSelf";
-import { deliveryAction } from "../lib/notificationDelivery";
-import { playNotificationChime } from "../lib/notificationSound";
+import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll } from "../lib/notifications";
+import { playForNotification } from "../lib/uiSounds";
 
 // Notification layer — in-app delivery.
 //
@@ -55,6 +53,12 @@ export function NotificationProvider({ children }) {
   const handleIncoming = useCallback((n) => {
     if (!n) return;
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
+    // Audio cue for the arrival. This only runs off a realtime INSERT to me (the
+    // initial fetch doesn't call it), so it's a real "just now" notification.
+    // DM/channel/mention → chat cue; everything else → the notification cue. You
+    // only receive types you've enabled, so this implicitly respects per-type
+    // prefs; the master toggle is per-device (Settings → Notifications).
+    playForNotification(n.type);
     const channels = n.channels || [];
     // Client last-mile: decide banner / sound / push from THIS device's live
     // status + the notification's priority (fresher than the server's emit-time

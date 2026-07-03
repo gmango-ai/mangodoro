@@ -7,6 +7,7 @@ import {
   editMessage,
   deleteMessage,
 } from "./chatMessages";
+import { playMessage } from "./uiSounds";
 
 // React hook: returns the room's chat history + live updates.
 // Caller passes the signed-in user id so it can be embedded in send
@@ -78,6 +79,11 @@ export function useRoomChat(roomId, userId) {
             author = data;
             authorCacheRef.current.set(row.user_id, author);
           }
+        }
+        // Cue on others' messages, but not when they @mention you — that emits a
+        // `mention` notification which plays its own cue (avoids a double).
+        if (row.user_id !== userId && !(row.mentioned_user_ids || []).includes(userId)) {
+          playMessage();
         }
         setMessages((prev) => {
           // De-dupe against optimistic local rows AND duplicate echoes
