@@ -36,28 +36,33 @@ if (typeof window !== "undefined") {
 function play(notes) {
   if (!uiSoundsEnabled()) return;
   const ctx = getAudioContext();
-  // Only play once the context is actually running (unlocked). getAudioContext
-  // tries to resume; if it's still suspended we skip rather than queue.
-  if (!ctx || ctx.state !== "running") return;
-  try {
-    const now = ctx.currentTime;
-    for (const n of notes) {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.type = n.type || "sine";
-      o.frequency.value = n.freq;
-      const t0 = now + (n.at || 0);
-      const dur = n.dur || 0.15;
-      const peak = n.peak ?? 0.13;
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(peak, t0 + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      o.start(t0);
-      o.stop(t0 + dur + 0.02);
-    }
-  } catch { /* ignore */ }
+  if (!ctx) return;
+  const schedule = () => {
+    try {
+      const now = ctx.currentTime;
+      for (const n of notes) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.type = n.type || "sine";
+        o.frequency.value = n.freq;
+        const t0 = now + (n.at || 0);
+        const dur = n.dur || 0.15;
+        const peak = n.peak ?? 0.13;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(peak, t0 + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        o.start(t0);
+        o.stop(t0 + dur + 0.02);
+      }
+    } catch { /* ignore */ }
+  };
+  // Cues fire from realtime events (no gesture), and the shared context often
+  // gets PARKED to "suspended" after idle — don't drop the sound in that case,
+  // resume first (no new gesture needed once it's been unlocked once) then play.
+  if (ctx.state === "running") schedule();
+  else if (ctx.resume) ctx.resume().then(schedule).catch(() => { /* never unlocked yet */ });
 }
 
 // Chat message — soft, quick two-note "bloop" (A5 → D6).
