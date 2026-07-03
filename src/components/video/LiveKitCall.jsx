@@ -20,10 +20,11 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, MoreHorizontal } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
+import { useVideoCall } from "../../context/VideoCallContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
@@ -1116,6 +1117,46 @@ function LayoutMenu({ mode, onSet, ignoreSelf, onToggleIgnoreSelf }) {
 // The reactions popup (Google-Meet style) is centered on the bar FRAME, not
 // on the off-center smiley button — so it stays put regardless of how many
 // controls flank it.
+// Overflow "More" menu — houses the less-frequent utility actions (pop-out,
+// deafen, fullscreen) so the control bar stays uncluttered. A tap on any item
+// runs it and closes the menu.
+function MoreMenu({ children }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        className="lk-button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More options"
+        title="More"
+      >
+        <MoreHorizontal className="w-5 h-5" />
+      </button>
+      {open && (
+        <div className="call-menu absolute bottom-full mb-2 right-0 z-20 w-[220px]" onClick={() => setOpen(false)}>
+          <div className="call-menu-label">More</div>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CallControlBar({
   publish, tight, emote,
   layoutMode, onSetLayout,
@@ -1133,6 +1174,7 @@ function CallControlBar({
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const { poppedOut, popOut, popIn, canPopOut } = useVideoCall();
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const { myRaised, toggle: toggleHand, count: handCount } = useContext(HandRaiseContext);
   // Mirror the overlay's charge + recents so the shared <EmoteBar> shows the
@@ -1190,21 +1232,6 @@ function CallControlBar({
         </>
       )}
 
-      {/* Deafen — silence everything, incoming and outgoing, in one tap. Cuts
-          the call audio you hear and (by forcing your mic muted) what you send.
-          Grouped with the audio controls (right after the mic / room-audio
-          button); shown to spectators too, since it still mutes what you hear. */}
-      <button
-        type="button"
-        className={`lk-button ${deafened ? "lk-button--raised" : ""}`}
-        onClick={onToggleDeafen}
-        aria-pressed={deafened}
-        aria-label={deafened ? "Undeafen (turn audio back on)" : "Deafen (mute all audio in and out)"}
-        title={deafened ? "Undeafen — turn call audio back on" : "Deafen — mute all audio, incoming and outgoing"}
-      >
-        {deafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
-      </button>
-
       {/* Raise hand — available whether or not you publish (a spectator can ask
           to speak). Amber while yours is up. */}
       <button
@@ -1249,20 +1276,32 @@ function CallControlBar({
         <Smile className="w-5 h-5" />
       </button>
 
-      {/* True fullscreen — takes over the whole screen, not just the window.
-          Hidden where the browser can't fullscreen an element (e.g. iOS Safari). */}
-      {fullscreenSupported && (
-        <button
-          type="button"
-          className="lk-button"
-          onClick={onToggleFullscreen}
-          aria-pressed={isFullscreen}
-          aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-        >
-          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-        </button>
-      )}
+      {/* Overflow: the less-frequent utilities live here so the bar stays tidy —
+          pop-out (Document PiP, where supported), deafen, and true fullscreen. */}
+      <MoreMenu>
+        {canPopOut && (
+          <SettingRow
+            icon={PictureInPicture2}
+            label={poppedOut ? "Return from pop-out" : "Pop out to a window"}
+            active={poppedOut}
+            onClick={poppedOut ? popIn : popOut}
+          />
+        )}
+        <SettingRow
+          icon={deafened ? HeadphoneOff : Headphones}
+          label={deafened ? "Undeafen" : "Deafen (mute all audio)"}
+          active={deafened}
+          onClick={onToggleDeafen}
+        />
+        {fullscreenSupported && (
+          <SettingRow
+            icon={isFullscreen ? Minimize2 : Maximize2}
+            label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            active={isFullscreen}
+            onClick={onToggleFullscreen}
+          />
+        )}
+      </MoreMenu>
 
       <DisconnectButton>{tight ? <PhoneOff className="w-4 h-4" /> : "Leave"}</DisconnectButton>
     </div>
