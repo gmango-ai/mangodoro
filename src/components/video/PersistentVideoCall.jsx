@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Maximize2, X } from "lucide-react";
+import { Maximize2, Minimize2, X, PictureInPicture2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useVideoCall } from "../../context/VideoCallContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
+import { useTheme } from "../../context/ThemeContext";
 import { resolveVideoProvider, VIDEO } from "../../lib/videoProvider";
+import { cloneDocStyles, copyRootCustomProps } from "../pomodoro/PomodoroPipParts";
 import VideoCall from "./VideoCall";
 
 // Persistent container for the active room call. Lives at the AppLayout level so
@@ -45,9 +47,22 @@ function pipRect() {
 export default function PersistentVideoCall() {
   const { call, startCall, endCall, updateCall, stageEl } = useVideoCall();
   const { syncSession } = useSyncSession();
+  const { theme } = useTheme();
+  const dark = theme === "dark";
   const navigate = useNavigate();
   const reparentSafe = resolveVideoProvider() === VIDEO.LIVEKIT;
   const inPiP = !stageEl;
+
+  // Pop-out: move the (re-parentable) call host into an OS-level Document
+  // Picture-in-Picture window that floats above other apps. Chromium/Electron
+  // only (same API the pomodoro pop-out uses) — and LiveKit only, since moving a
+  // Jitsi <iframe> reloads it. Moving the host node keeps the RTC + <video> live.
+  const [poppedOut, setPoppedOut] = useState(false);
+  const pipWinRef = useRef(null);
+  const canPopOut =
+    reparentSafe &&
+    typeof window !== "undefined" &&
+    "documentPictureInPicture" in window;
 
   // Stable host node (LiveKit only): created once, moved between parents, never
   // unmounted — so the portaled <VideoCall> survives navigation.
@@ -93,8 +108,10 @@ export default function PersistentVideoCall() {
   }, [syncSession?.room_id, call, startCall, endCall]);
 
   // LiveKit: place the host inside the stage (scrolls natively) or floating PiP.
+  // Skipped while popped out — the pop-out window owns the host node then, and
+  // this effect re-claims it when the window closes (poppedOut flips false).
   useLayoutEffect(() => {
-    if (!reparentSafe) return undefined;
+    if (!reparentSafe || poppedOut) return undefined;
     const host = hostRef.current;
     if (!host || !call) return undefined;
     if (stageEl) {
@@ -105,7 +122,47 @@ export default function PersistentVideoCall() {
       document.body.appendChild(host);
     }
     return () => { try { host.remove(); } catch { /* */ } };
-  }, [stageEl, call, reparentSafe]);
+  }, [stageEl, call, reparentSafe, poppedOut]);
+
+  // Open / close the Document PiP window (open must run from a user gesture).
+  async function openPopOut() {
+    const dpi = typeof window !== "undefined" ? window.documentPictureInPicture : null;
+    const host = hostRef.current;
+    if (!dpi?.requestWindow || !host) return;
+    try {
+      const pipWin = await dpi.requestWindow({ width: 400, height: 300, disallowReturnToOpener: false });
+      pipWinRef.current = pipWin;
+      cloneDocStyles(pipWin.document);
+      copyRootCustomProps(pipWin.document);
+      pipWin.document.documentElement.classList.toggle("dark", dark);
+      const b = pipWin.document.body;
+      pipWin.document.documentElement.style.height = "100%";
+      b.style.margin = "0";
+      b.style.height = "100%";
+      b.style.overflow = "hidden";
+      b.style.background = "#0f172a";
+      host.style.cssText = "position:absolute;inset:0;";
+      b.appendChild(host);
+      setPoppedOut(true);
+      pipWin.addEventListener("pagehide", () => {
+        pipWinRef.current = null;
+        setPoppedOut(false); // the re-parent effect above pulls the host back in
+      });
+    } catch { /* user dismissed / unsupported / already open */ }
+  }
+  function closePopOut() {
+    try { pipWinRef.current?.close(); } catch { /* */ }
+    pipWinRef.current = null;
+    setPoppedOut(false);
+  }
+  // The call ending while popped out closes the window; theme changes re-mirror.
+  useEffect(() => { if (!call && pipWinRef.current) closePopOut(); }, [call]);
+  useEffect(() => {
+    const w = pipWinRef.current;
+    if (!w?.document?.documentElement) return;
+    w.document.documentElement.classList.toggle("dark", dark);
+    copyRootCustomProps(w.document);
+  }, [dark, poppedOut]);
 
   // Jitsi: keep one fixed container — moving an iframe between parents reloads it.
   useLayoutEffect(() => {
@@ -166,11 +223,23 @@ export default function PersistentVideoCall() {
         onLeft={() => endCall("livekit-disconnected")}
       />
 
-      {/* PiP-only chrome: a thin header with back-to-room + leave-call. */}
-      {inPiP && (
+      {/* In-app PiP chrome: a thin header with pop-out + back-to-room + leave.
+          Hidden once popped out (the header lives in the OS window then). */}
+      {inPiP && !poppedOut && (
         <div className="absolute top-0 left-0 right-0 flex items-center justify-between gap-2 px-2 py-1 bg-slate-900/80 backdrop-blur-sm text-white text-[11px] font-semibold pointer-events-none">
           <span className="truncate pointer-events-none">In call</span>
           <div className="flex items-center gap-1 pointer-events-auto">
+            {canPopOut && (
+              <button
+                type="button"
+                onClick={openPopOut}
+                aria-label="Pop out call"
+                title="Pop out into a floating window"
+                className="p-1 rounded hover:bg-white/10"
+              >
+                <PictureInPicture2 className="w-3 h-3" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => navigate(`/office/r/${call.roomId}`)}
@@ -192,11 +261,47 @@ export default function PersistentVideoCall() {
           </div>
         </div>
       )}
+
+      {/* Standalone pop-out toggle — shown on the room stage (to pop out) and
+          inside the pop-out window itself (to return). Not shown in the in-app
+          PiP, where the header above carries it. */}
+      {canPopOut && (!inPiP || poppedOut) && (
+        <button
+          type="button"
+          onClick={poppedOut ? closePopOut : openPopOut}
+          aria-label={poppedOut ? "Return call to the app" : "Pop out call"}
+          title={poppedOut ? "Return to the app window" : "Pop out into a floating window"}
+          className="absolute top-2 right-2 z-30 p-1.5 rounded-lg bg-slate-900/70 hover:bg-slate-900/90 text-white backdrop-blur-sm pointer-events-auto"
+        >
+          {poppedOut ? <Minimize2 className="w-4 h-4" /> : <PictureInPicture2 className="w-4 h-4" />}
+        </button>
+      )}
     </>
   );
 
   if (reparentSafe) {
-    return createPortal(content, hostRef.current);
+    return (
+      <>
+        {createPortal(content, hostRef.current)}
+        {/* While popped out the host lives in the OS window, so the app's slot is
+            empty — leave a small card to bring it back. */}
+        {poppedOut && (
+          <div className="fixed bottom-4 right-4 z-[120] w-[220px] rounded-xl border border-slate-700 bg-slate-900/95 text-white shadow-2xl p-3">
+            <div className="flex items-center gap-1.5 text-xs font-semibold mb-1">
+              <PictureInPicture2 className="w-3.5 h-3.5" /> Call popped out
+            </div>
+            <p className="text-[11px] text-slate-400 mb-2">Your call is in a floating window.</p>
+            <button
+              type="button"
+              onClick={closePopOut}
+              className="w-full px-2 py-1.5 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs font-semibold"
+            >
+              Return to app
+            </button>
+          </div>
+        )}
+      </>
+    );
   }
 
   return (
