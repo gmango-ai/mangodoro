@@ -47,11 +47,14 @@ export function NotificationProvider({ children }) {
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const notificationIdsRef = useRef(new Set());
 
   const dismissToast = useCallback((id) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   const handleIncoming = useCallback((n) => {
     if (!n) return;
+    if (n.id && notificationIdsRef.current.has(n.id)) return;
+    if (n.id) notificationIdsRef.current.add(n.id);
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
     // Audio cue for the arrival. This only runs off a realtime INSERT to me (the
     // initial fetch doesn't call it), so it's a real "just now" notification.
@@ -90,10 +93,12 @@ export function NotificationProvider({ children }) {
 
   // Initial fetch + realtime subscription per user.
   useEffect(() => {
-    if (!userId) { setItems([]); setToasts([]); return undefined; }
+    if (!userId) { notificationIdsRef.current = new Set(); setItems([]); setToasts([]); return undefined; }
+    notificationIdsRef.current = new Set();
     let cancelled = false;
     listNotifications(40).then((rows) => {
       if (cancelled) return;
+      notificationIdsRef.current = new Set([...notificationIdsRef.current, ...rows.map((n) => n.id)]);
       setItems(rows);
     });
     const channel = supabase

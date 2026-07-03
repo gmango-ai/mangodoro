@@ -28,6 +28,7 @@ export function useRoomChat(roomId, userId) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const messageIdsRef = useRef(new Set());
 
   // Profile cache shared between initial fetch and realtime hydration.
   const authorCacheRef = useRef(new Map());
@@ -39,10 +40,12 @@ export function useRoomChat(roomId, userId) {
 
   useEffect(() => {
     if (!roomId) {
+      messageIdsRef.current = new Set();
       setMessages([]);
       setLoading(false);
       return;
     }
+    messageIdsRef.current = new Set();
     let alive = true;
     setLoading(true);
     setError(null);
@@ -50,6 +53,7 @@ export function useRoomChat(roomId, userId) {
       if (!alive) return;
       if (err) setError(err);
       cacheAuthors(data);
+      messageIdsRef.current = new Set([...messageIdsRef.current, ...data.map((m) => m.id)]);
       setMessages(data);
       setLoading(false);
     });
@@ -71,6 +75,8 @@ export function useRoomChat(roomId, userId) {
       async (payload) => {
         const row = payload.new;
         if (!row) return;
+        if (messageIdsRef.current.has(row.id)) return;
+        messageIdsRef.current.add(row.id);
         // Hydrate author via cache; fall back to a lookup for unseen users.
         let author = authorCacheRef.current.get(row.user_id) || null;
         if (!author) {
@@ -117,7 +123,7 @@ export function useRoomChat(roomId, userId) {
 
     channel.subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [roomId]);
+  }, [roomId, userId]);
 
   const send = useCallback(
     async (body, mentionedUserIds = []) => {
