@@ -4,6 +4,12 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-03
+
+### Fixes
+
+- (Video): stabilize call media and grid layout
+
 ## 2026-07-02
 
 ### New & improved
