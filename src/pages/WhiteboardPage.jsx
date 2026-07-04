@@ -2703,7 +2703,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       }${
         embedded
           ? "h-full"
-          : "h-[calc(100dvh-3.5rem-var(--top-inset)-var(--bottom-inset))] sm:h-[calc(100dvh-4rem-var(--top-inset)-var(--bottom-inset))]"
+          : "h-[calc(100dvh-var(--app-nav-h)-var(--top-inset)-var(--bottom-inset))]"
       }`}
       onPointerMove={onWbPointerMove}
       onPointerDownCapture={onWbPointerDownCapture}

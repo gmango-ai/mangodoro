@@ -12,6 +12,10 @@
      include the glassmorphic bottom tab bar on touch devices below lg
      (see the bottom-nav block lower in this file). */
   --bottom-inset: env(safe-area-inset-bottom);
+  /* Height of the sticky top nav's content rows (excludes --top-inset), kept in
+     sync by Nav via a ResizeObserver so full-height pages adapt when the
+     collapsible second row shows/hides. Default ≈ one desktop row. */
+  --app-nav-h: 4rem;
   --font-size: 16px;
   --background: #ffffff;
   --foreground: oklch(0.145 0 0);
