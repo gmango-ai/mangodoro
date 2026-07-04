@@ -1838,8 +1838,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       };
       const newData = {
         text: "",
-        // A number pressed mid-drag wins; else mirror the parent shape.
-        shape: started?.shape || (isShapeParent && srcNode?.data?.shape) || "process",
+        // A number pressed mid-drag wins, then a hover pre-pick, then the parent.
+        shape: started?.shape || pickedShape || (isShapeParent && srcNode?.data?.shape) || "process",
         ...(srcNode?.data?.fill ? { fill: srcNode.data.fill } : {}),
         ...(srcNode?.data?.stroke ? { stroke: srcNode.data.stroke } : {}),
         ...(srcNode?.data?.fontSize ? { fontSize: srcNode.data.fontSize } : {}),
@@ -1853,7 +1853,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       const hasGeom = srcNode?.position != null;
       const sx0 = srcNode?.position?.x ?? 0;
       const sy0 = srcNode?.position?.y ?? 0;
-      const M = 12;
+      const M = 30; // generous — a click on the OUTSIDE arrow still counts as quick-add
       const nearParent =
         hasGeom &&
         pos.x >= sx0 - M &&
@@ -1880,6 +1880,33 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
       // Snap the new node to the grid so it lines up with everything else.
       place = { ...place, x: snapToGrid(place.x), y: snapToGrid(place.y) };
+
+      // Context-aware: if a node already sits where the new one would land, just
+      // connect to IT instead of dropping a duplicate.
+      const zonePad = 0.4;
+      const zone = {
+        x: place.x - size.w * zonePad, y: place.y - size.h * zonePad,
+        w: size.w * (1 + 2 * zonePad), h: size.h * (1 + 2 * zonePad),
+      };
+      const nearby = rf.getNodes().find((n) => {
+        if (n.id === fromNodeId || NON_CONNECTABLE.has(n.type)) return false;
+        const r = nodeRect(n);
+        return r && r.x < zone.x + zone.w && r.x + r.w > zone.x && r.y < zone.y + zone.h && r.y + r.h > zone.y;
+      });
+      if (nearby) {
+        setEdges((eds) => {
+          if (eds.some((e) =>
+            (e.source === fromNodeId && e.target === nearby.id) ||
+            (e.source === nearby.id && e.target === fromNodeId)
+          )) return eds;
+          return addEdge({
+            source: fromNodeId, sourceHandle, target: nearby.id, targetHandle: place.side,
+            data: { sourceAnchor: { side: SIDE_POS[sourceHandle] || "right", t: 0.5, auto: true } },
+            ...DEFAULT_EDGE_OPTIONS,
+          }, eds);
+        });
+        return;
+      }
 
       const newId = freshId("shape");
       markNodeForEdit(newId); // open the new node straight into text edit
@@ -1917,93 +1944,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         )
       );
     },
-    [rf, setNodes, setEdges]
+    [rf, setNodes, setEdges, pickedShape]
   );
-
-  // One-click flowchart build: a directional arrow on a shape drops a connected,
-  // parent-matching shape on that side (same result as pulling a connector onto
-  // empty canvas, but no dragging). Exposed to shape nodes via QuickConnectContext.
-  const quickAddConnected = useCallback((fromNodeId, sourceHandle) => {
-    const srcNode = rf.getNodes().find((n) => n.id === fromNodeId);
-    if (!srcNode) return;
-    const isShapeParent = ["shape", "rect", "ellipse", "diamond"].includes(srcNode.type);
-    const size = {
-      w: srcNode.measured?.width ?? srcNode.width ?? DEFAULTS.shape.w,
-      h: srcNode.measured?.height ?? srcNode.height ?? DEFAULTS.shape.h,
-    };
-    const newData = {
-      text: "",
-      // A shape picked via number keys (hover an arrow or drag, press 1–9) wins;
-      // otherwise mirror the parent so a chain stays visually consistent.
-      shape: pickedShape || (isShapeParent && srcNode.data?.shape) || "process",
-      ...(srcNode.data?.fill ? { fill: srcNode.data.fill } : {}),
-      ...(srcNode.data?.stroke ? { stroke: srcNode.data.stroke } : {}),
-      ...(srcNode.data?.fontSize ? { fontSize: srcNode.data.fontSize } : {}),
-    };
-    const sx0 = srcNode.position?.x ?? 0;
-    const sy0 = srcNode.position?.y ?? 0;
-    let place = siblingPlacement({ x: sx0, y: sy0, w: size.w, h: size.h }, sourceHandle, size);
-    place = { ...place, x: snapToGrid(place.x), y: snapToGrid(place.y) };
-    const sourceAnchor = { side: SIDE_POS[sourceHandle] || "right", t: 0.5, auto: true };
-
-    // Context-aware: if a node already sits where the new one would land, just
-    // connect to IT instead of dropping a duplicate. Generous overlap so a node
-    // roughly in that direction still counts.
-    const pad = 0.5;
-    const zone = {
-      x: place.x - size.w * pad, y: place.y - size.h * pad,
-      w: size.w * (1 + 2 * pad), h: size.h * (1 + 2 * pad),
-    };
-    const existing = rf.getNodes().find((n) => {
-      if (n.id === fromNodeId || NON_CONNECTABLE.has(n.type)) return false;
-      const r = nodeRect(n);
-      return r && r.x < zone.x + zone.w && r.x + r.w > zone.x && r.y < zone.y + zone.h && r.y + r.h > zone.y;
-    });
-    if (existing) {
-      setEdges((eds) => {
-        if (eds.some((e) =>
-          (e.source === fromNodeId && e.target === existing.id) ||
-          (e.source === existing.id && e.target === fromNodeId)
-        )) return eds; // already linked — don't duplicate
-        return addEdge({
-          source: fromNodeId, sourceHandle, target: existing.id, targetHandle: place.side,
-          data: { sourceAnchor }, ...DEFAULT_EDGE_OPTIONS,
-        }, eds);
-      });
-      setPickedShape(null);
-      return;
-    }
-
-    const newId = freshId("shape");
-    markNodeForEdit(newId);
-    setNodes((nds) =>
-      nds
-        .map((n) => (n.selected ? { ...n, selected: false } : n))
-        .concat({
-          id: newId,
-          type: "shape",
-          position: { x: place.x, y: place.y },
-          width: size.w,
-          height: size.h,
-          data: newData,
-          selected: true,
-        })
-    );
-    setEdges((eds) =>
-      addEdge(
-        {
-          source: fromNodeId,
-          sourceHandle,
-          target: newId,
-          targetHandle: place.side,
-          data: { sourceAnchor },
-          ...DEFAULT_EDGE_OPTIONS,
-        },
-        eds
-      )
-    );
-    setPickedShape(null);
-  }, [rf, setNodes, setEdges, pickedShape]);
 
   // Hover a shape's quick-connect arrow → 1–9/0 pre-picks the shape a click will
   // create (and lights it in the legend). Mirrors the during-drag number-select.
@@ -2026,8 +1968,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [hoveringArrow]);
   const quickConnectApi = useMemo(
-    () => ({ connect: quickAddConnected, onHover: onArrowHover, pickedShape }),
-    [quickAddConnected, onArrowHover, pickedShape]
+    () => ({ onHover: onArrowHover, pickedShape }),
+    [onArrowHover, pickedShape]
   );
 
   // Drag an edge endpoint onto a different node to re-route it.

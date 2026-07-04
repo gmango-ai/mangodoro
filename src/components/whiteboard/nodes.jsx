@@ -347,50 +347,54 @@ function useNodeDataPatcher(id) {
 // arrows. Null when unavailable (e.g. the read-only kiosk).
 export const QuickConnectContext = createContext(null);
 
-// Directional arrows around a shape (shown on hover/select) that create a
-// connected, parent-matching shape on that side with one click — the fast
-// flowchart-building gesture. Dragging a connector handle still works for
-// custom placement / connecting to an existing node.
+// Directional arrows around a shape (shown on hover/select). They are real
+// React Flow connection Handles, so ONE affordance does both gestures:
+//   • CLICK  → drops a connected, parent-matching shape on that side.
+//   • DRAG   → pull a connector out; drop on empty canvas (new node where you
+//              release) or onto an existing node (connect them). Press 1–9 mid-
+//              drag to choose the new shape.
+// They replace the tiny edge dots on shapes (same t/r/b/l ids, so all the
+// connection logic — onConnectStart/End, ghost, routing — is unchanged).
 const QUICK_ARROWS = [
-  ["t", "▲", { top: -24, left: "50%", transform: "translateX(-50%)" }],
-  ["r", "▶", { right: -24, top: "50%", transform: "translateY(-50%)" }],
-  ["b", "▼", { bottom: -24, left: "50%", transform: "translateX(-50%)" }],
-  ["l", "◀", { left: -24, top: "50%", transform: "translateY(-50%)" }],
+  ["t", "▲", Position.Top, { top: -24, left: "50%", transform: "translateX(-50%)" }],
+  ["r", "▶", Position.Right, { right: -24, top: "50%", transform: "translateY(-50%)" }],
+  ["b", "▼", Position.Bottom, { bottom: -24, left: "50%", transform: "translateX(-50%)" }],
+  ["l", "◀", Position.Left, { left: -24, top: "50%", transform: "translateY(-50%)" }],
 ];
-function QuickConnectArrows({ id, color }) {
+function QuickConnectArrows({ color }) {
   const api = useContext(QuickConnectContext);
-  if (!api?.connect) return null;
-  const { connect, onHover, pickedShape } = api;
+  const onHover = api?.onHover;
+  const pickedShape = api?.pickedShape;
   return (
     <>
-      {QUICK_ARROWS.map(([side, glyph, pos]) => (
-        <button
+      {QUICK_ARROWS.map(([side, glyph, position, pos]) => (
+        <Handle
           key={side}
-          type="button"
+          type="source"
+          position={position}
+          id={side}
           className="wb-quick-arrow nodrag nopan"
-          title="Add a connected shape · hover + press 1–9 to choose its shape (or drag a handle)"
+          title="Click to add a connected shape, or drag to place it · press 1–9 to pick its shape"
           onMouseEnter={() => onHover?.(true)}
           onMouseLeave={() => onHover?.(false)}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); connect(id, side); }}
           style={{
-            position: "absolute", zIndex: 8, width: 19, height: 19,
+            width: 20, height: 20,
             display: "flex", alignItems: "center", justifyContent: "center",
             borderRadius: 9999, fontSize: 9, lineHeight: 1, color: "#fff",
             background: color, border: "1.5px solid #fff",
-            boxShadow: "0 1px 3px rgba(0,0,0,.3)", cursor: "pointer", ...pos,
+            boxShadow: "0 1px 3px rgba(0,0,0,.3)", cursor: "crosshair", zIndex: 8, ...pos,
           }}
         >
-          {/* While a shape is pre-picked (hover + number) show it; else the
-              directional arrow. */}
+          {/* Pre-picked shape (via number keys) previews here; else a direction
+              arrow. pointer-events off so the Handle beneath owns the gesture. */}
           {pickedShape ? (
-            <svg width={12} height={9} viewBox="0 0 12 9" style={{ display: "block" }}>
+            <svg width={12} height={9} viewBox="0 0 12 9" style={{ display: "block", pointerEvents: "none" }}>
               <ShapeSvg shape={pickedShape} w={12} h={9} fill="none" stroke="#fff" sw={1.2} />
             </svg>
           ) : (
-            glyph
+            <span style={{ pointerEvents: "none" }}>{glyph}</span>
           )}
-        </button>
+        </Handle>
       ))}
     </>
   );
@@ -954,8 +958,8 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
       >
         <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={sw} dash={dash} cap={cap} />
       </svg>
-      <FourHandles />
-      {!data?.locked && <QuickConnectArrows id={id} color={stroke} />}
+      {/* Arrow handles ARE the connect points now (click = add, drag = place). */}
+      <QuickConnectArrows color={stroke} />
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: vAlignFlex(data?.vAlign), justifyContent: "center", padding: "10px 14px" }}>
         <div ref={growRef} style={{ width: "100%", minWidth: 0 }}>
           <EditableText
