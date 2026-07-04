@@ -5,7 +5,7 @@ import Markdown from "react-markdown";
 import {
   Send, Plus, ArrowLeft, Users, MessageSquare, Hash, Search, Paperclip, X,
   SmilePlus, Pencil, Trash2, Pin, PinOff, Bell, BellOff, Megaphone, Settings2, Download, ExternalLink,
-  MoreHorizontal, LogOut, Folder, FolderPlus, FolderInput, ChevronDown, ChevronRight,
+  MoreHorizontal, LogOut, Folder, FolderPlus, FolderInput, ChevronDown, ChevronRight, Rows2, Rows3,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
@@ -778,7 +778,7 @@ function canDeleteConversation(c, userId, isAdmin, myOrgTeamLeadIds) {
 }
 
 // ── sidebar conversation row ──
-function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onAssignFolder, canDrag, dragActive, onDragStartRow, onDragEndRow, isDragged, onReorderOver, onReorderDrop, lineBefore, lineAfter, onOpen, onPin, onMute, onDelete, onHide, dark }) {
+function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onAssignFolder, canDrag, dragActive, onDragStartRow, onDragEndRow, isDragged, onReorderOver, onReorderDrop, lineBefore, lineAfter, compact, onOpen, onPin, onMute, onDelete, onHide, dark }) {
   const first = memberById.get(c.participant_ids[0]);
   const muted = !!c.muted_at;
   const unread = c.unread && !muted;
@@ -804,24 +804,24 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
       onDragEnd={canDrag ? () => onDragEndRow?.() : undefined}
       onDragOver={canDrag && dragActive ? (e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onReorderOver?.(c.id, (e.clientY - r.top) < r.height / 2); } : undefined}
       onDrop={canDrag && dragActive ? (e) => { e.preventDefault(); e.stopPropagation(); onReorderDrop?.(); } : undefined}
-      className={`group relative flex items-center gap-2.5 mx-2 my-0.5 px-2.5 py-2 rounded-xl cursor-pointer transition-colors ${isDragged ? "opacity-40" : ""} ${
+      className={`group relative flex items-center mx-2 my-0.5 px-2.5 rounded-xl cursor-pointer transition-colors ${compact ? "gap-2 py-1" : "gap-2.5 py-2"} ${isDragged ? "opacity-40" : ""} ${
         active ? (dark ? "bg-white/10" : "bg-[var(--color-accent-light)]") : dark ? "hover:bg-white/5" : "hover:bg-slate-100"
       }`} onClick={() => onOpen(c.id)}>
       {lineBefore && <span className="pointer-events-none absolute left-3 right-3 -top-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
       {lineAfter && <span className="pointer-events-none absolute left-3 right-3 -bottom-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
       {c.kind === "channel" ? (
-        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{c.post_policy === "admins" ? <Megaphone className="w-4 h-4" /> : <Hash className="w-4 h-4" />}</span>
+        <span className={`${compact ? "w-6 h-6" : "w-9 h-9"} rounded-full flex items-center justify-center shrink-0`} style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{c.post_policy === "admins" ? <Megaphone className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} /> : <Hash className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} />}</span>
       ) : c.kind === "group" ? (
-        <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
+        <span className={`${compact ? "w-6 h-6" : "w-9 h-9"} rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} /></span>
       ) : (
-        <UserAvatar url={first?.avatar_url || ""} name={first?.name || "Member"} size={36} />
+        <UserAvatar url={first?.avatar_url || ""} name={first?.name || "Member"} size={compact ? 24 : 36} />
       )}
       <span className="flex-1 min-w-0">
-        <span className={`flex items-center gap-1 text-sm truncate ${unread ? "font-bold" : "font-medium"} ${dark ? "text-slate-100" : "text-slate-800"}`}>
+        <span className={`flex items-center gap-1 truncate ${compact ? "text-[13px]" : "text-sm"} ${unread ? "font-bold" : "font-medium"} ${dark ? "text-slate-100" : "text-slate-800"}`}>
           {c.pinned_at && <Pin className="w-3 h-3 opacity-50 shrink-0" />}
           <span className="truncate">{nameOf(c)}</span>
         </span>
-        <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{listStamp(c.last_message_at)}</span>
+        {!compact && <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{listStamp(c.last_message_at)}</span>}
       </span>
       {/* hover actions */}
       <div className={`absolute right-2 ${menu ? "flex" : "hidden group-hover:flex"} items-center gap-0.5`}>
@@ -964,6 +964,8 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
   const [dropAt, setDropAt] = useState(null);        // { rowId, before } — the channel reorder insertion line
   const [dragFolderId, setDragFolderId] = useState(null);  // folder header being dragged
   const [folderDropAt, setFolderDropAt] = useState(null);  // { folderId, before } — folder reorder line
+  const [compact, setCompact] = useState(() => { try { return localStorage.getItem("msg_compact") === "1"; } catch { return false; } });
+  const toggleCompact = () => setCompact((v) => { const n = !v; try { localStorage.setItem("msg_compact", n ? "1" : "0"); } catch { /* */ } return n; });
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = needle ? conversations.filter((c) => nameOf(c).toLowerCase().includes(needle)) : conversations;
@@ -1031,6 +1033,7 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
       onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropTarget(undefined); setDropAt(null); }} isDragged={dragId === c.id}
       onReorderOver={onReorderOver} onReorderDrop={onReorderDrop}
       lineBefore={dropAt?.rowId === c.id && dropAt.before} lineAfter={dropAt?.rowId === c.id && !dropAt.before}
+      compact={compact}
       onOpen={onOpen} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />
   );
   const commitNewFolder = () => { const n = (newFolder || "").trim(); if (n) onCreateFolder(n); setNewFolder(null); };
@@ -1040,9 +1043,15 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
     <div className="flex flex-col h-full min-h-0">
       <div className={`flex items-center justify-between px-4 h-14 shrink-0 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
         <span className={`text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>Messages</span>
-        <button type="button" onClick={onNew} aria-label="New message" className="inline-flex items-center gap-1.5 pl-2.5 pr-3 h-8 rounded-full bg-[var(--color-accent)] text-white text-[13px] font-semibold hover:opacity-90">
-          <Plus className="w-4 h-4" /> New
-        </button>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={toggleCompact} title={compact ? "Comfortable list" : "Compact list"} aria-label="Toggle list density"
+            className={`w-8 h-8 rounded-full inline-flex items-center justify-center ${compact ? "text-[var(--color-accent)]" : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-400 hover:bg-slate-100"}`}>
+            {compact ? <Rows3 className="w-4 h-4" /> : <Rows2 className="w-4 h-4" />}
+          </button>
+          <button type="button" onClick={onNew} aria-label="New message" className="inline-flex items-center gap-1.5 pl-2.5 pr-3 h-8 rounded-full bg-[var(--color-accent)] text-white text-[13px] font-semibold hover:opacity-90">
+            <Plus className="w-4 h-4" /> New
+          </button>
+        </div>
       </div>
       <div className="px-3 py-2.5 shrink-0">
         <div className={`flex items-center gap-2 rounded-lg px-3 h-9 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
