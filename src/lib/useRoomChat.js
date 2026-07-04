@@ -13,6 +13,7 @@ import {
   deleteChannelMessage,
 } from "./chatMessages";
 import { playMessage } from "./uiSounds";
+import { markConversationRead } from "./messages";
 
 // React hook: the room's chat history + live updates.
 //
@@ -57,9 +58,12 @@ export function useRoomChat(roomId, userId) {
       cacheAuthors(data);
       setMessages(data);
       setLoading(false);
+      // Viewing the room chat counts as reading its unified channel, so the
+      // Messages inbox doesn't badge history you've already seen here.
+      if (convId && userId) markConversationRead(convId, userId, "channel");
     });
     return () => { alive = false; };
-  }, [roomId, convId]);
+  }, [roomId, convId, userId]);
 
   // Realtime — subscribe to the right table/filter for the mode.
   useEffect(() => {
@@ -83,6 +87,8 @@ export function useRoomChat(roomId, userId) {
       // `mention` notification which plays its own cue (avoids a double).
       if (row.user_id !== userId && !(row.mentioned_user_ids || []).includes(userId)) playMessage();
       setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, { ...row, author }]));
+      // Still looking at this room's chat → keep the channel read cursor current.
+      if (useChannel && userId && row.user_id !== userId) markConversationRead(convId, userId, "channel");
     });
 
     channel.on("postgres_changes", { event: "UPDATE", schema: "public", table, filter }, (payload) => {
