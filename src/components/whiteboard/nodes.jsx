@@ -81,6 +81,17 @@ export function setPreferredStickyColor(c) {
   try { localStorage.setItem(STICKY_COLOR_KEY, c); } catch { /* */ }
 }
 
+// Preferred flowchart shape (per device) — the toolbar's shape button drops it
+// with ONE click (no dropdown); the caret opens the full catalogue and updates
+// it. Lets you lay down a chain of the same shape fast.
+const SHAPE_KEY = "ql_wb_shape";
+export function preferredShape() {
+  try { return localStorage.getItem(SHAPE_KEY) || "process"; } catch { return "process"; }
+}
+export function setPreferredShape(k) {
+  try { localStorage.setItem(SHAPE_KEY, k); } catch { /* */ }
+}
+
 let _sid = 1;
 function freshStickyId() { return `sticky-${Date.now().toString(36)}-${_sid++}`; }
 

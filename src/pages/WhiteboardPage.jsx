@@ -31,7 +31,6 @@ import {
   Download,
   Crop,
   Type,
-  Shapes,
   Frame,
   ImagePlus,
   Trash2,
@@ -80,6 +79,8 @@ import {
 import {
   NODE_TYPES,
   SHAPES,
+  preferredShape,
+  setPreferredShape,
   ShapeSvg,
   preferredStickyColor,
   setPreferredStickyColor,
@@ -251,19 +252,37 @@ function ShapePreview({ shape, w = 26, h = 18 }) {
 // Toolbar dropdown of the full flowchart shape catalogue.
 function ShapesMenu({ dark, onPick }) {
   const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState(() => preferredShape());
+  const chooseAndAdd = (key) => { setPreferredShape(key); setCurrent(key); onPick(key); setOpen(false); };
   return (
     <div className="relative">
+      {/* One click drops the last-used shape (no dropdown) so you can chain a
+          flowchart fast; the caret opens the full catalogue + remembers it. */}
       <button
         type="button"
-        title="Add shape"
-        onClick={() => setOpen((v) => !v)}
+        title="Add shape (last used) — caret to choose another"
+        onClick={() => onPick(current)}
         className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
           dark
             ? "text-sky-400 hover:bg-sky-500/15"
             : "text-sky-600 hover:bg-sky-50"
         }`}
       >
-        <Shapes className="w-4 h-4" />
+        <ShapePreview shape={current} w={18} h={14} />
+      </button>
+      <button
+        type="button"
+        title="Choose shape"
+        aria-label="Choose shape"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+          dark
+            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
+            : "bg-white text-slate-500 border border-slate-200"
+        }`}
+      >
+        <ChevronDown className="w-2.5 h-2.5" />
       </button>
       {open && (
         <>
@@ -281,14 +300,13 @@ function ShapesMenu({ dark, onPick }) {
                 key={s.key}
                 type="button"
                 title={s.label}
-                onClick={() => {
-                  onPick(s.key);
-                  setOpen(false);
-                }}
+                onClick={() => chooseAndAdd(s.key)}
                 className={`h-10 rounded-lg flex items-center justify-center ${
-                  dark
-                    ? "text-slate-300 hover:bg-white/10"
-                    : "text-slate-600 hover:bg-slate-100"
+                  s.key === current
+                    ? "bg-sky-500/20 text-sky-500"
+                    : dark
+                      ? "text-slate-300 hover:bg-white/10"
+                      : "text-slate-600 hover:bg-slate-100"
                 }`}
               >
                 <ShapePreview shape={s.key} />
