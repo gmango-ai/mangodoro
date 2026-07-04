@@ -361,9 +361,10 @@ const QUICK_ARROWS = [
   ["b", "▼", Position.Bottom, { bottom: -24, left: "50%", transform: "translateX(-50%)" }],
   ["l", "◀", Position.Left, { left: -24, top: "50%", transform: "translateY(-50%)" }],
 ];
-function QuickConnectArrows({ color }) {
+function QuickConnectArrows({ id, color }) {
   const api = useContext(QuickConnectContext);
   const onHover = api?.onHover;
+  const connect = api?.connect;
   const pickedShape = api?.pickedShape;
   return (
     <>
@@ -377,6 +378,7 @@ function QuickConnectArrows({ color }) {
           title="Click to add a connected shape, or drag to place it · press 1–9 to pick its shape"
           onMouseEnter={() => onHover?.(true)}
           onMouseLeave={() => onHover?.(false)}
+          onClick={(e) => { e.stopPropagation(); connect?.(id, side); }}
           style={{
             width: 20, height: 20,
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -959,7 +961,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
         <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={sw} dash={dash} cap={cap} />
       </svg>
       {/* Arrow handles ARE the connect points now (click = add, drag = place). */}
-      <QuickConnectArrows color={stroke} />
+      <QuickConnectArrows id={id} color={stroke} />
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: vAlignFlex(data?.vAlign), justifyContent: "center", padding: "10px 14px" }}>
         <div ref={growRef} style={{ width: "100%", minWidth: 0 }}>
           <EditableText
