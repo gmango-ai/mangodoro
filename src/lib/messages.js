@@ -48,6 +48,18 @@ export async function leaveChannel(conversationId) {
 const isUnread = (lastMessageAt, lastReadAt) =>
   !!lastMessageAt && (!lastReadAt || new Date(lastMessageAt) > new Date(lastReadAt));
 
+// Whether a row should light the unread badge. Channels you were AUTO-listed
+// into (room + org_team) have no read cursor until you actually open them, so
+// their backfilled/pre-existing history would otherwise read as "unread" the
+// moment they appear. Treat a channel with no read cursor as read — you only get
+// a badge once you've opened it and genuinely-new messages arrive after. DMs and
+// groups keep the plain rule (you were explicitly added to those).
+const rowUnread = (kind, lastMessageAt, lastReadAt, mutedAt) => {
+  if (mutedAt) return false;
+  if (kind === "channel" && !lastReadAt) return false;
+  return isUnread(lastMessageAt, lastReadAt);
+};
+
 // My conversations + computed org scope, in one round-trip. Falls back to the
 // legacy table reads if the RPC isn't on the (shared) DB yet, so the client is
 // safe to deploy before the migration applies — the page's roster filter keeps
@@ -70,7 +82,7 @@ export async function listConversations(userId) {
       muted_at: c.muted_at || null,
       topic: c.topic || null,
       post_policy: c.post_policy || "all",
-      unread: isUnread(c.last_message_at, c.last_read_at) && !c.muted_at,
+      unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, c.last_read_at, c.muted_at),
     }));
   }
   return listConversationsLegacy(userId);
@@ -122,7 +134,7 @@ async function listConversationsLegacy(userId) {
       muted_at: mutedAt,
       topic: null,
       post_policy: "all",
-      unread: isUnread(c.last_message_at, lastRead) && !mutedAt,
+      unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, lastRead, mutedAt),
     };
   });
 }
