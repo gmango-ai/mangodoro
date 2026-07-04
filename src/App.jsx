@@ -23,6 +23,7 @@ import PresenceSync from "./components/PresenceSync";
 import IdlePresence from "./components/IdlePresence";
 import PresenceResolver from "./components/PresenceResolver";
 import ReflectionPrompt from "./components/ReflectionPrompt";
+import StatusCyclePrompt from "./components/StatusCyclePrompt";
 import ClockOutModal from "./components/ClockOutModal";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import WhatsNew from "./components/WhatsNew";
@@ -197,6 +198,8 @@ function AppLayout({ session }) {
       <PresenceResolver />
       {/* "What did you work on?" capture around pomodoro phases. */}
       <ReflectionPrompt />
+      {/* Clear/update your status at pomodoro phase ends (per preference). */}
+      <StatusCyclePrompt />
       {/* Save/edit-your-time modal on clock-out (skips the trip to /log). */}
       <ClockOutModal />
       {/* Transient in-app notification toasts. */}
