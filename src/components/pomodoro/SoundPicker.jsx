@@ -3,15 +3,13 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
-import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import {
   loadPomodoroSoundSettings,
   savePomodoroSoundSettings,
 } from "../../lib/pomodoroSound";
 import SoundLibrary from "../SoundLibrary";
 
-// Collapsible sound + behavior section. Wraps SoundLibrary and the
-// 5-second countdown toggle. Settings persist via the existing
+// Collapsible sound section. Settings persist via the existing
 // pomodoroSound.js helpers — moving them to user_settings (so a
 // sound change on one device follows the user everywhere) is the
 // natural next step but lives in a follow-up because it touches DB.
@@ -23,7 +21,6 @@ export default function SoundPicker({ initialOpen = false }) {
   const dark = theme === "dark";
   const { settings } = useApp();
   const { teamSounds } = useTeam();
-  const { autoTransition, setAutoTransition } = usePomodoro();
 
   const userCustomSounds = settings?.customSounds || [];
   const teamCustomSounds = teamSounds || [];
@@ -65,30 +62,6 @@ export default function SoundPicker({ initialOpen = false }) {
             onSelectBreak={(presetId) => update({ breakEndPreset: presetId })}
             onUpdateSettings={update}
           />
-          <label
-            className={`flex items-center justify-between gap-2 rounded-xl border p-3 text-xs ${
-              dark
-                ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-300"
-                : "bg-slate-50 border-slate-200 text-slate-600"
-            }`}
-          >
-            <span>5-second countdown before breaks</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoTransition}
-              onClick={() => setAutoTransition(!autoTransition)}
-              className={`shrink-0 w-9 h-5 rounded-full relative transition-colors ${
-                autoTransition ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                  autoTransition ? "translate-x-4" : ""
-                }`}
-              />
-            </button>
-          </label>
         </div>
       )}
     </div>

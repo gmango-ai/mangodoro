@@ -1330,11 +1330,7 @@ export class PomodoroEngine {
       const nextStreak = currentSessions + 1;
       const nextBreak = defaultBreakForStreak(nextStreak);
       this._setField("sessions", nextStreak);
-      if (this._refs.autoTransitionRef.current) {
-        this.beginTransition(nextBreak, nextStreak);
-      } else {
-        this.commitToPhase(nextBreak, nextStreak, true);
-      }
+      this.commitToPhase(nextBreak, nextStreak, true);
     } else {
       const nextSessions = currentMode === "longBreak" ? 0 : currentSessions;
       this._setField("sessions", nextSessions);
