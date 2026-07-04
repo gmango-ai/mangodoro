@@ -3101,7 +3101,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           <NodeToolbar
             nodeId={selectedNode.id}
             isVisible
-            position={Position.Top}
+            // Text nodes put the format panel BELOW so opening the font/size
+            // menus doesn't cover the text you're editing. Everything else keeps
+            // the toolbar above.
+            position={selectedNode.type === "text" ? Position.Bottom : Position.Top}
             // Frames carry a floating label above their top edge — push the
             // toolbar above THAT (like the edge toolbar clears the line) so it
             // never overlaps the title.
