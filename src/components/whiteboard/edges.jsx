@@ -226,6 +226,21 @@ function capUrl(kind) {
   }
 }
 
+// The end-cap drawn AS the endpoint drag handle — a larger version of the cap,
+// pointing +x (toward its node) with its reference point at the origin, so it
+// lands exactly where the real marker sits. Directional caps (arrow/open) put
+// their tip at the endpoint; symmetric caps (dot/diamond) sit centred on it.
+// "none" returns null → the base handle dot stands in as the grab target.
+function capHandleGlyph(cap, color) {
+  switch (cap) {
+    case "arrow": return <path d="M0 0 L-13 -7 L-13 7 Z" fill={color} />;
+    case "open": return <path d="M-13 -7 L0 0 L-13 7" fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />;
+    case "dot": return <circle cx="0" cy="0" r="6.5" fill={color} />;
+    case "diamond": return <path d="M7 0 L0 -6.5 L-7 0 L0 6.5 Z" fill={color} />;
+    default: return null; // "none"
+  }
+}
+
 // Mini edge preview for the cap pickers — a short line with the cap on the given
 // end, so you can see the shape AND tell start from finish at a glance. Reuses
 // the shared markers; currentColor drives context-stroke to match the toolbar.
@@ -590,6 +605,12 @@ const EditableEdge = memo(function EditableEdge({
   const endRef = useRef();
   endRef.current = { sx: sX, sy: sY, tx: tX, ty: tY, sPos, tPos };
   const path = roundedPath(full, routing === "curve" ? Math.min(curviness, 30) : 8);
+  // Direction each end points (interior neighbour → endpoint), in degrees — so a
+  // cap-shaped endpoint handle can orient exactly like the real marker does.
+  const srcAdj = full.length > 1 ? full[1] : { x: tX, y: tY };
+  const tgtAdj = full.length > 1 ? full[full.length - 2] : { x: sX, y: sY };
+  const srcAngle = (Math.atan2(sY - srcAdj.y, sX - srcAdj.x) * 180) / Math.PI;
+  const tgtAngle = (Math.atan2(tY - tgtAdj.y, tX - tgtAdj.x) * 180) / Math.PI;
   const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: (sX + tX) / 2, y: (sY + tY) / 2 };
   // The toolbar always floats above the edge's highest point (smallest y),
   // not wherever the label happens to sit, so it never overlaps the line.
@@ -814,9 +835,15 @@ const EditableEdge = memo(function EditableEdge({
             NOT reveal the node's dots. Drag to slide the end anywhere around
             the perimeter, or drop on another node to re-attach. This moves
             the EXISTING edge (never spawns a new one). */}
+        {/* Endpoint handles rendered AS the end-cap itself: a larger copy of the
+            edge's cap, sitting right on the marker and oriented the same way, so
+            it never hides the cap — it IS the cap. A soft colour halo + grab
+            cursor on hover/selection is the "this is grabbable" affordance while
+            the shape (arrow/dot/diamond) stays recognisable. A "none" end gets a
+            plain dot to grab, since there's no cap shape to reuse. */}
         {(soleSelected || hovered) && [
-          { which: "source", x: sX, y: sY },
-          { which: "target", x: tX, y: tY },
+          { which: "source", x: sX, y: sY, angle: srcAngle, cap: data?.startCap || "none" },
+          { which: "target", x: tX, y: tY, angle: tgtAngle, cap: data?.endCap || "arrow" },
         ].map((ep) => (
           <div key={`ep-${ep.which}`} className="nodrag nopan"
             onPointerEnter={enterHover}
@@ -826,11 +853,17 @@ const EditableEdge = memo(function EditableEdge({
             style={{
               position: "absolute",
               transform: `translate(-50%,-50%) translate(${ep.x}px,${ep.y}px)`,
-              pointerEvents: "all", zIndex: 9,
-              width: 16, height: 16, borderRadius: 9999,
-              background: "#fff", border: `3px solid ${color}`,
-              cursor: "grab", boxShadow: "0 1px 4px rgba(0,0,0,.4)",
-            }} />
+              pointerEvents: "all", zIndex: 9, cursor: "grab",
+              filter: "drop-shadow(0 1px 2px rgba(0,0,0,.35))",
+            }}>
+            <svg width="30" height="30" viewBox="-16 -16 32 32" style={{ display: "block", overflow: "visible" }}>
+              {/* grab halo */}
+              <circle r="12" fill={color} opacity="0.16" />
+              {ep.cap === "none"
+                ? <circle r="6" fill="#fff" stroke={color} strokeWidth="2.5" />
+                : <g transform={`rotate(${ep.angle})`}>{capHandleGlyph(ep.cap, color)}</g>}
+            </svg>
+          </div>
         ))}
 
         {/* Snap-point hints on the node you're re-aiming an endpoint at —
