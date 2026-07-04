@@ -21,7 +21,9 @@ import LunchReminder from "./components/LunchReminder";
 import HealthReminders from "./components/HealthReminders";
 import PresenceSync from "./components/PresenceSync";
 import IdlePresence from "./components/IdlePresence";
+import PresenceResolver from "./components/PresenceResolver";
 import ReflectionPrompt from "./components/ReflectionPrompt";
+import StatusCyclePrompt from "./components/StatusCyclePrompt";
 import ClockOutModal from "./components/ClockOutModal";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import WhatsNew from "./components/WhatsNew";
@@ -186,8 +188,12 @@ function AppLayout({ session }) {
       <PresenceSync />
       {/* Auto online/away from tab activity (idle → away, return → restore). */}
       <IdlePresence />
+      {/* Seam ①: resolve every signal → one status, persist to user_presence. */}
+      <PresenceResolver />
       {/* "What did you work on?" capture around pomodoro phases. */}
       <ReflectionPrompt />
+      {/* Clear/update your status at pomodoro phase ends (per preference). */}
+      <StatusCyclePrompt />
       {/* Save/edit-your-time modal on clock-out (skips the trip to /log). */}
       <ClockOutModal />
       {/* Transient in-app notification toasts. */}

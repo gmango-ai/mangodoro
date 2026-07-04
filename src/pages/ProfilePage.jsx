@@ -4,6 +4,7 @@ import ProfileCard from "../components/profile/ProfileCard";
 import ProfileGoals from "../components/profile/ProfileGoals";
 import ProfileLunch from "../components/profile/ProfileLunch";
 import ProfileWorkSummary from "../components/profile/ProfileWorkSummary";
+import ProfilePresenceTimeline from "../components/profile/ProfilePresenceTimeline";
 import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 
@@ -37,6 +38,11 @@ export default function ProfilePage() {
       {isMe && (
         <div className="rounded-2xl border shadow-sm mt-3 p-3.5" style={cardStyle}>
           <ProfileLunch />
+        </div>
+      )}
+      {isMe && (
+        <div className="rounded-2xl border shadow-sm mt-3 p-3.5" style={cardStyle}>
+          <ProfilePresenceTimeline />
         </div>
       )}
     </main>

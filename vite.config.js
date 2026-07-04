@@ -51,6 +51,9 @@ export default defineConfig({
         // running the OLD in-memory JS until a manual reload ("stuck on the old
         // version"). Letting it wait makes the auto-apply + reload reliable.
         cleanupOutdatedCaches: true,
+        // Custom web-push handler (push + notificationclick) imported into the
+        // generated SW so notifications arrive even when the app is closed.
+        importScripts: ["push-sw.js"],
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
         // The LiveKit self-view processors (MediaPipe background blur, Krisp
         // noise filter) are multi-MB and lazy-loaded only when a call enables

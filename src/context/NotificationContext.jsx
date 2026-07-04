@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
-import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll } from "../lib/notifications";
+import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll, typeMeta } from "../lib/notifications";
+import { useResolvedSelf } from "../hooks/useResolvedSelf";
+import { deliveryAction } from "../lib/notificationDelivery";
 import { playForNotification } from "../lib/uiSounds";
 
 // Notification layer — in-app delivery.
@@ -34,6 +36,11 @@ export function NotificationProvider({ children }) {
   const { session, settings } = useApp();
   const userId = session?.user?.id;
 
+  // Live resolved availability, for the client-side (last-mile) delivery policy.
+  const { resolved } = useResolvedSelf();
+  const availabilityRef = useRef("available");
+  availabilityRef.current = resolved?.availability || "available";
+
   const [items, setItems] = useState([]);
   const [toasts, setToasts] = useState([]);
   // Single source of truth — derive the badge from items so it can't drift /
@@ -51,23 +58,33 @@ export function NotificationProvider({ children }) {
     if (n.id && notificationIdsRef.current.has(n.id)) return;
     if (n.id) notificationIdsRef.current.add(n.id);
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
-    // Audio cue for the arrival. This only runs off a realtime INSERT to me (the
-    // initial fetch doesn't call it), so it's a real "just now" notification.
-    // DM/channel/mention → chat cue; everything else → the notification cue. You
-    // only receive types you've enabled, so this implicitly respects per-type
-    // prefs; the master toggle is per-device (Settings → Notifications).
-    playForNotification(n.type);
     const channels = n.channels || [];
+    // Client last-mile: decide banner / sound / push from THIS device's live
+    // status + the notification's priority (fresher than the server's emit-time
+    // routing). High/urgent always break through; low/normal are muted while you
+    // focus but still shown.
+    const action = deliveryAction(n.priority || "normal", availabilityRef.current);
+    // In-app toast — always show it so a notification is never silently lost
+    // (there's no return-from-focus digest yet). The arrival audio cue is
+    // type-aware (staging's playForNotification: chat vs notification), but only
+    // plays when the focus policy allows sound — muted while you focus for low/
+    // normal. This only runs off a realtime INSERT (initial fetch doesn't call
+    // it), so it's a real "just now" notification; per-type prefs are implicit
+    // (you only receive types you've enabled).
     if (channels.includes("inapp")) {
       const id = _toastSeq++;
       setToasts((t) => [...t, { id, n }].slice(-4));
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
+      if (action.sound) playForNotification(n.type);
     }
+    // OS notification — fires whenever the type wants desktop, the policy allows
+    // a push, permission is granted, and it's not quiet hours. Per preference it
+    // surfaces to the OS ALWAYS, even when the tab is focused (not just when
+    // backgrounded), so you get the native popup alongside the in-app toast.
+    const wantsDesktop = (typeMeta(n.type)?.channels || channels).includes("desktop");
     if (
-      channels.includes("desktop") &&
-      typeof Notification !== "undefined" &&
-      Notification.permission === "granted" &&
-      typeof document !== "undefined" && document.hidden &&
+      action.push && wantsDesktop &&
+      typeof Notification !== "undefined" && Notification.permission === "granted" &&
       !withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd)
     ) {
       try { new Notification(n.title, { body: n.body || "", icon: "/icon-192.png", tag: n.type }); } catch { /* */ }
@@ -88,10 +105,10 @@ export function NotificationProvider({ children }) {
       });
     });
     const channel = supabase
-      .channel(`notifications:${userId}`)
+      .channel(`notification_deliveries:${userId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_user_id=eq.${userId}` },
+        { event: "INSERT", schema: "public", table: "notification_deliveries", filter: `recipient_user_id=eq.${userId}` },
         (payload) => handleIncoming(payload.new)
       )
       .subscribe();

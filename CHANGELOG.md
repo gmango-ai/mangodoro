@@ -4,6 +4,57 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-02
+
+### New & improved
+
+- **docs** — restructure changelog into New & improved / Fixes sections
+
+### Fixes
+
+- World clock nav pill showed city instead of pinned org label until opened
+
+## 2026-07-01
+
+- Persist pending welcome state after onboarding
+- Fix onboarding and message tour regressions
+- Fix chat author settings fallback
+- Fix: non-admin members saw teammates as "Member" in chat + presence roster
+- Fix create-room tour entry route
+- Onboarding P5: collaboration tours + new-feature announcements
+- Onboarding P4: Help / Learn center
+- Onboarding P3: core tours + non-blocking auto-offer
+- Onboarding P2: welcome flow + getting-started checklist
+- Onboarding P1: tutorial foundation (driver.js engine + persistence)
+- Video: extend auto pin + speaker dual view to Presenter mode
+- Fix self spotlight ignore fallback
+- Video: spotlight holds last speaker, auto pin+spotlight, ignore-self, grid default
+- Fix pomodoro and message deep-link states
+- Org page: People filter deep links force the People page
+- Fix pomodoro FAB pending dismiss
+- Pomodoro: floating popover closes on outside-click / Escape / tab re-click
+- Org page: real multi-page layout grouped by what you edit together
+- Nav: pomodoro is a slim clock pull-tab (no sliding FAB) + edge padding
+- Fix team side nav anchors and scroll spy
+- Nav: pomodoro FAB fully off-screen with a show/hide edge tab
+- Green room: make 'I'm in this room' its own button (out of the mic menu)
+- Green room: call-style mic/camera device menus; fold in "join room audio"
+- Nav: make the pomodoro FAB edge-peek so it stops covering UI
+- Org page: in-page side nav + image-forward team cards
+- Fix single-room rejoin enforcement
+- Sync: enforce a single active room per user across all instances
+- Fix org chart cyclic reporting roots
+- Org chart: card / list / reporting views + leadership + manager field
+- Nav: pomodoro FAB + world-clock globe dropdown
+- Video: merge Watch/Join into the green room; kiosk speaker-highlight toggle
+- Video: stop camera turning off when call settings change
+- Fix deafen mute and message deep links
+- Video: restore the personal "expand" pin on each tile
+- Video UI: move Deafen next to the audio controls
+- Video UI: legible Join button + distinct room-audio icon
+- Video: kiosk speaker-focus fix, pin/layout/fullscreen sync, deafen
+- Fix scoped messages and knock handling
+
 ## 2026-06-30
 
 ### New & improved

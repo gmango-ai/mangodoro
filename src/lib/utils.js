@@ -136,6 +136,17 @@ export function formatDecimal(mins) {
   return (mins / 60).toFixed(2);
 }
 
+// Compact "how long since" for status/activity durations. Accepts epoch ms or
+// an ISO string; `now` is injectable for tests. < 1m → "just now".
+export function formatSince(start, now = Date.now()) {
+  if (start == null) return "";
+  const startMs = typeof start === "number" ? start : new Date(start).getTime();
+  if (!Number.isFinite(startMs)) return "";
+  const mins = Math.floor((now - startMs) / 60000);
+  if (mins < 1) return "just now";
+  return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+}
+
 export function formatMoney(amount) {
   return "$" + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }

@@ -29,6 +29,8 @@ import { clearCachedNotificationSound } from "../lib/nativeNotifications";
 import { NOTIFICATION_TYPES, listPreferences, setPreferenceEnabled } from "../lib/notifications";
 import { REMINDERS, REMINDER_INTERVALS, reminderConfig } from "../lib/reminders";
 import { TIMEZONES, browserTimezone, localTimeLabel } from "../lib/timezone";
+import { readStatusOnCycle, writeStatusOnCycle } from "../lib/statusCyclePref";
+import { enableWebPush, disableWebPush, isWebPushEnabled, webPushSupported } from "../lib/webPush";
 
 // Settings as a real page. Left rail of sections, right pane renders
 // the active section. Sections persist on field commit (blur/change)
@@ -727,6 +729,7 @@ function PomodoroSection({ dark }) {
   const [keyDraft, setKeyDraft] = useState(deepseekKey || "");
   const [savingMsg, setSavingMsg] = useState("");
   const [error, setError] = useState("");
+  const [statusOnCycle, setStatusOnCycle] = useState(readStatusOnCycle());
 
   useEffect(() => { setLanding(defaultLandingPage || "pomodoro"); }, [defaultLandingPage]);
   useEffect(() => { setKeyDraft(deepseekKey || ""); }, [deepseekKey]);
@@ -784,6 +787,21 @@ function PomodoroSection({ dark }) {
             <SelectItem value="after_focus">After each focus block</SelectItem>
             <SelectItem value="before_focus">Before the next focus</SelectItem>
             <SelectItem value="both">Both</SelectItem>
+          </SelectContent>
+        </Select>
+      </SectionCard>
+
+      <SectionCard
+        title="Status at Pomodoro end"
+        hint="When a focus block or break ends, clear your manual status (back to auto) or get a quick prompt to update it."
+        dark={dark}
+      >
+        <Select value={statusOnCycle} onValueChange={(v) => { setStatusOnCycle(v); writeStatusOnCycle(v); flashSaved(); }}>
+          <SelectTrigger className="h-10 w-56"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="off">Off</SelectItem>
+            <SelectItem value="clear">Clear my status</SelectItem>
+            <SelectItem value="ask">Ask me</SelectItem>
           </SelectContent>
         </Select>
       </SectionCard>
@@ -1496,6 +1514,24 @@ function NotificationsSection({ dark }) {
     await setPreferenceEnabled(userId, type, next);
   };
 
+  // Browser web-push (notifications delivered even when the app is closed).
+  const pushSupported = webPushSupported();
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => { isWebPushEnabled().then(setPushOn); }, []);
+  const togglePush = async () => {
+    setPushBusy(true);
+    if (pushOn) {
+      await disableWebPush(userId);
+      setPushOn(false);
+    } else {
+      const { error: err } = await enableWebPush(userId);
+      if (err) setError(err);
+      else { setPushOn(true); flashSaved(); }
+    }
+    setPushBusy(false);
+  };
+
   useEffect(() => { setTime(reminderTime || ""); }, [reminderTime]);
 
   function flashSaved() { setSavingMsg("Saved"); setTimeout(() => setSavingMsg(""), 1500); }
@@ -1610,6 +1646,25 @@ function NotificationsSection({ dark }) {
           </Button>
         )}
       </SectionCard>
+
+      {pushSupported && (
+        <SectionCard
+          title="Push when the app is closed"
+          hint="Also get notifications on this device when Mangodoro isn't open in a tab (uses the browser's push service)."
+          dark={dark}
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={pushOn}
+            disabled={pushBusy}
+            onClick={togglePush}
+            className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${pushOn ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"} ${pushBusy ? "opacity-50" : ""}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${pushOn ? "translate-x-4" : ""}`} />
+          </button>
+        </SectionCard>
+      )}
 
       <SectionCard
         title="What to notify me about"
