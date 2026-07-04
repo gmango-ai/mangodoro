@@ -62,6 +62,13 @@ export function waitForMainTimerHandlerReady(
 }
 
 export function installTimerBridge(hooks: TimerBridgeHooks) {
+  const main = hooks.getMainWindow();
+  if (isUsableWindow(main)) {
+    main.webContents.on("did-start-loading", () => {
+      mainHandlerReadyWebContentsIds.delete(main.webContents.id);
+    });
+  }
+
   ipcMain.on("mangodoro:timer:publish", (event, snapshot) => {
     lastPublishedState = snapshot;
     const pop = hooks.getPopoverWindow();
