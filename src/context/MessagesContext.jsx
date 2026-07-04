@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { useTeamOptional } from "./TeamContext";
-import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead } from "../lib/messages";
+import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel } from "../lib/messages";
 
 // Direct / group / channel messaging — in-app layer. One realtime channel on
 // dm_messages (RLS scopes delivery to my conversations + my channels) drives
@@ -96,10 +96,22 @@ export function MessagesProvider({ children }) {
     return id;
   }, [reload]);
 
-  const createChannel = useCallback(async (orgTeamId, title) => {
-    const { id } = await createOrgTeamChannel(orgTeamId, title);
+  const createChannel = useCallback(async (orgTeamId, title, visibility = "org_team") => {
+    const { id } = await createOrgTeamChannel(orgTeamId, title, visibility);
     if (id) await reload();
     return id;
+  }, [reload]);
+
+  // Browse open channels the user can join, and join one (then it lands in the
+  // inbox). Powers the "Browse channels" surface in the New-message sheet.
+  const browseChannels = useCallback(async () => {
+    const { data } = await listJoinableChannels();
+    return data;
+  }, []);
+  const joinOpenChannel = useCallback(async (conversationId) => {
+    const { error } = await joinChannel(conversationId);
+    if (!error) await reload();
+    return !error;
   }, [reload]);
 
   const markRead = useCallback(async (convId, kind = "dm") => {
@@ -120,7 +132,8 @@ export function MessagesProvider({ children }) {
 
   const value = {
     conversations, activeConversations, unread, unreadByOrg, reload,
-    startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions,
+    startDm, createGroup, createChannel, browseChannels, joinOpenChannel,
+    markRead, subscribeMessages, subscribeReactions,
   };
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;
 }

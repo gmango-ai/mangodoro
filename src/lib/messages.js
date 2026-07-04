@@ -16,13 +16,33 @@ export async function createGroupConversation(title, userIds) {
   return { id: data || null, error };
 }
 
-// Admin / org_team lead: create a channel bound to an org_team (Phase 2 RPC).
-export async function createOrgTeamChannel(orgTeamId, title) {
+// Create a channel. visibility 'org_team' (default) locks it to the org_team
+// (admin/lead only, as before); 'org' makes it OPEN — any org member can browse
+// + join, and orgTeamId may be null.
+export async function createOrgTeamChannel(orgTeamId, title, visibility = "org_team") {
   const { data, error } = await supabase.rpc("create_org_team_channel", {
-    p_org_team_id: orgTeamId,
+    p_org_team_id: orgTeamId || null,
     p_title: title || null,
+    p_visibility: visibility === "org" ? "org" : "org_team",
   });
   return { id: data || null, error };
+}
+
+// Open channels the caller can join (in their org, not yet joined).
+export async function listJoinableChannels() {
+  const { data, error } = await supabase.rpc("list_joinable_channels");
+  return { data: data || [], error };
+}
+
+// Join / leave an OPEN channel (materialises / clears your inbox membership).
+export async function joinChannel(conversationId) {
+  const { error } = await supabase.rpc("join_channel", { p_conversation_id: conversationId });
+  return { error };
+}
+
+export async function leaveChannel(conversationId) {
+  const { error } = await supabase.rpc("leave_channel", { p_conversation_id: conversationId });
+  return { error };
 }
 
 const isUnread = (lastMessageAt, lastReadAt) =>
