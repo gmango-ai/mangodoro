@@ -56,10 +56,8 @@ export default function PresenceResolver() {
       const nextSig = presenceSignature(s.resolved);
       const { write } = shouldWritePresence(wr.current.prevSig, nextSig, wr.current.lastWriteAt, now);
       if (!write) return;
-      wr.current.prevSig = nextSig;
-      wr.current.lastWriteAt = now;
       try {
-        await upsertUserPresence({
+        const { error } = await upsertUserPresence({
           userId: s.userId,
           teamId: s.teamId,
           availability: s.resolved.availability,
@@ -67,8 +65,15 @@ export default function PresenceResolver() {
           activity: s.resolved.activity,
           location: s.resolved.location,
         });
+        // Only mark the snapshot persisted on SUCCESS — otherwise a transient DB
+        // error would be treated as written and never retried, leaving the row
+        // stale until availability/activity changes again.
+        if (!error) {
+          wr.current.prevSig = nextSig;
+          wr.current.lastWriteAt = now;
+        }
       } catch {
-        /* best-effort; next tick retries */
+        /* leave prevSig/lastWriteAt so the next tick retries */
       }
     };
 
