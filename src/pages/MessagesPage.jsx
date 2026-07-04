@@ -595,19 +595,34 @@ function ChannelSettings({ conversation, memberById, dark, onClose, onSaved }) {
 }
 
 // ── New message (DM / group / channel) ──
-function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm, onCreateGroup, onCreateChannel, dark }) {
+function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm, onCreateGroup, onCreateChannel, onBrowse, onJoin, dark }) {
   const [mode, setMode] = useState("people");
   const [picked, setPicked] = useState([]);
   const [title, setTitle] = useState("");
   const [chanTeam, setChanTeam] = useState("");
   const [chanName, setChanName] = useState("");
+  const [visibility, setVisibility] = useState("org"); // 'org' = open · 'org_team' = locked
   const [q, setQ] = useState("");
+  const [joinable, setJoinable] = useState(null); // null = loading
+  const [joining, setJoining] = useState("");
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const creatableTeams = orgTeams.filter((t) => leadOrAdminTeamIds.has(t.id));
   const shown = others.filter((m) => (m.name || "").toLowerCase().includes(q.trim().toLowerCase()));
+  const canCreateChannel = !!chanName.trim() && (visibility === "org" || !!chanTeam);
+
+  useEffect(() => {
+    if (mode !== "browse") return undefined;
+    let cancelled = false;
+    setJoinable(null);
+    Promise.resolve(onBrowse?.()).then((list) => { if (!cancelled) setJoinable(list || []); });
+    return () => { cancelled = true; };
+  }, [mode, onBrowse]);
 
   const go = async () => {
-    if (mode === "channel") { if (chanTeam && chanName.trim()) await onCreateChannel(chanTeam, chanName.trim()); return; }
+    if (mode === "channel") {
+      if (canCreateChannel) await onCreateChannel(visibility === "org" ? null : chanTeam, chanName.trim(), visibility);
+      return;
+    }
     if (picked.length === 0) return;
     if (picked.length === 1) await onStartDm(picked[0]);
     else await onCreateGroup(title, picked);
@@ -617,32 +632,76 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
     <div className="flex flex-col h-full min-h-0">
       <div className={`flex items-center justify-between px-4 h-14 shrink-0 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
         <button type="button" onClick={onCancel} className={`p-1.5 -ml-1 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Cancel"><X className="w-5 h-5" /></button>
-        <span className={`text-[15px] font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>New {mode === "channel" ? "channel" : "message"}</span>
-        <button type="button" onClick={go} disabled={mode === "channel" ? (!chanTeam || !chanName.trim()) : picked.length === 0} className="text-sm font-semibold text-[var(--color-accent)] disabled:opacity-40">
-          {mode === "channel" ? "Create" : picked.length > 1 ? "Create" : "Start"}
-        </button>
+        <span className={`text-[15px] font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>{mode === "channel" ? "New channel" : mode === "browse" ? "Browse channels" : "New message"}</span>
+        {mode === "browse" ? (
+          <span className="w-10" />
+        ) : (
+          <button type="button" onClick={go} disabled={mode === "channel" ? !canCreateChannel : picked.length === 0} className="text-sm font-semibold text-[var(--color-accent)] disabled:opacity-40">
+            {mode === "channel" ? "Create" : picked.length > 1 ? "Create" : "Start"}
+          </button>
+        )}
       </div>
 
-      {creatableTeams.length > 0 && (
-        <div className="flex gap-1.5 px-4 pt-3 shrink-0">
-          {[["people", "People", null], ["channel", "Channel", Hash]].map(([k, label, Icon]) => (
-            <button key={k} type="button" onClick={() => setMode(k)} className={`px-3 h-8 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5 ${mode === k ? "bg-[var(--color-accent)] text-white" : dark ? "bg-white/5 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
-              {Icon && <Icon className="w-3.5 h-3.5" />}{label}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="flex gap-1.5 px-4 pt-3 shrink-0">
+        {[["people", "People", null], ["channel", "Channel", Hash], ["browse", "Browse", Search]].map(([k, label, Icon]) => (
+          <button key={k} type="button" onClick={() => setMode(k)} className={`px-3 h-8 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5 ${mode === k ? "bg-[var(--color-accent)] text-white" : dark ? "bg-white/5 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
+            {Icon && <Icon className="w-3.5 h-3.5" />}{label}
+          </button>
+        ))}
+      </div>
 
       {mode === "channel" ? (
         <div className="p-4 space-y-3">
-          <select value={chanTeam} onChange={(e) => setChanTeam(e.target.value)} className={`w-full rounded-lg border px-3 py-2.5 text-sm ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"}`}>
-            <option value="">Choose a team…</option>
-            {creatableTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
+          {/* Open (anyone in the org can join) vs Team-locked (a department's
+              members only — needs lead/admin of that team). */}
+          <div className="flex gap-1.5">
+            {[["org", "Open to org"], ["org_team", "Team only"]].map(([v, label]) => {
+              const disabled = v === "org_team" && creatableTeams.length === 0;
+              return (
+                <button key={v} type="button" disabled={disabled} onClick={() => setVisibility(v)}
+                  className={`flex-1 px-3 h-9 rounded-lg text-[13px] font-semibold border transition-colors disabled:opacity-40 ${
+                    visibility === v ? "bg-[var(--color-accent)] text-white border-[var(--color-accent)]" : dark ? "border-[var(--color-border)] text-slate-300" : "border-slate-200 text-slate-600"
+                  }`}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {visibility === "org_team" && (
+            <select value={chanTeam} onChange={(e) => setChanTeam(e.target.value)} className={`w-full rounded-lg border px-3 py-2.5 text-sm ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"}`}>
+              <option value="">Choose a team…</option>
+              {creatableTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          )}
           <div className={`flex items-center rounded-lg border px-3 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
             <Hash className="w-4 h-4 text-slate-400" />
             <input value={chanName} onChange={(e) => setChanName(e.target.value.slice(0, 40))} placeholder="channel-name" className={`flex-1 bg-transparent px-2 py-2.5 text-sm outline-none ${dark ? "text-slate-100" : "text-slate-800"}`} />
           </div>
+          <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            {visibility === "org" ? "Anyone in your org can find this channel under Browse and join it." : "Only members of the selected team will see this channel."}
+          </p>
+        </div>
+      ) : mode === "browse" ? (
+        <div className="flex-1 min-h-0 overflow-y-auto p-2">
+          {joinable === null ? (
+            <div className={`text-center text-sm py-10 ${dark ? "text-slate-500" : "text-slate-400"}`}>Loading…</div>
+          ) : joinable.length === 0 ? (
+            <div className={`text-center text-sm py-10 ${dark ? "text-slate-500" : "text-slate-400"}`}>No open channels to join.</div>
+          ) : (
+            joinable.map((c) => (
+              <div key={c.id} className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg ${dark ? "hover:bg-white/5" : "hover:bg-slate-50"}`}>
+                <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-[var(--color-accent-light)] text-[var(--color-accent)]"><Hash className="w-4 h-4" /></span>
+                <span className="flex-1 min-w-0">
+                  <span className={`block text-sm font-medium truncate ${dark ? "text-slate-200" : "text-slate-700"}`}>{c.title}</span>
+                  <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{c.member_count || 0} member{Number(c.member_count) === 1 ? "" : "s"}{c.topic ? ` · ${c.topic}` : ""}</span>
+                </span>
+                <button type="button" disabled={joining === c.id} onClick={async () => { setJoining(c.id); await onJoin?.(c.id); setJoining(""); }}
+                  className="shrink-0 px-3 h-8 rounded-full text-[13px] font-semibold text-white bg-[var(--color-accent)] disabled:opacity-50">
+                  {joining === c.id ? "Joining…" : "Join"}
+                </button>
+              </div>
+            ))
+          )}
         </div>
       ) : (
         <>
@@ -787,7 +846,7 @@ export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
-  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, browseChannels, joinOpenChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
@@ -836,7 +895,9 @@ export default function MessagesPage() {
             onCancel={() => setComposing(false)}
             onStartDm={async (id) => { const cid = await startDm(id); if (cid) open(cid); else setComposing(false); }}
             onCreateGroup={async (title, ids) => { const cid = await createGroup(title, ids); if (cid) open(cid); else setComposing(false); }}
-            onCreateChannel={async (teamId, name) => { const cid = await createChannel(teamId, name); if (cid) open(cid); else setComposing(false); }}
+            onCreateChannel={async (teamId, name, visibility) => { const cid = await createChannel(teamId, name, visibility); if (cid) open(cid); else setComposing(false); }}
+            onBrowse={browseChannels}
+            onJoin={async (id) => { const ok = await joinOpenChannel(id); if (ok) open(id); }}
             dark={dark}
           />
         ) : active ? (
