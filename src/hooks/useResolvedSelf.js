@@ -5,6 +5,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { buildSignals } from "../lib/presenceSignals";
 import { resolveStatus } from "../lib/statusResolver";
+import { readOverride, OVERRIDE_EVENT } from "../lib/statusOverride";
 
 // Live resolved status for the current user. Recomputes on context changes and
 // on a 15s heartbeat (so idle transitions + override expiry surface without a
@@ -28,17 +29,25 @@ export function useResolvedSelf() {
   const { syncSession } = useSyncSession();
   const pomodoro = usePomodoro();
 
-  // Heartbeat so time-based transitions (idle, override expiry) surface.
+  // Heartbeat so time-based transitions (idle, override expiry) surface, plus an
+  // immediate re-read when the manual override changes.
   const [, bump] = useState(0);
   useEffect(() => {
     const id = setInterval(() => bump((n) => n + 1), 15000);
-    return () => clearInterval(id);
+    const onOverride = () => bump((n) => n + 1);
+    window.addEventListener(OVERRIDE_EVENT, onOverride);
+    window.addEventListener("storage", onOverride);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener(OVERRIDE_EVENT, onOverride);
+      window.removeEventListener("storage", onOverride);
+    };
   }, []);
 
   const room = syncSession?.room_id ? rooms?.find((r) => r.id === syncSession.room_id) : null;
   const now = Date.now();
-  const resolved = resolveStatus(
-    buildSignals({
+  const resolved = resolveStatus({
+    ...buildSignals({
       clockIn,
       currentTask,
       room,
@@ -47,8 +56,9 @@ export function useResolvedSelf() {
       lastActivityMs: getNum(ACT_KEY, now),
       online: true,
       now,
-    })
-  );
+    }),
+    override: readOverride(now),
+  });
 
   // Track when the current availability began, for the display `since`.
   const sinceRef = useRef({ avail: null, sinceMs: null });
