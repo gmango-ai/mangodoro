@@ -1947,6 +1947,77 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     [rf, setNodes, setEdges, pickedShape]
   );
 
+  // Click an arrow → quick-add a connected shape on that side (drag is handled
+  // by React Flow's connection → onConnectEnd; connectOnClick is off so a click
+  // doesn't enter click-to-connect mode). Same picked-shape + context-aware
+  // (connect-to-existing) rules as the drag path.
+  const quickAddConnected = useCallback((fromNodeId, sourceHandle) => {
+    const srcNode = rf.getNodes().find((n) => n.id === fromNodeId);
+    if (!srcNode) return;
+    const isShapeParent = ["shape", "rect", "ellipse", "diamond"].includes(srcNode.type);
+    const size = {
+      w: srcNode.measured?.width ?? srcNode.width ?? DEFAULTS.shape.w,
+      h: srcNode.measured?.height ?? srcNode.height ?? DEFAULTS.shape.h,
+    };
+    const newData = {
+      text: "",
+      shape: pickedShape || (isShapeParent && srcNode.data?.shape) || "process",
+      ...(srcNode.data?.fill ? { fill: srcNode.data.fill } : {}),
+      ...(srcNode.data?.stroke ? { stroke: srcNode.data.stroke } : {}),
+      ...(srcNode.data?.fontSize ? { fontSize: srcNode.data.fontSize } : {}),
+    };
+    const sx0 = srcNode.position?.x ?? 0;
+    const sy0 = srcNode.position?.y ?? 0;
+    let place = siblingPlacement({ x: sx0, y: sy0, w: size.w, h: size.h }, sourceHandle, size);
+    place = { ...place, x: snapToGrid(place.x), y: snapToGrid(place.y) };
+    const sourceAnchor = { side: SIDE_POS[sourceHandle] || "right", t: 0.5, auto: true };
+
+    // If a node already sits where the new one would land, connect to it.
+    const pad = 0.5;
+    const zone = {
+      x: place.x - size.w * pad, y: place.y - size.h * pad,
+      w: size.w * (1 + 2 * pad), h: size.h * (1 + 2 * pad),
+    };
+    const existing = rf.getNodes().find((n) => {
+      if (n.id === fromNodeId || NON_CONNECTABLE.has(n.type)) return false;
+      const r = nodeRect(n);
+      return r && r.x < zone.x + zone.w && r.x + r.w > zone.x && r.y < zone.y + zone.h && r.y + r.h > zone.y;
+    });
+    if (existing) {
+      setEdges((eds) => {
+        if (eds.some((e) =>
+          (e.source === fromNodeId && e.target === existing.id) ||
+          (e.source === existing.id && e.target === fromNodeId)
+        )) return eds;
+        return addEdge({
+          source: fromNodeId, sourceHandle, target: existing.id, targetHandle: place.side,
+          data: { sourceAnchor }, ...DEFAULT_EDGE_OPTIONS,
+        }, eds);
+      });
+      setPickedShape(null);
+      return;
+    }
+
+    const newId = freshId("shape");
+    markNodeForEdit(newId);
+    setNodes((nds) =>
+      nds
+        .map((n) => (n.selected ? { ...n, selected: false } : n))
+        .concat({
+          id: newId, type: "shape",
+          position: { x: place.x, y: place.y },
+          width: size.w, height: size.h, data: newData, selected: true,
+        })
+    );
+    setEdges((eds) =>
+      addEdge({
+        source: fromNodeId, sourceHandle, target: newId, targetHandle: place.side,
+        data: { sourceAnchor }, ...DEFAULT_EDGE_OPTIONS,
+      }, eds)
+    );
+    setPickedShape(null);
+  }, [rf, setNodes, setEdges, pickedShape]);
+
   // Hover a shape's quick-connect arrow → 1–9/0 pre-picks the shape a click will
   // create (and lights it in the legend). Mirrors the during-drag number-select.
   const [hoveringArrow, setHoveringArrow] = useState(false);
@@ -1968,8 +2039,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [hoveringArrow]);
   const quickConnectApi = useMemo(
-    () => ({ onHover: onArrowHover, pickedShape }),
-    [onArrowHover, pickedShape]
+    () => ({ connect: quickAddConnected, onHover: onArrowHover, pickedShape }),
+    [quickAddConnected, onArrowHover, pickedShape]
   );
 
   // Drag an edge endpoint onto a different node to re-route it.
@@ -2930,6 +3001,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         onConnect={onConnect}
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
+        connectOnClick={false}
         onReconnect={onReconnect}
         onNodeDragStart={onNodeDragStartClone}
         onNodeDragStop={onNodeDragStop}
