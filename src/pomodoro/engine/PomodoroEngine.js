@@ -233,7 +233,15 @@ export class PomodoroEngine {
   }
 
   _forwardCommand(method, args) {
-    if (this._electronBridge?.sendCommand(method, args)) return;
+    const electronResult = this._electronBridge?.sendCommand(method, args);
+    if (electronResult) {
+      if (typeof electronResult.then === "function") {
+        electronResult.then((ok) => {
+          if (!ok) this._tabLeader?.sendCommand(method, args);
+        });
+      }
+      return;
+    }
     this._tabLeader?.sendCommand(method, args);
   }
 

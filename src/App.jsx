@@ -61,6 +61,12 @@ const LocalTimerPage = lazy(() => import("./pages/LocalTimerPage"));
 const DevicePairPage = lazy(() => import("./pages/DevicePairPage"));
 const DeviceKioskPage = lazy(() => import("./pages/DeviceKioskPage"));
 import { applyAccent } from "./lib/accent";
+import { toElectronAuthPayload } from "./electron/authSessionBridge";
+
+function publishElectronAuthSession(session) {
+  if (typeof window === "undefined") return;
+  window.__electronAuthBridge?.publishSession?.(toElectronAuthPayload(session));
+}
 
 // Shared placeholder shown while a lazy route chunk downloads. Dependency-
 // free CSS spinner so it doesn't itself pull anything into the eager bundle.
@@ -413,10 +419,17 @@ export default function App() {
   const [session, setSession] = useState(undefined);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
+    supabase.auth.getSession().then(({ data }) => {
+      const nextSession = data.session ?? null;
+      publishElectronAuthSession(nextSession);
+      setSession(nextSession);
+    });
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    } = supabase.auth.onAuthStateChange((_e, s) => {
+      publishElectronAuthSession(s);
+      setSession(s);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
