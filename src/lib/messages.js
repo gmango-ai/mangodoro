@@ -59,6 +59,37 @@ export async function hideConversation(conversationId) {
   return { error };
 }
 
+// ── Channel folders (shared, team-wide; admin-managed) ──
+export async function listChannelFolders(teamId) {
+  if (!teamId) return [];
+  const { data } = await supabase
+    .from("channel_folders")
+    .select("id, team_id, name, position")
+    .eq("team_id", teamId)
+    .order("position", { ascending: true });
+  return data || [];
+}
+export async function createChannelFolder(teamId, name) {
+  const { data, error } = await supabase.rpc("create_channel_folder", { p_team_id: teamId, p_name: name || "Folder" });
+  return { id: data || null, error };
+}
+export async function renameChannelFolder(folderId, name) {
+  const { error } = await supabase.rpc("rename_channel_folder", { p_folder_id: folderId, p_name: name });
+  return { error };
+}
+export async function deleteChannelFolder(folderId) {
+  const { error } = await supabase.rpc("delete_channel_folder", { p_folder_id: folderId });
+  return { error };
+}
+export async function reorderChannelFolders(folderIds) {
+  const { error } = await supabase.rpc("reorder_channel_folders", { p_folder_ids: folderIds });
+  return { error };
+}
+export async function setChannelFolder(conversationId, folderId) {
+  const { error } = await supabase.rpc("set_channel_folder", { p_conversation_id: conversationId, p_folder_id: folderId || null });
+  return { error };
+}
+
 const isUnread = (lastMessageAt, lastReadAt) =>
   !!lastMessageAt && (!lastReadAt || new Date(lastMessageAt) > new Date(lastReadAt));
 
@@ -98,6 +129,7 @@ export async function listConversations(userId) {
       post_policy: c.post_policy || "all",
       created_by: c.created_by || null,
       room_id: c.room_id || null,
+      folder_id: c.folder_id || null,
       unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, c.last_read_at, c.muted_at),
     }));
   }
@@ -152,6 +184,7 @@ async function listConversationsLegacy(userId) {
       post_policy: "all",
       created_by: c.created_by || null,
       room_id: null,
+      folder_id: null,
       unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, lastRead, mutedAt),
     };
   });

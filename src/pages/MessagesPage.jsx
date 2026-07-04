@@ -5,7 +5,7 @@ import Markdown from "react-markdown";
 import {
   Send, Plus, ArrowLeft, Users, MessageSquare, Hash, Search, Paperclip, X,
   SmilePlus, Pencil, Trash2, Pin, PinOff, Bell, BellOff, Megaphone, Settings2, Download, ExternalLink,
-  MoreHorizontal, LogOut,
+  MoreHorizontal, LogOut, Folder, FolderPlus, FolderInput, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
@@ -765,22 +765,24 @@ function canDeleteConversation(c, userId, isAdmin, myOrgTeamLeadIds) {
 }
 
 // ── sidebar conversation row ──
-function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds, onOpen, onPin, onMute, onDelete, onHide, dark }) {
+function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onAssignFolder, onOpen, onPin, onMute, onDelete, onHide, dark }) {
   const first = memberById.get(c.participant_ids[0]);
   const muted = !!c.muted_at;
   const unread = c.unread && !muted;
   const [menu, setMenu] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const menuRef = useRef(null);
   const canDelete = canDeleteConversation(c, userId, isAdmin, myOrgTeamLeadIds);
+  const canMove = canOrganize && c.kind === "channel";
   const leaveLabel = c.kind === "dm" ? "Delete conversation" : c.room_id ? "Hide channel" : c.kind === "group" ? "Leave group" : "Leave channel";
   useEffect(() => {
     if (!menu) return undefined;
-    const f = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) { setMenu(false); setConfirmDel(false); } };
+    const f = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) { setMenu(false); setConfirmDel(false); setMoveOpen(false); } };
     window.addEventListener("pointerdown", f, true);
     return () => window.removeEventListener("pointerdown", f, true);
   }, [menu]);
-  const close = () => { setMenu(false); setConfirmDel(false); };
+  const close = () => { setMenu(false); setConfirmDel(false); setMoveOpen(false); };
 
   return (
     <div className={`group relative flex items-center gap-2.5 mx-2 my-0.5 px-2.5 py-2 rounded-xl cursor-pointer transition-colors ${
@@ -813,7 +815,29 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
             className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}><MoreHorizontal className="w-3.5 h-3.5" /></button>
           {menu && (
             <div onClick={(e) => e.stopPropagation()}
-              className={`absolute right-0 top-full mt-1 w-48 py-1 rounded-xl border shadow-xl z-30 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+              className={`absolute right-0 top-full mt-1 w-52 py-1 rounded-xl border shadow-xl z-30 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+              {canMove && (
+                <>
+                  <button type="button" onClick={() => setMoveOpen((v) => !v)}
+                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
+                    <FolderInput className="w-3.5 h-3.5" /> Move to folder
+                  </button>
+                  {moveOpen && (
+                    <div className={`max-h-48 overflow-y-auto border-y my-1 ${dark ? "border-[var(--color-border)]" : "border-slate-100"}`}>
+                      <button type="button" onClick={() => { close(); onAssignFolder(c, null); }}
+                        className={`w-full text-left pl-8 pr-3 py-1.5 text-[13px] ${!c.folder_id ? "text-[var(--color-accent)] font-semibold" : dark ? "text-slate-400 hover:bg-white/5" : "text-slate-500 hover:bg-slate-50"}`}>
+                        No folder
+                      </button>
+                      {folders.map((f) => (
+                        <button key={f.id} type="button" onClick={() => { close(); onAssignFolder(c, f.id); }}
+                          className={`w-full text-left pl-8 pr-3 py-1.5 text-[13px] truncate ${c.folder_id === f.id ? "text-[var(--color-accent)] font-semibold" : dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
+                          {f.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
               <button type="button" onClick={() => { close(); onHide(c); }}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
                 <LogOut className="w-3.5 h-3.5" /> {leaveLabel}
@@ -840,20 +864,89 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
   );
 }
 
-// ── sidebar (sectioned list) ──
-function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin, myOrgTeamLeadIds, onOpen, onNew, onPin, onMute, onDelete, onHide, dark }) {
+// ── one shared channel folder in the sidebar (collapsible; admin rename/delete) ──
+function FolderGroup({ folder, items, collapsed, onToggle, canOrganize, onRename, onDelete, dark, children }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(folder.name);
+  const [menu, setMenu] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const menuRef = useRef(null);
+  useEffect(() => setName(folder.name), [folder.name]);
+  useEffect(() => {
+    if (!menu) return undefined;
+    const f = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) { setMenu(false); setConfirmDel(false); } };
+    window.addEventListener("pointerdown", f, true);
+    return () => window.removeEventListener("pointerdown", f, true);
+  }, [menu]);
+  const commit = () => { const n = name.trim(); if (n && n !== folder.name) onRename(folder.id, n); setEditing(false); };
+  return (
+    <div className="mt-1">
+      <div className="group/f flex items-center gap-1 pl-2 pr-3 pt-2 pb-0.5">
+        <button type="button" onClick={onToggle} className="p-0.5 text-slate-400 hover:text-slate-500" aria-label={collapsed ? "Expand" : "Collapse"}>
+          {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+        <Folder className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        {editing ? (
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onBlur={commit}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(); else if (e.key === "Escape") { setName(folder.name); setEditing(false); } }}
+            className={`flex-1 min-w-0 bg-transparent text-[12px] font-semibold outline-none border-b ${dark ? "text-slate-200 border-slate-600" : "text-slate-700 border-slate-300"}`} />
+        ) : (
+          <span className={`flex-1 min-w-0 text-[11px] font-semibold uppercase tracking-wide truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>{folder.name}</span>
+        )}
+        <span className="text-[10px] text-slate-400 shrink-0">{items.length}</span>
+        {canOrganize && !editing && (
+          <div className="relative shrink-0" ref={menuRef}>
+            <button type="button" onClick={() => { setMenu((m) => !m); setConfirmDel(false); }} aria-label="Folder options"
+              className="opacity-0 group-hover/f:opacity-100 p-0.5 text-slate-400 hover:text-slate-500"><MoreHorizontal className="w-3.5 h-3.5" /></button>
+            {menu && (
+              <div className={`absolute right-0 top-full mt-1 w-40 py-1 rounded-xl border shadow-xl z-30 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+                <button type="button" onClick={() => { setMenu(false); setEditing(true); }}
+                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}><Pencil className="w-3.5 h-3.5" /> Rename</button>
+                {confirmDel ? (
+                  <button type="button" onClick={() => { setMenu(false); setConfirmDel(false); onDelete(folder.id); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[13px] font-semibold text-white bg-rose-500 hover:bg-rose-600"><Trash2 className="w-3.5 h-3.5" /> Delete folder?</button>
+                ) : (
+                  <button type="button" onClick={() => setConfirmDel(true)}
+                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-rose-300 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}><Trash2 className="w-3.5 h-3.5" /> Delete folder</button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {!collapsed && (items.length ? children : (
+        <div className={`pl-8 pr-3 py-1 text-[11px] italic ${dark ? "text-slate-600" : "text-slate-400"}`}>Empty — move channels here</div>
+      ))}
+    </div>
+  );
+}
+
+// ── sidebar (sectioned list, channels grouped into shared folders) ──
+function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onCreateFolder, onRenameFolder, onDeleteFolder, onAssignFolder, onOpen, onNew, onPin, onMute, onDelete, onHide, dark }) {
   const [q, setQ] = useState("");
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const [newFolder, setNewFolder] = useState(null); // draft name string while creating, else null
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = needle ? conversations.filter((c) => nameOf(c).toLowerCase().includes(needle)) : conversations;
     return [...list].sort((a, b) => (b.pinned_at ? 1 : 0) - (a.pinned_at ? 1 : 0));
   }, [conversations, q, nameOf]);
 
-  const sections = [
-    { key: "channel", label: "Channels", items: filtered.filter((c) => c.kind === "channel") },
-    { key: "group", label: "Group chats", items: filtered.filter((c) => c.kind === "group") },
-    { key: "dm", label: "Direct messages", items: filtered.filter((c) => c.kind === "dm" || (!c.kind && !c.is_group)) },
-  ];
+  const channels = filtered.filter((c) => c.kind === "channel");
+  const folderIds = useMemo(() => new Set(folders.map((f) => f.id)), [folders]);
+  const ungrouped = channels.filter((c) => !c.folder_id || !folderIds.has(c.folder_id));
+  const groups = filtered.filter((c) => c.kind === "group");
+  const dms = filtered.filter((c) => c.kind === "dm" || (!c.kind && !c.is_group));
+
+  const toggle = (id) => setCollapsed((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const rowOf = (c) => (
+    <Row key={c.id} c={c} nameOf={nameOf} memberById={memberById} active={c.id === activeId}
+      userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
+      folders={folders} canOrganize={canOrganize} onAssignFolder={onAssignFolder}
+      onOpen={onOpen} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />
+  );
+  const commitNewFolder = () => { const n = (newFolder || "").trim(); if (n) onCreateFolder(n); setNewFolder(null); };
+  const sectionLabel = (t) => `px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -877,12 +970,56 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
             {!q && <button type="button" onClick={onNew} className="text-[var(--color-accent)] text-sm font-semibold">Start one</button>}
           </div>
         )}
-        {sections.map((s) => s.items.length > 0 && (
-          <div key={s.key} className="mt-1">
-            <div className={`px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>{s.label}</div>
-            {s.items.map((c) => <Row key={c.id} c={c} nameOf={nameOf} memberById={memberById} active={c.id === activeId} userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds} onOpen={onOpen} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />)}
+
+        {/* Channels — grouped into shared folders, then anything ungrouped */}
+        {(channels.length > 0 || (canOrganize && folders.length > 0)) && (
+          <div className="mt-1">
+            <div className="flex items-center justify-between pr-2">
+              <div className={sectionLabel()}>Channels</div>
+              {canOrganize && (
+                <button type="button" onClick={() => setNewFolder("")} title="New folder" aria-label="New folder"
+                  className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-400 hover:bg-slate-100"}`}><FolderPlus className="w-4 h-4" /></button>
+              )}
+            </div>
+            {newFolder !== null && (
+              <div className="flex items-center gap-1 pl-3 pr-3 pb-1">
+                <Folder className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <input autoFocus value={newFolder} onChange={(e) => setNewFolder(e.target.value)} onBlur={commitNewFolder}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitNewFolder(); else if (e.key === "Escape") setNewFolder(null); }}
+                  placeholder="Folder name" className={`flex-1 min-w-0 bg-transparent text-[12px] font-semibold outline-none border-b ${dark ? "text-slate-200 border-slate-600 placeholder:text-slate-500" : "text-slate-700 border-slate-300 placeholder:text-slate-400"}`} />
+              </div>
+            )}
+            {folders.map((f) => {
+              const items = channels.filter((c) => c.folder_id === f.id);
+              if (!items.length && !canOrganize) return null;
+              return (
+                <FolderGroup key={f.id} folder={f} items={items} collapsed={collapsed.has(f.id)} onToggle={() => toggle(f.id)}
+                  canOrganize={canOrganize} onRename={onRenameFolder} onDelete={onDeleteFolder} dark={dark}>
+                  {items.map(rowOf)}
+                </FolderGroup>
+              );
+            })}
+            {ungrouped.length > 0 && (
+              <div className="mt-0.5">
+                {folders.length > 0 && <div className={`pl-3 pr-3 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide ${dark ? "text-slate-600" : "text-slate-400"}`}>Ungrouped</div>}
+                {ungrouped.map(rowOf)}
+              </div>
+            )}
           </div>
-        ))}
+        )}
+
+        {groups.length > 0 && (
+          <div className="mt-1">
+            <div className={sectionLabel()}>Group chats</div>
+            {groups.map(rowOf)}
+          </div>
+        )}
+        {dms.length > 0 && (
+          <div className="mt-1">
+            <div className={sectionLabel()}>Direct messages</div>
+            {dms.map(rowOf)}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -912,7 +1049,7 @@ export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
-  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, browseChannels, joinOpenChannel, deleteConversation, hideConversation, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, browseChannels, joinOpenChannel, deleteConversation, hideConversation, folders = [], isTeamAdmin, createFolder, renameFolder, deleteFolder, assignFolder, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
@@ -947,7 +1084,9 @@ export default function MessagesPage() {
     <div className={`mx-auto w-full max-w-6xl h-[calc(100dvh-var(--nav-h))] sm:h-[calc(100dvh-var(--nav-h)-1.5rem)] sm:my-3 flex overflow-hidden rounded-none sm:rounded-2xl sm:border ${dark ? "bg-[var(--color-surface)] sm:border-[var(--color-border)]" : "bg-white sm:border-slate-200"}`}>
       {/* Sidebar — full width on mobile when nothing open; fixed column on desktop */}
       <aside className={`${showMain ? "hidden md:flex" : "flex"} w-full md:w-[340px] md:shrink-0 flex-col md:border-r ${dark ? "md:border-[var(--color-border)]" : "md:border-slate-200"}`}>
-        <Sidebar conversations={activeConversations} nameOf={nameOf} memberById={memberById} activeId={activeId} userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds} onOpen={open} onNew={() => setComposing(true)} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />
+        <Sidebar conversations={activeConversations} nameOf={nameOf} memberById={memberById} activeId={activeId} userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
+          folders={folders} canOrganize={isTeamAdmin} onCreateFolder={createFolder} onRenameFolder={renameFolder} onDeleteFolder={deleteFolder} onAssignFolder={(c, fid) => assignFolder(c.id, fid)}
+          onOpen={open} onNew={() => setComposing(true)} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />
       </aside>
 
       {/* Main pane */}
