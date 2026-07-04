@@ -70,13 +70,14 @@ export function NotificationProvider({ children }) {
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
       if (action.sound) playNotificationChime();
     }
-    // OS notification — tab backgrounded, the type wants desktop, the policy
-    // allows a push, permission is granted, and not within quiet hours.
+    // OS notification — fires whenever the type wants desktop, the policy allows
+    // a push, permission is granted, and it's not quiet hours. Per preference it
+    // surfaces to the OS ALWAYS, even when the tab is focused (not just when
+    // backgrounded), so you get the native popup alongside the in-app toast.
     const wantsDesktop = (typeMeta(n.type)?.channels || channels).includes("desktop");
     if (
       action.push && wantsDesktop &&
       typeof Notification !== "undefined" && Notification.permission === "granted" &&
-      typeof document !== "undefined" && document.hidden &&
       !withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd)
     ) {
       try { new Notification(n.title, { body: n.body || "", icon: "/icon-192.png", tag: n.type }); } catch { /* */ }
