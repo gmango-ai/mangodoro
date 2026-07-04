@@ -45,6 +45,20 @@ export async function leaveChannel(conversationId) {
   return { error };
 }
 
+// Delete a channel/group for EVERYONE (creator / team admin / org_team lead;
+// room channels are rejected server-side).
+export async function deleteConversation(conversationId) {
+  const { error } = await supabase.rpc("delete_conversation", { p_conversation_id: conversationId });
+  return { error };
+}
+
+// Hide a conversation from just MY inbox (leave / remove-for-me). It reappears
+// on its own when a newer message arrives.
+export async function hideConversation(conversationId) {
+  const { error } = await supabase.rpc("hide_conversation", { p_conversation_id: conversationId });
+  return { error };
+}
+
 const isUnread = (lastMessageAt, lastReadAt) =>
   !!lastMessageAt && (!lastReadAt || new Date(lastMessageAt) > new Date(lastReadAt));
 
@@ -82,6 +96,8 @@ export async function listConversations(userId) {
       muted_at: c.muted_at || null,
       topic: c.topic || null,
       post_policy: c.post_policy || "all",
+      created_by: c.created_by || null,
+      room_id: c.room_id || null,
       unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, c.last_read_at, c.muted_at),
     }));
   }
@@ -134,6 +150,8 @@ async function listConversationsLegacy(userId) {
       muted_at: mutedAt,
       topic: null,
       post_policy: "all",
+      created_by: c.created_by || null,
+      room_id: null,
       unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, lastRead, mutedAt),
     };
   });

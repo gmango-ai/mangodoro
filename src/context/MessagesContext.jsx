@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { useTeamOptional } from "./TeamContext";
-import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel } from "../lib/messages";
+import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation } from "../lib/messages";
 
 // Direct / group / channel messaging — in-app layer. One realtime channel on
 // dm_messages (RLS scopes delivery to my conversations + my channels) drives
@@ -114,6 +114,22 @@ export function MessagesProvider({ children }) {
     return !error;
   }, [reload]);
 
+  // Delete a channel/group for everyone (drop it from local state immediately,
+  // then reconcile). Leave/hide just removes it from MY inbox.
+  const deleteConversation = useCallback(async (convId) => {
+    const { error } = await apiDeleteConversation(convId);
+    if (!error) setConversations((prev) => prev.filter((c) => c.id !== convId));
+    await reload();
+    return !error;
+  }, [reload]);
+
+  const hideConversation = useCallback(async (convId) => {
+    setConversations((prev) => prev.filter((c) => c.id !== convId));
+    const { error } = await apiHideConversation(convId);
+    if (error) await reload();
+    return !error;
+  }, [reload]);
+
   const markRead = useCallback(async (convId, kind = "dm") => {
     if (!userId || !convId) return;
     setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, unread: false } : c)));
@@ -133,6 +149,7 @@ export function MessagesProvider({ children }) {
   const value = {
     conversations, activeConversations, unread, unreadByOrg, reload,
     startDm, createGroup, createChannel, browseChannels, joinOpenChannel,
+    deleteConversation, hideConversation,
     markRead, subscribeMessages, subscribeReactions,
   };
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;

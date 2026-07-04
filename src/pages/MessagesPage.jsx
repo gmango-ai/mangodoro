@@ -5,6 +5,7 @@ import Markdown from "react-markdown";
 import {
   Send, Plus, ArrowLeft, Users, MessageSquare, Hash, Search, Paperclip, X,
   SmilePlus, Pencil, Trash2, Pin, PinOff, Bell, BellOff, Megaphone, Settings2, Download, ExternalLink,
+  MoreHorizontal, LogOut,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
@@ -753,11 +754,34 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
   );
 }
 
+// Can the caller delete this conversation FOR EVERYONE? (matches the server gate
+// in delete_conversation: channel → creator/admin/lead; group → creator; never a
+// room channel or a DM.) Otherwise the row can only be hidden/left for yourself.
+function canDeleteConversation(c, userId, isAdmin, myOrgTeamLeadIds) {
+  if (c.room_id) return false;
+  if (c.kind === "group") return c.created_by === userId;
+  if (c.kind === "channel") return c.created_by === userId || isAdmin || (c.org_team_id && myOrgTeamLeadIds?.has(c.org_team_id));
+  return false;
+}
+
 // ── sidebar conversation row ──
-function Row({ c, nameOf, memberById, active, onOpen, onPin, onMute, dark }) {
+function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds, onOpen, onPin, onMute, onDelete, onHide, dark }) {
   const first = memberById.get(c.participant_ids[0]);
   const muted = !!c.muted_at;
   const unread = c.unread && !muted;
+  const [menu, setMenu] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const menuRef = useRef(null);
+  const canDelete = canDeleteConversation(c, userId, isAdmin, myOrgTeamLeadIds);
+  const leaveLabel = c.kind === "dm" ? "Delete conversation" : c.room_id ? "Hide channel" : c.kind === "group" ? "Leave group" : "Leave channel";
+  useEffect(() => {
+    if (!menu) return undefined;
+    const f = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) { setMenu(false); setConfirmDel(false); } };
+    window.addEventListener("pointerdown", f, true);
+    return () => window.removeEventListener("pointerdown", f, true);
+  }, [menu]);
+  const close = () => { setMenu(false); setConfirmDel(false); };
+
   return (
     <div className={`group relative flex items-center gap-2.5 mx-2 my-0.5 px-2.5 py-2 rounded-xl cursor-pointer transition-colors ${
       active ? (dark ? "bg-white/10" : "bg-[var(--color-accent-light)]") : dark ? "hover:bg-white/5" : "hover:bg-slate-100"
@@ -777,13 +801,39 @@ function Row({ c, nameOf, memberById, active, onOpen, onPin, onMute, dark }) {
         <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{listStamp(c.last_message_at)}</span>
       </span>
       {/* hover actions */}
-      <div className="absolute right-2 hidden group-hover:flex items-center gap-0.5">
+      <div className={`absolute right-2 ${menu ? "flex" : "hidden group-hover:flex"} items-center gap-0.5`}>
         {c.kind !== "channel" && (
           <button type="button" onClick={(e) => { e.stopPropagation(); onPin(c); }} aria-label={c.pinned_at ? "Unpin" : "Pin"}
             className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{c.pinned_at ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}</button>
         )}
         <button type="button" onClick={(e) => { e.stopPropagation(); onMute(c); }} aria-label={muted ? "Unmute" : "Mute"}
           className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{muted ? <BellOff className="w-3.5 h-3.5" /> : <Bell className="w-3.5 h-3.5" />}</button>
+        <div className="relative" ref={menuRef}>
+          <button type="button" onClick={(e) => { e.stopPropagation(); setMenu((m) => !m); setConfirmDel(false); }} aria-label="More"
+            className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}><MoreHorizontal className="w-3.5 h-3.5" /></button>
+          {menu && (
+            <div onClick={(e) => e.stopPropagation()}
+              className={`absolute right-0 top-full mt-1 w-48 py-1 rounded-xl border shadow-xl z-30 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+              <button type="button" onClick={() => { close(); onHide(c); }}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
+                <LogOut className="w-3.5 h-3.5" /> {leaveLabel}
+              </button>
+              {canDelete && (
+                confirmDel ? (
+                  <button type="button" onClick={() => { close(); onDelete(c); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[13px] font-semibold text-white bg-rose-500 hover:bg-rose-600">
+                    <Trash2 className="w-3.5 h-3.5" /> Delete for everyone?
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setConfirmDel(true)}
+                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-rose-300 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}>
+                    <Trash2 className="w-3.5 h-3.5" /> Delete {c.kind === "group" ? "group" : "channel"}
+                  </button>
+                )
+              )}
+            </div>
+          )}
+        </div>
       </div>
       {unread && <span className="group-hover:hidden w-2.5 h-2.5 rounded-full bg-[var(--color-accent)] shrink-0" />}
     </div>
@@ -791,7 +841,7 @@ function Row({ c, nameOf, memberById, active, onOpen, onPin, onMute, dark }) {
 }
 
 // ── sidebar (sectioned list) ──
-function Sidebar({ conversations, nameOf, memberById, activeId, onOpen, onNew, onPin, onMute, dark }) {
+function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin, myOrgTeamLeadIds, onOpen, onNew, onPin, onMute, onDelete, onHide, dark }) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -830,7 +880,7 @@ function Sidebar({ conversations, nameOf, memberById, activeId, onOpen, onNew, o
         {sections.map((s) => s.items.length > 0 && (
           <div key={s.key} className="mt-1">
             <div className={`px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>{s.label}</div>
-            {s.items.map((c) => <Row key={c.id} c={c} nameOf={nameOf} memberById={memberById} active={c.id === activeId} onOpen={onOpen} onPin={onPin} onMute={onMute} dark={dark} />)}
+            {s.items.map((c) => <Row key={c.id} c={c} nameOf={nameOf} memberById={memberById} active={c.id === activeId} userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds} onOpen={onOpen} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />)}
           </div>
         ))}
       </div>
@@ -862,7 +912,7 @@ export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
-  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, browseChannels, joinOpenChannel, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, browseChannels, joinOpenChannel, deleteConversation, hideConversation, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
@@ -890,12 +940,14 @@ export default function MessagesPage() {
 
   const onPin = async (c) => { await setConversationPinned(c.id, userId, !c.pinned_at, c.kind); reload?.(); };
   const onMute = async (c) => { await setConversationMuted(c.id, userId, !c.muted_at, c.kind); reload?.(); };
+  const onDelete = async (c) => { if (activeId === c.id) open(null); await deleteConversation?.(c.id); };
+  const onHide = async (c) => { if (activeId === c.id) open(null); await hideConversation?.(c.id); };
 
   return (
     <div className={`mx-auto w-full max-w-6xl h-[calc(100dvh-var(--nav-h))] sm:h-[calc(100dvh-var(--nav-h)-1.5rem)] sm:my-3 flex overflow-hidden rounded-none sm:rounded-2xl sm:border ${dark ? "bg-[var(--color-surface)] sm:border-[var(--color-border)]" : "bg-white sm:border-slate-200"}`}>
       {/* Sidebar — full width on mobile when nothing open; fixed column on desktop */}
       <aside className={`${showMain ? "hidden md:flex" : "flex"} w-full md:w-[340px] md:shrink-0 flex-col md:border-r ${dark ? "md:border-[var(--color-border)]" : "md:border-slate-200"}`}>
-        <Sidebar conversations={activeConversations} nameOf={nameOf} memberById={memberById} activeId={activeId} onOpen={open} onNew={() => setComposing(true)} onPin={onPin} onMute={onMute} dark={dark} />
+        <Sidebar conversations={activeConversations} nameOf={nameOf} memberById={memberById} activeId={activeId} userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds} onOpen={open} onNew={() => setComposing(true)} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />
       </aside>
 
       {/* Main pane */}
