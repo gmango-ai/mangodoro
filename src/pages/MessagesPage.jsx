@@ -63,6 +63,11 @@ export function channelGlyph(c, className = "w-4 h-4") {
   return <Icon className={className} />;
 }
 
+// A channel's accent colour — its own override, else the team colour, else teal.
+export function channelColor(c) {
+  return c?.color || c?.org_team_color || "#14b8a6";
+}
+
 // A conversation's display name — channel title, group title (or its members),
 // or the other DM participant. Shared by the page + the nav quick-view.
 export function conversationName(c, memberById) {
@@ -224,7 +229,7 @@ function Attachments({ items, onOpenImage, dark }) {
 }
 
 // ── composer (mentions + attachments + image thumbnails) ──
-function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message…", disabled }) {
+function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message…", disabled, allowImages = true }) {
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState([]);
   const [mentionQ, setMentionQ] = useState(null);
@@ -308,11 +313,13 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message�
             ))}
           </div>
         )}
-        <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files || []); e.target.value = ""; }} />
-        <button type="button" onClick={() => fileRef.current?.click()} aria-label="Attach"
-          className={`shrink-0 w-9 h-9 rounded-xl inline-flex items-center justify-center ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
-          <Paperclip className="w-[18px] h-[18px]" />
-        </button>
+        {allowImages && <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files || []); e.target.value = ""; }} />}
+        {allowImages && (
+          <button type="button" onClick={() => fileRef.current?.click()} aria-label="Attach"
+            className={`shrink-0 w-9 h-9 rounded-xl inline-flex items-center justify-center ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+            <Paperclip className="w-[18px] h-[18px]" />
+          </button>
+        )}
         <textarea
           ref={taRef}
           value={draft}
@@ -343,7 +350,7 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
         <ArrowLeft className="w-5 h-5" />
       </button>
       {kind === "channel" ? (
-        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${conversation?.org_team_color || "#14b8a6"}22`, color: conversation?.org_team_color || "#14b8a6" }}>{channelGlyph(conversation)}</span>
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${channelColor(conversation)}22`, color: channelColor(conversation) }}>{channelGlyph(conversation)}</span>
       ) : kind === "group" ? (
         <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
       ) : (
@@ -632,6 +639,7 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
       </div>
 
       <Composer onSend={onSend} onTyping={signalTyping} candidates={candidates} dark={dark}
+        allowImages={conversation?.allow_images !== false}
         placeholder={conversation?.post_policy === "admins" && !canManageChannel ? "Only admins can post in this channel" : `Message ${isChannel ? "#" + (name || "channel") : name || ""}`}
         disabled={conversation?.post_policy === "admins" && !canManageChannel} />
 
@@ -648,8 +656,15 @@ export function ChannelSettings({ conversation, memberById, dark, onClose, onSav
   const [title, setTitle] = useState(conversation.title || "");
   const [topic, setTopic] = useState(conversation.topic || "");
   const [policy, setPolicy] = useState(conversation.post_policy || "all");
+  const [color, setColor] = useState(conversation.color || "");
+  const [retention, setRetention] = useState(conversation.retention_days || 0);
+  const [allowImages, setAllowImages] = useState(conversation.allow_images !== false);
+  const [forceNotify, setForceNotify] = useState(!!conversation.force_notify);
+  const [archived, setArchived] = useState(!!conversation.archived_at);
   const [busy, setBusy] = useState(false);
   const { teamsByUserId } = useTeam();
+  const isRoom = !!conversation.room_id;
+  const teamColor = conversation.org_team_color || "#14b8a6";
   const roster = useMemo(() => {
     const out = [];
     for (const [uid, teams] of (teamsByUserId || new Map())) {
@@ -660,20 +675,66 @@ export function ChannelSettings({ conversation, memberById, dark, onClose, onSav
 
   const save = async () => {
     setBusy(true);
-    await setChannelMeta(conversation.id, { title, topic, postPolicy: policy });
+    await setChannelMeta(conversation.id, {
+      title, topic, postPolicy: policy,
+      color: color || "",              // "" clears back to the team colour
+      retentionDays: Number(retention) || 0,
+      allowImages, forceNotify,
+      ...(isRoom ? {} : { archived }), // room channels can't be archived here
+    });
     await onSaved?.();
     setBusy(false);
     onClose();
   };
   const inputCls = `w-full rounded-lg border px-3 py-2 text-sm ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"}`;
+  const rowCls = `flex items-center gap-2 text-xs ${dark ? "text-slate-300" : "text-slate-700"}`;
   return (
-    <div className={`px-4 py-3 border-b space-y-2 ${dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "border-slate-200 bg-slate-50"}`}>
+    <div className={`px-4 py-3 border-b space-y-2.5 max-h-[70vh] overflow-y-auto ${dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "border-slate-200 bg-slate-50"}`}>
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Channel name" className={inputCls} />
       <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Topic / description" className={inputCls} />
-      <label className={`flex items-center gap-2 text-xs ${dark ? "text-slate-300" : "text-slate-700"}`}>
+
+      {/* Colour */}
+      <div className={rowCls}>
+        <span className="flex-1">Colour</span>
+        <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : teamColor} onChange={(e) => setColor(e.target.value)}
+          style={{ width: 26, height: 26, padding: 0, border: "none", background: "none", cursor: "pointer" }} aria-label="Channel colour" />
+        {color && <button type="button" onClick={() => setColor("")} className="text-[11px] text-slate-400 hover:text-slate-500">Reset</button>}
+      </div>
+
+      <label className={rowCls}>
         <input type="checkbox" checked={policy === "admins"} onChange={(e) => setPolicy(e.target.checked ? "admins" : "all")} />
         Announcement channel (only admins/leads can post)
       </label>
+      <label className={rowCls}>
+        <input type="checkbox" checked={allowImages} onChange={(e) => setAllowImages(e.target.checked)} />
+        Allow image uploads
+      </label>
+      <label className={rowCls}>
+        <input type="checkbox" checked={forceNotify} onChange={(e) => setForceNotify(e.target.checked)} />
+        Force notifications (members can't mute)
+      </label>
+
+      {/* Retention */}
+      <div className={rowCls}>
+        <span className="flex-1">Auto-delete messages older than</span>
+        <select value={retention} onChange={(e) => setRetention(Number(e.target.value))}
+          className={`rounded-lg border px-2 py-1 text-xs ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"}`}>
+          <option value={0}>Never</option>
+          <option value={7}>7 days</option>
+          <option value={30}>30 days</option>
+          <option value={90}>90 days</option>
+          <option value={365}>1 year</option>
+        </select>
+      </div>
+
+      {/* Archive (not for room channels — those follow their room) */}
+      {!isRoom && (
+        <label className={`${rowCls} ${archived ? "text-amber-500" : ""}`}>
+          <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
+          Archive channel (hidden from everyone; admins can restore)
+        </label>
+      )}
+
       <div className="flex items-center justify-between pt-1">
         <span className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{roster.length} members</span>
         <div className="flex gap-3">
@@ -884,7 +945,7 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
       {lineBefore && <span className="pointer-events-none absolute left-3 right-3 -top-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
       {lineAfter && <span className="pointer-events-none absolute left-3 right-3 -bottom-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
       {c.kind === "channel" ? (
-        <span className={`${compact ? "w-6 h-6" : "w-9 h-9"} rounded-full flex items-center justify-center shrink-0`} style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{channelGlyph(c, compact ? "w-3.5 h-3.5" : "w-4 h-4")}</span>
+        <span className={`${compact ? "w-6 h-6" : "w-9 h-9"} rounded-full flex items-center justify-center shrink-0`} style={{ background: `${channelColor(c)}22`, color: channelColor(c) }}>{channelGlyph(c, compact ? "w-3.5 h-3.5" : "w-4 h-4")}</span>
       ) : c.kind === "group" ? (
         <span className={`${compact ? "w-6 h-6" : "w-9 h-9"} rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} /></span>
       ) : (
@@ -903,8 +964,10 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
           <button type="button" onClick={(e) => { e.stopPropagation(); onPin(c); }} aria-label={c.pinned_at ? "Unpin" : "Pin"}
             className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{c.pinned_at ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}</button>
         )}
-        <button type="button" onClick={(e) => { e.stopPropagation(); onMute(c); }} aria-label={muted ? "Unmute" : "Mute"}
-          className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{muted ? <BellOff className="w-3.5 h-3.5" /> : <Bell className="w-3.5 h-3.5" />}</button>
+        {!c.force_notify && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); onMute(c); }} aria-label={muted ? "Unmute" : "Mute"}
+            className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{muted ? <BellOff className="w-3.5 h-3.5" /> : <Bell className="w-3.5 h-3.5" />}</button>
+        )}
         <div className="relative" ref={menuRef}>
           <button type="button" onClick={(e) => { e.stopPropagation(); setMenu((m) => !m); setConfirmDel(false); }} aria-label="More"
             className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}><MoreHorizontal className="w-3.5 h-3.5" /></button>
@@ -1050,7 +1113,9 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
   // Inside a group, manual folder_position wins; recency breaks ties, so channels
   // never reordered (all position 0) keep their old order.
   const byPos = (a, b) => (a.folder_position - b.folder_position) || (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
-  const channels = filtered.filter((c) => c.kind === "channel");
+  const channels = filtered.filter((c) => c.kind === "channel" && !c.archived_at);
+  // Archived channels only reach admins (server-side); shown in their own section.
+  const archived = filtered.filter((c) => c.kind === "channel" && c.archived_at);
   const groupKeyOf = (c) => (c.folder_id && folderIds.has(c.folder_id) ? c.folder_id : "__none__");
   const groupChannels = (key) => channels.filter((c) => groupKeyOf(c) === key).sort(byPos);
   const ungrouped = groupChannels("__none__");
@@ -1202,6 +1267,14 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
           <div className="mt-1">
             <div className={sectionLabel()}>Direct messages</div>
             {dms.map(rowOf)}
+          </div>
+        )}
+        {archived.length > 0 && (
+          <div className="mt-1">
+            <button type="button" onClick={() => toggle("__archived__")} className={`${sectionLabel()} flex items-center gap-1 w-full`}>
+              {collapsed.has("__archived__") ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />} Archived
+            </button>
+            {!collapsed.has("__archived__") && archived.map((c) => <div key={c.id} className="opacity-60">{rowOf(c)}</div>)}
           </div>
         )}
       </div>

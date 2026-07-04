@@ -106,8 +106,8 @@ const isUnread = (lastMessageAt, lastReadAt) =>
 // moment they appear. Treat a channel with no read cursor as read — you only get
 // a badge once you've opened it and genuinely-new messages arrive after. DMs and
 // groups keep the plain rule (you were explicitly added to those).
-const rowUnread = (kind, lastMessageAt, lastReadAt, mutedAt) => {
-  if (mutedAt) return false;
+const rowUnread = (kind, lastMessageAt, lastReadAt, mutedAt, forceNotify) => {
+  if (mutedAt && !forceNotify) return false; // force-notify channels ignore mute
   if (kind === "channel" && !lastReadAt) return false;
   return isUnread(lastMessageAt, lastReadAt);
 };
@@ -138,7 +138,12 @@ export async function listConversations(userId) {
       room_id: c.room_id || null,
       folder_id: c.folder_id || null,
       folder_position: c.folder_position ?? 0,
-      unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, c.last_read_at, c.muted_at),
+      color: c.color || null,
+      archived_at: c.archived_at || null,
+      retention_days: c.retention_days ?? null,
+      allow_images: c.allow_images ?? true,
+      force_notify: c.force_notify ?? false,
+      unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, c.last_read_at, c.muted_at, c.force_notify),
     }));
   }
   return listConversationsLegacy(userId);
@@ -194,6 +199,11 @@ async function listConversationsLegacy(userId) {
       room_id: null,
       folder_id: null,
       folder_position: 0,
+      color: null,
+      archived_at: null,
+      retention_days: null,
+      allow_images: true,
+      force_notify: false,
       unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, lastRead, mutedAt),
     };
   });
@@ -334,12 +344,17 @@ export async function setConversationMuted(conversationId, userId, muted, kind =
 }
 
 // ── Channel admin (Phase 9) ──
-export async function setChannelMeta(conversationId, { title, topic, postPolicy }) {
+export async function setChannelMeta(conversationId, { title, topic, postPolicy, color, archived, retentionDays, allowImages, forceNotify } = {}) {
   const { error } = await supabase.rpc("set_channel_meta", {
     p_conversation_id: conversationId,
     p_title: title ?? null,
     p_topic: topic ?? null,
     p_post_policy: postPolicy ?? null,
+    p_color: color ?? null,
+    p_archived: archived ?? null,
+    p_retention_days: retentionDays ?? null,
+    p_allow_images: allowImages ?? null,
+    p_force_notify: forceNotify ?? null,
   });
   return { error };
 }
