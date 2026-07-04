@@ -55,7 +55,6 @@ import {
   Eraser,
   MessageSquare,
   MoreHorizontal,
-  MousePointer2,
   StickyNote,
   PanelLeftClose,
   PanelLeftOpen,
@@ -232,19 +231,52 @@ function ShapePreview({ shape, w = 26, h = 18 }) {
 }
 
 // Toolbar dropdown of the full flowchart shape catalogue.
-function ShapesMenu({ dark, onPick }) {
+function ShapesMenu({ dark, onPick, onDropAt }) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState(() => preferredShape());
+  const [ghost, setGhost] = useState(null); // {x,y,shape} while dragging from a button
+  const dragRef = useRef(null);
   const chooseAndAdd = (key) => { setPreferredShape(key); setCurrent(key); onPick(key); setOpen(false); };
+
+  // Drag off any shape button to drop it where you release (with a live ghost);
+  // a plain click keeps the old behaviour (add at centre / choose). Pointer
+  // capture keeps the events on the button so the canvas doesn't pan.
+  const startDrag = (shape) => (e) => {
+    if (e.button != null && e.button !== 0) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* */ }
+    dragRef.current = { moved: false, sx: e.clientX, sy: e.clientY, shape };
+  };
+  const moveDrag = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
+    d.moved = true;
+    setGhost({ x: e.clientX, y: e.clientY, shape: d.shape });
+  };
+  const endDrag = (onClick) => (e) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setGhost(null);
+    if (d?.moved) {
+      setPreferredShape(d.shape);
+      setCurrent(d.shape);
+      onDropAt?.(e.clientX, e.clientY, d.shape);
+      setOpen(false);
+    } else onClick?.();
+  };
+
   return (
     <div className="relative">
       {/* One click drops the last-used shape (no dropdown) so you can chain a
-          flowchart fast; the caret opens the full catalogue + remembers it. */}
+          flowchart fast; drag to place it exactly; the caret opens the full
+          catalogue + remembers it. */}
       <button
         type="button"
-        title="Add shape (last used) — caret to choose another"
-        onClick={() => onPick(current)}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+        title="Add shape (last used) — click, or drag to place · caret to choose another"
+        onPointerDown={startDrag(current)}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag(() => onPick(current))}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
           dark
             ? "text-sky-400 hover:bg-sky-500/15"
             : "text-sky-600 hover:bg-sky-50"
@@ -281,9 +313,11 @@ function ShapesMenu({ dark, onPick }) {
               <button
                 key={s.key}
                 type="button"
-                title={s.label}
-                onClick={() => chooseAndAdd(s.key)}
-                className={`h-10 rounded-lg flex items-center justify-center ${
+                title={`${s.label} — click, or drag to place`}
+                onPointerDown={startDrag(s.key)}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag(() => chooseAndAdd(s.key))}
+                className={`h-10 rounded-lg flex items-center justify-center touch-none cursor-grab active:cursor-grabbing ${
                   s.key === current
                     ? "bg-sky-500/20 text-sky-500"
                     : dark
@@ -296,6 +330,21 @@ function ShapesMenu({ dark, onPick }) {
             ))}
           </div>
         </>
+      )}
+      {ghost && createPortal(
+        <div
+          aria-hidden
+          style={{
+            position: "fixed", left: ghost.x, top: ghost.y,
+            transform: "translate(-50%,-50%)", pointerEvents: "none",
+            zIndex: 9999, opacity: 0.92, color: dark ? "#38bdf8" : "#0284c7",
+          }}
+        >
+          <svg width="60" height="40" viewBox="0 0 60 40" style={{ display: "block", filter: "drop-shadow(0 6px 16px rgba(0,0,0,.28))" }}>
+            <ShapeSvg shape={ghost.shape} w={60} h={40} fill={dark ? "#0b1220" : "#ffffff"} stroke="currentColor" sw={2} />
+          </svg>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -1367,8 +1416,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   // Last pointer position in FLOW coords — so paste lands under the cursor.
   const lastPtRef = useRef(null);
+  const lastClientRef = useRef(null); // last cursor position in SCREEN coords
   const onWbPointerMove = useCallback(
     (e) => {
+      lastClientRef.current = { x: e.clientX, y: e.clientY };
       try {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         lastPtRef.current = { x: p.x, y: p.y };
@@ -1544,12 +1595,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (!board || !(board.matches(":hover") || board.contains(el))) return;
       // Escape drops back to the select tool (exit laser mode).
       if (e.key === "Escape") { setTool("select"); return; }
-      // "Q" pops the quick-tool palette at the board's center — works even when
-      // the left toolbar is collapsed.
+      // "Q" pops the quick-tool palette at the cursor (so items spawn where you
+      // are) — works even when the left toolbar is collapsed. Falls back to the
+      // board centre if we haven't seen the pointer yet.
       if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "q") {
         e.preventDefault();
         const r = mainRef.current?.getBoundingClientRect();
-        setPalette((p) => (p ? null : (r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: 200, y: 200 })));
+        const at = lastClientRef.current || (r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: 200, y: 200 });
+        setPalette((p) => (p ? null : at));
         return;
       }
       const mod = e.metaKey || e.ctrlKey;
@@ -2441,6 +2494,13 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     [rf, setNodes]
   );
 
+  // Drop all selection (nodes + edges) without deleting anything — used by the
+  // quick palette's centre "X" to bail back to a clean select state.
+  const clearSelection = useCallback(() => {
+    setNodes((nds) => (nds.some((n) => n.selected) ? nds.map((n) => (n.selected ? { ...n, selected: false } : n)) : nds));
+    setEdges((eds) => (eds.some((e) => e.selected) ? eds.map((e) => (e.selected ? { ...e, selected: false } : e)) : eds));
+  }, [setNodes, setEdges]);
+
   const deleteSelected = useCallback(() => {
     const selectedNodeIds = new Set(
       nodes.filter((n) => n.selected).map((n) => n.id)
@@ -3181,6 +3241,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           <ShapesMenu
             dark={dark}
             onPick={(shape) => addNodeAtCenter("shape", { shape })}
+            onDropAt={(x, y, shape) => addNodeAtCenter("shape", { shape }, { x, y })}
           />
           <ToolButton
             title="Add goal"
@@ -3351,9 +3412,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         />
       )}
 
-      {/* Quick-tool palette — popped by pressing "Q". A compact floating tool
-          picker at the board's center; pick a tool and it closes. Works even
-          when the left toolbar is collapsed. */}
+      {/* Quick-tool palette — popped by pressing "Q" at the cursor. A compact
+          floating tool picker; new nodes spawn right where the palette sits (the
+          cursor). The centre is an "X" that clears the selection and drops back
+          to select mode. Works even when the left toolbar is collapsed. */}
       {palette && (
         <>
           <div className="fixed inset-0 z-[59]" onClick={() => setPalette(null)} aria-hidden />
@@ -3366,16 +3428,16 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             aria-label="Quick tools"
           >
             {[
-              ["Select", MousePointer2, () => setTool("select")],
-              ["Sticky note", StickyNote, () => addNodeAtCenter("sticky", {})],
-              ["Text", Type, () => addNodeAtCenter("text", textStyleRef.current)],
-              ["Goal", Target, () => addNodeAtCenter("goal")],
-              ["Frame", Frame, () => addNodeAtCenter("frame")],
-              ["Image", ImagePlus, () => fileInputRef.current?.click()],
-              ["Pen", Pencil, () => setTool("pen")],
-              ["Brush", Paintbrush, () => setTool("brush")],
-              ["Delete", Trash2, () => deleteSelected()],
-            ].map(([label, Icon, run]) => (
+              { label: "Frame", icon: <Frame className="w-4 h-4" />, run: () => addNodeAtCenter("frame", {}, palette) },
+              { label: "Sticky note", icon: <StickyNote className="w-4 h-4" />, run: () => addNodeAtCenter("sticky", {}, palette) },
+              { label: "Text", icon: <Type className="w-4 h-4" />, run: () => addNodeAtCenter("text", textStyleRef.current, palette) },
+              { label: "Goal", icon: <Target className="w-4 h-4" />, run: () => addNodeAtCenter("goal", {}, palette) },
+              { label: "Clear selection", icon: <X className="w-5 h-5" />, center: true, run: () => { setTool("select"); clearSelection(); } },
+              { label: "Image", icon: <ImagePlus className="w-4 h-4" />, run: () => fileInputRef.current?.click() },
+              { label: "Pen", icon: <Pencil className="w-4 h-4" />, run: () => setTool("pen") },
+              { label: "Brush", icon: <Paintbrush className="w-4 h-4" />, run: () => setTool("brush") },
+              { label: "Shape", icon: <ShapePreview shape={preferredShape()} w={22} h={15} />, run: () => addNodeAtCenter("shape", { shape: preferredShape() }, palette) },
+            ].map(({ label, icon, run, center }) => (
               <button
                 key={label}
                 type="button"
@@ -3384,10 +3446,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
                 aria-label={label}
                 onClick={() => { run(); setPalette(null); }}
                 className={`w-10 h-10 rounded-xl inline-flex items-center justify-center transition-colors ${
-                  dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                  center
+                    ? (dark ? "text-rose-300 hover:bg-rose-500/15 ring-1 ring-rose-500/30" : "text-rose-500 hover:bg-rose-50 ring-1 ring-rose-200")
+                    : (dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100")
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                {icon}
               </button>
             ))}
           </div>
