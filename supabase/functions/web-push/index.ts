@@ -6,8 +6,10 @@
 // Only pushes deliveries on the 'desktop' channel that aren't 'held'.
 //
 // Secrets (supabase secrets set): VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY,
-// VAPID_SUBJECT (mailto: or https URL). Deploy with verify_jwt = false so the
-// DB webhook can call it (it carries no user JWT); we gate on a shared header.
+// VAPID_SUBJECT (mailto: or https URL), and WEB_PUSH_WEBHOOK_SECRET (REQUIRED —
+// the only auth gate). Deploy with verify_jwt = false so the DB webhook can call
+// it (no user JWT); the webhook MUST send that secret as an x-webhook-secret
+// header, and the function fails closed if the secret is unset.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import webpush from "https://esm.sh/web-push@3.6.7";
 
@@ -31,8 +33,11 @@ const json = (status: number, body: unknown) =>
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
-    // If a shared secret is configured, require it (the DB webhook sends it).
-    if (WEBHOOK_SECRET && req.headers.get("x-webhook-secret") !== WEBHOOK_SECRET) {
+    // Require the shared secret (the DB webhook sends it via x-webhook-secret).
+    // Deployed with verify_jwt=false so the webhook can call it, so this is the
+    // only gate — FAIL CLOSED if it's unset, or anyone could POST a push for an
+    // arbitrary user_id.
+    if (!WEBHOOK_SECRET || req.headers.get("x-webhook-secret") !== WEBHOOK_SECRET) {
       return json(401, { error: "unauthorized" });
     }
 

@@ -48,13 +48,18 @@ export async function upsertUserPresence({
   );
 }
 
-// Set a manual override (touches only the override_* columns — never the
-// derived snapshot). The resolver reads it back on its next tick and it wins.
+// Set a manual override. The resolver reads it back on its next tick and it
+// wins — but we ALSO reflect it into the derived `availability`/`since` columns
+// immediately, so focus-aware routing (_nd_insert_delivery) and the teammate
+// roster (mergeOfficePresence) — which read `availability` — don't show the user
+// as reachable for up to 15s after they set Focusing / In a meeting.
 export async function setPresenceOverride({ userId, availability, message = null, expiresAt = null }) {
   if (!userId) return { error: { message: "no user" } };
   return supabase.from("user_presence").upsert(
     {
       user_id: userId,
+      availability,
+      since: new Date().toISOString(),
       override_availability: availability,
       override_message: message,
       override_expires_at: toIso(expiresAt),
