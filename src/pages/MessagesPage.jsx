@@ -362,7 +362,7 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
 }
 
 // ── Open conversation ──
-export function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, onOpenFull, onOpenRoom, hideHeader, markRead, subscribeMessages, subscribeReactions, onChannelMetaSaved, dark }) {
+export function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, onOpenFull, onOpenRoom, hideHeader, slimHeader, markRead, subscribeMessages, subscribeReactions, onChannelMetaSaved, dark }) {
   const convId = conversation?.id;
   const kind = conversation?.kind || (conversation?.is_group ? "group" : "dm");
   const isChannel = kind === "channel";
@@ -416,10 +416,19 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
 
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages]);
 
-  // presence: typing + online
+  // presence: typing + online. The topic is shared across USERS (that's how
+  // typing propagates), so it must stay deterministic per conversation — which
+  // means two Thread instances in one browser (e.g. a room tile + the quick view
+  // for the same channel), or a StrictMode re-mount, would otherwise hand back an
+  // already-subscribed channel and blow up on `.on('presence')` after
+  // subscribe(). Reuse the live channel for the topic when one exists; only the
+  // instance that created it registers callbacks + owns cleanup.
   useEffect(() => {
-    if (!convId || !userId) return;
-    const ch = supabase.channel(`presence:conv:${convId}`, { config: { presence: { key: userId } } });
+    if (!convId || !userId) return undefined;
+    const topic = `presence:conv:${convId}`;
+    const existing = supabase.getChannels().find((c) => c.topic === `realtime:${topic}` || c.topic === topic);
+    if (existing) { presenceRef.current = existing; return undefined; }
+    const ch = supabase.channel(topic, { config: { presence: { key: userId } } });
     presenceRef.current = ch;
     ch.on("presence", { event: "sync" }, () => {
       const state = ch.presenceState();
@@ -432,16 +441,17 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
     }).subscribe(async (status) => {
       if (status === "SUBSCRIBED") await ch.track({ typing: false, name: memberById.get(userId)?.name || "Someone" });
     });
-    return () => { try { supabase.removeChannel(ch); } catch { /* */ } presenceRef.current = null; };
+    return () => { try { supabase.removeChannel(ch); } catch { /* */ } if (presenceRef.current === ch) presenceRef.current = null; };
   }, [convId, userId, memberById]);
 
   const typingTimer = useRef(null);
   const signalTyping = useCallback(() => {
     const ch = presenceRef.current;
     if (!ch) return;
-    ch.track({ typing: true, name: memberById.get(userId)?.name || "Someone" });
+    const nm = memberById.get(userId)?.name || "Someone";
+    try { ch.track({ typing: true, name: nm }); } catch { /* channel may be torn down by another instance */ }
     if (typingTimer.current) clearTimeout(typingTimer.current);
-    typingTimer.current = setTimeout(() => ch.track({ typing: false, name: memberById.get(userId)?.name || "Someone" }), 2500);
+    typingTimer.current = setTimeout(() => { try { ch.track({ typing: false, name: nm }); } catch { /* */ } }, 2500);
   }, [userId, memberById]);
 
   const onSend = async (body, files) => {
@@ -502,7 +512,23 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {!hideHeader && <ConvHeader conversation={conversation} name={name} memberById={memberById} canManage={canManageChannel} onBack={onBack} onToggleSettings={() => setShowSettings((v) => !v)} onOpenFull={onOpenFull} onOpenRoom={onOpenRoom} dark={dark} />}
+      {slimHeader ? (
+        // Slim bar for embedded room tiles (the tile has its own "Chat" title):
+        // just the channel settings gear (admins), topic, and announcement badge.
+        (canManageChannel || conversation?.topic || conversation?.post_policy === "admins") && (
+          <div className={`flex items-center gap-2 px-2.5 h-8 shrink-0 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+            {conversation?.post_policy === "admins" && <Megaphone className="w-3.5 h-3.5 text-amber-500 shrink-0" aria-label="Announcement channel" />}
+            {conversation?.topic && <span className={`flex-1 min-w-0 truncate text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{conversation.topic}</span>}
+            {canManageChannel && (
+              <button type="button" onClick={() => setShowSettings((v) => !v)} aria-label="Channel settings" title="Channel settings" className={`ml-auto p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+                <Settings2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )
+      ) : !hideHeader && (
+        <ConvHeader conversation={conversation} name={name} memberById={memberById} canManage={canManageChannel} onBack={onBack} onToggleSettings={() => setShowSettings((v) => !v)} onOpenFull={onOpenFull} onOpenRoom={onOpenRoom} dark={dark} />
+      )}
 
       {showSettings && canManageChannel && (
         <ChannelSettings conversation={conversation} memberById={memberById} dark={dark} onClose={() => setShowSettings(false)} onSaved={onChannelMetaSaved} />

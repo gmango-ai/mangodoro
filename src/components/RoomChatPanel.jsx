@@ -162,9 +162,9 @@ function MessageRow({
 // A general room's chat IS its Messages channel, so — when we're interactive
 // (not the read-only kiosk) and that channel is available — render the exact same
 // Thread UI the Messages page uses: image uploads, reactions, @mention rendering,
-// the lot. The header is hidden because the room tile already has its own "Chat"
-// title bar. Everything else (non-general rooms, kiosk/read-only, or before the
-// channel loads) keeps the legacy panel.
+// the lot. It uses a slim header (just the channel-settings gear + topic) since
+// the room tile already has its own "Chat" title bar. Everything else (non-general
+// rooms, kiosk/read-only, or before the channel loads) keeps the legacy panel.
 export default function RoomChatPanel(props) {
   const { conversations = [] } = useMessages();
   const conv = props.readOnly ? null : conversations.find((c) => c.room_id === props.roomId);
@@ -184,7 +184,7 @@ function RoomThreadPanel({ conv, userId, fillHeight = false }) {
       <Thread
         conversation={conv} name={conv.title} memberById={memberById} candidates={others}
         userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
-        hideHeader markRead={markRead}
+        slimHeader markRead={markRead}
         subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions}
         onChannelMetaSaved={reload} dark={dark}
       />
