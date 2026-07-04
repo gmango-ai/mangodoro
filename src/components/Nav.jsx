@@ -7,6 +7,7 @@ import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
 import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown, HelpCircle } from "lucide-react";
 import UserAvatar from "./UserAvatar";
+import StatusChip from "./StatusChip";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
 import BottomNav from "./BottomNav";
@@ -185,6 +186,9 @@ export default function Nav({ onOpenPomodoro }) {
               <NavLink to="/whiteboards" className={desktopNavLink}>Whiteboards</NavLink>
               <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
             </nav>
+
+            {/* Your live status — availability + what you're on + duration. */}
+            <StatusChip />
 
             {/* Clock in/out + quick On-lunch, and who's working right now. */}
             <WorkClockBar dark={darkMode} />
