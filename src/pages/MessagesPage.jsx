@@ -765,7 +765,7 @@ function canDeleteConversation(c, userId, isAdmin, myOrgTeamLeadIds) {
 }
 
 // ── sidebar conversation row ──
-function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onAssignFolder, onOpen, onPin, onMute, onDelete, onHide, dark }) {
+function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onAssignFolder, canDrag, onDragStartRow, onDragEndRow, isDragged, onOpen, onPin, onMute, onDelete, onHide, dark }) {
   const first = memberById.get(c.participant_ids[0]);
   const muted = !!c.muted_at;
   const unread = c.unread && !muted;
@@ -785,9 +785,13 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
   const close = () => { setMenu(false); setConfirmDel(false); setMoveOpen(false); };
 
   return (
-    <div className={`group relative flex items-center gap-2.5 mx-2 my-0.5 px-2.5 py-2 rounded-xl cursor-pointer transition-colors ${
-      active ? (dark ? "bg-white/10" : "bg-[var(--color-accent-light)]") : dark ? "hover:bg-white/5" : "hover:bg-slate-100"
-    }`} onClick={() => onOpen(c.id)}>
+    <div
+      draggable={canDrag}
+      onDragStart={canDrag ? (e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", c.id); onDragStartRow?.(c.id); } : undefined}
+      onDragEnd={canDrag ? () => onDragEndRow?.() : undefined}
+      className={`group relative flex items-center gap-2.5 mx-2 my-0.5 px-2.5 py-2 rounded-xl cursor-pointer transition-colors ${isDragged ? "opacity-40" : ""} ${
+        active ? (dark ? "bg-white/10" : "bg-[var(--color-accent-light)]") : dark ? "hover:bg-white/5" : "hover:bg-slate-100"
+      }`} onClick={() => onOpen(c.id)}>
       {c.kind === "channel" ? (
         <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}><Hash className="w-4 h-4" /></span>
       ) : c.kind === "group" ? (
@@ -865,7 +869,7 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
 }
 
 // ── one shared channel folder in the sidebar (collapsible; admin rename/delete) ──
-function FolderGroup({ folder, items, collapsed, onToggle, canOrganize, onRename, onDelete, dark, children }) {
+function FolderGroup({ folder, items, collapsed, onToggle, canOrganize, onRename, onDelete, dropActive, onDragOverFolder, onDropFolder, dark, children }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(folder.name);
   const [menu, setMenu] = useState(false);
@@ -880,7 +884,10 @@ function FolderGroup({ folder, items, collapsed, onToggle, canOrganize, onRename
   }, [menu]);
   const commit = () => { const n = name.trim(); if (n && n !== folder.name) onRename(folder.id, n); setEditing(false); };
   return (
-    <div className="mt-1">
+    <div
+      onDragOver={onDragOverFolder}
+      onDrop={onDropFolder}
+      className={`mt-1 rounded-lg transition-colors ${dropActive ? `ring-2 ring-[var(--color-accent)] ${dark ? "bg-white/10" : "bg-[var(--color-accent-light)]"}` : ""}`}>
       <div className="group/f flex items-center gap-1 pl-2 pr-3 pt-2 pb-0.5">
         <button type="button" onClick={onToggle} className="p-0.5 text-slate-400 hover:text-slate-500" aria-label={collapsed ? "Expand" : "Collapse"}>
           {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -926,6 +933,8 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
   const [q, setQ] = useState("");
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [newFolder, setNewFolder] = useState(null); // draft name string while creating, else null
+  const [dragId, setDragId] = useState(null);        // channel being dragged (admins only)
+  const [dropTarget, setDropTarget] = useState(undefined); // folder id | "__none__" | undefined
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = needle ? conversations.filter((c) => nameOf(c).toLowerCase().includes(needle)) : conversations;
@@ -939,10 +948,24 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
   const dms = filtered.filter((c) => c.kind === "dm" || (!c.kind && !c.is_group));
 
   const toggle = (id) => setCollapsed((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // Drag a channel (admins) onto a folder — or the "No folder" zone — to re-file
+  // it. dropTarget "__none__" means the ungrouped zone (move out of any folder).
+  const overZone = (t) => (e) => { if (dragId == null) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dropTarget !== t) setDropTarget(t); };
+  const dropZone = (t) => (e) => {
+    e.preventDefault();
+    const id = dragId || e.dataTransfer.getData("text/plain");
+    const folderId = t === "__none__" ? null : t;
+    const cur = channels.find((c) => c.id === id);
+    if (id && cur && (cur.folder_id || null) !== folderId) onAssignFolder({ id }, folderId);
+    setDragId(null); setDropTarget(undefined);
+  };
+
   const rowOf = (c) => (
     <Row key={c.id} c={c} nameOf={nameOf} memberById={memberById} active={c.id === activeId}
       userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
       folders={folders} canOrganize={canOrganize} onAssignFolder={onAssignFolder}
+      canDrag={canOrganize && c.kind === "channel"} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropTarget(undefined); }} isDragged={dragId === c.id}
       onOpen={onOpen} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />
   );
   const commitNewFolder = () => { const n = (newFolder || "").trim(); if (n) onCreateFolder(n); setNewFolder(null); };
@@ -994,15 +1017,23 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
               if (!items.length && !canOrganize) return null;
               return (
                 <FolderGroup key={f.id} folder={f} items={items} collapsed={collapsed.has(f.id)} onToggle={() => toggle(f.id)}
-                  canOrganize={canOrganize} onRename={onRenameFolder} onDelete={onDeleteFolder} dark={dark}>
+                  canOrganize={canOrganize} onRename={onRenameFolder} onDelete={onDeleteFolder}
+                  dropActive={dropTarget === f.id} onDragOverFolder={overZone(f.id)} onDropFolder={dropZone(f.id)} dark={dark}>
                   {items.map(rowOf)}
                 </FolderGroup>
               );
             })}
-            {ungrouped.length > 0 && (
-              <div className="mt-0.5">
+            {/* Ungrouped channels + the "move out of a folder" drop zone. Always a
+                drop target while dragging (even when empty) so a channel can be
+                pulled back out of every folder. */}
+            {(ungrouped.length > 0 || (dragId != null && folders.length > 0)) && (
+              <div onDragOver={overZone("__none__")} onDrop={dropZone("__none__")}
+                className={`mt-0.5 rounded-lg transition-colors ${dropTarget === "__none__" ? `ring-2 ring-[var(--color-accent)] ${dark ? "bg-white/10" : "bg-[var(--color-accent-light)]"}` : ""}`}>
                 {folders.length > 0 && <div className={`pl-3 pr-3 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide ${dark ? "text-slate-600" : "text-slate-400"}`}>Ungrouped</div>}
                 {ungrouped.map(rowOf)}
+                {dragId != null && ungrouped.length === 0 && folders.length > 0 && (
+                  <div className={`mx-2 my-1 px-2.5 py-3 rounded-lg border border-dashed text-center text-[11px] ${dark ? "border-slate-600 text-slate-500" : "border-slate-300 text-slate-400"}`}>Drop here to remove from folder</div>
+                )}
               </div>
             )}
           </div>
