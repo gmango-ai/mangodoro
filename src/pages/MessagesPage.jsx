@@ -660,6 +660,7 @@ export function ChannelSettings({ conversation, memberById, dark, onClose, onSav
   const [retention, setRetention] = useState(conversation.retention_days || 0);
   const [allowImages, setAllowImages] = useState(conversation.allow_images !== false);
   const [forceNotify, setForceNotify] = useState(!!conversation.force_notify);
+  const [pinnedAll, setPinnedAll] = useState(!!conversation.pinned_all);
   const [archived, setArchived] = useState(!!conversation.archived_at);
   const [busy, setBusy] = useState(false);
   const { teamsByUserId } = useTeam();
@@ -679,7 +680,7 @@ export function ChannelSettings({ conversation, memberById, dark, onClose, onSav
       title, topic, postPolicy: policy,
       color: color || "",              // "" clears back to the team colour
       retentionDays: Number(retention) || 0,
-      allowImages, forceNotify,
+      allowImages, forceNotify, pinnedAll,
       ...(isRoom ? {} : { archived }), // room channels can't be archived here
     });
     await onSaved?.();
@@ -701,6 +702,10 @@ export function ChannelSettings({ conversation, memberById, dark, onClose, onSav
         {color && <button type="button" onClick={() => setColor("")} className="text-[11px] text-slate-400 hover:text-slate-500">Reset</button>}
       </div>
 
+      <label className={rowCls}>
+        <input type="checkbox" checked={pinnedAll} onChange={(e) => setPinnedAll(e.target.checked)} />
+        Pin to top for everyone
+      </label>
       <label className={rowCls}>
         <input type="checkbox" checked={policy === "admins"} onChange={(e) => setPolicy(e.target.checked ? "admins" : "all")} />
         Announcement channel (only admins/leads can post)
@@ -953,7 +958,7 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
       )}
       <span className="flex-1 min-w-0">
         <span className={`flex items-center gap-1 truncate ${compact ? "text-[13px]" : "text-sm"} ${unread ? "font-bold" : "font-medium"} ${dark ? "text-slate-100" : "text-slate-800"}`}>
-          {c.pinned_at && <Pin className="w-3 h-3 opacity-50 shrink-0" />}
+          {c.pinned_all ? <Pin className="w-3 h-3 text-[var(--color-accent)] shrink-0" aria-label="Pinned for everyone" /> : c.pinned_at ? <Pin className="w-3 h-3 opacity-50 shrink-0" /> : null}
           <span className="truncate">{nameOf(c)}</span>
         </span>
         {!compact && <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{listStamp(c.last_message_at)}</span>}
@@ -1110,9 +1115,9 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
   }, [conversations, q, nameOf]);
 
   const folderIds = useMemo(() => new Set(folders.map((f) => f.id)), [folders]);
-  // Inside a group, manual folder_position wins; recency breaks ties, so channels
-  // never reordered (all position 0) keep their old order.
-  const byPos = (a, b) => (a.folder_position - b.folder_position) || (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
+  // Inside a group: pin-for-everyone floats to the top, then manual
+  // folder_position, then recency (so un-reordered channels keep their old order).
+  const byPos = (a, b) => ((b.pinned_all ? 1 : 0) - (a.pinned_all ? 1 : 0)) || (a.folder_position - b.folder_position) || (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   const channels = filtered.filter((c) => c.kind === "channel" && !c.archived_at);
   // Archived channels only reach admins (server-side); shown in their own section.
   const archived = filtered.filter((c) => c.kind === "channel" && c.archived_at);
