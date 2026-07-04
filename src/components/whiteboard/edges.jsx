@@ -20,19 +20,23 @@ export function EdgeMarkerDefs() {
   // rather than relying on React Flow's object-marker generation). orient
   // "auto-start-reverse" makes directional caps point the right way on EITHER
   // end; fill/stroke "context-stroke" follows each edge's colour for free.
+  // refX sits at each cap's NODE-FACING extreme (arrow tip / dot & diamond far
+  // edge) so the whole cap rests just outside the node instead of straddling
+  // the perimeter half-in — the symmetric caps in particular used to sit centred
+  // on the endpoint and read as "half swallowed" by the shape.
   return (
     <svg aria-hidden style={{ position: "absolute", width: 0, height: 0 }}>
       <defs>
-        <marker id="wb-arrow" markerWidth="10" markerHeight="10" refX="8.5" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
+        <marker id="wb-arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
           <path d="M1.5 1.5 L9 5 L1.5 8.5 Z" fill="context-stroke" />
         </marker>
-        <marker id="wb-open" markerWidth="10" markerHeight="10" refX="8.5" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
+        <marker id="wb-open" markerWidth="10" markerHeight="10" refX="9" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
           <path d="M2 1.5 L9 5 L2 8.5" fill="none" stroke="context-stroke" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
         </marker>
-        <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" markerUnits="strokeWidth" orient="auto-start-reverse">
+        <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="7.5" refY="4" markerUnits="strokeWidth" orient="auto-start-reverse">
           <circle cx="4" cy="4" r="3" fill="context-stroke" />
         </marker>
-        <marker id="wb-diamond" markerWidth="11" markerHeight="11" refX="5.5" refY="5.5" markerUnits="strokeWidth" orient="auto-start-reverse">
+        <marker id="wb-diamond" markerWidth="11" markerHeight="11" refX="10.5" refY="5.5" markerUnits="strokeWidth" orient="auto-start-reverse">
           <path d="M5.5 1 L10 5.5 L5.5 10 L1 5.5 Z" fill="context-stroke" />
         </marker>
       </defs>
@@ -227,16 +231,17 @@ function capUrl(kind) {
 }
 
 // The end-cap drawn AS the endpoint drag handle — a larger version of the cap,
-// pointing +x (toward its node) with its reference point at the origin, so it
-// lands exactly where the real marker sits. Directional caps (arrow/open) put
-// their tip at the endpoint; symmetric caps (dot/diamond) sit centred on it.
-// "none" returns null → the base handle dot stands in as the grab target.
+// pointing +x (toward its node). Its NODE-FACING extreme sits at the origin
+// (the endpoint / node perimeter) and the body extends into -x (away from the
+// node), matching where the real marker now rests so nothing straddles the edge
+// half-inside. "none" returns null → the base handle dot stands in as the grab
+// target.
 function capHandleGlyph(cap, color) {
   switch (cap) {
     case "arrow": return <path d="M0 0 L-13 -7 L-13 7 Z" fill={color} />;
     case "open": return <path d="M-13 -7 L0 0 L-13 7" fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />;
-    case "dot": return <circle cx="0" cy="0" r="6.5" fill={color} />;
-    case "diamond": return <path d="M7 0 L0 -6.5 L-7 0 L0 6.5 Z" fill={color} />;
+    case "dot": return <circle cx="-6.5" cy="0" r="6.5" fill={color} />;
+    case "diamond": return <path d="M0 0 L-7 -6.5 L-14 0 L-7 6.5 Z" fill={color} />;
     default: return null; // "none"
   }
 }
@@ -856,12 +861,16 @@ const EditableEdge = memo(function EditableEdge({
               pointerEvents: "all", zIndex: 9, cursor: "grab",
               filter: "drop-shadow(0 1px 2px rgba(0,0,0,.35))",
             }}>
-            <svg width="30" height="30" viewBox="-16 -16 32 32" style={{ display: "block", overflow: "visible" }}>
-              {/* grab halo */}
-              <circle r="12" fill={color} opacity="0.16" />
-              {ep.cap === "none"
-                ? <circle r="6" fill="#fff" stroke={color} strokeWidth="2.5" />
-                : <g transform={`rotate(${ep.angle})`}>{capHandleGlyph(ep.cap, color)}</g>}
+            <svg width="32" height="32" viewBox="-16 -16 32 32" style={{ display: "block", overflow: "visible" }}>
+              {/* Everything rides in the rotated group so the halo + cap sit just
+                  OUTSIDE the node (the -x, away-from-node side), never half over
+                  the shape — the endpoint itself is the origin (perimeter). */}
+              <g transform={`rotate(${ep.angle})`}>
+                <circle cx={ep.cap === "none" ? -6 : -7} cy="0" r="11" fill={color} opacity="0.16" />
+                {ep.cap === "none"
+                  ? <circle cx="-6" cy="0" r="6" fill="#fff" stroke={color} strokeWidth="2.5" />
+                  : capHandleGlyph(ep.cap, color)}
+              </g>
             </svg>
           </div>
         ))}
