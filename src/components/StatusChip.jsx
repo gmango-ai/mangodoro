@@ -5,8 +5,7 @@ import { useApp } from "../context/AppContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { availabilityDot, availabilityLabel } from "../lib/presence";
 import { formatSince } from "../lib/utils";
-import { writeOverride, clearOverride } from "../lib/statusOverride";
-import { setPresenceOverride, clearPresenceOverride } from "../lib/userPresence";
+import { applyStatusOverride, clearStatusOverride } from "../lib/statusActions";
 import Popover from "./goals/Popover";
 
 // The always-visible self status chip + setter (plan §5). The label/light/
@@ -22,18 +21,6 @@ const EXPIRIES = [
   { key: "1h", label: "1 hour", at: () => Date.now() + 3600_000 },
   { key: "eod", label: "Today", at: () => { const d = new Date(); d.setHours(23, 59, 59, 0); return d.getTime(); } },
 ];
-
-// Map the new availability onto the legacy presence_state so the old surfaces
-// (room participant list, hallway, avatars) reflect a status set from the chip.
-const LEGACY = {
-  available: "available",
-  focusing: "heads_down",
-  in_meeting: "in_meeting",
-  away: "away",
-  lunch: "out_to_lunch",
-  commuting: "commuting",
-  off: "away",
-};
 
 export default function StatusChip() {
   const { resolved, userId } = useResolvedSelf();
@@ -63,23 +50,12 @@ export default function StatusChip() {
 
   const apply = (avail) => {
     const expiresAt = EXPIRIES.find((e) => e.key === exp)?.at() ?? null;
-    const message = msg.trim() || null;
-    writeOverride({ availability: avail, message, expiresAt });
-    if (userId) setPresenceOverride({ userId, availability: avail, message, expiresAt });
-    // Bridge to the legacy surfaces so the room participant list + hallway
-    // reflect it immediately (the resolver reads these back too).
-    const legacy = LEGACY[avail] || "active";
-    updateStatus?.({ presenceState: legacy, status: message || "" });
-    if (syncSession) setStatus?.({ presenceState: legacy, status: message || "" });
+    applyStatusOverride({ availability: avail, message: msg.trim() || null, expiresAt, userId, syncSession, updateStatus, setStatus });
     setOpen(false);
   };
 
   const backToAuto = () => {
-    clearOverride();
-    if (userId) clearPresenceOverride(userId);
-    // Return the legacy surfaces to neutral so derivation/idle take back over.
-    updateStatus?.({ presenceState: "active", status: "" });
-    if (syncSession) setStatus?.({ presenceState: "active", status: "" });
+    clearStatusOverride({ userId, syncSession, updateStatus, setStatus });
     setMsg("");
     setOpen(false);
   };

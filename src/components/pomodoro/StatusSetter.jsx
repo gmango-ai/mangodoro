@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
-import { setUserStatus } from "../../lib/syncSession";
+import { legacyToAvailability } from "../../lib/presence";
+import { applyStatusOverride } from "../../lib/statusActions";
 
 const PRESENCE = [
   { key: "active", label: "Active", dotLight: "bg-emerald-500", dotDark: "bg-emerald-400" },
-  { key: "available", label: "Available", dotLight: "bg-sky-500", dotDark: "bg-sky-400" },
-  { key: "heads_down", label: "Heads-down", dotLight: "bg-violet-500", dotDark: "bg-violet-400" },
+  { key: "available", label: "Available", dotLight: "bg-emerald-500", dotDark: "bg-emerald-400" },
+  { key: "heads_down", label: "Focusing", dotLight: "bg-violet-500", dotDark: "bg-violet-400" },
   { key: "in_meeting", label: "Meeting", dotLight: "bg-rose-500", dotDark: "bg-rose-400" },
-  { key: "away", label: "Away", dotLight: "bg-amber-500", dotDark: "bg-amber-400" },
-  { key: "out_to_lunch", label: "Lunch", dotLight: "bg-orange-500", dotDark: "bg-orange-400" },
+  { key: "away", label: "Away", dotLight: "bg-slate-400", dotDark: "bg-slate-400" },
+  { key: "out_to_lunch", label: "Lunch", dotLight: "bg-orange-400", dotDark: "bg-orange-400" },
   { key: "commuting", label: "Commuting", dotLight: "bg-cyan-500", dotDark: "bg-cyan-400" },
 ];
 
@@ -34,7 +35,7 @@ const PRESENCE = [
 export default function StatusSetter({ currentTaskHint = "" }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
-  const { settings, session: appSession } = useApp();
+  const { settings, session: appSession, updateStatus } = useApp();
   const { syncSession, syncParticipants, setStatus: setSyncStatus } = useSyncSession();
   const userId = appSession?.user?.id;
 
@@ -51,12 +52,14 @@ export default function StatusSetter({ currentTaskHint = "" }) {
     if (!editing) setDraft(myStatus);
   }, [myStatus, editing]);
 
-  const apply = async (patch) => {
-    if (syncSession && setSyncStatus) {
-      await setSyncStatus(patch);
-    } else {
-      await setUserStatus(patch);
-    }
+  // Redirect to the unified manual override — the resolver + every surface read
+  // it, so this in-room editor and the nav chip drive the same one status.
+  const apply = (patch) => {
+    const availability = "presenceState" in patch
+      ? legacyToAvailability(patch.presenceState)
+      : legacyToAvailability(myPresence);
+    const message = "status" in patch ? (patch.status?.trim() || null) : (myStatus || null);
+    applyStatusOverride({ availability, message, expiresAt: null, userId, syncSession, updateStatus, setStatus: setSyncStatus });
   };
   const applyPresence = (state) => apply({ presenceState: state });
   const save = () => { apply({ status: draft }); setEditing(false); };
