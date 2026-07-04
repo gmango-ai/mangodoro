@@ -5,7 +5,7 @@ import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
-import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown, HelpCircle } from "lucide-react";
+import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown, ChevronUp, HelpCircle } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import StatusChip from "./StatusChip";
 import LogoMark from "./LogoMark";
@@ -45,6 +45,20 @@ export default function Nav({ onOpenPomodoro }) {
   // Bottom sheet behind the mobile bottom-nav "More" tab (separate from the
   // narrow-desktop hamburger drawer above).
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // Interim de-cram: the ambient quick actions (status, clock, world clock…)
+  // drop to a collapsible SECOND desktop row, ahead of the planned sidebar
+  // split. Preference persisted. On full-height pages they fold back into
+  // row 1 so the header stays one line (those layouts hardcode its height).
+  const [row2Open, setRow2Open] = useState(() => {
+    try { return localStorage.getItem("mango:navRow2") !== "0"; } catch { return true; }
+  });
+  const toggleRow2 = () =>
+    setRow2Open((v) => {
+      const n = !v;
+      try { localStorage.setItem("mango:navRow2", n ? "1" : "0"); } catch { /* */ }
+      return n;
+    });
 
   // Close any open nav surface on route change
   useEffect(() => {
@@ -101,6 +115,36 @@ export default function Nav({ onOpenPomodoro }) {
     supabase.auth.signOut();
   }
 
+  // Full-height pages (office, whiteboard editor, messages, timesheets) hardcode
+  // a single-row nav height in their 100dvh calc, so keep the quick actions in
+  // row 1 there and never show a second row.
+  const fullHeightRoute =
+    location.pathname.startsWith("/office") ||
+    location.pathname.startsWith("/whiteboards/") ||
+    location.pathname === "/messages" ||
+    location.pathname === "/team/timesheets";
+  const showRow2 = row2Open && !fullHeightRoute;
+
+  // The ambient quick-actions cluster, rendered in exactly one place per route:
+  // row 2 on scroll pages (unless collapsed), or folded into row 1 on full-height pages.
+  const quickActions = (
+    <>
+      <StatusChip />
+      <WorkClockBar dark={darkMode} />
+      <WorkingNowBar dark={darkMode} />
+      <WorldClockNav dark={darkMode} />
+      <button
+        type="button"
+        onClick={openHelpCenter}
+        title="Learn Mangodoro"
+        aria-label="Learn Mangodoro — tutorials"
+        className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
+      >
+        <HelpCircle className="w-5 h-5" />
+      </button>
+    </>
+  );
+
   return (
     <>
       <header
@@ -127,103 +171,110 @@ export default function Nav({ onOpenPomodoro }) {
           </div>
         )}
 
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center gap-3">
-          {/* Mobile: hamburger */}
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open menu"
-            className={`ql-nav-hamburger xl:hidden p-2 -ml-2 rounded-lg ${
-              darkMode ? "text-slate-300 hover:bg-[var(--color-surface-raised)]" : "text-slate-600 hover:bg-slate-100"
-            }`}
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-
-          {/* Brand — logo + wordmark, always visible. The user's
-              avatar moved to the right of the bar so the product name
-              isn't pushed offscreen by a long name. */}
-          <NavLink to="/pomodoro" className="flex items-center gap-2 shrink-0">
-            <span
-              className="inline-flex text-[var(--color-accent)]"
-              aria-hidden
-            >
-              <LogoMark size={28} />
-            </span>
-            <span
-              className={`text-base sm:text-lg font-bold tracking-tight ${
-                darkMode ? "text-white" : "text-slate-800"
-              }`}
-              style={{ fontFamily: "'Parkinsans', sans-serif" }}
-            >
-              Mangodoro
-            </span>
-          </NavLink>
-
-          {/* Mobile: clock + who's-working + notification bell, pinned right. */}
-          <div className="xl:hidden ml-auto flex items-center gap-2">
-            <WorkClockBar dark={darkMode} />
-            <WorkingNowBar dark={darkMode} />
-            <WorldClockNav dark={darkMode} />
-            <NavMessages />
-            <NotificationBell />
-          </div>
-
-          {/* Desktop: full nav + actions. ml-auto pins it to the right so the
-              brand stays left next to the hamburger below the breakpoint (no
-              stranded, far-right wordmark). */}
-          <div className="hidden xl:flex items-center gap-3 ml-auto">
-            <nav className="flex items-center gap-1">
-              {/* Pomodoro moved out of the (busy) nav into the floating
-                  PomodoroFab — see App.jsx. */}
-              <NavLink to="/office" className={desktopNavLink}>
-                Office
-                {officeActive && (
-                  <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse align-middle" />
-                )}
-              </NavLink>
-              <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
-              <NavLink to="/whiteboards" className={desktopNavLink}>Whiteboards</NavLink>
-              <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
-            </nav>
-
-            {/* Your live status — availability + what you're on + duration. */}
-            <StatusChip />
-
-            {/* Clock in/out + quick On-lunch, and who's working right now. */}
-            <WorkClockBar dark={darkMode} />
-            <WorkingNowBar dark={darkMode} />
-
-            {/* Live pomodoro state now lives in the floating PomodoroFab
-                (App.jsx), keeping this nav lighter. */}
-
-            <WorldClockNav dark={darkMode} />
-            <NavMessages />
+        <div className="max-w-6xl mx-auto px-3 sm:px-6">
+          {/* Row 1 — brand, primary navigation, communication, account. */}
+          <div className="h-14 sm:h-16 flex items-center gap-3">
+            {/* Mobile: hamburger */}
             <button
               type="button"
-              onClick={openHelpCenter}
-              title="Learn Mangodoro"
-              aria-label="Learn Mangodoro — tutorials"
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+              className={`ql-nav-hamburger xl:hidden p-2 -ml-2 rounded-lg ${
+                darkMode ? "text-slate-300 hover:bg-[var(--color-surface-raised)]" : "text-slate-600 hover:bg-slate-100"
+              }`}
             >
-              <HelpCircle className="w-5 h-5" />
+              <Menu className="w-5 h-5" />
             </button>
-            <NotificationBell />
 
-            {/* Single user-menu dropdown on the right — replaces the
-                previous strip of Timer / chip / theme / Settings / Sign
-                out buttons. The avatar is the primary handle; everything
-                else lives inside. */}
-            <UserMenu
-              dark={darkMode}
-              settings={settings}
-              todayMins={todayMins}
-              hasTeamSessions={hasTeamSessions}
-              presenceDot={presenceDot}
-              onToggleTheme={toggleTheme}
-              session={session}
-            />
+            {/* Brand — logo + wordmark, always visible. The user's
+                avatar moved to the right of the bar so the product name
+                isn't pushed offscreen by a long name. */}
+            <NavLink to="/pomodoro" className="flex items-center gap-2 shrink-0">
+              <span
+                className="inline-flex text-[var(--color-accent)]"
+                aria-hidden
+              >
+                <LogoMark size={28} />
+              </span>
+              <span
+                className={`text-base sm:text-lg font-bold tracking-tight ${
+                  darkMode ? "text-white" : "text-slate-800"
+                }`}
+                style={{ fontFamily: "'Parkinsans', sans-serif" }}
+              >
+                Mangodoro
+              </span>
+            </NavLink>
+
+            {/* Mobile: clock + who's-working + notification bell, pinned right. */}
+            <div className="xl:hidden ml-auto flex items-center gap-2">
+              <WorkClockBar dark={darkMode} />
+              <WorkingNowBar dark={darkMode} />
+              <WorldClockNav dark={darkMode} />
+              <NavMessages />
+              <NotificationBell />
+            </div>
+
+            {/* Desktop row 1: nav + comms + account. Ambient quick actions live
+                in row 2 (below), except on full-height pages where they fold in
+                here so the header stays a single row. */}
+            <div className="hidden xl:flex items-center gap-3 ml-auto">
+              <nav className="flex items-center gap-1">
+                {/* Pomodoro moved out of the (busy) nav into the floating
+                    PomodoroFab — see App.jsx. */}
+                <NavLink to="/office" className={desktopNavLink}>
+                  Office
+                  {officeActive && (
+                    <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse align-middle" />
+                  )}
+                </NavLink>
+                <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
+                <NavLink to="/whiteboards" className={desktopNavLink}>Whiteboards</NavLink>
+                <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
+              </nav>
+
+              {fullHeightRoute && quickActions}
+
+              <NavMessages />
+              <NotificationBell />
+
+              {/* Collapse / expand the quick-actions row (scroll pages only). */}
+              {!fullHeightRoute && (
+                <button
+                  type="button"
+                  onClick={toggleRow2}
+                  aria-label={row2Open ? "Hide quick actions" : "Show quick actions"}
+                  aria-expanded={row2Open}
+                  title={row2Open ? "Hide quick actions row" : "Show quick actions row"}
+                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
+                >
+                  {row2Open ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </button>
+              )}
+
+              {/* Single user-menu dropdown on the right — replaces the
+                  previous strip of Timer / chip / theme / Settings / Sign
+                  out buttons. The avatar is the primary handle; everything
+                  else lives inside. */}
+              <UserMenu
+                dark={darkMode}
+                settings={settings}
+                todayMins={todayMins}
+                hasTeamSessions={hasTeamSessions}
+                presenceDot={presenceDot}
+                onToggleTheme={toggleTheme}
+                session={session}
+              />
+            </div>
           </div>
+
+          {/* Row 2 (desktop, collapsible) — ambient quick actions & status.
+              Temporary interim layout ahead of the sidebar split. */}
+          {showRow2 && (
+            <div className="hidden xl:flex items-center justify-end gap-3 pb-2 -mt-1">
+              {quickActions}
+            </div>
+          )}
         </div>
       </header>
 
