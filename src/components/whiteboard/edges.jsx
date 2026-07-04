@@ -232,9 +232,13 @@ function capUrl(kind) {
 function CapPreview({ cap, end }) {
   const url = capUrl(cap);
   const m = end === "start" ? { markerStart: url } : { markerEnd: url };
+  // Explicit light stroke (NOT currentColor): the markers colour themselves via
+  // context-stroke, which passes the referencing line's stroke VALUE — a
+  // "currentColor" keyword would resolve to black inside the marker, so give it
+  // a real colour that reads on the dark toolbar.
   return (
     <svg width="40" height="14" viewBox="0 0 40 14" aria-hidden style={{ display: "block", overflow: "visible" }}>
-      <line x1="8" y1="7" x2="32" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" {...m} />
+      <line x1="8" y1="7" x2="32" y2="7" stroke="#e2e8f0" strokeWidth="1.6" strokeLinecap="round" {...m} />
     </svg>
   );
 }
