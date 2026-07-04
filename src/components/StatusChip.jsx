@@ -48,10 +48,12 @@ export default function StatusChip() {
 
   if (!resolved) return null;
   const { availability, activity, source } = resolved;
-  const detail = activity && !activity.private ? activity.label : null;
+  const overridden = source === "override";
+  const detail = overridden && resolved.override?.message
+    ? resolved.override.message
+    : activity && !activity.private ? activity.label : null;
   const dur = formatSince(activity?.since ?? resolved.since);
   const title = [availabilityLabel(availability), detail, dur].filter(Boolean).join(" · ");
-  const overridden = source === "override";
 
   const openMenu = () => {
     setMsg(resolved.override?.message || "");
@@ -97,46 +99,51 @@ export default function StatusChip() {
         {dur && <span className="text-slate-400">· {dur}</span>}
       </button>
 
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={252} dark={dark}>
-        <p className={`px-2 pt-1 pb-1.5 text-[10px] uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={256} dark={dark}>
+        <p className={`px-2 pt-1 pb-1 text-[10px] uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>
           Set your status
         </p>
 
-        <ul className="space-y-0.5">
-          {PRESETS.map((a) => {
-            const sel = overridden && availability === a;
-            return (
-              <li key={a}>
-                <button
-                  type="button"
-                  onClick={() => apply(a)}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs ${
-                    sel
-                      ? dark ? "bg-[var(--color-bg)] text-slate-100" : "bg-slate-100 text-slate-800"
-                      : dark ? "text-slate-200 hover:bg-[var(--color-bg)]" : "text-slate-700 hover:bg-slate-100"
-                  }`}
-                >
-                  <span className={`h-2 w-2 rounded-full ${availabilityDot(a)}`} />
-                  {availabilityLabel(a)}
-                  {sel && <span className="ml-auto text-[10px] text-[var(--color-accent)]">set</span>}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-
-        <div className={`mt-1 space-y-2 border-t px-2 pt-2 pb-1 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+        {/* Custom text — Enter to set it alone, or type then pick an availability. */}
+        <div className="px-1 pb-1.5">
           <input
             value={msg}
             onChange={(e) => setMsg(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") apply(overridden ? availability : "available"); }}
             maxLength={80}
-            placeholder="What's up? (optional)"
-            className={`w-full rounded-md border px-2 py-1 text-xs ${
+            placeholder="What are you up to?"
+            className={`w-full rounded-md border px-2 py-1.5 text-xs ${
               dark
                 ? "bg-[var(--color-bg)] border-[var(--color-border)] text-slate-200 placeholder:text-slate-500"
                 : "bg-white border-slate-200 text-slate-700 placeholder:text-slate-400"
             }`}
           />
+        </div>
+
+        <div className="grid grid-cols-2 gap-0.5 px-1">
+          {PRESETS.map((a) => {
+            const sel = overridden && availability === a;
+            return (
+              <button
+                key={a}
+                type="button"
+                onClick={() => apply(a)}
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs ${
+                  sel
+                    ? dark ? "bg-[var(--color-bg)] text-slate-100" : "bg-slate-100 text-slate-800"
+                    : dark ? "text-slate-200 hover:bg-[var(--color-bg)]" : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <span className={`h-2 w-2 shrink-0 rounded-full ${availabilityDot(a)}`} />
+                <span className="truncate">{availabilityLabel(a)}</span>
+                {sel && <span className="ml-auto text-[10px] text-[var(--color-accent)]">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className={`mt-1.5 border-t px-2 pt-2 pb-1 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+          <span className={`mb-1 block text-[10px] uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>Clear after</span>
           <div className="flex items-center gap-1">
             {EXPIRIES.map((e) => (
               <button
