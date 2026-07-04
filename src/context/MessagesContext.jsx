@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { useTeamOptional } from "./TeamContext";
-import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation, listChannelFolders, createChannelFolder, renameChannelFolder, deleteChannelFolder, reorderChannelFolders, setChannelFolder, placeChannel } from "../lib/messages";
+import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation, listChannelFolders, createChannelFolder, renameChannelFolder, deleteChannelFolder, reorderChannelFolders, setChannelFolder, placeChannel, setChannelMeta } from "../lib/messages";
 
 // Direct / group / channel messaging — in-app layer. One realtime channel on
 // dm_messages (RLS scopes delivery to my conversations + my channels) drives
@@ -144,9 +144,12 @@ export function MessagesProvider({ children }) {
     return id;
   }, [reload]);
 
-  const createChannel = useCallback(async (orgTeamId, title, visibility = "org_team") => {
+  const createChannel = useCallback(async (orgTeamId, title, visibility = "org_team", announcement = false) => {
     const { id } = await createOrgTeamChannel(orgTeamId, title, visibility);
-    if (id) await reload();
+    if (id) {
+      if (announcement) await setChannelMeta(id, { postPolicy: "admins" });
+      await reload();
+    }
     return id;
   }, [reload]);
 

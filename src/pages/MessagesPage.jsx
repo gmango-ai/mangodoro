@@ -619,6 +619,7 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
   const [chanTeam, setChanTeam] = useState("");
   const [chanName, setChanName] = useState("");
   const [visibility, setVisibility] = useState("org"); // 'org' = open · 'org_team' = locked
+  const [announce, setAnnounce] = useState(false);     // admins-only posting
   const [q, setQ] = useState("");
   const [joinable, setJoinable] = useState(null); // null = loading
   const [joining, setJoining] = useState("");
@@ -637,7 +638,7 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
 
   const go = async () => {
     if (mode === "channel") {
-      if (canCreateChannel) await onCreateChannel(visibility === "org" ? null : chanTeam, chanName.trim(), visibility);
+      if (canCreateChannel) await onCreateChannel(visibility === "org" ? null : chanTeam, chanName.trim(), visibility, announce);
       return;
     }
     if (picked.length === 0) return;
@@ -691,9 +692,21 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
             </select>
           )}
           <div className={`flex items-center rounded-lg border px-3 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
-            <Hash className="w-4 h-4 text-slate-400" />
+            {announce ? <Megaphone className="w-4 h-4 text-amber-500" /> : <Hash className="w-4 h-4 text-slate-400" />}
             <input value={chanName} onChange={(e) => setChanName(e.target.value.slice(0, 40))} placeholder="channel-name" className={`flex-1 bg-transparent px-2 py-2.5 text-sm outline-none ${dark ? "text-slate-100" : "text-slate-800"}`} />
           </div>
+          {/* Announcement channel — only admins/leads can post; everyone else reads. */}
+          <button type="button" onClick={() => setAnnounce((v) => !v)}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition-colors ${announce ? (dark ? "border-amber-400/60 bg-amber-500/10" : "border-amber-400 bg-amber-50") : dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+            <Megaphone className={`w-4 h-4 shrink-0 ${announce ? "text-amber-500" : "text-slate-400"}`} />
+            <span className="flex-1 min-w-0">
+              <span className={`block text-[13px] font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>Announcement channel</span>
+              <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>Only admins can post; everyone else can read &amp; react.</span>
+            </span>
+            <span className={`shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${announce ? "bg-amber-500" : dark ? "bg-white/15" : "bg-slate-300"}`}>
+              <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${announce ? "translate-x-4" : ""}`} />
+            </span>
+          </button>
           <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-400"}`}>
             {visibility === "org" ? "Anyone in your org can find this channel under Browse and join it." : "Only members of the selected team will see this channel."}
           </p>
@@ -797,7 +810,7 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
       {lineBefore && <span className="pointer-events-none absolute left-3 right-3 -top-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
       {lineAfter && <span className="pointer-events-none absolute left-3 right-3 -bottom-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
       {c.kind === "channel" ? (
-        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}><Hash className="w-4 h-4" /></span>
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{c.post_policy === "admins" ? <Megaphone className="w-4 h-4" /> : <Hash className="w-4 h-4" />}</span>
       ) : c.kind === "group" ? (
         <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
       ) : (
@@ -1185,7 +1198,7 @@ export default function MessagesPage() {
             onCancel={() => setComposing(false)}
             onStartDm={async (id) => { const cid = await startDm(id); if (cid) open(cid); else setComposing(false); }}
             onCreateGroup={async (title, ids) => { const cid = await createGroup(title, ids); if (cid) open(cid); else setComposing(false); }}
-            onCreateChannel={async (teamId, name, visibility) => { const cid = await createChannel(teamId, name, visibility); if (cid) open(cid); else setComposing(false); }}
+            onCreateChannel={async (teamId, name, visibility, announcement) => { const cid = await createChannel(teamId, name, visibility, announcement); if (cid) open(cid); else setComposing(false); }}
             onBrowse={browseChannels}
             onJoin={async (id) => { const ok = await joinOpenChannel(id); if (ok) open(id); }}
             dark={dark}
