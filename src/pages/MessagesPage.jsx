@@ -765,7 +765,7 @@ function canDeleteConversation(c, userId, isAdmin, myOrgTeamLeadIds) {
 }
 
 // ── sidebar conversation row ──
-function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onAssignFolder, canDrag, onDragStartRow, onDragEndRow, isDragged, onOpen, onPin, onMute, onDelete, onHide, dark }) {
+function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onAssignFolder, canDrag, dragActive, onDragStartRow, onDragEndRow, isDragged, onReorderOver, onReorderDrop, lineBefore, lineAfter, onOpen, onPin, onMute, onDelete, onHide, dark }) {
   const first = memberById.get(c.participant_ids[0]);
   const muted = !!c.muted_at;
   const unread = c.unread && !muted;
@@ -789,9 +789,13 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
       draggable={canDrag}
       onDragStart={canDrag ? (e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", c.id); onDragStartRow?.(c.id); } : undefined}
       onDragEnd={canDrag ? () => onDragEndRow?.() : undefined}
+      onDragOver={canDrag && dragActive ? (e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onReorderOver?.(c.id, (e.clientY - r.top) < r.height / 2); } : undefined}
+      onDrop={canDrag && dragActive ? (e) => { e.preventDefault(); e.stopPropagation(); onReorderDrop?.(); } : undefined}
       className={`group relative flex items-center gap-2.5 mx-2 my-0.5 px-2.5 py-2 rounded-xl cursor-pointer transition-colors ${isDragged ? "opacity-40" : ""} ${
         active ? (dark ? "bg-white/10" : "bg-[var(--color-accent-light)]") : dark ? "hover:bg-white/5" : "hover:bg-slate-100"
       }`} onClick={() => onOpen(c.id)}>
+      {lineBefore && <span className="pointer-events-none absolute left-3 right-3 -top-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
+      {lineAfter && <span className="pointer-events-none absolute left-3 right-3 -bottom-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
       {c.kind === "channel" ? (
         <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}><Hash className="w-4 h-4" /></span>
       ) : c.kind === "group" ? (
@@ -929,43 +933,67 @@ function FolderGroup({ folder, items, collapsed, onToggle, canOrganize, onRename
 }
 
 // ── sidebar (sectioned list, channels grouped into shared folders) ──
-function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onCreateFolder, onRenameFolder, onDeleteFolder, onAssignFolder, onOpen, onNew, onPin, onMute, onDelete, onHide, dark }) {
+function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin, myOrgTeamLeadIds, folders = [], canOrganize, onCreateFolder, onRenameFolder, onDeleteFolder, onAssignFolder, onPlaceChannel, onOpen, onNew, onPin, onMute, onDelete, onHide, dark }) {
   const [q, setQ] = useState("");
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [newFolder, setNewFolder] = useState(null); // draft name string while creating, else null
   const [dragId, setDragId] = useState(null);        // channel being dragged (admins only)
-  const [dropTarget, setDropTarget] = useState(undefined); // folder id | "__none__" | undefined
+  const [dropTarget, setDropTarget] = useState(undefined); // folder id | "__none__" — empty-area folder assign
+  const [dropAt, setDropAt] = useState(null);        // { rowId, before } — the reorder insertion line
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = needle ? conversations.filter((c) => nameOf(c).toLowerCase().includes(needle)) : conversations;
     return [...list].sort((a, b) => (b.pinned_at ? 1 : 0) - (a.pinned_at ? 1 : 0));
   }, [conversations, q, nameOf]);
 
-  const channels = filtered.filter((c) => c.kind === "channel");
   const folderIds = useMemo(() => new Set(folders.map((f) => f.id)), [folders]);
-  const ungrouped = channels.filter((c) => !c.folder_id || !folderIds.has(c.folder_id));
+  // Inside a group, manual folder_position wins; recency breaks ties, so channels
+  // never reordered (all position 0) keep their old order.
+  const byPos = (a, b) => (a.folder_position - b.folder_position) || (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
+  const channels = filtered.filter((c) => c.kind === "channel");
+  const groupKeyOf = (c) => (c.folder_id && folderIds.has(c.folder_id) ? c.folder_id : "__none__");
+  const groupChannels = (key) => channels.filter((c) => groupKeyOf(c) === key).sort(byPos);
+  const ungrouped = groupChannels("__none__");
   const groups = filtered.filter((c) => c.kind === "group");
   const dms = filtered.filter((c) => c.kind === "dm" || (!c.kind && !c.is_group));
 
   const toggle = (id) => setCollapsed((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  // Drag a channel (admins) onto a folder — or the "No folder" zone — to re-file
-  // it. dropTarget "__none__" means the ungrouped zone (move out of any folder).
-  const overZone = (t) => (e) => { if (dragId == null) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dropTarget !== t) setDropTarget(t); };
+  // Drop on a folder's EMPTY area (or the "No folder" zone) → just re-file (append).
+  const overZone = (t) => (e) => { if (dragId == null) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropAt(null); if (dropTarget !== t) setDropTarget(t); };
   const dropZone = (t) => (e) => {
     e.preventDefault();
     const id = dragId || e.dataTransfer.getData("text/plain");
     const folderId = t === "__none__" ? null : t;
     const cur = channels.find((c) => c.id === id);
     if (id && cur && (cur.folder_id || null) !== folderId) onAssignFolder({ id }, folderId);
-    setDragId(null); setDropTarget(undefined);
+    setDragId(null); setDropTarget(undefined); setDropAt(null);
+  };
+
+  // Drop ONTO a row → insert at that spot: reorder within the group, or move to
+  // that row's folder at that position.
+  const onReorderOver = (rowId, before) => { if (rowId === dragId) { setDropAt(null); return; } setDropTarget(undefined); setDropAt({ rowId, before }); };
+  const onReorderDrop = () => {
+    const at = dropAt, id = dragId;
+    setDragId(null); setDropAt(null); setDropTarget(undefined);
+    if (id == null || !at) return;
+    const target = channels.find((c) => c.id === at.rowId); if (!target) return;
+    const key = groupKeyOf(target);
+    const ids = groupChannels(key).map((c) => c.id).filter((x) => x !== id);
+    let idx = ids.indexOf(at.rowId); if (idx < 0) idx = ids.length;
+    if (!at.before) idx += 1;
+    ids.splice(idx, 0, id);
+    onPlaceChannel(id, key === "__none__" ? null : key, ids);
   };
 
   const rowOf = (c) => (
     <Row key={c.id} c={c} nameOf={nameOf} memberById={memberById} active={c.id === activeId}
       userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
       folders={folders} canOrganize={canOrganize} onAssignFolder={onAssignFolder}
-      canDrag={canOrganize && c.kind === "channel"} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropTarget(undefined); }} isDragged={dragId === c.id}
+      canDrag={canOrganize && c.kind === "channel"} dragActive={dragId != null}
+      onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropTarget(undefined); setDropAt(null); }} isDragged={dragId === c.id}
+      onReorderOver={onReorderOver} onReorderDrop={onReorderDrop}
+      lineBefore={dropAt?.rowId === c.id && dropAt.before} lineAfter={dropAt?.rowId === c.id && !dropAt.before}
       onOpen={onOpen} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />
   );
   const commitNewFolder = () => { const n = (newFolder || "").trim(); if (n) onCreateFolder(n); setNewFolder(null); };
@@ -1013,7 +1041,7 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
               </div>
             )}
             {folders.map((f) => {
-              const items = channels.filter((c) => c.folder_id === f.id);
+              const items = groupChannels(f.id);
               if (!items.length && !canOrganize) return null;
               return (
                 <FolderGroup key={f.id} folder={f} items={items} collapsed={collapsed.has(f.id)} onToggle={() => toggle(f.id)}
@@ -1080,7 +1108,7 @@ export default function MessagesPage() {
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
-  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, browseChannels, joinOpenChannel, deleteConversation, hideConversation, folders = [], isTeamAdmin, createFolder, renameFolder, deleteFolder, assignFolder, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const { conversations = [], activeConversations = [], startDm, createGroup, createChannel, browseChannels, joinOpenChannel, deleteConversation, hideConversation, folders = [], isTeamAdmin, createFolder, renameFolder, deleteFolder, assignFolder, placeChannelAt, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
@@ -1116,7 +1144,7 @@ export default function MessagesPage() {
       {/* Sidebar — full width on mobile when nothing open; fixed column on desktop */}
       <aside className={`${showMain ? "hidden md:flex" : "flex"} w-full md:w-[340px] md:shrink-0 flex-col md:border-r ${dark ? "md:border-[var(--color-border)]" : "md:border-slate-200"}`}>
         <Sidebar conversations={activeConversations} nameOf={nameOf} memberById={memberById} activeId={activeId} userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
-          folders={folders} canOrganize={isTeamAdmin} onCreateFolder={createFolder} onRenameFolder={renameFolder} onDeleteFolder={deleteFolder} onAssignFolder={(c, fid) => assignFolder(c.id, fid)}
+          folders={folders} canOrganize={isTeamAdmin} onCreateFolder={createFolder} onRenameFolder={renameFolder} onDeleteFolder={deleteFolder} onAssignFolder={(c, fid) => assignFolder(c.id, fid)} onPlaceChannel={placeChannelAt}
           onOpen={open} onNew={() => setComposing(true)} onPin={onPin} onMute={onMute} onDelete={onDelete} onHide={onHide} dark={dark} />
       </aside>
 

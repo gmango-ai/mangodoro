@@ -90,6 +90,13 @@ export async function setChannelFolder(conversationId, folderId) {
   return { error };
 }
 
+// Set a channel's folder AND the order of the whole target group at once (drag to
+// a drop point). orderedIds = the target group's channel ids in their new order.
+export async function placeChannel(conversationId, folderId, orderedIds) {
+  const { error } = await supabase.rpc("place_channel", { p_conversation_id: conversationId, p_folder_id: folderId || null, p_ordered_ids: orderedIds || [] });
+  return { error };
+}
+
 const isUnread = (lastMessageAt, lastReadAt) =>
   !!lastMessageAt && (!lastReadAt || new Date(lastMessageAt) > new Date(lastReadAt));
 
@@ -130,6 +137,7 @@ export async function listConversations(userId) {
       created_by: c.created_by || null,
       room_id: c.room_id || null,
       folder_id: c.folder_id || null,
+      folder_position: c.folder_position ?? 0,
       unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, c.last_read_at, c.muted_at),
     }));
   }
@@ -185,6 +193,7 @@ async function listConversationsLegacy(userId) {
       created_by: c.created_by || null,
       room_id: null,
       folder_id: null,
+      folder_position: 0,
       unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, lastRead, mutedAt),
     };
   });

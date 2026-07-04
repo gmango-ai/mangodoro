@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { useTeamOptional } from "./TeamContext";
-import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation, listChannelFolders, createChannelFolder, renameChannelFolder, deleteChannelFolder, reorderChannelFolders, setChannelFolder } from "../lib/messages";
+import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation, listChannelFolders, createChannelFolder, renameChannelFolder, deleteChannelFolder, reorderChannelFolders, setChannelFolder, placeChannel } from "../lib/messages";
 
 // Direct / group / channel messaging — in-app layer. One realtime channel on
 // dm_messages (RLS scopes delivery to my conversations + my channels) drives
@@ -64,6 +64,19 @@ export function MessagesProvider({ children }) {
   const assignFolder = useCallback(async (conversationId, folderId) => {
     setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, folder_id: folderId || null } : c)));
     await setChannelFolder(conversationId, folderId);
+    await reload();
+  }, [reload]);
+
+  // Drop a channel into a folder (or null) at a specific spot: update the moved
+  // channel's folder + rewrite folder_position for the whole target group so the
+  // manual order sticks. orderedIds = the target group's ids in their new order.
+  const placeChannelAt = useCallback(async (conversationId, folderId, orderedIds) => {
+    const pos = new Map((orderedIds || []).map((id, i) => [id, i]));
+    setConversations((prev) => prev.map((c) => {
+      if (c.id === conversationId) return { ...c, folder_id: folderId || null, folder_position: pos.get(c.id) ?? c.folder_position };
+      return pos.has(c.id) ? { ...c, folder_position: pos.get(c.id) } : c;
+    }));
+    await placeChannel(conversationId, folderId, orderedIds);
     await reload();
   }, [reload]);
 
@@ -182,7 +195,7 @@ export function MessagesProvider({ children }) {
     conversations, activeConversations, unread, unreadByOrg, reload,
     startDm, createGroup, createChannel, browseChannels, joinOpenChannel,
     deleteConversation, hideConversation,
-    folders, isTeamAdmin, createFolder, renameFolder, deleteFolder, reorderFolders, assignFolder,
+    folders, isTeamAdmin, createFolder, renameFolder, deleteFolder, reorderFolders, assignFolder, placeChannelAt,
     markRead, subscribeMessages, subscribeReactions,
   };
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;
