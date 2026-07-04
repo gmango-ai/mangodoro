@@ -2,6 +2,8 @@ import { BrowserWindow, ipcMain } from "electron";
 
 let lastPublishedState: unknown = null;
 let nextCommandId = 1;
+const mainHandlerReadyWebContentsIds = new Set<number>();
+const mainHandlerReadyWaiters = new Map<number, Set<(ready: boolean) => void>>();
 const pendingCommands = new Map<
   string,
   { resolve: (result: TimerCommandResult) => void; timeout: NodeJS.Timeout }
@@ -22,6 +24,43 @@ function isUsableWindow(win: BrowserWindow | null): win is BrowserWindow {
   return !!win && !win.isDestroyed() && !win.webContents.isDestroyed();
 }
 
+function settleMainHandlerReadyWaiters(webContentsId: number, ready: boolean) {
+  const waiters = mainHandlerReadyWaiters.get(webContentsId);
+  if (!waiters) return;
+  mainHandlerReadyWaiters.delete(webContentsId);
+  for (const resolve of waiters) resolve(ready);
+}
+
+export function waitForMainTimerHandlerReady(
+  win: BrowserWindow | null,
+  timeoutMs = 3000
+): Promise<boolean> {
+  if (!isUsableWindow(win)) return Promise.resolve(false);
+  const webContentsId = win.webContents.id;
+  if (mainHandlerReadyWebContentsIds.has(webContentsId)) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout: NodeJS.Timeout | null = null;
+    const finish = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      const waiters = mainHandlerReadyWaiters.get(webContentsId);
+      waiters?.delete(finish);
+      if (waiters?.size === 0) mainHandlerReadyWaiters.delete(webContentsId);
+      if (timeout) clearTimeout(timeout);
+      resolve(ready);
+    };
+
+    const waiters = mainHandlerReadyWaiters.get(webContentsId) ?? new Set();
+    waiters.add(finish);
+    mainHandlerReadyWaiters.set(webContentsId, waiters);
+    timeout = setTimeout(() => finish(false), timeoutMs);
+  });
+}
+
 export function installTimerBridge(hooks: TimerBridgeHooks) {
   ipcMain.on("mangodoro:timer:publish", (event, snapshot) => {
     lastPublishedState = snapshot;
@@ -29,6 +68,19 @@ export function installTimerBridge(hooks: TimerBridgeHooks) {
     if (isUsableWindow(pop) && event.sender.id !== pop.webContents.id) {
       pop.webContents.send("mangodoro:timer:state", snapshot);
     }
+  });
+
+  ipcMain.on("mangodoro:timer:main-handler-ready", (event) => {
+    const main = hooks.getMainWindow();
+    if (!isUsableWindow(main) || event.sender.id !== main.webContents.id) return;
+    mainHandlerReadyWebContentsIds.add(event.sender.id);
+    settleMainHandlerReadyWaiters(event.sender.id, true);
+  });
+
+  ipcMain.on("mangodoro:timer:main-handler-unready", (event) => {
+    const main = hooks.getMainWindow();
+    if (!isUsableWindow(main) || event.sender.id !== main.webContents.id) return;
+    mainHandlerReadyWebContentsIds.delete(event.sender.id);
   });
 
   ipcMain.on("mangodoro:timer:command-result", (event, result: TimerCommandResult & { id?: string }) => {

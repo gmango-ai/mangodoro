@@ -10,7 +10,7 @@ import { ElectronCapacitorApp, setupContentSecurityPolicy, setupReloadWatcher } 
 import { getInstalledTray, installPomodoroTray } from './pomodoroTray';
 import { installPomodoroPopover, getPopoverWindow } from './pomodoroPopover';
 import { installOAuthHandler } from './oauthFlow';
-import { installTimerBridge } from './timerBridge';
+import { installTimerBridge, waitForMainTimerHandlerReady } from './timerBridge';
 import { installAuthBridge } from './authBridge';
 
 // Graceful handling of unhandled errors.
@@ -92,6 +92,7 @@ function waitForRendererReady(win: BrowserWindow, timeoutMs = 3000): Promise<voi
     if (!win || win.isDestroyed()) return null;
 
     await waitForRendererReady(win);
+    await waitForMainTimerHandlerReady(win);
     // The popover is the user-visible surface for this click. If we had
     // to recreate the main renderer just to own timer state, keep it in
     // the background instead of flashing the full app on top.

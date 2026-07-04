@@ -707,7 +707,7 @@ export class PomodoroEngine {
     if (hasPersistentTimerSurface) stopPersistentTimer();
     // Switching mode discards the current countdown → clear other devices'
     // Live Activities too (see resetTimer).
-    this._doFlush({
+    return this._doFlush({
       mode: newMode,
       pending_mode: null,
       remaining_seconds: dur,
@@ -734,7 +734,7 @@ export class PomodoroEngine {
     if (hasPersistentTimerSurface) stopPersistentTimer();
     // `ended: true` → flushToServer pushes an APNs "end" so a reset here also
     // dismisses the user's Live Activity / widgets on their other devices.
-    this._doFlush({ remaining_seconds: dur, is_running: false, pending_mode: null, ended: true });
+    return this._doFlush({ remaining_seconds: dur, is_running: false, pending_mode: null, ended: true });
   }
 
   applyCustomDuration(minutesStr, persist) {
@@ -771,7 +771,7 @@ export class PomodoroEngine {
       ended: true,
     };
     if (persist) flushOverride.durations = nextDurations;
-    this._doFlush(flushOverride);
+    return this._doFlush(flushOverride);
   }
 
   requestSwitchMode(newMode) {
@@ -781,7 +781,7 @@ export class PomodoroEngine {
     if (hasTimerProgress({ mode, durations, secondsLeft, isRunning })) {
       this._setField("pendingAction", { type: "switchMode", newMode });
     } else {
-      this.switchMode(newMode);
+      return this.switchMode(newMode);
     }
   }
 
@@ -791,7 +791,7 @@ export class PomodoroEngine {
     // left the timer stuck in a pending state with no way to confirm.
     // Reset immediately everywhere — pressing the button IS the
     // confirmation. resetTimer() already guards on canControl.
-    this.resetTimer();
+    return this.resetTimer();
   }
 
   requestApplyCustomDuration(minutesStr, persist) {
@@ -805,7 +805,7 @@ export class PomodoroEngine {
         persist,
       });
     } else {
-      this.applyCustomDuration(minutesStr, persist);
+      return this.applyCustomDuration(minutesStr, persist);
     }
   }
 
@@ -821,23 +821,25 @@ export class PomodoroEngine {
         newMode: alt,
       });
     } else {
-      this.switchMode(alt, { resetStreak: true });
+      return this.switchMode(alt, { resetStreak: true });
     }
   }
 
   confirmPendingAction() {
     const { pendingAction } = this._state;
     if (!pendingAction) return;
+    let result;
     if (pendingAction.type === "switchMode") {
-      this.switchMode(pendingAction.newMode);
+      result = this.switchMode(pendingAction.newMode);
     } else if (pendingAction.type === "switchAlternateBreak") {
-      this.switchMode(pendingAction.newMode, { resetStreak: true });
+      result = this.switchMode(pendingAction.newMode, { resetStreak: true });
     } else if (pendingAction.type === "reset") {
-      this.resetTimer();
+      result = this.resetTimer();
     } else if (pendingAction.type === "applyCustomDuration") {
-      this.applyCustomDuration(pendingAction.minutesStr, pendingAction.persist);
+      result = this.applyCustomDuration(pendingAction.minutesStr, pendingAction.persist);
     }
     this._setField("pendingAction", null);
+    return result;
   }
 
   async toggleRun() {
@@ -875,7 +877,7 @@ export class PomodoroEngine {
     this._patchState({ autoTransition: enabled });
     saveAutoTransition(enabled);
     if (this._refs.canControlRef.current) {
-      this._doFlush({ auto_transition: enabled });
+      return this._doFlush({ auto_transition: enabled });
     }
   }
 

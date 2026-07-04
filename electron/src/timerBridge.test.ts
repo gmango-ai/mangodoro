@@ -15,7 +15,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { installTimerBridge } from "./timerBridge";
+import { installTimerBridge, waitForMainTimerHandlerReady } from "./timerBridge";
 
 function createWindow(id: number) {
   return {
@@ -79,5 +79,28 @@ describe("installTimerBridge command relay", () => {
       ok: false,
       reason: "main-handler-timeout",
     });
+  });
+
+  it("waits for the main renderer to register its timer command handler", async () => {
+    const main = createWindow(1);
+    installTimerBridge({
+      getMainWindow: () => main,
+      getPopoverWindow: () => null,
+    });
+
+    let settled = false;
+    const readyPromise = waitForMainTimerHandlerReady(main, 1000).then((ready) => {
+      settled = true;
+      return ready;
+    });
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+
+    ipcListeners.get("mangodoro:timer:main-handler-ready")?.({
+      sender: { id: main.webContents.id },
+    });
+
+    await expect(readyPromise).resolves.toBe(true);
   });
 });

@@ -236,6 +236,28 @@ describe("PomodoroEngine attach/detach", () => {
   });
 });
 
+
+describe("PomodoroEngine command execution", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns async reset work so command relay waits for completion", async () => {
+    const engine = new PomodoroEngine("test-user-id");
+    let resolveFlush;
+    const flushPromise = new Promise((resolve) => {
+      resolveFlush = resolve;
+    });
+    vi.spyOn(engine, "_doFlush").mockReturnValue(flushPromise);
+
+    const result = engine._executeCommand("resetTimer");
+
+    expect(result).toBe(flushPromise);
+    resolveFlush();
+    await expect(result).resolves.toBeUndefined();
+  });
+});
+
 describe("PomodoroEngine phase alarms", () => {
   let lsStore;
 

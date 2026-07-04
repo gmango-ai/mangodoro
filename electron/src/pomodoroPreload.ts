@@ -107,9 +107,11 @@ if (isPopover) {
     },
     onCommand: (cb: (method: string, args?: unknown[]) => unknown | Promise<unknown>) => {
       commandHandler = cb;
+      ipcRenderer.send("mangodoro:timer:main-handler-ready");
     },
     offCommand: () => {
       commandHandler = null;
+      ipcRenderer.send("mangodoro:timer:main-handler-unready");
     },
     sendCommand: () => false,
   });
