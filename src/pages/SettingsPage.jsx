@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { openWhatsNew } from "../components/WhatsNew";
 import { openHelpCenter } from "../components/tour/HelpCenter";
+import { uiSoundsEnabled, setUiSoundsEnabled, playNotify, playMessage, playHandRaise } from "../lib/uiSounds";
 import { appVersion, latestEntryId } from "../lib/changelog";
 import { ACCENTS } from "../lib/accent";
 import AvatarUploader from "../components/AvatarUploader";
@@ -1492,6 +1493,14 @@ function NotificationsSection({ dark }) {
   const [time, setTime] = useState(reminderTime || "");
   const [error, setError] = useState("");
   const [savingMsg, setSavingMsg] = useState("");
+  // Sound effects — per-device (localStorage), so it can differ across devices.
+  const [soundOn, setSoundOn] = useState(() => uiSoundsEnabled());
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setUiSoundsEnabled(next);
+    if (next) playNotify(); // confirm it's audible when turning on
+  };
   const [permTick, setPermTick] = useState(0);
   void permTick;
 
@@ -1723,6 +1732,46 @@ function NotificationsSection({ dark }) {
               </button>
             )}
           </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Sound effects"
+        hint="Play a short sound for notifications, new chat messages, and raised hands in a call. Applies to this device only."
+        dark={dark}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={soundOn}
+              onClick={toggleSound}
+              className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${soundOn ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${soundOn ? "translate-x-4" : ""}`} />
+            </button>
+            <span className={`text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>Play sound effects</span>
+          </div>
+          {soundOn && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>Preview:</span>
+              {[
+                { label: "Notification", fn: playNotify },
+                { label: "Message", fn: playMessage },
+                { label: "Raised hand", fn: playHandRaise },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => p.fn()}
+                  className={`text-xs font-medium px-2.5 py-1 rounded-full border ${dark ? "border-[var(--color-border)] text-slate-300 hover:bg-white/5" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </SectionCard>
 

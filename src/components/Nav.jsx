@@ -20,9 +20,10 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import WorkClockBar from "./nav/WorkClockBar";
 import WorkingNowBar from "./nav/WorkingNowBar";
 import WorldClockNav from "./WorldClockNav";
+import PomodoroNavButton from "./nav/PomodoroNavButton";
 import { openHelpCenter } from "./tour/HelpCenter";
 
-export default function Nav({ onOpenPomodoro }) {
+export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
   const { settings, todayMins, exportMsg, dataSyncing, session, clockIn } = useApp();
   const { activeTeamSessions } = useTeam();
   const { syncSession } = useSyncSession();
@@ -54,8 +55,8 @@ export default function Nav({ onOpenPomodoro }) {
       return n;
     });
 
-  // Publish the header-content height as --app-nav-h so full-height pages can
-  // subtract it (100dvh - var(--app-nav-h) - insets) — that's what lets the
+  // Publish the header-content height as --nav-h so full-height pages can
+  // subtract it (100dvh - var(--nav-h) - insets) — that's what lets the
   // second row grow the header without overflowing them, on every route. We
   // measure the inner wrapper (the rows only), NOT the safe-area padding, which
   // those pages already account for via --top-inset.
@@ -63,7 +64,7 @@ export default function Nav({ onOpenPomodoro }) {
   useEffect(() => {
     const el = wrapRef.current;
     if (!el || typeof ResizeObserver === "undefined") return undefined;
-    const setVar = () => document.documentElement.style.setProperty("--app-nav-h", `${el.offsetHeight}px`);
+    const setVar = () => document.documentElement.style.setProperty("--nav-h", `${el.offsetHeight}px`);
     setVar();
     const ro = new ResizeObserver(setVar);
     ro.observe(el);
@@ -126,7 +127,7 @@ export default function Nav({ onOpenPomodoro }) {
   }
 
   // Row 2 shows whenever the user hasn't collapsed it. Full-height pages read
-  // var(--app-nav-h) so the extra row grows the header without overflowing them
+  // var(--nav-h) so the extra row grows the header without overflowing them
   // — no per-route special-casing needed.
   const showRow2 = row2Open;
 
@@ -175,37 +176,28 @@ export default function Nav({ onOpenPomodoro }) {
                 avatar moved to the right of the bar so the product name
                 isn't pushed offscreen by a long name. */}
             <NavLink to="/pomodoro" className="flex items-center gap-2 shrink-0">
-              <span
-                className="inline-flex text-[var(--color-accent)]"
-                aria-hidden
-              >
+              <span className="inline-flex text-[var(--color-accent)]" aria-hidden>
                 <LogoMark size={28} />
               </span>
               <span
-                className={`text-base sm:text-lg font-bold tracking-tight ${
-                  darkMode ? "text-white" : "text-slate-800"
-                }`}
+                className={`text-base sm:text-lg font-bold tracking-tight ${darkMode ? "text-white" : "text-slate-800"}`}
                 style={{ fontFamily: "'Parkinsans', sans-serif" }}
               >
                 Mangodoro
               </span>
             </NavLink>
 
-            {/* Mobile: clock + who's-working + notification bell, pinned right. */}
-            <div className="xl:hidden ml-auto flex items-center gap-2">
-              <WorkClockBar dark={darkMode} />
-              <WorkingNowBar dark={darkMode} />
-              <WorldClockNav dark={darkMode} />
+            {/* Mobile row 1: messages + notifications only — the clock /
+                who's-working / world-clock widgets live on mobile row 2 below. */}
+            <div className="xl:hidden ml-auto flex items-center gap-1">
               <NavMessages />
               <NotificationBell />
             </div>
 
-            {/* Desktop row 1: nav + comms + account. Ambient quick actions
-                live in the collapsible row 2 below. */}
+            {/* Desktop row 1: nav + comms + account. Ambient quick actions live
+                in the collapsible desktop row 2 below. */}
             <div className="hidden xl:flex items-center gap-3 ml-auto">
               <nav className="flex items-center gap-1">
-                {/* Pomodoro moved out of the (busy) nav into the floating
-                    PomodoroFab — see App.jsx. */}
                 <NavLink to="/office" className={desktopNavLink}>
                   Office
                   {officeActive && (
@@ -242,10 +234,7 @@ export default function Nav({ onOpenPomodoro }) {
                 {row2Open ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
               </button>
 
-              {/* Single user-menu dropdown on the right — replaces the
-                  previous strip of Timer / chip / theme / Settings / Sign
-                  out buttons. The avatar is the primary handle; everything
-                  else lives inside. */}
+              {/* Single user-menu dropdown on the right. */}
               <UserMenu
                 dark={darkMode}
                 settings={settings}
@@ -259,8 +248,7 @@ export default function Nav({ onOpenPomodoro }) {
           </div>
 
           {/* Row 2 (desktop, collapsible) — clock-in balanced under the brand on
-              the left, ambient status on the right. Interim layout ahead of the
-              sidebar split. */}
+              the left, ambient status on the right. */}
           {showRow2 && (
             <div className="hidden xl:flex items-center justify-between gap-3 pb-2 -mt-1">
               <div className="flex items-center gap-3">
@@ -273,6 +261,20 @@ export default function Nav({ onOpenPomodoro }) {
               </div>
             </div>
           )}
+
+          {/* Row 2 (mobile only) — the widgets that expand into pills (clock-in,
+              who's-working, world clock) + a pomodoro quick-open, keeping mobile
+              row 1 uncluttered. */}
+          <div className="xl:hidden flex items-center gap-2 h-10">
+            <WorkClockBar dark={darkMode} />
+            <WorkingNowBar dark={darkMode} />
+            <WorldClockNav dark={darkMode} />
+            {!onPomodoroPage && (
+              <div className="ml-auto">
+                <PomodoroNavButton dark={darkMode} onOpen={onOpenPomodoro} />
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

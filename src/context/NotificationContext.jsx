@@ -4,7 +4,7 @@ import { useApp } from "./AppContext";
 import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll, typeMeta } from "../lib/notifications";
 import { useResolvedSelf } from "../hooks/useResolvedSelf";
 import { deliveryAction } from "../lib/notificationDelivery";
-import { playNotificationChime } from "../lib/notificationSound";
+import { playForNotification } from "../lib/uiSounds";
 
 // Notification layer — in-app delivery.
 //
@@ -49,11 +49,14 @@ export function NotificationProvider({ children }) {
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const notificationIdsRef = useRef(new Set());
 
   const dismissToast = useCallback((id) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   const handleIncoming = useCallback((n) => {
     if (!n) return;
+    if (n.id && notificationIdsRef.current.has(n.id)) return;
+    if (n.id) notificationIdsRef.current.add(n.id);
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
     const channels = n.channels || [];
     // Client last-mile: decide banner / sound / push from THIS device's live
@@ -62,13 +65,17 @@ export function NotificationProvider({ children }) {
     // focus but still shown.
     const action = deliveryAction(n.priority || "normal", availabilityRef.current);
     // In-app toast — always show it so a notification is never silently lost
-    // (there's no return-from-focus digest yet). The chime only plays when the
-    // policy allows sound.
+    // (there's no return-from-focus digest yet). The arrival audio cue is
+    // type-aware (staging's playForNotification: chat vs notification), but only
+    // plays when the focus policy allows sound — muted while you focus for low/
+    // normal. This only runs off a realtime INSERT (initial fetch doesn't call
+    // it), so it's a real "just now" notification; per-type prefs are implicit
+    // (you only receive types you've enabled).
     if (channels.includes("inapp")) {
       const id = _toastSeq++;
       setToasts((t) => [...t, { id, n }].slice(-4));
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
-      if (action.sound) playNotificationChime();
+      if (action.sound) playForNotification(n.type);
     }
     // OS notification — fires whenever the type wants desktop, the policy allows
     // a push, permission is granted, and it's not quiet hours. Per preference it
@@ -86,11 +93,16 @@ export function NotificationProvider({ children }) {
 
   // Initial fetch + realtime subscription per user.
   useEffect(() => {
-    if (!userId) { setItems([]); setToasts([]); return undefined; }
+    if (!userId) { notificationIdsRef.current = new Set(); setItems([]); setToasts([]); return undefined; }
+    notificationIdsRef.current = new Set();
     let cancelled = false;
     listNotifications(40).then((rows) => {
       if (cancelled) return;
-      setItems(rows);
+      notificationIdsRef.current = new Set([...notificationIdsRef.current, ...rows.map((n) => n.id)]);
+      setItems((prev) => {
+        const fetchedIds = new Set(rows.map((n) => n.id));
+        return [...prev.filter((n) => !fetchedIds.has(n.id)), ...rows].slice(0, 60);
+      });
     });
     const channel = supabase
       .channel(`notification_deliveries:${userId}`)

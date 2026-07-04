@@ -1159,7 +1159,7 @@ function TeamSideNav({ dark, isAdmin, canManageRooms, page, onSelect }) {
         className={`lg:hidden sticky z-20 -mx-4 px-4 py-1.5 flex gap-1.5 overflow-x-auto backdrop-blur ${
           dark ? "bg-[var(--color-bg)]/80" : "bg-white/80"
         }`}
-        style={{ top: "calc(env(safe-area-inset-top) + 3.5rem)" }}
+        style={{ top: "calc(env(safe-area-inset-top) + var(--nav-h))" }}
       >
         {pages.map(({ id, label, Icon }) => (
           <button key={id} type="button" onClick={() => onSelect(id)} aria-current={page === id ? "page" : undefined} className={`shrink-0 ${linkCls(id)}`}>

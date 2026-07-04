@@ -7,6 +7,7 @@ import {
   editMessage,
   deleteMessage,
 } from "./chatMessages";
+import { playMessage } from "./uiSounds";
 
 // React hook: returns the room's chat history + live updates.
 // Caller passes the signed-in user id so it can be embedded in send
@@ -27,6 +28,7 @@ export function useRoomChat(roomId, userId) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const messageIdsRef = useRef(new Set());
 
   // Profile cache shared between initial fetch and realtime hydration.
   const authorCacheRef = useRef(new Map());
@@ -38,10 +40,12 @@ export function useRoomChat(roomId, userId) {
 
   useEffect(() => {
     if (!roomId) {
+      messageIdsRef.current = new Set();
       setMessages([]);
       setLoading(false);
       return;
     }
+    messageIdsRef.current = new Set();
     let alive = true;
     setLoading(true);
     setError(null);
@@ -49,7 +53,11 @@ export function useRoomChat(roomId, userId) {
       if (!alive) return;
       if (err) setError(err);
       cacheAuthors(data);
-      setMessages(data);
+      messageIdsRef.current = new Set([...messageIdsRef.current, ...data.map((m) => m.id)]);
+      setMessages((prev) => {
+        const fetchedIds = new Set(data.map((m) => m.id));
+        return [...data, ...prev.filter((m) => !fetchedIds.has(m.id))];
+      });
       setLoading(false);
     });
     return () => { alive = false; };
@@ -70,6 +78,8 @@ export function useRoomChat(roomId, userId) {
       async (payload) => {
         const row = payload.new;
         if (!row) return;
+        if (messageIdsRef.current.has(row.id)) return;
+        messageIdsRef.current.add(row.id);
         // Hydrate author via cache; fall back to a lookup for unseen users.
         let author = authorCacheRef.current.get(row.user_id) || null;
         if (!author) {
@@ -78,6 +88,11 @@ export function useRoomChat(roomId, userId) {
             author = data;
             authorCacheRef.current.set(row.user_id, author);
           }
+        }
+        // Cue on others' messages, but not when they @mention you — that emits a
+        // `mention` notification which plays its own cue (avoids a double).
+        if (row.user_id !== userId && !(row.mentioned_user_ids || []).includes(userId)) {
+          playMessage();
         }
         setMessages((prev) => {
           // De-dupe against optimistic local rows AND duplicate echoes
@@ -111,12 +126,14 @@ export function useRoomChat(roomId, userId) {
 
     channel.subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [roomId]);
+  }, [roomId, userId]);
 
   const send = useCallback(
     async (body, mentionedUserIds = []) => {
       if (!roomId || !userId) return { error: { message: "Not ready" } };
-      return sendMessage(roomId, userId, body, mentionedUserIds);
+      const res = await sendMessage(roomId, userId, body, mentionedUserIds);
+      if (!res?.error) playMessage(); // cue your own send (the realtime echo is skipped)
+      return res;
     },
     [roomId, userId]
   );

@@ -15,6 +15,7 @@ ios/App/build/
 ios/DerivedData/
 ios/App/App/public/
 android/.gradle/
+android/.idea/
 android/build/
 android/app/build/
 android/app/src/main/assets/public/

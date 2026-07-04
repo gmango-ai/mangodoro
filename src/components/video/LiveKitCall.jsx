@@ -20,10 +20,11 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, MoreHorizontal } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
+import { useVideoCall } from "../../context/VideoCallContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
@@ -33,6 +34,7 @@ import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttemp
 import { diagReset, diagRecord, diagReport, diagEnv } from "./livekitDiagnostics";
 import { useFullscreen } from "./useFullscreen";
 import { useGlobalPin } from "./useGlobalPin";
+import { playHandRaise } from "../../lib/uiSounds";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
@@ -176,6 +178,41 @@ function bgToOptions(bg, customBg) {
 //   float  — render your own tile as a draggable PiP instead of a grid cell
 const SelfViewContext = createContext({ mirror: true, float: true, setMirror: () => {}, setFloat: () => {} });
 
+const RoomEntryHoldContext = createContext({
+  entryHoldPending: false,
+  beginEntryHold: () => {},
+});
+
+function RoomEntryHoldProvider({ children }) {
+  const { cluster } = useRoomCluster();
+  const [entryHoldPending, setEntryHoldPending] = useState(false);
+
+  useEffect(() => {
+    if (cluster) setEntryHoldPending(false);
+  }, [cluster]);
+
+  useEffect(() => {
+    if (!entryHoldPending) return undefined;
+    // Do not leave the call muted forever if the signal request never lands.
+    const t = setTimeout(() => setEntryHoldPending(false), 5000);
+    return () => clearTimeout(t);
+  }, [entryHoldPending]);
+
+  const value = useMemo(
+    () => ({
+      entryHoldPending,
+      beginEntryHold: () => setEntryHoldPending(true),
+    }),
+    [entryHoldPending],
+  );
+
+  return <RoomEntryHoldContext.Provider value={value}>{children}</RoomEntryHoldContext.Provider>;
+}
+
+function useRoomEntryHold() {
+  return useContext(RoomEntryHoldContext);
+}
+
 // "Pin for everyone" control, shared from the call down to each tile + the
 // People panel so the affordance shows wherever it's useful. `canPin` is gated
 // by the room's pin_policy; the server re-checks, so this only decides the UI.
@@ -272,10 +309,27 @@ function useHandRaiseValue() {
   const myId = localParticipant?.identity;
   const myRaised = !!myId && raised.some((r) => r.identity === myId);
 
+  // Play a cue when SOMEONE ELSE raises their hand (not you, and not for hands
+  // already up when you joined). Tracks the previous set of raised remote ids
+  // and fires once when a new one appears.
+  const handCueJoinedAtRef = useRef(Date.now());
+  const prevRaisedRef = useRef(null);
+  useEffect(() => {
+    if (!myId) return;
+    const remoteRaised = raised.filter((r) => r.identity && r.identity !== myId);
+    const remote = new Set(remoteRaised.map((r) => r.identity));
+    const prev = prevRaisedRef.current;
+    for (const r of remoteRaised) {
+      if ((!prev || !prev.has(r.identity)) && r.ts > handCueJoinedAtRef.current) { playHandRaise(); break; }
+    }
+    prevRaisedRef.current = remote;
+  }, [raised, myId]);
+
   const toggle = useCallback(() => {
     if (!localParticipant || room?.state !== "connected") return;
     const raisedNow = !!localParticipant.attributes?.[ATTR_HAND];
     localParticipant.setAttributes({ [ATTR_HAND]: raisedNow ? "" : String(Date.now()) }).catch(() => {});
+    if (!raisedNow) playHandRaise(); // confirmation cue when YOU raise (Zoom-style)
     setTick((n) => n + 1); // optimistic — don't wait for the echo
   }, [localParticipant, room]);
 
@@ -290,9 +344,17 @@ function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
   const { cluster, isMicSource, existingCluster, mergeTarget, startRoom, joinRoom } = useRoomCluster();
+  const { entryHoldPending } = useRoomEntryHold();
   const bestMicAppliedRef = useRef(false);
   const enteredRef = useRef(false);
   const inRoom = !!choices?.inRoom;
+  // Sticky "we've actually been in a cluster this call". `inRoom` is a STATIC
+  // pre-join intent that stays true after you leave the room's audio (leaveRoom
+  // clears the cluster attribute, not choices) — so on its own it wrongly keeps
+  // the mic + call audio held off forever. Once clustered, leaving must restore
+  // both; this ref is what distinguishes "still entering" from "entered & left".
+  const clusteredRef = useRef(false);
+  if (cluster) clusteredRef.current = true;
 
   // "I'm in this room" pre-join: on entry, join the room's audio cluster as a
   // muted follower (or found it if you're first) BEFORE the mic comes up, so
@@ -356,10 +418,13 @@ function PublishController({ publish, choices, micMuted }) {
     if (!localParticipant || !room) return undefined;
     const apply = () => {
       // Your mic is live only when YOU haven't muted it AND (solo, or you're the
-      // room's mic source). While entering "in this room" but not yet clustered,
+      // room's mic source). While ENTERING "in this room" but not yet clustered,
       // hold the mic off so it can't squeal before the follower/mic-source role
-      // resolves.
-      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
+      // resolves — but NOT after you've been in a cluster and left (clusteredRef),
+      // where "in this room" lingers. Manual re-entry sets entryHoldPending for
+      // the same pre-cluster safety window.
+      const holdForEntry = entryHoldPending || (inRoom && !clusteredRef.current);
+      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !holdForEntry);
       localParticipant
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
@@ -367,7 +432,7 @@ function PublishController({ publish, choices, micMuted }) {
     room.on(RoomEvent.Connected, apply);
     if (room.state === "connected") apply();
     return () => room.off(RoomEvent.Connected, apply);
-  }, [localParticipant, room, publish, choices, cluster, isMicSource, micMuted, inRoom]);
+  }, [localParticipant, room, publish, choices, cluster, isMicSource, micMuted, inRoom, entryHoldPending]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
@@ -535,9 +600,15 @@ function AutoMicController({ enabled }) {
 // room would double up and echo. Solo participants render normally.
 function ClusterAudioRenderer({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
+  const { entryHoldPending } = useRoomEntryHold();
   // holdForEntry: while joining "in this room" but before the cluster attribute
-  // has landed, stay silent so our speakers can't feed a co-located mic.
-  if ((cluster && !isAudioSink) || (holdForEntry && !cluster)) return null;
+  // has landed, stay silent so our speakers can't feed a co-located mic. Only
+  // hold WHILE still entering — once we've been in a cluster, leaving it must
+  // restore the call audio. Manual re-entry re-arms the hold until clustering lands.
+  const enteredRef = useRef(false);
+  if (cluster) enteredRef.current = true;
+  const hold = entryHoldPending || (holdForEntry && !enteredRef.current);
+  if ((cluster && !isAudioSink) || (hold && !cluster)) return null;
   return <RoomAudioRenderer />;
 }
 
@@ -550,7 +621,13 @@ function ClusterAudioRenderer({ holdForEntry = false }) {
 // they don't subscribe either. Re-subscribes the moment they become the sink.
 function FollowerAudioGate({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
-  const suppress = (!!cluster && !isAudioSink) || (holdForEntry && !cluster);
+  const { entryHoldPending } = useRoomEntryHold();
+  // Release the entry hold once we've actually clustered (see ClusterAudioRenderer)
+  // so leaving the room re-subscribes us; manual re-entry re-arms it.
+  const enteredRef = useRef(false);
+  if (cluster) enteredRef.current = true;
+  const hold = entryHoldPending || (holdForEntry && !enteredRef.current);
+  const suppress = (!!cluster && !isAudioSink) || (hold && !cluster);
   const audioTracks = useTracks(
     [Track.Source.Microphone, Track.Source.ScreenShareAudio],
     { onlySubscribed: false },
@@ -836,6 +913,7 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
     cluster, members, isMicSource, isAudioSink, existingCluster,
     startRoom, joinRoom, takeSpeaker, stepDown, takeSink, releaseSink, leaveRoom,
   } = useRoomCluster();
+  const { beginEntryHold } = useRoomEntryHold();
   const roles = useClusterRoles();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -853,6 +931,11 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
 
   if (!cluster) {
     const joining = !!existingCluster;
+    const enterRoom = () => {
+      beginEntryHold();
+      if (joining) joinRoom(existingCluster);
+      else startRoom();
+    };
     return (
       <button
         type="button"
@@ -863,7 +946,7 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
             : "In a room with teammates? Make this the room speaker so you don't echo each other"
         }
         aria-label={joining ? "Join the room's shared audio" : "Make this the room speaker"}
-        onClick={() => (joining ? joinRoom(existingCluster) : startRoom())}
+        onClick={enterRoom}
       >
         {/* Speaker (not a people icon) so this "share the room's audio" control
             isn't confused with the People / participants button. */}
@@ -1116,6 +1199,46 @@ function LayoutMenu({ mode, onSet, ignoreSelf, onToggleIgnoreSelf }) {
 // The reactions popup (Google-Meet style) is centered on the bar FRAME, not
 // on the off-center smiley button — so it stays put regardless of how many
 // controls flank it.
+// Overflow "More" menu — houses the less-frequent utility actions (pop-out,
+// deafen, fullscreen) so the control bar stays uncluttered. A tap on any item
+// runs it and closes the menu.
+function MoreMenu({ children }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        className="lk-button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More options"
+        title="More"
+      >
+        <MoreHorizontal className="w-5 h-5" />
+      </button>
+      {open && (
+        <div className="call-menu absolute bottom-full mb-2 right-0 z-20 w-[220px]" onClick={() => setOpen(false)}>
+          <div className="call-menu-label">More</div>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CallControlBar({
   publish, tight, emote,
   layoutMode, onSetLayout,
@@ -1133,6 +1256,7 @@ function CallControlBar({
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const { poppedOut, popOut, popIn, canPopOut } = useVideoCall();
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const { myRaised, toggle: toggleHand, count: handCount } = useContext(HandRaiseContext);
   // Mirror the overlay's charge + recents so the shared <EmoteBar> shows the
@@ -1190,21 +1314,6 @@ function CallControlBar({
         </>
       )}
 
-      {/* Deafen — silence everything, incoming and outgoing, in one tap. Cuts
-          the call audio you hear and (by forcing your mic muted) what you send.
-          Grouped with the audio controls (right after the mic / room-audio
-          button); shown to spectators too, since it still mutes what you hear. */}
-      <button
-        type="button"
-        className={`lk-button ${deafened ? "lk-button--raised" : ""}`}
-        onClick={onToggleDeafen}
-        aria-pressed={deafened}
-        aria-label={deafened ? "Undeafen (turn audio back on)" : "Deafen (mute all audio in and out)"}
-        title={deafened ? "Undeafen — turn call audio back on" : "Deafen — mute all audio, incoming and outgoing"}
-      >
-        {deafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
-      </button>
-
       {/* Raise hand — available whether or not you publish (a spectator can ask
           to speak). Amber while yours is up. */}
       <button
@@ -1249,20 +1358,32 @@ function CallControlBar({
         <Smile className="w-5 h-5" />
       </button>
 
-      {/* True fullscreen — takes over the whole screen, not just the window.
-          Hidden where the browser can't fullscreen an element (e.g. iOS Safari). */}
-      {fullscreenSupported && (
-        <button
-          type="button"
-          className="lk-button"
-          onClick={onToggleFullscreen}
-          aria-pressed={isFullscreen}
-          aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-        >
-          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-        </button>
-      )}
+      {/* Overflow: the less-frequent utilities live here so the bar stays tidy —
+          pop-out (Document PiP, where supported), deafen, and true fullscreen. */}
+      <MoreMenu>
+        {canPopOut && (
+          <SettingRow
+            icon={PictureInPicture2}
+            label={poppedOut ? "Return from pop-out" : "Pop out to a window"}
+            active={poppedOut}
+            onClick={poppedOut ? popIn : popOut}
+          />
+        )}
+        <SettingRow
+          icon={deafened ? HeadphoneOff : Headphones}
+          label={deafened ? "Undeafen" : "Deafen (mute all audio)"}
+          active={deafened}
+          onClick={onToggleDeafen}
+        />
+        {fullscreenSupported && (
+          <SettingRow
+            icon={isFullscreen ? Minimize2 : Maximize2}
+            label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            active={isFullscreen}
+            onClick={onToggleFullscreen}
+          />
+        )}
+      </MoreMenu>
 
       <DisconnectButton>{tight ? <PhoneOff className="w-4 h-4" /> : "Leave"}</DisconnectButton>
     </div>
@@ -2425,26 +2546,28 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
           onError?.(msg);
         }}
       >
-        <PublishController publish={publish} choices={choices} micMuted={micMuted} />
-        {/* Silent connection-health recorder — feeds the disconnect report so a
-            force disconnect can be explained, not just observed. */}
-        <ConnectionDiagnostics roomId={roomId} />
-        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} deafened={deafened} onToggleDeafen={toggleDeafen} chromeless={chromeless} />
-        {/* Owns in-room cluster management (leader handoff). Mount once. */}
-        <RoomClusterManager />
-        {/* Restore the saved audio-output device on connect. */}
-        <SavedSpeakerApplier />
-        {/* In-room followers receive no audio at all (the room speaker carries
-            it for them); everyone else plays normally. holdForEntry keeps a
-            still-clustering "in this room" joiner silent during the entry window. */}
-        <FollowerAudioGate holdForEntry={publish && !!choices?.inRoom} />
-        {/* Required for participants to be audible — suppressed for in-room
-            followers so the leader's speakers don't echo back through them. Also
-            gated on `listen`: a silent auto-preview spectator plays NOTHING, so
-            walking up to a room can't blast the call through your speakers and
-            (if a live participant is nearby) feed back into the room. Publishers
-            always hear; explicit watchers and join always have listen=true. */}
-        {(publish || listen) && !deafened && <ClusterAudioRenderer holdForEntry={publish && !!choices?.inRoom} />}
+        <RoomEntryHoldProvider>
+          <PublishController publish={publish} choices={choices} micMuted={micMuted} />
+          {/* Silent connection-health recorder — feeds the disconnect report so a
+              force disconnect can be explained, not just observed. */}
+          <ConnectionDiagnostics roomId={roomId} />
+          <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} deafened={deafened} onToggleDeafen={toggleDeafen} chromeless={chromeless} />
+          {/* Owns in-room cluster management (leader handoff). Mount once. */}
+          <RoomClusterManager />
+          {/* Restore the saved audio-output device on connect. */}
+          <SavedSpeakerApplier />
+          {/* In-room followers receive no audio at all (the room speaker carries
+              it for them); everyone else plays normally. holdForEntry keeps a
+              still-clustering "in this room" joiner silent during the entry window. */}
+          <FollowerAudioGate holdForEntry={publish && !!choices?.inRoom} />
+          {/* Required for participants to be audible — suppressed for in-room
+              followers so the leader's speakers don't echo back through them. Also
+              gated on `listen`: a silent auto-preview spectator plays NOTHING, so
+              walking up to a room can't blast the call through your speakers and
+              (if a live participant is nearby) feed back into the room. Publishers
+              always hear; explicit watchers and join always have listen=true. */}
+          {(publish || listen) && !deafened && <ClusterAudioRenderer holdForEntry={publish && !!choices?.inRoom} />}
+        </RoomEntryHoldProvider>
       </LiveKitRoom>
     </div>
   );
