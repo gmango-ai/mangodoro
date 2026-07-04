@@ -55,6 +55,14 @@ const fmtBytes = (n) => {
   return `${(n / 1048576).toFixed(1)} MB`;
 };
 
+// The glyph for a channel: announcement (admins-only posting) → megaphone, a
+// room's chat channel → door, an ordinary channel → hash. Shared everywhere a
+// channel is listed so the distinction is consistent.
+export function channelGlyph(c, className = "w-4 h-4") {
+  const Icon = c?.post_policy === "admins" ? Megaphone : c?.room_id ? DoorOpen : Hash;
+  return <Icon className={className} />;
+}
+
 // A conversation's display name — channel title, group title (or its members),
 // or the other DM participant. Shared by the page + the nav quick-view.
 export function conversationName(c, memberById) {
@@ -335,7 +343,7 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
         <ArrowLeft className="w-5 h-5" />
       </button>
       {kind === "channel" ? (
-        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${conversation?.org_team_color || "#14b8a6"}22`, color: conversation?.org_team_color || "#14b8a6" }}><Hash className="w-4 h-4" /></span>
+        <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${conversation?.org_team_color || "#14b8a6"}22`, color: conversation?.org_team_color || "#14b8a6" }}>{channelGlyph(conversation)}</span>
       ) : kind === "group" ? (
         <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
       ) : (
@@ -876,7 +884,7 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
       {lineBefore && <span className="pointer-events-none absolute left-3 right-3 -top-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
       {lineAfter && <span className="pointer-events-none absolute left-3 right-3 -bottom-px h-0.5 rounded bg-[var(--color-accent)] z-10" />}
       {c.kind === "channel" ? (
-        <span className={`${compact ? "w-6 h-6" : "w-9 h-9"} rounded-full flex items-center justify-center shrink-0`} style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{c.post_policy === "admins" ? <Megaphone className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} /> : <Hash className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} />}</span>
+        <span className={`${compact ? "w-6 h-6" : "w-9 h-9"} rounded-full flex items-center justify-center shrink-0`} style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{channelGlyph(c, compact ? "w-3.5 h-3.5" : "w-4 h-4")}</span>
       ) : c.kind === "group" ? (
         <span className={`${compact ? "w-6 h-6" : "w-9 h-9"} rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} /></span>
       ) : (
