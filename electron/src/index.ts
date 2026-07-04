@@ -92,8 +92,6 @@ function waitForRendererReady(win: BrowserWindow, timeoutMs = 3000): Promise<voi
     if (!win || win.isDestroyed()) return null;
 
     await waitForRendererReady(win);
-    const handlerReady = await waitForMainTimerHandlerReady(win);
-    if (!handlerReady) return null;
     // The popover is the user-visible surface for this click. If we had
     // to recreate the main renderer just to own timer state, keep it in
     // the background instead of flashing the full app on top.
