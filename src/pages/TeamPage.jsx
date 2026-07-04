@@ -1932,6 +1932,7 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
   const [colorDraft, setColorDraft] = useState(team.color || "#14b8a6");
   const [iconUrl, setIconUrl] = useState(team.icon_url || "");
   const [vibeDraft, setVibeDraft] = useState(team.office_vibe || "quiet");
+  const [autoJoinDraft, setAutoJoinDraft] = useState(!!team.channels_auto_join);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -1941,6 +1942,7 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
     setColorDraft(team.color || "#14b8a6");
     setIconUrl(team.icon_url || "");
     setVibeDraft(team.office_vibe || "quiet");
+    setAutoJoinDraft(!!team.channels_auto_join);
   }, [team.id]);
 
   async function processFile(file) {
@@ -1962,7 +1964,8 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
     nameDraft.trim() !== (team.name || "").trim()
     || colorDraft !== (team.color || "#14b8a6")
     || iconUrl !== (team.icon_url || "")
-    || vibeDraft !== (team.office_vibe || "quiet");
+    || vibeDraft !== (team.office_vibe || "quiet")
+    || autoJoinDraft !== !!team.channels_auto_join;
 
   async function handleRemoveIcon() {
     if (iconUrl) await onDeleteIcon?.(iconUrl);
@@ -1978,6 +1981,7 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
       color: colorDraft,
       icon_url: iconUrl || null,
       office_vibe: vibeDraft,
+      channels_auto_join: autoJoinDraft,
     });
     setBusy(false);
     if (error) { onError?.(error.message || "Could not save team settings."); return; }
@@ -2091,6 +2095,21 @@ function TeamSettingsCard({ team, dark, cardCls, labelCls, inputCls, onSave, onU
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Auto-join channels — open channels appear for everyone without Browse. */}
+        <div>
+          <p className={labelCls}>Channels</p>
+          <button type="button" onClick={() => setAutoJoinDraft((v) => !v)}
+            className={`mt-1 w-full max-w-sm flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors ${autoJoinDraft ? "border-[var(--color-accent)]" : dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+            <span className="flex-1 min-w-0">
+              <span className={`block text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>Add everyone to new channels</span>
+              <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>Open channels show up for every member automatically — no need to Browse &amp; join.</span>
+            </span>
+            <span className={`shrink-0 w-9 h-5 rounded-full p-0.5 transition-colors ${autoJoinDraft ? "bg-[var(--color-accent)]" : dark ? "bg-white/15" : "bg-slate-300"}`}>
+              <span className={`block w-4 h-4 rounded-full bg-white transition-transform ${autoJoinDraft ? "translate-x-4" : ""}`} />
+            </span>
+          </button>
         </div>
 
         <div className="flex justify-end">
