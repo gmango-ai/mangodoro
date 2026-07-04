@@ -20,17 +20,18 @@ export function EdgeMarkerDefs() {
   // rather than relying on React Flow's object-marker generation). orient
   // "auto-start-reverse" makes directional caps point the right way on EITHER
   // end; fill/stroke "context-stroke" follows each edge's colour for free.
-  // refX is the point placed at the line's end: arrow/open at their TIP, dot &
-  // diamond at their CENTRE — so a line ending here lands in the middle of a
-  // symmetric cap and at the base/tip of a directional one. The gap off the node
-  // comes from insetting the line's end (see CAP_GAP / CAP_REACH), not from refX.
+  // refX is the point placed at the line's end. Arrow/open sit it 2 units BEHIND
+  // the tip so the wide part of the head covers the line's stroke — ending the
+  // line exactly at the pointy tip lets the thick stroke poke out past it. Dot &
+  // diamond use their CENTRE, so a line ending there lands in their middle. The
+  // gap off the node comes from insetting the line's end (CAP_GAP / CAP_REACH).
   return (
     <svg aria-hidden style={{ position: "absolute", width: 0, height: 0 }}>
       <defs>
-        <marker id="wb-arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
+        <marker id="wb-arrow" markerWidth="10" markerHeight="10" refX="7" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
           <path d="M1.5 1.5 L9 5 L1.5 8.5 Z" fill="context-stroke" />
         </marker>
-        <marker id="wb-open" markerWidth="10" markerHeight="10" refX="9" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
+        <marker id="wb-open" markerWidth="10" markerHeight="10" refX="7" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
           <path d="M2 1.5 L9 5 L2 8.5" fill="none" stroke="context-stroke" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
         </marker>
         <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" markerUnits="strokeWidth" orient="auto-start-reverse">
@@ -237,7 +238,7 @@ function capUrl(kind) {
 // pulled back so the cap floats just off the node. See the inset math in
 // EditableEdge.
 const CAP_GAP = 5;
-const CAP_REACH = { arrow: 0, open: 0, dot: 3, diamond: 4.5 };
+const CAP_REACH = { arrow: 2, open: 2, dot: 3, diamond: 4.5 };
 
 // Move `from` toward `toward` by `dist` px (never past ~80% of the way), so
 // insetting an endpoint never overshoots its first bend.
@@ -248,17 +249,18 @@ function insetAlong(from, toward, dist) {
   return { x: from.x + (dx / L) * d, y: from.y + (dy / L) * d };
 }
 
-// The end-cap drawn AS the endpoint drag handle — a larger version of the cap,
-// centred on the handle origin (which sits where the line now ends: a dot's /
-// diamond's middle, an arrow's tip). The body of a directional cap extends into
-// -x (away from the node). "none" returns null → the base handle dot stands in
-// as the grab target.
+// The end-cap drawn AS the endpoint drag handle — the cap's shape, but WHITE
+// filled with a border in the edge colour (the old dot-handle look), centred on
+// the handle origin (where the line now ends: a dot's / diamond's middle, near a
+// directional cap's tip). Directional caps point +x (toward the node). "none"
+// returns null → the base handle dot stands in as the grab target.
 function capHandleGlyph(cap, color) {
+  const p = { fill: "#fff", stroke: color, strokeWidth: 2.5, strokeLinejoin: "round", strokeLinecap: "round" };
   switch (cap) {
-    case "arrow": return <path d="M0 0 L-13 -7 L-13 7 Z" fill={color} />;
-    case "open": return <path d="M-13 -7 L0 0 L-13 7" fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />;
-    case "dot": return <circle cx="0" cy="0" r="6.5" fill={color} />;
-    case "diamond": return <path d="M7 0 L0 -6.5 L-7 0 L0 6.5 Z" fill={color} />;
+    case "arrow":
+    case "open": return <path d="M5 0 L-9 -7.5 L-9 7.5 Z" {...p} />;
+    case "dot": return <circle cx="0" cy="0" r="6.5" {...p} />;
+    case "diamond": return <path d="M8 0 L0 -7 L-8 0 L0 7 Z" {...p} />;
     default: return null; // "none"
   }
 }
@@ -866,16 +868,15 @@ const EditableEdge = memo(function EditableEdge({
               boxShadow: "0 1px 4px rgba(0,0,0,.4)",
             }} />
         ))}
-        {/* Endpoint handles rendered AS the end-cap itself: a larger copy of the
-            edge's cap, sitting on the (inset) cap point and oriented the same
-            way, so it never hides the cap — it IS the cap. They live in the
+        {/* Endpoint handles rendered AS the end-cap itself, in the cap's shape but
+            WHITE with a border in the edge colour (the old dot-handle look) so on
+            hover/selection the cap reads clearly as a grab target. They sit on the
+            (inset) cap point, oriented like the real marker, and live in the
             edge-label layer (above the node layer) so they win the click over the
-            node's connection dot, and grabbing one doesn't reveal the node's
-            dots. A soft colour halo + grab cursor on hover/selection is the "this
-            is grabbable" affordance while the shape (arrow/dot/diamond) stays
-            recognisable. A "none" end gets a plain dot to grab. Drag to slide the
-            end around the perimeter, or drop on another node to re-attach — this
-            moves the EXISTING edge (never spawns a new one). */}
+            node's connection dot without revealing the node's dots. A "none" end
+            gets a plain dot to grab. Drag to slide the end around the perimeter,
+            or drop on another node to re-attach — this moves the EXISTING edge
+            (never spawns a new one). */}
         {(soleSelected || hovered) && [
           { which: "source", x: capS.x, y: capS.y, angle: srcAngle, cap: startCapKind },
           { which: "target", x: capT.x, y: capT.y, angle: tgtAngle, cap: endCapKind },
@@ -889,14 +890,11 @@ const EditableEdge = memo(function EditableEdge({
               position: "absolute",
               transform: `translate(-50%,-50%) translate(${ep.x}px,${ep.y}px)`,
               pointerEvents: "all", zIndex: 9, cursor: "grab",
-              filter: "drop-shadow(0 1px 2px rgba(0,0,0,.35))",
+              filter: "drop-shadow(0 1px 3px rgba(0,0,0,.4))",
             }}>
             <svg width="34" height="34" viewBox="-17 -17 34 34" style={{ display: "block", overflow: "visible" }}>
-              {/* Cap centred on the handle origin (= where the line ends), so it
-                  matches the real marker; the halo frames it as a grab target. */}
-              <circle r="12" fill={color} opacity="0.16" />
               {ep.cap === "none"
-                ? <circle r="6" fill="#fff" stroke={color} strokeWidth="2.5" />
+                ? <circle r="6.5" fill="#fff" stroke={color} strokeWidth="3" />
                 : <g transform={`rotate(${ep.angle})`}>{capHandleGlyph(ep.cap, color)}</g>}
             </svg>
           </div>
