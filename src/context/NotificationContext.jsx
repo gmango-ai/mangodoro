@@ -1,7 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
-import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll } from "../lib/notifications";
+import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll, typeMeta } from "../lib/notifications";
+import { useResolvedSelf } from "../hooks/useResolvedSelf";
+import { deliveryAction } from "../lib/notificationDelivery";
+import { playNotificationChime } from "../lib/notificationSound";
 
 // Notification layer — in-app delivery.
 //
@@ -33,6 +36,11 @@ export function NotificationProvider({ children }) {
   const { session, settings } = useApp();
   const userId = session?.user?.id;
 
+  // Live resolved availability, for the client-side (last-mile) delivery policy.
+  const { resolved } = useResolvedSelf();
+  const availabilityRef = useRef("available");
+  availabilityRef.current = resolved?.availability || "available";
+
   const [items, setItems] = useState([]);
   const [toasts, setToasts] = useState([]);
   // Single source of truth — derive the badge from items so it can't drift /
@@ -47,19 +55,27 @@ export function NotificationProvider({ children }) {
   const handleIncoming = useCallback((n) => {
     if (!n) return;
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
-    // Held while the recipient was focusing / in a meeting → inbox only, no
-    // toast or desktop ping (it surfaces in the return-from-focus digest later).
-    if (n.state === "held") return;
     const channels = n.channels || [];
+    // Client last-mile: decide banner / sound / push from THIS device's live
+    // status + the notification's priority (fresher than the server's emit-time
+    // routing). High/urgent always break through; low/normal are muted while you
+    // focus but still shown.
+    const action = deliveryAction(n.priority || "normal", availabilityRef.current);
+    // In-app toast — always show it so a notification is never silently lost
+    // (there's no return-from-focus digest yet). The chime only plays when the
+    // policy allows sound.
     if (channels.includes("inapp")) {
       const id = _toastSeq++;
       setToasts((t) => [...t, { id, n }].slice(-4));
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
+      if (action.sound) playNotificationChime();
     }
+    // OS notification — tab backgrounded, the type wants desktop, the policy
+    // allows a push, permission is granted, and not within quiet hours.
+    const wantsDesktop = (typeMeta(n.type)?.channels || channels).includes("desktop");
     if (
-      channels.includes("desktop") &&
-      typeof Notification !== "undefined" &&
-      Notification.permission === "granted" &&
+      action.push && wantsDesktop &&
+      typeof Notification !== "undefined" && Notification.permission === "granted" &&
       typeof document !== "undefined" && document.hidden &&
       !withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd)
     ) {
