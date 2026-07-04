@@ -3,8 +3,10 @@ import { Send, Pencil, Trash2, Check, X, Clock } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useApp } from "../context/AppContext";
 import { useTeamOptional } from "../context/TeamContext";
+import { useMessages } from "../context/MessagesContext";
 import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
+import { Thread } from "../pages/MessagesPage";
 import { emitMention } from "../lib/notifications";
 import { getProfiles } from "../lib/profiles";
 import { availability, isOutOfOfficeAny } from "../lib/timezone";
@@ -157,7 +159,40 @@ function MessageRow({
   );
 }
 
-export default function RoomChatPanel({ roomId, userId, fillHeight = false, readOnly = false }) {
+// A general room's chat IS its Messages channel, so — when we're interactive
+// (not the read-only kiosk) and that channel is available — render the exact same
+// Thread UI the Messages page uses: image uploads, reactions, @mention rendering,
+// the lot. The header is hidden because the room tile already has its own "Chat"
+// title bar. Everything else (non-general rooms, kiosk/read-only, or before the
+// channel loads) keeps the legacy panel.
+export default function RoomChatPanel(props) {
+  const { conversations = [] } = useMessages();
+  const conv = props.readOnly ? null : conversations.find((c) => c.room_id === props.roomId);
+  if (conv && props.userId) return <RoomThreadPanel conv={conv} userId={props.userId} fillHeight={props.fillHeight} />;
+  return <LegacyRoomChatPanel {...props} />;
+}
+
+function RoomThreadPanel({ conv, userId, fillHeight = false }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
+  const { teamMembers = [], isAdmin, myOrgTeamLeadIds = new Set() } = useTeamOptional() || {};
+  const { markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const memberById = useMemo(() => new Map(teamMembers.map((m) => [m.user_id, m])), [teamMembers]);
+  const others = useMemo(() => teamMembers.filter((m) => m.user_id !== userId), [teamMembers, userId]);
+  return (
+    <div className={`min-h-0 ${fillHeight ? "h-full" : "h-80"}`}>
+      <Thread
+        conversation={conv} name={conv.title} memberById={memberById} candidates={others}
+        userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
+        hideHeader markRead={markRead}
+        subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions}
+        onChannelMetaSaved={reload} dark={dark}
+      />
+    </div>
+  );
+}
+
+function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = false }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { messages, loading, send, edit, remove } = useRoomChat(roomId, userId);
