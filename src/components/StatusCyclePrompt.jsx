@@ -5,8 +5,7 @@ import { useApp } from "../context/AppContext";
 import { useSyncSession } from "../context/SyncSessionContext";
 import { useTheme } from "../context/ThemeContext";
 import { availabilityDot, availabilityLabel } from "../lib/presence";
-import { writeOverride, clearOverride } from "../lib/statusOverride";
-import { setPresenceOverride, clearPresenceOverride } from "../lib/userPresence";
+import { applyStatusOverride, clearStatusOverride } from "../lib/statusActions";
 import { readStatusOnCycle } from "../lib/statusCyclePref";
 
 // At the end of each Pomodoro phase (focus or break), per the status-at-cycle
@@ -14,10 +13,6 @@ import { readStatusOnCycle } from "../lib/statusCyclePref";
 // or pop a quick prompt to clear / update it. Transition detection mirrors
 // ReflectionPrompt. Writes bridge to the legacy surfaces too (room list).
 const BREAKS = new Set(["shortBreak", "longBreak"]);
-const LEGACY = {
-  available: "available", focusing: "heads_down", in_meeting: "in_meeting",
-  away: "away", lunch: "out_to_lunch", commuting: "commuting", off: "away",
-};
 const QUICK = ["available", "focusing", "away", "off"];
 
 export default function StatusCyclePrompt() {
@@ -31,19 +26,12 @@ export default function StatusCyclePrompt() {
   const [prompt, setPrompt] = useState(null); // { phase: 'focus'|'break' } | null
 
   const doClear = () => {
-    clearOverride();
-    if (userId) clearPresenceOverride(userId);
-    updateStatus?.({ presenceState: "active", status: "" });
-    if (syncSession) setStatus?.({ presenceState: "active", status: "" });
+    clearStatusOverride({ userId, syncSession, updateStatus, setStatus });
     setPrompt(null);
   };
 
   const doSet = (availability) => {
-    writeOverride({ availability, message: null, expiresAt: null });
-    if (userId) setPresenceOverride({ userId, availability, message: null, expiresAt: null });
-    const legacy = LEGACY[availability] || "active";
-    updateStatus?.({ presenceState: legacy, status: "" });
-    if (syncSession) setStatus?.({ presenceState: legacy, status: "" });
+    applyStatusOverride({ availability, message: null, expiresAt: null, userId, syncSession, updateStatus, setStatus });
     setPrompt(null);
   };
 

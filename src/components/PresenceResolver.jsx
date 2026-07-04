@@ -1,27 +1,32 @@
 import { useEffect, useRef } from "react";
 import { useResolvedSelf } from "../hooks/useResolvedSelf";
+import { useApp } from "../context/AppContext";
+import { useSyncSession } from "../context/SyncSessionContext";
 import { presenceSignature, shouldWritePresence } from "../lib/presenceWrite";
 import { upsertUserPresence } from "../lib/userPresence";
 import { recordPresenceSample } from "../hooks/usePresenceTimeline";
+import { AVAIL_TO_LEGACY } from "../lib/statusActions";
 
-// Seam ① persistence: take the live resolved status (useResolvedSelf) and write
-// it to user_presence — throttled, with availability transitions bypassing the
-// throttle so the notification router's snapshot stays fresh (plan §3.3).
-//
-// A mount-once effect component, like IdlePresence / PresenceSync. All the
-// resolution logic lives in useResolvedSelf + the pure modules it composes;
-// this is just the write cadence + decision.
-//
-// NOT YET RENDERED in App.jsx — inert until the user_presence migration reaches
-// the shared DB + a reader exists, so it can go live and be observed together.
+// Seam ① persistence + the app's SINGLE status writer. Takes the live resolved
+// status (useResolvedSelf) and writes it everywhere:
+//   • user_presence — the new snapshot (throttled; transitions bypass);
+//   • user_settings.presence_state (+ status) via updateStatus — which also
+//     feeds the realtime team-presence channel through PresenceSync;
+//   • sync_session_participants status via setStatus, when in a room.
+// Because the resolver owns these, the old competing writers are retired:
+// IdlePresence no longer writes status, and the in-room StatusSetter now sets
+// the manual override (which the resolver reads). Legacy writes are deduped on
+// the mapped value. Mount-once, like IdlePresence / PresenceSync.
 
 export default function PresenceResolver() {
   const { resolved, userId, teamId } = useResolvedSelf();
+  const { updateStatus } = useApp();
+  const { syncSession, setStatus } = useSyncSession();
 
   const ref = useRef({});
-  ref.current = { resolved, userId, teamId };
+  ref.current = { resolved, userId, teamId, syncSession, updateStatus, setStatus };
 
-  const wr = useRef({ prevSig: null, lastWriteAt: null });
+  const wr = useRef({ prevSig: null, lastWriteAt: null, legacySig: null });
 
   useEffect(() => {
     if (!userId) return undefined;
@@ -31,14 +36,26 @@ export default function PresenceResolver() {
       if (!s.userId || !s.resolved) return;
       const now = Date.now();
 
-      // Device-local active/away/offline timeline (verification tool) — DB-free,
-      // so it works even before the migration lands.
+      // Device-local active/away/offline timeline (verification tool).
       recordPresenceSample(s.resolved.availability, now);
 
+      // Write-through to the legacy surfaces, deduped on the mapped value so we
+      // don't re-hit the RPCs every tick. (Manual set/clear already mirror
+      // immediately via statusActions; this covers auto-derived changes.)
+      const legacy = AVAIL_TO_LEGACY[s.resolved.availability] || "active";
+      const statusText = s.resolved.override?.message || "";
+      const roomId = s.syncSession?.id || null;
+      const legacySig = `${legacy}|${statusText}|${roomId}`;
+      if (legacySig !== wr.current.legacySig) {
+        wr.current.legacySig = legacySig;
+        try { s.updateStatus?.({ presenceState: legacy, status: statusText }); } catch { /* */ }
+        if (s.syncSession) { try { s.setStatus?.({ presenceState: legacy, status: statusText }); } catch { /* */ } }
+      }
+
+      // user_presence snapshot (throttled / transition-bypass).
       const nextSig = presenceSignature(s.resolved);
       const { write } = shouldWritePresence(wr.current.prevSig, nextSig, wr.current.lastWriteAt, now);
       if (!write) return;
-
       wr.current.prevSig = nextSig;
       wr.current.lastWriteAt = now;
       try {
