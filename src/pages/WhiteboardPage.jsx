@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ReactFlow,
@@ -369,27 +370,60 @@ function PaletteGrid({ colors, selected, onPick }) {
 // and adds a note in it; the corner caret opens a palette flyout to
 // change the default (curated pastels + any custom hex). Picking a color
 // sets it as the default AND drops a note in that color.
-function StickyTool({ dark, onAdd }) {
+function StickyTool({ dark, onAdd, onDropAt }) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState(() =>
     stickyHex(preferredStickyColor())
   );
+  const [ghost, setGhost] = useState(null); // {x,y} while dragging from the button
+  const dragRef = useRef(null);
 
-  function pick(hex) {
+  // Choosing a color only sets the DEFAULT — it no longer drops a note (you were
+  // getting a sticky the instant you touched the custom-color picker). Place a
+  // note by clicking the button or dragging from it. Presets close the flyout;
+  // the custom picker stays open so you can fine-tune before placing.
+  function setDefaultColor(hex) {
     setPreferredStickyColor(hex);
     setCurrent(stickyHex(hex));
-    onAdd(hex);
+  }
+  function pickPreset(hex) {
+    setDefaultColor(hex);
     setOpen(false);
   }
+
+  // Drag off the button to drop a sticky where you release (with a ghost
+  // preview); a plain click (no drag) drops one at the visible center. Pointer
+  // capture keeps the events on the button so the canvas doesn't pan.
+  const onBtnPointerDown = (e) => {
+    if (e.button != null && e.button !== 0) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* */ }
+    dragRef.current = { moved: false, sx: e.clientX, sy: e.clientY };
+  };
+  const onBtnPointerMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
+    d.moved = true;
+    setGhost({ x: e.clientX, y: e.clientY });
+  };
+  const onBtnPointerUp = (e) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setGhost(null);
+    if (d?.moved) onDropAt?.(e.clientX, e.clientY, current);
+    else onAdd();
+  };
 
   return (
     <div className="relative">
       <button
         type="button"
-        title="Add sticky note"
+        title="Add sticky note — or drag to place"
         aria-label="Add sticky note"
-        onClick={() => onAdd()}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+        onPointerDown={onBtnPointerDown}
+        onPointerMove={onBtnPointerMove}
+        onPointerUp={onBtnPointerUp}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
           dark ? "hover:bg-white/10" : "hover:bg-slate-100"
         }`}
       >
@@ -411,7 +445,53 @@ function StickyTool({ dark, onAdd }) {
               dark ? "text-slate-500" : "text-slate-400"
             }`}
           >
-            Sticky color
+            <div
+              className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${
+                dark ? "text-slate-500" : "text-slate-400"
+              }`}
+            >
+              Sticky color
+            </div>
+            <div className="grid grid-cols-6 gap-1">
+              {STICKY_PALETTE.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  title={hex}
+                  onClick={() => pickPreset(hex)}
+                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
+                  style={{
+                    background: hex,
+                    outline:
+                      current.toLowerCase() === hex.toLowerCase()
+                        ? "2px solid #f97316"
+                        : "none",
+                    outlineOffset: 1,
+                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
+                  }}
+                />
+              ))}
+            </div>
+            <label
+              className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${
+                dark ? "text-slate-300" : "text-slate-600"
+              }`}
+            >
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(current) ? current : "#fde68a"}
+                onChange={(e) => setDefaultColor(e.target.value)}
+                style={{
+                  width: 24,
+                  height: 24,
+                  padding: 0,
+                  border: "none",
+                  background: "none",
+                  cursor: "pointer",
+                }}
+              />
+              Custom color
+            </label>
           </div>
           <PaletteGrid colors={STICKY_PALETTE} selected={current} onPick={pick} />
           <label
@@ -435,6 +515,19 @@ function StickyTool({ dark, onAdd }) {
             Custom color
           </label>
         </ToolPopover>
+      )}
+      {ghost && createPortal(
+        <div
+          aria-hidden
+          style={{
+            position: "fixed", left: ghost.x, top: ghost.y,
+            transform: "translate(-50%,-50%) rotate(-4deg)",
+            width: 40, height: 40, borderRadius: 6, background: current,
+            boxShadow: "0 6px 16px rgba(0,0,0,.25), inset 0 0 0 1px rgba(0,0,0,.12)",
+            pointerEvents: "none", zIndex: 9999, opacity: 0.92,
+          }}
+        />,
+        document.body
       )}
     </div>
   );
@@ -2076,23 +2169,29 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   );
 
   const addNodeAtCenter = useCallback(
-    (type, extra = {}) => {
+    // `atClient` (optional {x,y} in screen coords) drops the node under the
+    // cursor — used by drag-from-toolbar. Omitted → near the visible center.
+    (type, extra = {}, atClient = null) => {
       const size = DEFAULTS[type] || { w: 180, h: 100 };
       // Drop the new node near the visible center so the user sees it
-      // appear without having to pan.
+      // appear without having to pan (or at the drop point when dragged).
       let centerWorld = { x: 200, y: 200 };
       try {
-        const vp = rf.getViewport();
-        // screen-center → world coords using viewport math
-        const el = document.querySelector(".react-flow");
-        if (el) {
-          const r = el.getBoundingClientRect();
-          centerWorld = rf.screenToFlowPosition({
-            x: r.left + r.width / 2,
-            y: r.top + r.height / 2,
-          });
+        if (atClient) {
+          centerWorld = rf.screenToFlowPosition({ x: atClient.x, y: atClient.y });
         } else {
-          centerWorld = { x: -vp.x / vp.zoom + 200, y: -vp.y / vp.zoom + 200 };
+          const vp = rf.getViewport();
+          // screen-center → world coords using viewport math
+          const el = document.querySelector(".react-flow");
+          if (el) {
+            const r = el.getBoundingClientRect();
+            centerWorld = rf.screenToFlowPosition({
+              x: r.left + r.width / 2,
+              y: r.top + r.height / 2,
+            });
+          } else {
+            centerWorld = { x: -vp.x / vp.zoom + 200, y: -vp.y / vp.zoom + 200 };
+          }
         }
       } catch {
         /* */
@@ -2350,7 +2449,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   // Alt/Option-drag = clone: at drag start, drop a copy of the dragged node(s)
   // in place (unselected) and let the ORIGINALS keep dragging — so you pull a
-  // duplicate out, leaving the copy behind. Guarded so we clone once per drag.
+  // clean duplicate out while the copy left behind KEEPS all the connections
+  // (the original position looks untouched). Guarded so we clone once per drag.
   const altCloningRef = useRef(false);
   const onNodeDragStartClone = useCallback((event, node) => {
     const alt = event?.altKey ?? event?.sourceEvent?.altKey;
@@ -2369,7 +2469,33 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       return next;
     });
     setNodes((nds) => nds.concat(clones));
-    setEdges((eds) => duplicateInternalEdges(eds, idMap));
+    setEdges((eds) => {
+      // Internal edges (both ends cloned): give the stay-put clones their own
+      // copy so the clone group keeps its wiring, and leave the originals' copy
+      // intact so the dragged-out duplicate stays internally connected too.
+      const copies = eds
+        .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+        .map((e) => ({
+          ...e, id: freshId("e"), selected: false,
+          source: idMap.get(e.source), target: idMap.get(e.target),
+          data: e.data ? { ...e.data } : e.data,
+        }));
+      // External edges (one end cloned): re-point that end onto the clone that
+      // stays put, so the ORIGINAL spot keeps its connections and the copy you
+      // drag away comes out clean. (This is the fix: edges no longer follow the
+      // node you're dragging.)
+      const rewired = eds.map((e) => {
+        const s = idMap.has(e.source);
+        const t = idMap.has(e.target);
+        if (s === t) return e; // internal (both) or untouched (neither) — leave as-is
+        return {
+          ...e,
+          source: s ? idMap.get(e.source) : e.source,
+          target: t ? idMap.get(e.target) : e.target,
+        };
+      });
+      return rewired.concat(copies);
+    });
   }, [rf, setNodes, setEdges]);
 
   // ── copy / cut / paste ──────────────────────────────────────────────
@@ -2927,6 +3053,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             dark={dark}
             onAdd={(hex) =>
               addNodeAtCenter("sticky", hex ? { color: hex } : {})
+            }
+            onDropAt={(x, y, hex) =>
+              addNodeAtCenter("sticky", hex ? { color: hex } : {}, { x, y })
             }
           />
           <TextTool
