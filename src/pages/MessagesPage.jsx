@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import Markdown from "react-markdown";
 import {
   Send, Plus, ArrowLeft, Users, MessageSquare, Hash, Search, Paperclip, X,
-  SmilePlus, Pencil, Trash2, Pin, PinOff, Bell, BellOff, Megaphone, Settings2, Download,
+  SmilePlus, Pencil, Trash2, Pin, PinOff, Bell, BellOff, Megaphone, Settings2, Download, ExternalLink,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
@@ -30,7 +30,7 @@ function clockTime(ts) {
   if (!ts) return "";
   return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
-function listStamp(ts) {
+export function listStamp(ts) {
   if (!ts) return "";
   const d = new Date(ts);
   const today = new Date();
@@ -53,6 +53,15 @@ const fmtBytes = (n) => {
   if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1048576).toFixed(1)} MB`;
 };
+
+// A conversation's display name — channel title, group title (or its members),
+// or the other DM participant. Shared by the page + the nav quick-view.
+export function conversationName(c, memberById) {
+  if (!c) return "Conversation";
+  if (c.kind === "channel") return c.title || "channel";
+  if (c.kind === "group") return c.title || (c.participant_ids.map((id) => memberById.get(id)?.name || "Member").join(", ") || "Group");
+  return memberById.get(c.participant_ids?.[0])?.name || "Member";
+}
 
 // ── light markdown body (bold/italic/code/links) ──
 function Body({ text, className = "" }) {
@@ -285,12 +294,14 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message�
 }
 
 // ── conversation header ──
-function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggleSettings, dark }) {
+function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggleSettings, onOpenFull, dark }) {
   const kind = conversation?.kind || (conversation?.is_group ? "group" : "dm");
   const first = memberById.get(conversation?.participant_ids?.[0]);
   return (
     <div className={`flex items-center gap-3 px-3 sm:px-4 h-14 shrink-0 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
-      <button type="button" onClick={onBack} className={`md:hidden p-1.5 -ml-1 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Back">
+      {/* In the embedded quick-view (onOpenFull set) the back arrow is always
+          shown so you can return to the list; on the full page it's mobile-only. */}
+      <button type="button" onClick={onBack} className={`${onOpenFull ? "" : "md:hidden"} p-1.5 -ml-1 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Back">
         <ArrowLeft className="w-5 h-5" />
       </button>
       {kind === "channel" ? (
@@ -307,6 +318,11 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
         </div>
         {kind === "channel" && conversation?.topic && <span className={`block text-[12px] truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>{conversation.topic}</span>}
       </div>
+      {onOpenFull && (
+        <button type="button" onClick={onOpenFull} aria-label="Open in Messages" title="Open full page" className={`p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+          <ExternalLink className="w-[18px] h-[18px]" />
+        </button>
+      )}
       {canManage && (
         <button type="button" onClick={onToggleSettings} aria-label="Channel settings" className={`p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
           <Settings2 className="w-[18px] h-[18px]" />
@@ -317,7 +333,7 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
 }
 
 // ── Open conversation ──
-function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, markRead, subscribeMessages, subscribeReactions, onChannelMetaSaved, dark }) {
+export function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, onOpenFull, markRead, subscribeMessages, subscribeReactions, onChannelMetaSaved, dark }) {
   const convId = conversation?.id;
   const kind = conversation?.kind || (conversation?.is_group ? "group" : "dm");
   const isChannel = kind === "channel";
@@ -451,7 +467,7 @@ function Thread({ conversation, name, memberById, candidates, userId, isAdmin, m
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <ConvHeader conversation={conversation} name={name} memberById={memberById} canManage={canManageChannel} onBack={onBack} onToggleSettings={() => setShowSettings((v) => !v)} dark={dark} />
+      <ConvHeader conversation={conversation} name={name} memberById={memberById} canManage={canManageChannel} onBack={onBack} onToggleSettings={() => setShowSettings((v) => !v)} onOpenFull={onOpenFull} dark={dark} />
 
       {showSettings && canManageChannel && (
         <ChannelSettings conversation={conversation} memberById={memberById} dark={dark} onClose={() => setShowSettings(false)} onSaved={onChannelMetaSaved} />
@@ -858,12 +874,7 @@ export default function MessagesPage() {
   const others = useMemo(() => teamMembers.filter((m) => m.user_id !== userId), [teamMembers, userId]);
   const leadOrAdminTeamIds = useMemo(() => (isAdmin ? new Set(orgTeams.map((t) => t.id)) : myOrgTeamLeadIds), [isAdmin, orgTeams, myOrgTeamLeadIds]);
 
-  const nameOf = (c) => {
-    if (!c) return "Conversation";
-    if (c.kind === "channel") return c.title || "channel";
-    if (c.kind === "group") return c.title || (c.participant_ids.map((id) => memberById.get(id)?.name || "Member").join(", ") || "Group");
-    return memberById.get(c.participant_ids[0])?.name || "Member";
-  };
+  const nameOf = (c) => conversationName(c, memberById);
 
   const open = (id) => { setComposing(false); setParams(id ? { c: id } : {}, { replace: true }); };
   const active = activeConversations.find((c) => c.id === activeId) || conversations.find((c) => c.id === activeId) || null;
