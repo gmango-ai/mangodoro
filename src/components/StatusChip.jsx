@@ -99,7 +99,7 @@ export default function StatusChip() {
         {dur && <span className="text-slate-400">· {dur}</span>}
       </button>
 
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={256} dark={dark}>
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={anchorRef} width={256} maxHeight={360} dark={dark}>
         <p className={`px-2 pt-1 pb-1 text-[10px] uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>
           Set your status
         </p>

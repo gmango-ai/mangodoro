@@ -5,17 +5,18 @@ import { createPortal } from "react-dom";
 // clipped by an ancestor's overflow (cards, scroll areas) and won't overflow
 // the viewport. Right-aligned to the anchor, clamped to the screen, closes on
 // outside-click / Esc / scroll / resize.
-export default function Popover({ open, onClose, anchorRef, children, width = 208, dark }) {
+export default function Popover({ open, onClose, anchorRef, children, width = 208, maxHeight = 240, dark }) {
   const panelRef = useRef(null);
   const [pos, setPos] = useState(null);
 
   useLayoutEffect(() => {
     if (!open || !anchorRef.current) { setPos(null); return; }
     const r = anchorRef.current.getBoundingClientRect();
-    let left = Math.min(Math.max(8, r.right - width), window.innerWidth - 8 - width);
-    const top = Math.min(r.bottom + 4, window.innerHeight - 8);
-    setPos({ left, top });
-  }, [open, anchorRef, width]);
+    const left = Math.min(Math.max(8, r.right - width), window.innerWidth - 8 - width);
+    const top = r.bottom + 4;
+    const avail = window.innerHeight - top - 8; // space below the anchor
+    setPos({ left, top, maxH: Math.max(120, Math.min(maxHeight, avail)) });
+  }, [open, anchorRef, width, maxHeight]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -24,7 +25,9 @@ export default function Popover({ open, onClose, anchorRef, children, width = 20
       onClose();
     };
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    const onScroll = () => onClose();
+    // Don't dismiss when scrolling INSIDE the panel (its own overflow) — only
+    // when the page/an ancestor scrolls out from under the anchor.
+    const onScroll = (e) => { if (panelRef.current?.contains(e.target)) return; onClose(); };
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
     window.addEventListener("scroll", onScroll, true);
@@ -41,8 +44,8 @@ export default function Popover({ open, onClose, anchorRef, children, width = 20
   return createPortal(
     <div
       ref={panelRef}
-      style={{ position: "fixed", left: pos.left, top: pos.top, width }}
-      className={`z-[1000] max-h-60 overflow-y-auto rounded-lg border shadow-lg p-1 ${
+      style={{ position: "fixed", left: pos.left, top: pos.top, width, maxHeight: pos.maxH }}
+      className={`z-[1000] overflow-y-auto overscroll-contain rounded-lg border shadow-lg p-1 ${
         dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)]" : "bg-white border-slate-200"
       }`}
     >
