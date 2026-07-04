@@ -263,7 +263,7 @@ export class PomodoroEngine {
       switchMode: (newMode, opts) => this.switchMode(newMode, opts),
     };
     const fn = handlers[method];
-    if (fn) fn(...(args || []));
+    if (fn) return fn(...(args || []));
   }
 
   // ── State / notify ────────────────────────────────────────────────────────
