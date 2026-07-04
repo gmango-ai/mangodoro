@@ -143,6 +143,7 @@ export async function listConversations(userId) {
       retention_days: c.retention_days ?? null,
       allow_images: c.allow_images ?? true,
       force_notify: c.force_notify ?? false,
+      pinned_all: c.pinned_all ?? false,
       unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, c.last_read_at, c.muted_at, c.force_notify),
     }));
   }
@@ -204,6 +205,7 @@ async function listConversationsLegacy(userId) {
       retention_days: null,
       allow_images: true,
       force_notify: false,
+      pinned_all: false,
       unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, lastRead, mutedAt),
     };
   });
@@ -344,7 +346,7 @@ export async function setConversationMuted(conversationId, userId, muted, kind =
 }
 
 // ── Channel admin (Phase 9) ──
-export async function setChannelMeta(conversationId, { title, topic, postPolicy, color, archived, retentionDays, allowImages, forceNotify } = {}) {
+export async function setChannelMeta(conversationId, { title, topic, postPolicy, color, archived, retentionDays, allowImages, forceNotify, pinnedAll } = {}) {
   const { error } = await supabase.rpc("set_channel_meta", {
     p_conversation_id: conversationId,
     p_title: title ?? null,
@@ -355,6 +357,7 @@ export async function setChannelMeta(conversationId, { title, topic, postPolicy,
     p_retention_days: retentionDays ?? null,
     p_allow_images: allowImages ?? null,
     p_force_notify: forceNotify ?? null,
+    p_pinned_all: pinnedAll ?? null,
   });
   return { error };
 }

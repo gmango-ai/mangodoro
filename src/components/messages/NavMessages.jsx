@@ -59,7 +59,7 @@ export default function NavMessages() {
   // recency-sorted shortlist of DMs / group chats.
   const { folderSections, ungroupedChannels, recentsDM } = useMemo(() => {
     const fIds = new Set(folders.map((f) => f.id));
-    const byPos = (a, b) => (a.folder_position - b.folder_position) || (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
+    const byPos = (a, b) => ((b.pinned_all ? 1 : 0) - (a.pinned_all ? 1 : 0)) || (a.folder_position - b.folder_position) || (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
     const chans = activeConversations.filter((c) => c.kind === "channel" && !c.archived_at);
     const sections = folders.map((f) => ({ folder: f, items: chans.filter((c) => c.folder_id === f.id).sort(byPos) })).filter((s) => s.items.length);
     const ungrouped = chans.filter((c) => !c.folder_id || !fIds.has(c.folder_id)).sort(byPos);
