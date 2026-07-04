@@ -1,6 +1,6 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { BaseEdge, EdgeLabelRenderer, useReactFlow, useStore } from "@xyflow/react";
-import { Type, Minus, Spline, MoveRight, AlignJustify, Sparkles } from "lucide-react";
+import { Type, Minus, Spline, AlignJustify, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { Pill, ToolDivider, Dropdown, SwatchGrid } from "./toolbarUI";
 import { routeAround, sideNormal, MARGIN } from "./routing";
@@ -226,6 +226,19 @@ function capUrl(kind) {
   }
 }
 
+// Mini edge preview for the cap pickers — a short line with the cap on the given
+// end, so you can see the shape AND tell start from finish at a glance. Reuses
+// the shared markers; currentColor drives context-stroke to match the toolbar.
+function CapPreview({ cap, end }) {
+  const url = capUrl(cap);
+  const m = end === "start" ? { markerStart: url } : { markerEnd: url };
+  return (
+    <svg width="40" height="14" viewBox="0 0 40 14" aria-hidden style={{ display: "block", overflow: "visible" }}>
+      <line x1="8" y1="7" x2="32" y2="7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" {...m} />
+    </svg>
+  );
+}
+
 function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
   const [open, setOpen] = useState(null);
   const color = style?.stroke || "#0ea5e9";
@@ -240,6 +253,14 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
     <button key={label} type="button" onClick={() => { onClick(); setOpen(null); }}
       className={`block w-full text-left px-2 py-1 rounded text-[12px] whitespace-nowrap ${active ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}>
       {label}
+    </button>
+  );
+  // Cap option with a live mini-preview of the cap on the correct end.
+  const capOpt = (active, onClick, label, cap, end) => (
+    <button key={label} type="button" onClick={() => { onClick(); setOpen(null); }}
+      className={`flex items-center gap-2.5 w-full text-left px-2 py-1 rounded text-[12px] whitespace-nowrap ${active ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}>
+      <span className="w-10 shrink-0 flex items-center"><CapPreview cap={cap} end={end} /></span>
+      <span>{label}</span>
     </button>
   );
   return (
@@ -282,13 +303,13 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
             r.label,
           ))}
         </Dropdown>
-        <Dropdown openKey="capStart" open={open} setOpen={setOpen} icon={<MoveRight className="w-4 h-4 rotate-180" />}>
+        <Dropdown openKey="capStart" open={open} setOpen={setOpen} title="Start-end cap" icon={<CapPreview cap={startCap} end="start" />}>
           <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1 pb-0.5">Start end</div>
-          {EDGE_CAPS.map(([l, k]) => opt(startCap === k, () => patchEdge({ data: { ...data, startCap: k } }), l))}
+          {EDGE_CAPS.map(([l, k]) => capOpt(startCap === k, () => patchEdge({ data: { ...data, startCap: k } }), l, k, "start"))}
         </Dropdown>
-        <Dropdown openKey="cap" open={open} setOpen={setOpen} icon={<MoveRight className="w-4 h-4" />}>
+        <Dropdown openKey="cap" open={open} setOpen={setOpen} title="Finish-end cap" icon={<CapPreview cap={endCap} end="finish" />}>
           <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1 pb-0.5">Finish end</div>
-          {EDGE_CAPS.map(([l, k]) => opt(endCap === k, () => patchEdge({ data: { ...data, endCap: k } }), l))}
+          {EDGE_CAPS.map(([l, k]) => capOpt(endCap === k, () => patchEdge({ data: { ...data, endCap: k } }), l, k, "finish"))}
         </Dropdown>
         <ToolDivider />
         <button type="button" title="Tidy — auto-route around nodes"
