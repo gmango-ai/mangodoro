@@ -106,12 +106,18 @@ function EmojiPopover({ anchor, onPick, onClose, dark }) {
   useLayoutEffect(() => {
     if (!anchor) return;
     const r = anchor.getBoundingClientRect();
-    const W = 296, H = 46, M = 8;
+    const M = 8;
+    // Width from the ACTUAL number of quick reactions (each button ~34px), capped
+    // to the viewport so it never runs off-screen — it wraps to more rows instead.
+    const full = QUICK_REACTIONS.length * 34 + 14;
+    const W = Math.min(full, window.innerWidth - 2 * M);
+    const rows = Math.ceil(full / W);
+    const H = rows * 40 + 6;
     let left = Math.min(r.left, window.innerWidth - W - M);
     left = Math.max(M, left);
     let top = r.top - H - 6;
     if (top < M) top = r.bottom + 6;
-    setPos({ top, left });
+    setPos({ top, left, W });
   }, [anchor]);
 
   useEffect(() => {
@@ -126,8 +132,8 @@ function EmojiPopover({ anchor, onPick, onClose, dark }) {
   return createPortal(
     <div
       ref={ref}
-      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 70 }}
-      className={`flex items-center gap-0.5 rounded-full border px-1.5 py-1 shadow-xl ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
+      style={{ position: "fixed", top: pos.top, left: pos.left, maxWidth: pos.W, zIndex: 70 }}
+      className={`flex flex-wrap items-center gap-0.5 rounded-2xl border px-1.5 py-1 shadow-xl ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
     >
       {QUICK_REACTIONS.map((g) => (
         <button key={g} type="button" onClick={() => onPick(g)} className="w-8 h-8 rounded-full text-lg leading-none hover:bg-slate-500/15 transition-transform hover:scale-110">
@@ -630,7 +636,7 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
 }
 
 // ── channel settings (admin/lead) ──
-function ChannelSettings({ conversation, memberById, dark, onClose, onSaved }) {
+export function ChannelSettings({ conversation, memberById, dark, onClose, onSaved }) {
   const [title, setTitle] = useState(conversation.title || "");
   const [topic, setTopic] = useState(conversation.topic || "");
   const [policy, setPolicy] = useState(conversation.post_policy || "all");

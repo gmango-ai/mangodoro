@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Send, Pencil, Trash2, Check, X, Clock } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Send, Pencil, Trash2, Check, X, Clock, Settings2 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useApp } from "../context/AppContext";
 import { useTeamOptional } from "../context/TeamContext";
 import { useMessages } from "../context/MessagesContext";
 import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
-import { Thread } from "../pages/MessagesPage";
+import { Thread, ChannelSettings } from "../pages/MessagesPage";
 import { emitMention } from "../lib/notifications";
 import { getProfiles } from "../lib/profiles";
 import { availability, isOutOfOfficeAny } from "../lib/timezone";
@@ -168,11 +169,14 @@ function MessageRow({
 export default function RoomChatPanel(props) {
   const { conversations = [] } = useMessages();
   const conv = props.readOnly ? null : conversations.find((c) => c.room_id === props.roomId);
-  if (conv && props.userId) return <RoomThreadPanel conv={conv} userId={props.userId} fillHeight={props.fillHeight} />;
+  if (conv && props.userId) return <RoomThreadPanel conv={conv} userId={props.userId} fillHeight={props.fillHeight} chromeless={props.chromeless} />;
   return <LegacyRoomChatPanel {...props} />;
 }
 
-function RoomThreadPanel({ conv, userId, fillHeight = false }) {
+// `chromeless` (used inside a RoomLayout tile) drops the in-panel header entirely
+// — the tile header already carries the title + the settings gear (ChatHeaderActions).
+// Otherwise (e.g. the room-action popover's Chat tab) a slim header keeps the gear.
+function RoomThreadPanel({ conv, userId, fillHeight = false, chromeless = false }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { teamMembers = [], isAdmin, myOrgTeamLeadIds = new Set() } = useTeamOptional() || {};
@@ -184,11 +188,51 @@ function RoomThreadPanel({ conv, userId, fillHeight = false }) {
       <Thread
         conversation={conv} name={conv.title} memberById={memberById} candidates={others}
         userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
-        slimHeader markRead={markRead}
+        hideHeader={chromeless} slimHeader={!chromeless} markRead={markRead}
         subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions}
         onChannelMetaSaved={reload} dark={dark}
       />
     </div>
+  );
+}
+
+// The chat panel's settings gear, rendered into the room tile's header (next to
+// maximize/close). Admins only; opens the channel settings in a popover.
+export function ChatHeaderActions({ roomId }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
+  const { conversations = [], reload } = useMessages();
+  const { teamMembers = [], isAdmin, myOrgTeamLeadIds = new Set() } = useTeamOptional() || {};
+  const conv = conversations.find((c) => c.room_id === roomId) || null;
+  const canManage = !!conv && (isAdmin || myOrgTeamLeadIds.has(conv.org_team_id));
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
+  const memberById = useMemo(() => new Map(teamMembers.map((m) => [m.user_id, m])), [teamMembers]);
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    const W = 320, M = 8;
+    const left = Math.max(M, Math.min(r.right - W, window.innerWidth - W - M));
+    setPos({ top: r.bottom + 6, left, W });
+  }, [open]);
+  if (!conv || !canManage) return null;
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={() => setOpen((o) => !o)} title="Channel settings" aria-label="Channel settings"
+        className={`p-1 rounded-md transition-colors ${dark ? "text-slate-400 hover:text-slate-100 hover:bg-white/10" : "text-slate-500 hover:text-slate-800 hover:bg-black/5"}`}>
+        <Settings2 className="w-3.5 h-3.5" />
+      </button>
+      {open && pos && createPortal(
+        <div className="fixed inset-0 z-[60]" onMouseDown={() => setOpen(false)}>
+          <div onMouseDown={(e) => e.stopPropagation()} style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.W, maxWidth: "92vw" }}
+            className={`rounded-2xl overflow-hidden border shadow-2xl ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+            <ChannelSettings conversation={conv} memberById={memberById} dark={dark} onClose={() => setOpen(false)} onSaved={() => reload?.()} />
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
 
