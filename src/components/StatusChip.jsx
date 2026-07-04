@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { useResolvedSelf } from "../hooks/useResolvedSelf";
 import { useTheme } from "../context/ThemeContext";
+import { useApp } from "../context/AppContext";
+import { useSyncSession } from "../context/SyncSessionContext";
 import { availabilityDot, availabilityLabel } from "../lib/presence";
 import { formatSince } from "../lib/utils";
 import { writeOverride, clearOverride } from "../lib/statusOverride";
@@ -21,9 +23,23 @@ const EXPIRIES = [
   { key: "eod", label: "Today", at: () => { const d = new Date(); d.setHours(23, 59, 59, 0); return d.getTime(); } },
 ];
 
+// Map the new availability onto the legacy presence_state so the old surfaces
+// (room participant list, hallway, avatars) reflect a status set from the chip.
+const LEGACY = {
+  available: "available",
+  focusing: "heads_down",
+  in_meeting: "in_meeting",
+  away: "away",
+  lunch: "out_to_lunch",
+  commuting: "commuting",
+  off: "away",
+};
+
 export default function StatusChip() {
   const { resolved, userId } = useResolvedSelf();
   const { theme } = useTheme();
+  const { updateStatus } = useApp();
+  const { syncSession, setStatus } = useSyncSession();
   const dark = theme === "dark";
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
@@ -48,12 +64,20 @@ export default function StatusChip() {
     const message = msg.trim() || null;
     writeOverride({ availability: avail, message, expiresAt });
     if (userId) setPresenceOverride({ userId, availability: avail, message, expiresAt });
+    // Bridge to the legacy surfaces so the room participant list + hallway
+    // reflect it immediately (the resolver reads these back too).
+    const legacy = LEGACY[avail] || "active";
+    updateStatus?.({ presenceState: legacy, status: message || "" });
+    if (syncSession) setStatus?.({ presenceState: legacy, status: message || "" });
     setOpen(false);
   };
 
   const backToAuto = () => {
     clearOverride();
     if (userId) clearPresenceOverride(userId);
+    // Return the legacy surfaces to neutral so derivation/idle take back over.
+    updateStatus?.({ presenceState: "active", status: "" });
+    if (syncSession) setStatus?.({ presenceState: "active", status: "" });
     setMsg("");
     setOpen(false);
   };

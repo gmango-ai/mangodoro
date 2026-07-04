@@ -48,8 +48,7 @@ export default function Nav({ onOpenPomodoro }) {
 
   // Interim de-cram: the ambient quick actions (status, clock, world clock…)
   // drop to a collapsible SECOND desktop row, ahead of the planned sidebar
-  // split. Preference persisted. On full-height pages they fold back into
-  // row 1 so the header stays one line (those layouts hardcode its height).
+  // split. Preference persisted.
   const [row2Open, setRow2Open] = useState(() => {
     try { return localStorage.getItem("mango:navRow2") !== "0"; } catch { return true; }
   });
@@ -59,6 +58,22 @@ export default function Nav({ onOpenPomodoro }) {
       try { localStorage.setItem("mango:navRow2", n ? "1" : "0"); } catch { /* */ }
       return n;
     });
+
+  // Publish the header-content height as --app-nav-h so full-height pages can
+  // subtract it (100dvh - var(--app-nav-h) - insets) — that's what lets the
+  // second row grow the header without overflowing them, on every route. We
+  // measure the inner wrapper (the rows only), NOT the safe-area padding, which
+  // those pages already account for via --top-inset.
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const setVar = () => document.documentElement.style.setProperty("--app-nav-h", `${el.offsetHeight}px`);
+    setVar();
+    const ro = new ResizeObserver(setVar);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Close any open nav surface on route change
   useEffect(() => {
@@ -115,18 +130,13 @@ export default function Nav({ onOpenPomodoro }) {
     supabase.auth.signOut();
   }
 
-  // Full-height pages (office, whiteboard editor, messages, timesheets) hardcode
-  // a single-row nav height in their 100dvh calc, so keep the quick actions in
-  // row 1 there and never show a second row.
-  const fullHeightRoute =
-    location.pathname.startsWith("/office") ||
-    location.pathname.startsWith("/whiteboards/") ||
-    location.pathname === "/messages" ||
-    location.pathname === "/team/timesheets";
-  const showRow2 = row2Open && !fullHeightRoute;
+  // Row 2 shows whenever the user hasn't collapsed it. Full-height pages read
+  // var(--app-nav-h) so the extra row grows the header without overflowing them
+  // — no per-route special-casing needed.
+  const showRow2 = row2Open;
 
-  // The ambient quick-actions cluster, rendered in exactly one place per route:
-  // row 2 on scroll pages (unless collapsed), or folded into row 1 on full-height pages.
+  // The ambient quick-actions cluster (status, clock, who's-working, world
+  // clock, help), rendered in the collapsible second row.
   const quickActions = (
     <>
       <StatusChip />
@@ -171,7 +181,7 @@ export default function Nav({ onOpenPomodoro }) {
           </div>
         )}
 
-        <div className="max-w-6xl mx-auto px-3 sm:px-6">
+        <div ref={wrapRef} className="max-w-6xl mx-auto px-3 sm:px-6">
           {/* Row 1 — brand, primary navigation, communication, account. */}
           <div className="h-14 sm:h-16 flex items-center gap-3">
             {/* Mobile: hamburger */}
@@ -215,9 +225,8 @@ export default function Nav({ onOpenPomodoro }) {
               <NotificationBell />
             </div>
 
-            {/* Desktop row 1: nav + comms + account. Ambient quick actions live
-                in row 2 (below), except on full-height pages where they fold in
-                here so the header stays a single row. */}
+            {/* Desktop row 1: nav + comms + account. Ambient quick actions
+                live in the collapsible row 2 below. */}
             <div className="hidden xl:flex items-center gap-3 ml-auto">
               <nav className="flex items-center gap-1">
                 {/* Pomodoro moved out of the (busy) nav into the floating
@@ -233,24 +242,20 @@ export default function Nav({ onOpenPomodoro }) {
                 <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
               </nav>
 
-              {fullHeightRoute && quickActions}
-
               <NavMessages />
               <NotificationBell />
 
-              {/* Collapse / expand the quick-actions row (scroll pages only). */}
-              {!fullHeightRoute && (
-                <button
-                  type="button"
-                  onClick={toggleRow2}
-                  aria-label={row2Open ? "Hide quick actions" : "Show quick actions"}
-                  aria-expanded={row2Open}
-                  title={row2Open ? "Hide quick actions row" : "Show quick actions row"}
-                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
-                >
-                  {row2Open ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-                </button>
-              )}
+              {/* Collapse / expand the quick-actions row. */}
+              <button
+                type="button"
+                onClick={toggleRow2}
+                aria-label={row2Open ? "Hide quick actions" : "Show quick actions"}
+                aria-expanded={row2Open}
+                title={row2Open ? "Hide quick actions row" : "Show quick actions row"}
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                {row2Open ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+              </button>
 
               {/* Single user-menu dropdown on the right — replaces the
                   previous strip of Timer / chip / theme / Settings / Sign
