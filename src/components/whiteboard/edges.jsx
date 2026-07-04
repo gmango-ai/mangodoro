@@ -1,5 +1,5 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow, useStore } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, useReactFlow, useStore } from "@xyflow/react";
 import { Type, Minus, Spline, MoveRight, AlignJustify, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { Pill, ToolDivider, Dropdown, SwatchGrid } from "./toolbarUI";
@@ -15,13 +15,24 @@ const LEGACY_GHOST = { rect: "process", ellipse: "ellipse", diamond: "diamond" }
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
 // follow each edge's stroke colour, so they recolour for free.
 export function EdgeMarkerDefs() {
+  // All four end-caps as custom markers so BOTH ends can use any of them and
+  // dot/diamond render reliably (we set the path's marker-start/end ourselves
+  // rather than relying on React Flow's object-marker generation). orient
+  // "auto-start-reverse" makes directional caps point the right way on EITHER
+  // end; fill/stroke "context-stroke" follows each edge's colour for free.
   return (
     <svg aria-hidden style={{ position: "absolute", width: 0, height: 0 }}>
       <defs>
-        <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" markerUnits="strokeWidth" orient="auto">
+        <marker id="wb-arrow" markerWidth="10" markerHeight="10" refX="8.5" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
+          <path d="M1.5 1.5 L9 5 L1.5 8.5 Z" fill="context-stroke" />
+        </marker>
+        <marker id="wb-open" markerWidth="10" markerHeight="10" refX="8.5" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
+          <path d="M2 1.5 L9 5 L2 8.5" fill="none" stroke="context-stroke" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </marker>
+        <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" markerUnits="strokeWidth" orient="auto-start-reverse">
           <circle cx="4" cy="4" r="3" fill="context-stroke" />
         </marker>
-        <marker id="wb-diamond" markerWidth="11" markerHeight="11" refX="5.5" refY="5.5" markerUnits="strokeWidth" orient="auto">
+        <marker id="wb-diamond" markerWidth="11" markerHeight="11" refX="5.5" refY="5.5" markerUnits="strokeWidth" orient="auto-start-reverse">
           <path d="M5.5 1 L10 5.5 L5.5 10 L1 5.5 Z" fill="context-stroke" />
         </marker>
       </defs>
@@ -204,13 +215,14 @@ const ROUTES = [
 ];
 const EDGE_CAPS = [["None", "none"], ["Arrow", "arrow"], ["Open arrow", "open"], ["Dot", "dot"], ["Diamond", "diamond"]];
 
-function capMarker(kind, color) {
+// Cap kind → the custom marker url (or none). Used for BOTH ends.
+function capUrl(kind) {
   switch (kind) {
-    case "arrow": return { type: MarkerType.ArrowClosed, color };
-    case "open": return { type: MarkerType.Arrow, color };
+    case "arrow": return "url(#wb-arrow)";
+    case "open": return "url(#wb-open)";
     case "dot": return "url(#wb-dot)";
     case "diamond": return "url(#wb-diamond)";
-    default: return undefined;
+    default: return undefined; // "none"
   }
 }
 
@@ -222,6 +234,7 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
   const routing = data?.routing || "elbow";
   const curviness = data?.curviness ?? 18;
   const endCap = data?.endCap || "arrow";
+  const startCap = data?.startCap || "none";
   const setStyle = (p) => patchEdge({ style: { ...style, ...p } });
   const opt = (active, onClick, label) => (
     <button key={label} type="button" onClick={() => { onClick(); setOpen(null); }}
@@ -233,7 +246,7 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
     <div className="nodrag nopan" style={{ position: "absolute", transform: `translate(-50%,-100%) translate(${x}px,${y - 18}px)`, pointerEvents: "all", zIndex: 50 }}>
       <Pill>
         <Dropdown openKey="color" open={open} setOpen={setOpen} icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: color }} />}>
-          <SwatchGrid value={color} onPick={(c) => patchEdge({ style: { ...style, stroke: c }, ...(endCap !== "none" ? { markerEnd: capMarker(endCap, c) } : {}) })} />
+          <SwatchGrid value={color} onPick={(c) => patchEdge({ style: { ...style, stroke: c } })} />
         </Dropdown>
         <Dropdown openKey="weight" open={open} setOpen={setOpen} icon={<AlignJustify className="w-4 h-4" />}>
           {WEIGHTS.map(([l, v]) => opt(width === v, () => setStyle({ strokeWidth: v }), l))}
@@ -269,8 +282,13 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
             r.label,
           ))}
         </Dropdown>
+        <Dropdown openKey="capStart" open={open} setOpen={setOpen} icon={<MoveRight className="w-4 h-4 rotate-180" />}>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1 pb-0.5">Start end</div>
+          {EDGE_CAPS.map(([l, k]) => opt(startCap === k, () => patchEdge({ data: { ...data, startCap: k } }), l))}
+        </Dropdown>
         <Dropdown openKey="cap" open={open} setOpen={setOpen} icon={<MoveRight className="w-4 h-4" />}>
-          {EDGE_CAPS.map(([l, k]) => opt(endCap === k, () => patchEdge({ markerEnd: capMarker(k, color), data: { ...data, endCap: k } }), l))}
+          <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1 pb-0.5">Finish end</div>
+          {EDGE_CAPS.map(([l, k]) => opt(endCap === k, () => patchEdge({ data: { ...data, endCap: k } }), l))}
         </Dropdown>
         <ToolDivider />
         <button type="button" title="Tidy — auto-route around nodes"
@@ -404,9 +422,13 @@ export function snappedAnchor(rect, px, py) {
 const EditableEdge = memo(function EditableEdge({
   id, source, target, sourceX, sourceY, targetX, targetY,
   sourcePosition, targetPosition,
-  markerStart, markerEnd, style, data, selected,
+  style, data, selected,
 }) {
   const { setEdges, screenToFlowPosition, getNode, getNodes } = useReactFlow();
+  // End-caps come from data (both ends independently). Default: a target arrow,
+  // no source cap. Custom markers → reliable dot/diamond + start-end support.
+  const markerStart = capUrl(data?.startCap ?? "none");
+  const markerEnd = capUrl(data?.endCap ?? "arrow");
 
   // Endpoint resolution, recomputed live from the node rects so a dragged
   // node's edges re-anchor in real time:
