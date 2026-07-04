@@ -8,6 +8,8 @@ import { formatDuration } from "../lib/utils";
 import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown, ChevronUp, HelpCircle } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import StatusChip from "./StatusChip";
+import { useResolvedSelf } from "../hooks/useResolvedSelf";
+import { availabilityDot } from "../lib/presence";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
 import BottomNav from "./BottomNav";
@@ -20,16 +22,6 @@ import WorkingNowBar from "./nav/WorkingNowBar";
 import WorldClockNav from "./WorldClockNav";
 import { openHelpCenter } from "./tour/HelpCenter";
 
-const PRESENCE_DOT_COLOR = {
-  active: "bg-emerald-500",
-  available: "bg-sky-500",
-  heads_down: "bg-violet-500",
-  in_meeting: "bg-rose-500",
-  away: "bg-amber-500",
-  out_to_lunch: "bg-orange-500",
-  commuting: "bg-cyan-500",
-};
-
 export default function Nav({ onOpenPomodoro }) {
   const { settings, todayMins, exportMsg, dataSyncing, session, clockIn } = useApp();
   const { activeTeamSessions } = useTeam();
@@ -37,7 +29,10 @@ export default function Nav({ onOpenPomodoro }) {
   const hasTeamSessions = (activeTeamSessions?.length || 0) > 0;
   // Office nav dot: when you're tracking hours (clocked in) or present in a room.
   const officeActive = !!clockIn || !!syncSession;
-  const presenceDot = PRESENCE_DOT_COLOR[settings.presenceState] || PRESENCE_DOT_COLOR.active;
+  // Avatar presence dot mirrors the resolved status (same vocabulary + colors
+  // as the nav StatusChip) so the two never disagree.
+  const { resolved: selfStatus } = useResolvedSelf();
+  const presenceDot = availabilityDot(selfStatus?.availability || "available");
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === "dark";
   const location = useLocation();
