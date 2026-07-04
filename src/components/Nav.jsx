@@ -135,26 +135,6 @@ export default function Nav({ onOpenPomodoro }) {
   // — no per-route special-casing needed.
   const showRow2 = row2Open;
 
-  // The ambient quick-actions cluster (status, clock, who's-working, world
-  // clock, help), rendered in the collapsible second row.
-  const quickActions = (
-    <>
-      <StatusChip />
-      <WorkClockBar dark={darkMode} />
-      <WorkingNowBar dark={darkMode} />
-      <WorldClockNav dark={darkMode} />
-      <button
-        type="button"
-        onClick={openHelpCenter}
-        title="Learn Mangodoro"
-        aria-label="Learn Mangodoro — tutorials"
-        className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
-      >
-        <HelpCircle className="w-5 h-5" />
-      </button>
-    </>
-  );
-
   return (
     <>
       <header
@@ -242,6 +222,16 @@ export default function Nav({ onOpenPomodoro }) {
                 <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
               </nav>
 
+              {/* Help stays in row 1 (always visible). */}
+              <button
+                type="button"
+                onClick={openHelpCenter}
+                title="Learn Mangodoro"
+                aria-label="Learn Mangodoro — tutorials"
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                <HelpCircle className="w-5 h-5" />
+              </button>
               <NavMessages />
               <NotificationBell />
 
@@ -273,11 +263,19 @@ export default function Nav({ onOpenPomodoro }) {
             </div>
           </div>
 
-          {/* Row 2 (desktop, collapsible) — ambient quick actions & status.
-              Temporary interim layout ahead of the sidebar split. */}
+          {/* Row 2 (desktop, collapsible) — clock-in balanced under the brand on
+              the left, ambient status on the right. Interim layout ahead of the
+              sidebar split. */}
           {showRow2 && (
-            <div className="hidden xl:flex items-center justify-end gap-3 pb-2 -mt-1">
-              {quickActions}
+            <div className="hidden xl:flex items-center justify-between gap-3 pb-2 -mt-1">
+              <div className="flex items-center gap-3">
+                <WorkClockBar dark={darkMode} />
+              </div>
+              <div className="flex items-center gap-3">
+                <StatusChip />
+                <WorkingNowBar dark={darkMode} />
+                <WorldClockNav dark={darkMode} />
+              </div>
             </div>
           )}
         </div>
