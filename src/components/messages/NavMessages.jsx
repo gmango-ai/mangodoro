@@ -112,6 +112,7 @@ export default function NavMessages() {
               myOrgTeamLeadIds={myOrgTeamLeadIds}
               onBack={() => setActiveId(null)}
               onOpenFull={() => openFull(active.id)}
+              onOpenRoom={active.room_id ? () => { setOpen(false); navigate(`/office/r/${active.room_id}`); } : undefined}
               markRead={markRead}
               subscribeMessages={subscribeMessages}
               subscribeReactions={subscribeReactions}

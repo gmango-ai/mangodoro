@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, useCallback, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import Markdown from "react-markdown";
 import {
   Send, Plus, ArrowLeft, Users, MessageSquare, Hash, Search, Paperclip, X,
   SmilePlus, Pencil, Trash2, Pin, PinOff, Bell, BellOff, Megaphone, Settings2, Download, ExternalLink,
-  MoreHorizontal, LogOut, Folder, FolderPlus, FolderInput, ChevronDown, ChevronRight, Rows2, Rows3,
+  MoreHorizontal, LogOut, Folder, FolderPlus, FolderInput, ChevronDown, ChevronRight, Rows2, Rows3, DoorOpen,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
@@ -64,12 +64,35 @@ export function conversationName(c, memberById) {
   return memberById.get(c.participant_ids?.[0])?.name || "Member";
 }
 
-// ── light markdown body (bold/italic/code/links) ──
-function Body({ text, className = "" }) {
+// Turn "@Name" (where Name is a known teammate) into a markdown link with a
+// mention:// href, so the Body renderer can style it as a mention chip. Longest
+// names first so "@Ann Marie" wins over "@Ann".
+function linkifyMentions(text, mentionNames) {
+  if (!text || !text.includes("@") || !mentionNames || mentionNames.size === 0) return text;
+  const present = [...mentionNames.keys()].filter((n) => text.includes(`@${n}`)).sort((a, b) => b.length - a.length);
+  if (!present.length) return text;
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`@(${present.map(esc).join("|")})`, "g");
+  return text.replace(re, (_m, name) => `[@${name}](mention://${mentionNames.get(name)})`);
+}
+// Keep react-markdown's URL safety but let our mention:// scheme (and same-page
+// anchors) through.
+function mdUrl(url) {
+  if (!url) return "";
+  if (url.startsWith("mention://")) return url;
+  if (/^(https?:|mailto:|tel:)/i.test(url) || url.startsWith("/") || url.startsWith("#")) return url;
+  return "";
+}
+
+// ── light markdown body (bold/italic/code/links + @mentions) ──
+function Body({ text, mentionNames, className = "" }) {
+  const src = mentionNames ? linkifyMentions(text, mentionNames) : text;
   return (
     <div className={`text-sm leading-relaxed whitespace-pre-wrap break-words [&_a]:text-[var(--color-accent)] [&_a]:underline [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:bg-black/10 [&_code]:text-[0.85em] [&_p]:m-0 [&_ul]:my-1 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-1 [&_ol]:pl-4 [&_ol]:list-decimal ${className}`}>
-      <Markdown components={{ a: ({ node, ...p }) => <a {...p} target="_blank" rel="noopener noreferrer" /> }}>
-        {text || ""}
+      <Markdown urlTransform={mdUrl} components={{ a: ({ node, href, ...p }) => (href || "").startsWith("mention://")
+        ? <span className="font-semibold text-[var(--color-accent)] no-underline" {...p} />
+        : <a href={href} {...p} target="_blank" rel="noopener noreferrer" /> }}>
+        {src || ""}
       </Markdown>
     </div>
   );
@@ -295,7 +318,7 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message�
 }
 
 // ── conversation header ──
-function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggleSettings, onOpenFull, dark }) {
+function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggleSettings, onOpenFull, onOpenRoom, dark }) {
   const kind = conversation?.kind || (conversation?.is_group ? "group" : "dm");
   const first = memberById.get(conversation?.participant_ids?.[0]);
   return (
@@ -319,6 +342,11 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
         </div>
         {kind === "channel" && conversation?.topic && <span className={`block text-[12px] truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>{conversation.topic}</span>}
       </div>
+      {onOpenRoom && conversation?.room_id && (
+        <button type="button" onClick={onOpenRoom} aria-label="Open room" title="Open room" className={`p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+          <DoorOpen className="w-[18px] h-[18px]" />
+        </button>
+      )}
       {onOpenFull && (
         <button type="button" onClick={onOpenFull} aria-label="Open in Messages" title="Open full page" className={`p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
           <ExternalLink className="w-[18px] h-[18px]" />
@@ -334,12 +362,18 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
 }
 
 // ── Open conversation ──
-export function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, onOpenFull, markRead, subscribeMessages, subscribeReactions, onChannelMetaSaved, dark }) {
+export function Thread({ conversation, name, memberById, candidates, userId, isAdmin, myOrgTeamLeadIds, onBack, onOpenFull, onOpenRoom, hideHeader, markRead, subscribeMessages, subscribeReactions, onChannelMetaSaved, dark }) {
   const convId = conversation?.id;
   const kind = conversation?.kind || (conversation?.is_group ? "group" : "dm");
   const isChannel = kind === "channel";
   const showAuthors = kind === "group" || isChannel;
   const canManageChannel = isChannel && (isAdmin || myOrgTeamLeadIds?.has(conversation?.org_team_id));
+  // Name → user_id for rendering @mentions, from everyone we can see.
+  const mentionNames = useMemo(() => {
+    const m = new Map();
+    for (const mem of memberById.values()) if (mem?.name && mem?.user_id) m.set(mem.name, mem.user_id);
+    return m;
+  }, [memberById]);
   const [messages, setMessages] = useState([]);
   const [reactions, setReactions] = useState(new Map());
   const [attachments, setAttachments] = useState(new Map());
@@ -434,7 +468,7 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
         if (hit && hit.user_id !== userId) ids.add(hit.user_id);
       }
       for (const rid of ids) {
-        emitMention({ recipient: rid, title: `${memberById.get(userId)?.name || "Someone"} mentioned you`, body: body.slice(0, 140), payload: { route: "/messages", conversation_id: convId }, entityType: "conversation", entityId: convId });
+        emitMention({ recipient: rid, title: `${memberById.get(userId)?.name || "Someone"} mentioned you`, body: body.slice(0, 140), payload: { route: conversation?.room_id ? `/office/r/${conversation.room_id}` : "/messages", room_id: conversation?.room_id || undefined, conversation_id: convId }, entityType: "conversation", entityId: convId });
       }
     }
   };
@@ -468,7 +502,7 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <ConvHeader conversation={conversation} name={name} memberById={memberById} canManage={canManageChannel} onBack={onBack} onToggleSettings={() => setShowSettings((v) => !v)} onOpenFull={onOpenFull} dark={dark} />
+      {!hideHeader && <ConvHeader conversation={conversation} name={name} memberById={memberById} canManage={canManageChannel} onBack={onBack} onToggleSettings={() => setShowSettings((v) => !v)} onOpenFull={onOpenFull} onOpenRoom={onOpenRoom} dark={dark} />}
 
       {showSettings && canManageChannel && (
         <ChannelSettings conversation={conversation} memberById={memberById} dark={dark} onClose={() => setShowSettings(false)} onSaved={onChannelMetaSaved} />
@@ -520,7 +554,7 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
                     </div>
                   ) : (
                     <>
-                      {hasText && <Body text={m.body} />}
+                      {hasText && <Body text={m.body} mentionNames={mentionNames} />}
                       {m.edited_at && hasText && <span className="text-[10px] text-slate-400 ml-1">(edited)</span>}
                       <Attachments items={atts} onOpenImage={setLightbox} dark={dark} />
                       <ReactionPills reactions={reactions.get(m.id)} onToggle={(g, isMine) => onToggleReaction(m.id, g, isMine)} onAdd={(el) => setEmoji({ messageId: m.id, anchor: el })} dark={dark} />
@@ -1163,6 +1197,7 @@ export default function MessagesPage() {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const activeId = params.get("c") || null;
   const [composing, setComposing] = useState(false);
   const [loadingActiveId, setLoadingActiveId] = useState(null);
@@ -1217,7 +1252,7 @@ export default function MessagesPage() {
             key={active.id}
             conversation={active} name={nameOf(active)} memberById={memberById} candidates={others}
             userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
-            onBack={() => open(null)} markRead={markRead}
+            onBack={() => open(null)} onOpenRoom={active.room_id ? () => navigate(`/office/r/${active.room_id}`) : undefined} markRead={markRead}
             subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions} onChannelMetaSaved={reload} dark={dark}
           />
         ) : loadingActive ? (
