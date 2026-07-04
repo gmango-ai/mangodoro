@@ -1,10 +1,16 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow, useStore } from "@xyflow/react";
 import { Type, Minus, Spline, MoveRight, AlignJustify, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { Pill, ToolDivider, Dropdown, SwatchGrid } from "./toolbarUI";
 import { routeAround, sideNormal, MARGIN } from "./routing";
 import { snapToGrid } from "./snapping";
+import { ShapeSvg } from "./nodes";
+
+// Provided by WhiteboardPage: the shape the current connect-drag will create
+// (picked via number keys), so the live ghost matches. Null → mirror the parent.
+export const ConnectShapeContext = createContext(null);
+const LEGACY_GHOST = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
 // follow each edge's stroke colour, so they recolour for free.
@@ -858,6 +864,7 @@ function perimeterSnapPoints(rect) {
 
 export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode }) {
   const { getNodes } = useReactFlow();
+  const pickedShape = useContext(ConnectShapeContext);
   const fp = fromPosition || "right";
   const sRect = nodeRect(fromNode);
 
@@ -902,6 +909,10 @@ export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode 
   const place = connectedNodePlacement(center, toX, toY, { w: sw, h: sh });
   const gx = snapToGrid(place.x), gy = snapToGrid(place.y);
   const ghostRect = { x: gx, y: gy, w: sw, h: sh };
+  // The ghost draws the ACTUAL shape a drop would create — the number-picked
+  // shape if any, else the parent's (so it mirrors) — instead of a plain box.
+  const isShapeParent = ["shape", "rect", "ellipse", "diamond"].includes(fromNode?.type);
+  const ghostShape = pickedShape || (isShapeParent ? (fromNode?.data?.shape || LEGACY_GHOST[fromNode?.type] || "process") : "process");
   const sp = sRect ? anchorPoint(sRect, { side: fp, t: 0.5 }) : { x: fromX, y: fromY, pos: fp };
   const tSide = sRect ? complementSide(fp, sRect, ghostRect) : SIDE_POS[place.side];
   const tp = anchorPoint(ghostRect, { side: tSide, t: 0.5 });
@@ -911,8 +922,9 @@ export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode 
     <g>
       <path fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" d={d} />
       <circle cx={sp.x} cy={sp.y} r={3.5} fill={accent} />
-      <rect x={gx} y={gy} width={sw} height={sh} rx={12}
-        fill="rgba(100,116,139,.06)" stroke={accent} strokeWidth={1.5} strokeDasharray="6 5" opacity={0.6} />
+      <g transform={`translate(${gx},${gy})`} opacity={0.75}>
+        <ShapeSvg shape={ghostShape} w={sw} h={sh} fill="rgba(100,116,139,.06)" stroke={accent} sw={1.5} dash="6 5" />
+      </g>
       <g transform={`translate(${tp.x},${tp.y})`}>
         <circle r={9} fill="#fff" stroke={accent} strokeWidth={2.5} />
         <path d="M-4 0 H4 M0 -4 V4" stroke={accent} strokeWidth={2} strokeLinecap="round" />

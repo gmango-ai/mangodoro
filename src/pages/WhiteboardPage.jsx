@@ -81,6 +81,7 @@ import {
   SHAPES,
   preferredShape,
   setPreferredShape,
+  QuickConnectContext,
   ShapeSvg,
   preferredStickyColor,
   setPreferredStickyColor,
@@ -98,6 +99,7 @@ import {
 import { useApp } from "../context/AppContext";
 import {
   EDGE_TYPES,
+  ConnectShapeContext,
   EdgeMarkerDefs,
   ConnectionLine,
   connectedNodePlacement,
@@ -1347,6 +1349,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   const rf = useReactFlow();
   const connectingRef = useRef(null);
+  const connectKeyRef = useRef(null); // keydown handler active during a connect drag
+  const [connecting, setConnecting] = useState(false); // a connect drag is in progress
+  const [pickedShape, setPickedShape] = useState(null); // shape chosen via 1–9 mid-drag
   const { session, settings } = useApp();
   const myName =
     settings?.name ||
@@ -1804,7 +1809,23 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     const e = evt && "touches" in evt ? evt.touches[0] : evt;
     // Remember where the pull began so onConnectEnd can tell a click
     // (auto-place a sibling) from a drag (drop where released).
-    connectingRef.current = { ...params, sx: e?.clientX, sy: e?.clientY };
+    connectingRef.current = { ...params, sx: e?.clientX, sy: e?.clientY, shape: null };
+    setConnecting(true);
+    setPickedShape(null);
+    // While dragging out a connector, press 1–9 / 0 to choose the NEW node's
+    // shape (in the toolbar catalogue's order: 1 Process, 3 Decision, …). The
+    // last number pressed wins — it updates the live ghost and is applied on
+    // release. A legend appears during the drag so the mapping is visible.
+    const onKey = (ke) => {
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (!connectingRef.current || !/^[0-9]$/.test(ke.key)) return;
+      const idx = ke.key === "0" ? 9 : Number(ke.key) - 1;
+      const s = SHAPES[idx];
+      if (s) { connectingRef.current.shape = s.key; setPickedShape(s.key); ke.preventDefault(); }
+    };
+    connectKeyRef.current = onKey;
+    window.addEventListener("keydown", onKey);
   }, []);
 
   // Pull a connector from a node and either DRAG onto empty canvas (the new
@@ -1822,6 +1843,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     (event, connectionState) => {
       const started = connectingRef.current;
       connectingRef.current = null;
+      if (connectKeyRef.current) {
+        window.removeEventListener("keydown", connectKeyRef.current);
+        connectKeyRef.current = null;
+      }
+      setConnecting(false);
+      setPickedShape(null);
       const srcNode = connectionState?.fromNode;
       const fromNodeId = srcNode?.id ?? started?.nodeId;
       if (!fromNodeId) return;
@@ -1889,7 +1916,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       };
       const newData = {
         text: "",
-        shape: (isShapeParent && srcNode?.data?.shape) || "process",
+        // A number pressed mid-drag wins; else mirror the parent shape.
+        shape: started?.shape || (isShapeParent && srcNode?.data?.shape) || "process",
         ...(srcNode?.data?.fill ? { fill: srcNode.data.fill } : {}),
         ...(srcNode?.data?.stroke ? { stroke: srcNode.data.stroke } : {}),
         ...(srcNode?.data?.fontSize ? { fontSize: srcNode.data.fontSize } : {}),
@@ -1968,6 +1996,116 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       );
     },
     [rf, setNodes, setEdges]
+  );
+
+  // One-click flowchart build: a directional arrow on a shape drops a connected,
+  // parent-matching shape on that side (same result as pulling a connector onto
+  // empty canvas, but no dragging). Exposed to shape nodes via QuickConnectContext.
+  const quickAddConnected = useCallback((fromNodeId, sourceHandle) => {
+    const srcNode = rf.getNodes().find((n) => n.id === fromNodeId);
+    if (!srcNode) return;
+    const isShapeParent = ["shape", "rect", "ellipse", "diamond"].includes(srcNode.type);
+    const size = {
+      w: srcNode.measured?.width ?? srcNode.width ?? DEFAULTS.shape.w,
+      h: srcNode.measured?.height ?? srcNode.height ?? DEFAULTS.shape.h,
+    };
+    const newData = {
+      text: "",
+      // A shape picked via number keys (hover an arrow or drag, press 1–9) wins;
+      // otherwise mirror the parent so a chain stays visually consistent.
+      shape: pickedShape || (isShapeParent && srcNode.data?.shape) || "process",
+      ...(srcNode.data?.fill ? { fill: srcNode.data.fill } : {}),
+      ...(srcNode.data?.stroke ? { stroke: srcNode.data.stroke } : {}),
+      ...(srcNode.data?.fontSize ? { fontSize: srcNode.data.fontSize } : {}),
+    };
+    const sx0 = srcNode.position?.x ?? 0;
+    const sy0 = srcNode.position?.y ?? 0;
+    let place = siblingPlacement({ x: sx0, y: sy0, w: size.w, h: size.h }, sourceHandle, size);
+    place = { ...place, x: snapToGrid(place.x), y: snapToGrid(place.y) };
+    const sourceAnchor = { side: SIDE_POS[sourceHandle] || "right", t: 0.5, auto: true };
+
+    // Context-aware: if a node already sits where the new one would land, just
+    // connect to IT instead of dropping a duplicate. Generous overlap so a node
+    // roughly in that direction still counts.
+    const pad = 0.5;
+    const zone = {
+      x: place.x - size.w * pad, y: place.y - size.h * pad,
+      w: size.w * (1 + 2 * pad), h: size.h * (1 + 2 * pad),
+    };
+    const existing = rf.getNodes().find((n) => {
+      if (n.id === fromNodeId || NON_CONNECTABLE.has(n.type)) return false;
+      const r = nodeRect(n);
+      return r && r.x < zone.x + zone.w && r.x + r.w > zone.x && r.y < zone.y + zone.h && r.y + r.h > zone.y;
+    });
+    if (existing) {
+      setEdges((eds) => {
+        if (eds.some((e) =>
+          (e.source === fromNodeId && e.target === existing.id) ||
+          (e.source === existing.id && e.target === fromNodeId)
+        )) return eds; // already linked — don't duplicate
+        return addEdge({
+          source: fromNodeId, sourceHandle, target: existing.id, targetHandle: place.side,
+          data: { sourceAnchor }, ...DEFAULT_EDGE_OPTIONS,
+        }, eds);
+      });
+      setPickedShape(null);
+      return;
+    }
+
+    const newId = freshId("shape");
+    markNodeForEdit(newId);
+    setNodes((nds) =>
+      nds
+        .map((n) => (n.selected ? { ...n, selected: false } : n))
+        .concat({
+          id: newId,
+          type: "shape",
+          position: { x: place.x, y: place.y },
+          width: size.w,
+          height: size.h,
+          data: newData,
+          selected: true,
+        })
+    );
+    setEdges((eds) =>
+      addEdge(
+        {
+          source: fromNodeId,
+          sourceHandle,
+          target: newId,
+          targetHandle: place.side,
+          data: { sourceAnchor },
+          ...DEFAULT_EDGE_OPTIONS,
+        },
+        eds
+      )
+    );
+    setPickedShape(null);
+  }, [rf, setNodes, setEdges, pickedShape]);
+
+  // Hover a shape's quick-connect arrow → 1–9/0 pre-picks the shape a click will
+  // create (and lights it in the legend). Mirrors the during-drag number-select.
+  const [hoveringArrow, setHoveringArrow] = useState(false);
+  const onArrowHover = useCallback((v) => {
+    setHoveringArrow(v);
+    if (!v) setPickedShape(null); // leaving clears the pending pick
+  }, []);
+  useEffect(() => {
+    if (!hoveringArrow) return undefined;
+    const onKey = (ke) => {
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (!/^[0-9]$/.test(ke.key)) return;
+      const idx = ke.key === "0" ? 9 : Number(ke.key) - 1;
+      const s = SHAPES[idx];
+      if (s) { setPickedShape(s.key); ke.preventDefault(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hoveringArrow]);
+  const quickConnectApi = useMemo(
+    () => ({ connect: quickAddConnected, onHover: onArrowHover, pickedShape }),
+    [quickAddConnected, onArrowHover, pickedShape]
   );
 
   // Drag an edge endpoint onto a different node to re-route it.
@@ -2898,6 +3036,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       {/* The embedded (room) board now shows the full title-bar toolbar
           (export / capture / save-template / reactions), at parity with the
           full page — so the old standalone top-right PNG button is gone. */}
+      <QuickConnectContext.Provider value={quickConnectApi}>
+      <ConnectShapeContext.Provider value={pickedShape}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -3216,6 +3356,41 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           );
         })()}
       </ReactFlow>
+      </ConnectShapeContext.Provider>
+      </QuickConnectContext.Provider>
+
+      {/* Shape-number legend — shown while dragging a connector or hovering a
+          quick-connect arrow, so people know which number makes which shape.
+          The current pick is highlighted. */}
+      {(connecting || hoveringArrow) && (
+        <div
+          className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-40 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border shadow-lg pointer-events-none ${
+            dark ? "bg-[var(--color-surface)]/95 border-[var(--color-border)]" : "bg-white/95 border-slate-200"
+          }`}
+        >
+          <span className={`text-[10px] font-semibold uppercase tracking-wide mr-0.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Press
+          </span>
+          {SHAPES.map((s, i) => {
+            const num = i === 9 ? 0 : i + 1;
+            const on = pickedShape === s.key;
+            return (
+              <span
+                key={s.key}
+                title={`${num} · ${s.label}`}
+                className={`flex flex-col items-center gap-0.5 px-1 py-0.5 rounded-md ${
+                  on ? "bg-[var(--color-accent)]/15" : ""
+                }`}
+              >
+                <span className={`text-[9px] font-bold leading-none ${on ? "text-[var(--color-accent)]" : dark ? "text-slate-400" : "text-slate-500"}`}>
+                  {num}
+                </span>
+                <ShapePreview shape={s.key} w={20} h={13} />
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* Region capture ("snip") overlay — drag a box to export it as a PNG. */}
       {tool === "capture" && !readOnly && (
