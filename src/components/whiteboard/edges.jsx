@@ -20,10 +20,10 @@ export function EdgeMarkerDefs() {
   // rather than relying on React Flow's object-marker generation). orient
   // "auto-start-reverse" makes directional caps point the right way on EITHER
   // end; fill/stroke "context-stroke" follows each edge's colour for free.
-  // refX sits at each cap's NODE-FACING extreme (arrow tip / dot & diamond far
-  // edge) so the whole cap rests just outside the node instead of straddling
-  // the perimeter half-in — the symmetric caps in particular used to sit centred
-  // on the endpoint and read as "half swallowed" by the shape.
+  // refX sits EXACTLY at each cap's node-facing extreme (arrow tip / dot &
+  // diamond far edge) so the cap's inner edge lands on the perimeter: the whole
+  // cap rests just outside the node — no longer straddling it half-in — while
+  // still covering the line's end so no stub of line pokes out past the cap.
   return (
     <svg aria-hidden style={{ position: "absolute", width: 0, height: 0 }}>
       <defs>
@@ -33,10 +33,10 @@ export function EdgeMarkerDefs() {
         <marker id="wb-open" markerWidth="10" markerHeight="10" refX="9" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
           <path d="M2 1.5 L9 5 L2 8.5" fill="none" stroke="context-stroke" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
         </marker>
-        <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="7.5" refY="4" markerUnits="strokeWidth" orient="auto-start-reverse">
+        <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="7" refY="4" markerUnits="strokeWidth" orient="auto-start-reverse">
           <circle cx="4" cy="4" r="3" fill="context-stroke" />
         </marker>
-        <marker id="wb-diamond" markerWidth="11" markerHeight="11" refX="10.5" refY="5.5" markerUnits="strokeWidth" orient="auto-start-reverse">
+        <marker id="wb-diamond" markerWidth="11" markerHeight="11" refX="10" refY="5.5" markerUnits="strokeWidth" orient="auto-start-reverse">
           <path d="M5.5 1 L10 5.5 L5.5 10 L1 5.5 Z" fill="context-stroke" />
         </marker>
       </defs>
