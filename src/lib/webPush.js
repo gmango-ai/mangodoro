@@ -58,7 +58,7 @@ export async function enableWebPush(userId) {
     if (!pendingReg) {
       return { error: "Push service worker isn't ready — web push works on the deployed/production build, not the dev server." };
     }
-    reg = await navigator.serviceWorker.ready;
+    reg = pendingReg;
   }
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
