@@ -47,6 +47,9 @@ export function NotificationProvider({ children }) {
   const handleIncoming = useCallback((n) => {
     if (!n) return;
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
+    // Held while the recipient was focusing / in a meeting → inbox only, no
+    // toast or desktop ping (it surfaces in the return-from-focus digest later).
+    if (n.state === "held") return;
     const channels = n.channels || [];
     if (channels.includes("inapp")) {
       const id = _toastSeq++;
@@ -73,10 +76,10 @@ export function NotificationProvider({ children }) {
       setItems(rows);
     });
     const channel = supabase
-      .channel(`notifications:${userId}`)
+      .channel(`notification_deliveries:${userId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_user_id=eq.${userId}` },
+        { event: "INSERT", schema: "public", table: "notification_deliveries", filter: `recipient_user_id=eq.${userId}` },
         (payload) => handleIncoming(payload.new)
       )
       .subscribe();
