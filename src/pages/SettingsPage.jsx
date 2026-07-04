@@ -1521,15 +1521,20 @@ function NotificationsSection({ dark }) {
   useEffect(() => { isWebPushEnabled().then(setPushOn); }, []);
   const togglePush = async () => {
     setPushBusy(true);
-    if (pushOn) {
-      await disableWebPush(userId);
-      setPushOn(false);
-    } else {
-      const { error: err } = await enableWebPush(userId);
-      if (err) setError(err);
-      else { setPushOn(true); flashSaved(); }
+    try {
+      if (pushOn) {
+        await disableWebPush(userId);
+        setPushOn(false);
+      } else {
+        const { error: err } = await enableWebPush(userId);
+        if (err) setError(err);
+        else { setPushOn(true); flashSaved(); }
+      }
+    } catch (e) {
+      setError(e?.message || "Couldn't change push setting.");
+    } finally {
+      setPushBusy(false);
     }
-    setPushBusy(false);
   };
 
   useEffect(() => { setTime(reminderTime || ""); }, [reminderTime]);
