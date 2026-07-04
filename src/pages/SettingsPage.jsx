@@ -28,6 +28,7 @@ import { clearCachedNotificationSound } from "../lib/nativeNotifications";
 import { NOTIFICATION_TYPES, listPreferences, setPreferenceEnabled } from "../lib/notifications";
 import { REMINDERS, REMINDER_INTERVALS, reminderConfig } from "../lib/reminders";
 import { TIMEZONES, browserTimezone, localTimeLabel } from "../lib/timezone";
+import { readStatusOnCycle, writeStatusOnCycle } from "../lib/statusCyclePref";
 
 // Settings as a real page. Left rail of sections, right pane renders
 // the active section. Sections persist on field commit (blur/change)
@@ -726,6 +727,7 @@ function PomodoroSection({ dark }) {
   const [keyDraft, setKeyDraft] = useState(deepseekKey || "");
   const [savingMsg, setSavingMsg] = useState("");
   const [error, setError] = useState("");
+  const [statusOnCycle, setStatusOnCycle] = useState(readStatusOnCycle());
 
   useEffect(() => { setLanding(defaultLandingPage || "pomodoro"); }, [defaultLandingPage]);
   useEffect(() => { setKeyDraft(deepseekKey || ""); }, [deepseekKey]);
@@ -783,6 +785,21 @@ function PomodoroSection({ dark }) {
             <SelectItem value="after_focus">After each focus block</SelectItem>
             <SelectItem value="before_focus">Before the next focus</SelectItem>
             <SelectItem value="both">Both</SelectItem>
+          </SelectContent>
+        </Select>
+      </SectionCard>
+
+      <SectionCard
+        title="Status at Pomodoro end"
+        hint="When a focus block or break ends, clear your manual status (back to auto) or get a quick prompt to update it."
+        dark={dark}
+      >
+        <Select value={statusOnCycle} onValueChange={(v) => { setStatusOnCycle(v); writeStatusOnCycle(v); flashSaved(); }}>
+          <SelectTrigger className="h-10 w-56"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="off">Off</SelectItem>
+            <SelectItem value="clear">Clear my status</SelectItem>
+            <SelectItem value="ask">Ask me</SelectItem>
           </SelectContent>
         </Select>
       </SectionCard>
