@@ -18,6 +18,7 @@ import NotificationBell from "./notifications/NotificationBell";
 import NavMessages from "./messages/NavMessages";
 import { useSyncSession } from "../context/SyncSessionContext";
 import WorkClockBar from "./nav/WorkClockBar";
+import NavPomodoroClock from "./nav/NavPomodoroClock";
 import WorkingNowBar from "./nav/WorkingNowBar";
 import WorldClockNav from "./WorldClockNav";
 import PomodoroNavButton from "./nav/PomodoroNavButton";
@@ -336,9 +337,25 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
           </div>
           </div>
 
-          {/* Row 2 (mobile only): the widgets that expand into pills — clock-in,
-              who's-working, world clock — plus a pomodoro quick-open (replaces
-              the edge FAB on mobile). Keeps row 1 uncluttered. */}
+          {/* Row 2 (desktop, collapsible) — clock-in balanced under the brand on
+              the left, ambient status on the right. */}
+          {showRow2 && (
+            <div className="hidden xl:flex items-center justify-between gap-3 pb-2 -mt-1">
+              <div className="flex items-center gap-3">
+                <NavPomodoroClock />
+                <WorkClockBar dark={darkMode} />
+              </div>
+              <div className="flex items-center gap-3">
+                <StatusChip />
+                <WorkingNowBar dark={darkMode} />
+                <WorldClockNav dark={darkMode} />
+              </div>
+            </div>
+          )}
+
+          {/* Row 2 (mobile only) — the widgets that expand into pills (clock-in,
+              who's-working, world clock) + a pomodoro quick-open, keeping mobile
+              row 1 uncluttered. */}
           <div className="xl:hidden flex items-center gap-2 h-10">
             <WorkClockBar dark={darkMode} />
             <WorkingNowBar dark={darkMode} />
