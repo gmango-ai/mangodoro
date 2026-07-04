@@ -54,6 +54,11 @@ import {
   Paintbrush,
   Eraser,
   MessageSquare,
+  MoreHorizontal,
+  MousePointer2,
+  StickyNote,
+  PanelLeftClose,
+  PanelLeftOpen,
   X,
 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
@@ -1102,6 +1107,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // goal banner, badges) so the canvas stays usable.
   const mainRef = useRef(null);
   const [compact, setCompact] = useState(false);
+  // Whether the title bar's extra tools (reactions / timer / minimap / export /
+  // capture / template) are shown. Auto-collapses when the board gets small so
+  // the bar stays a single row; a toggle reveals them (they wrap to a second
+  // row when the board is narrow).
+  const [toolsOpen, setToolsOpen] = useState(true);
+  // Left drawing toolbar: collapsible, wraps to 2 columns when the board is
+  // small, and a "Q" keyboard shortcut pops a floating quick-tool palette.
+  const [toolbarOpen, setToolbarOpen] = useState(true);
+  const [palette, setPalette] = useState(null); // {x,y} viewport pos, or null
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -1168,6 +1182,20 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [embedded, board?.id, loading]);
+
+  // Follow compactness: collapse the extra title-bar tools when the board turns
+  // small, re-open them when it grows. Only fires on a compact *change*, so a
+  // manual toggle in between is kept until the next threshold crossing.
+  useEffect(() => { setToolsOpen(!compact); }, [compact]);
+
+  // Escape closes the quick-tool palette (separate from the board key handler so
+  // it isn't gated on board focus and reads fresh palette state).
+  useEffect(() => {
+    if (!palette) return undefined;
+    const onEsc = (e) => { if (e.key === "Escape") setPalette(null); };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [palette]);
 
   const lastSavedRef = useRef("");
   const saveTimerRef = useRef(null);
@@ -1446,6 +1474,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (!board || !(board.matches(":hover") || board.contains(el))) return;
       // Escape drops back to the select tool (exit laser mode).
       if (e.key === "Escape") { setTool("select"); return; }
+      // "Q" pops the quick-tool palette at the board's center — works even when
+      // the left toolbar is collapsed.
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "q") {
+        e.preventDefault();
+        const r = mainRef.current?.getBoundingClientRect();
+        setPalette((p) => (p ? null : (r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: 200, y: 200 })));
+        return;
+      }
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       if (mod && k === "z" && !e.shiftKey) {
@@ -2711,23 +2747,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       onPointerCancel={onWbPointerUp}
     >
       <EdgeMarkerDefs />
-      {/* Embedded (room) view hides the full toolbar, so surface a standalone
-          PNG download here — same export handler the full page uses. Hidden on
-          read-only (kiosk) boards, which can't interact and show a "View only"
-          badge in that corner. */}
-      {embedded && !readOnly && (
-        <button
-          type="button"
-          onClick={handleExportPng}
-          title="Download as PNG"
-          aria-label="Download whiteboard as PNG"
-          className={`absolute top-2 right-2 z-20 w-8 h-8 rounded-full inline-flex items-center justify-center shadow-md transition-colors ${
-            dark ? "bg-slate-800/90 text-slate-200 hover:bg-slate-700" : "bg-white/90 text-slate-600 hover:bg-white"
-          }`}
-        >
-          <Download className="w-4 h-4" />
-        </button>
-      )}
+      {/* The embedded (room) board now shows the full title-bar toolbar
+          (export / capture / save-template / reactions), at parity with the
+          full page — so the old standalone top-right PNG button is gone. */}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -2793,7 +2815,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           />
         )}
         <Controls position="bottom-left" />
-        {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
+        {(!compact || embedded) && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
 
@@ -2869,12 +2891,27 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
         <Panel
           position="center-left"
-          className={`flex flex-col items-center gap-0.5 p-1 rounded-2xl border shadow-sm ${
+          className={`flex flex-col items-center gap-1 p-1 rounded-2xl border shadow-sm ${
             dark
               ? "bg-[var(--color-surface)] border-[var(--color-border)]"
               : "bg-white border-slate-200"
           }`}
         >
+          {/* Collapse the toolbar (press Q for the quick-tool palette). */}
+          <button
+            type="button"
+            onClick={() => setToolbarOpen((v) => !v)}
+            title={toolbarOpen ? "Hide toolbar · press Q for quick tools" : "Show toolbar"}
+            aria-label={toolbarOpen ? "Hide toolbar" : "Show toolbar"}
+            aria-pressed={toolbarOpen}
+            className={`w-8 h-7 rounded-lg inline-flex items-center justify-center transition-colors ${
+              dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+            }`}
+          >
+            {toolbarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+          </button>
+          {toolbarOpen && (
+          <div className={compact ? "grid grid-cols-2 gap-0.5 place-items-center" : "flex flex-col items-center gap-0.5"}>
           <StickyTool
             dark={dark}
             onAdd={(hex) =>
@@ -2887,11 +2924,13 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             setPrefs={setTextStyle}
             onAdd={() => addNodeAtCenter("text", textStyleRef.current)}
           />
-          <div
-            className={`h-px w-5 my-0.5 ${
-              dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-            }`}
-          />
+          {!compact && (
+            <div
+              className={`h-px w-5 my-0.5 ${
+                dark ? "bg-[var(--color-border)]" : "bg-slate-200"
+              }`}
+            />
+          )}
           <ShapesMenu
             dark={dark}
             onPick={(shape) => addNodeAtCenter("shape", { shape })}
@@ -2931,11 +2970,13 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
               if (f) addImageNode(f);
             }}
           />
-          <div
-            className={`h-px w-5 my-0.5 ${
-              dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-            }`}
-          />
+          {!compact && (
+            <div
+              className={`h-px w-5 my-0.5 ${
+                dark ? "bg-[var(--color-border)]" : "bg-slate-200"
+              }`}
+            />
+          )}
           <PenTool
             dark={dark}
             active={tool === "pen"}
@@ -2959,11 +3000,13 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             setColor={setLaserColor}
             onToggle={() => setTool((t) => (t === "laser" ? "select" : "laser"))}
           />
-          <div
-            className={`h-px w-5 my-0.5 ${
-              dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-            }`}
-          />
+          {!compact && (
+            <div
+              className={`h-px w-5 my-0.5 ${
+                dark ? "bg-[var(--color-border)]" : "bg-slate-200"
+              }`}
+            />
+          )}
           <ToolButton
             title="Delete selected"
             tone="red"
@@ -2972,6 +3015,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           >
             <Trash2 className="w-4 h-4" />
           </ToolButton>
+          </div>
+          )}
         </Panel>
 
         {/* Node inspector (shape/fill/border/text) hovers above the
@@ -3012,13 +3057,56 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       </ReactFlow>
 
       {/* Region capture ("snip") overlay — drag a box to export it as a PNG. */}
-      {tool === "capture" && !embedded && (
+      {tool === "capture" && !readOnly && (
         <RegionCapture
           dark={dark}
           toFlow={(p) => rf.screenToFlowPosition(p)}
           onComplete={(b) => { setTool("select"); exportPng(b, 12); }}
           onCancel={() => setTool("select")}
         />
+      )}
+
+      {/* Quick-tool palette — popped by pressing "Q". A compact floating tool
+          picker at the board's center; pick a tool and it closes. Works even
+          when the left toolbar is collapsed. */}
+      {palette && (
+        <>
+          <div className="fixed inset-0 z-[59]" onClick={() => setPalette(null)} aria-hidden />
+          <div
+            style={{ left: palette.x, top: palette.y }}
+            className={`fixed z-[60] -translate-x-1/2 -translate-y-1/2 grid grid-cols-3 gap-1 p-2 rounded-2xl border shadow-2xl ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}
+            role="menu"
+            aria-label="Quick tools"
+          >
+            {[
+              ["Select", MousePointer2, () => setTool("select")],
+              ["Sticky note", StickyNote, () => addNodeAtCenter("sticky", {})],
+              ["Text", Type, () => addNodeAtCenter("text", textStyleRef.current)],
+              ["Goal", Target, () => addNodeAtCenter("goal")],
+              ["Frame", Frame, () => addNodeAtCenter("frame")],
+              ["Image", ImagePlus, () => fileInputRef.current?.click()],
+              ["Pen", Pencil, () => setTool("pen")],
+              ["Brush", Paintbrush, () => setTool("brush")],
+              ["Delete", Trash2, () => deleteSelected()],
+            ].map(([label, Icon, run]) => (
+              <button
+                key={label}
+                type="button"
+                role="menuitem"
+                title={label}
+                aria-label={label}
+                onClick={() => { run(); setPalette(null); }}
+                className={`w-10 h-10 rounded-xl inline-flex items-center justify-center transition-colors ${
+                  dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
       {/* My own laser glow (screen space) — tracks in laser mode, shows on press. */}
@@ -3031,7 +3119,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             state, the reactions-bar toggle, and archive. */}
       <div className="absolute left-3 top-3 z-40 flex flex-col gap-2 items-start max-w-[calc(100%-24px)]">
         <div
-          className="flex items-center gap-2 px-2.5 py-1.5 rounded-2xl border shadow-md"
+          className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-2xl border shadow-md"
           style={{
             background: dark ? "var(--color-surface)" : "#fff",
             borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)",
@@ -3159,7 +3247,23 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           >
             <Redo2 className="w-4 h-4" />
           </button>
-          {!compact && (
+          {/* Collapse / reveal the extra tools. Keeps the bar to one row on a
+              small board; when open they wrap to a second row if narrow. */}
+          <button
+            type="button"
+            onClick={() => setToolsOpen((v) => !v)}
+            title={toolsOpen ? "Hide tools" : "Show tools"}
+            aria-label={toolsOpen ? "Hide tools" : "Show tools"}
+            aria-pressed={toolsOpen}
+            className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+              toolsOpen
+                ? "text-[var(--color-accent)] bg-[var(--color-accent-light)]"
+                : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+            }`}
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+          {toolsOpen && (
             <>
               <div
                 className={`w-px h-4 ${
@@ -3216,9 +3320,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
               >
                 <MapIcon className="w-4 h-4" />
               </button>
-            </>
-          )}
-          {!embedded && (
+              {!readOnly && (
             <button
               type="button"
               onClick={() => setTool((t) => (t === "capture" ? "select" : "capture"))}
@@ -3236,7 +3338,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
               <Crop className="w-4 h-4" />
             </button>
           )}
-          {!embedded && (
+          {!readOnly && (
             <button
               type="button"
               onClick={handleExportPng}
@@ -3251,7 +3353,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
               <Download className="w-4 h-4" />
             </button>
           )}
-          {!embedded && (
+          {!readOnly && (
             <button
               type="button"
               onClick={() => setSaveTplOpen(true)}
@@ -3280,6 +3382,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             >
               <Archive className="w-4 h-4" />
             </button>
+          )}
+            </>
           )}
         </div>
         {error && (
@@ -3396,7 +3500,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             is toggleable; peers' emotes still render when it's hidden. */}
       <EmoteOverlay
         channelKey={`whiteboard:${board.id}`}
-        barPosition={emoteBarOn && !compact ? "bottom-center" : "hidden"}
+        barPosition={emoteBarOn ? "bottom-center" : "hidden"}
         // Lift the emote bar above the paint toolbar while it's showing.
         barOffset={tool === "brush" ? 80 : 0}
       />

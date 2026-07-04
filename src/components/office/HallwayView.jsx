@@ -10,6 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import OfficeLayoutEditor from "../OfficeLayoutEditor";
 import OfficePresenceBar from "./OfficePresenceBar";
+import UserAvatar from "../UserAvatar";
+import { presenceRing } from "../../lib/presence";
 
 const KIND_ICON = {
   general: Hash,
@@ -341,20 +343,41 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                         }`}>
                           {room.name}
                         </span>
-                        <span className={`block text-[10px] truncate ${
-                          dark ? "text-slate-500" : "text-slate-400"
-                        }`}>
-                          {locked
-                            ? "Locked"
-                            : occupants.length > 0
-                              ? `${occupants.length} in here`
-                              : "Empty"}
-                        </span>
+                        {locked ? (
+                          <span className={`block text-[10px] truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                            Locked
+                          </span>
+                        ) : occupants.length > 0 ? (
+                          // Who's in here — stacked avatars with a presence-colored
+                          // ring so the list view answers "who can I go talk to"
+                          // at a glance, not just a headcount.
+                          <span className="mt-1 flex items-center gap-1">
+                            <span className="flex -space-x-1.5">
+                              {occupants.slice(0, 5).map((o) => (
+                                <span key={o.user_id} title={o.name} className="inline-flex">
+                                  <UserAvatar
+                                    url={o.avatar_url}
+                                    name={o.name}
+                                    size={20}
+                                    className={`ring-2 ${presenceRing(o.presence_state)}`}
+                                  />
+                                </span>
+                              ))}
+                            </span>
+                            {occupants.length > 5 && (
+                              <span className={`text-[10px] font-semibold ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                                +{occupants.length - 5}
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className={`block text-[10px] truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                            Empty
+                          </span>
+                        )}
                       </span>
                       {locked ? (
                         <Lock className="w-3 h-3 shrink-0 opacity-60" />
-                      ) : occupants.length > 0 ? (
-                        <span className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0 bg-[var(--color-accent)]" />
                       ) : null}
                     </button>
                   </li>

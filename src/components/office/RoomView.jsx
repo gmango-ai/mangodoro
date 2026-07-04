@@ -5,12 +5,10 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import { Button } from "@/components/ui/button";
 import {
   Hash, Briefcase, MessageSquare, Lock, Globe,
-  LogIn, LogOut, Play, Pause, PanelLeftOpen, PanelLeftClose, ChevronDown, Settings,
+  LogIn, LogOut, Play, PanelLeftOpen, PanelLeftClose, ChevronDown, Settings,
   Copy, Check,
 } from "lucide-react";
 import { getRoomAccessCode } from "../../lib/rooms";
-import { usePomodoro } from "../../pomodoro/PomodoroContext";
-import { openPomodoroSurface } from "../../lib/pomodoroSurface";
 import KnockRequests from "./KnockRequests";
 import RoomLayout from "./roomLayout/RoomLayout";
 import LayoutBar from "./roomLayout/LayoutBar";
@@ -34,48 +32,12 @@ const KIND_LABEL = {
   private: "Private",
 };
 
-// Glanceable pomodoro chip shown in the room header when the user
-// is in this room's session. Click → opens the floating
-// PomodoroSurface modal for full controls. Live mode + remaining
-// seconds re-render from the pomodoro context, which is already
-// session-synced so every participant sees the same value.
-function PomodoroChip() {
-  const { mode, secondsLeft, isRunning } = usePomodoro();
-  const mins = String(Math.floor(Math.max(0, secondsLeft) / 60)).padStart(2, "0");
-  const secs = String(Math.max(0, secondsLeft) % 60).padStart(2, "0");
-  const onBreak = mode !== "work";
-  return (
-    <button
-      type="button"
-      onClick={openPomodoroSurface}
-      title="Open pomodoro controls"
-      aria-label="Open pomodoro controls"
-      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors hover:bg-[var(--color-accent-light-hover)]"
-      style={{
-        background: onBreak
-          ? "color-mix(in srgb, var(--color-break) 14%, transparent)"
-          : "var(--color-accent-light)",
-        color: onBreak ? "var(--color-break)" : "var(--color-accent)",
-      }}
-    >
-      {isRunning ? (
-        <Pause className="w-3 h-3" fill="currentColor" />
-      ) : (
-        <Play className="w-3 h-3" fill="currentColor" />
-      )}
-      <span className="font-display tabular-nums">{mins}:{secs}</span>
-      <span className="text-[10px] uppercase tracking-wider opacity-80">
-        {onBreak ? "break" : "work"}
-      </span>
-    </button>
-  );
-}
-
 function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, currentSyncSession }) {
   const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
-  if (inThisRoomSession) {
-    return <PomodoroChip />;
-  }
+  // The pomodoro clock moved to the nav bar (glanceable on every page), so the
+  // room header no longer duplicates it — when you're already in this room's
+  // session there's no session action to show here.
+  if (inThisRoomSession) return null;
   if (activeSession) {
     const n = activeSession.occupants?.length || 0;
     return (
@@ -105,7 +67,7 @@ export default function RoomView({
 
   // Modular panel layout (per-user, per-room). Replaces the old fixed
   // view modes — see ./roomLayout. Panels = video, chat, whiteboard.
-  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
+  const { tree, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
   const [arranging, setArranging] = useState(false);
 
   // Access code for a code-gated room — fetched only for managers (RLS on
@@ -139,11 +101,14 @@ export default function RoomView({
 
   // Whiteboard link flows through the sync session (session.whiteboard_id),
   // mirroring the old retro link. Anyone in the room may attach/swap it — it's a
-  // shared surface; the server gates on session participation, not leadership.
+  // shared surface; the server gates on session participation, not leadership —
+  // UNLESS a manager has locked the whiteboard for this room, in which case only
+  // room managers can change it (the RPC enforces this too).
   const displayName = session?.user?.user_metadata?.name || session?.user?.email || "Guest";
   const inThisRoomSession = !!currentSyncSession && currentSyncSession.room_id === room.id;
   const linkedWhiteboardId = inThisRoomSession ? (currentSyncSession.whiteboard_id || null) : null;
-  const canLinkWhiteboard = inThisRoomSession;
+  const whiteboardLocked = room.whiteboard_locked === true;
+  const canLinkWhiteboard = inThisRoomSession && (!whiteboardLocked || canEditRoom);
 
   // Activity on CLOSED panels → header-toggle badges (people in the call /
   // editing the board, unread chat) so you can tell what's live without opening
@@ -268,11 +233,15 @@ export default function RoomView({
             )}
 
             {/* Room identity — clickable. Opens the office overlay so
-                the user can switch rooms or leave to the hallway. */}
+                the user can switch rooms or leave to the hallway. The button
+                hugs the room name (not the full bar width) so it reads as a
+                tappable name, not a giant empty target; the name still
+                truncates past a max width so a long name can't blow out the
+                header. */}
             <button
               type="button"
               onClick={onOpenRoomSwitcher}
-              className={`flex items-center gap-3 min-w-0 flex-1 text-left rounded-lg -m-1 p-1 transition-colors ${
+              className={`flex items-center gap-3 min-w-0 text-left rounded-lg -m-1 p-1 transition-colors ${
                 dark ? "hover:bg-[var(--color-surface-raised)]/60" : "hover:bg-slate-100/60"
               }`}
               title="Switch room"
@@ -283,8 +252,8 @@ export default function RoomView({
               >
                 <Icon className="w-4 h-4" />
               </div>
-              <div className="min-w-0 flex-1">
-                <h1 className={`text-lg font-bold truncate inline-flex items-center gap-1.5 ${
+              <div className="min-w-0">
+                <h1 className={`text-lg font-bold truncate max-w-[10rem] sm:max-w-[16rem] inline-flex items-center gap-1.5 ${
                   dark ? "text-slate-100" : "text-slate-800"
                 }`}>
                   {room.name}
@@ -395,8 +364,7 @@ export default function RoomView({
             />
 
             <LayoutBar
-              presetId={presetId}
-              onApply={applyPreset}
+              addMenu
               onReset={reset}
               accent={accent}
               dark={dark}

@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Check, Trash2, Clock, Lock, Globe, Eraser, Pin } from "lucide-react";
+import { X, Check, Trash2, Clock, Lock, Globe, Eraser, Pin, PenLine } from "lucide-react";
 import {
   renameRoomV2, setRoomColor, updateRoomGating, archiveRoomV2,
   setRoomMaxDuration, setRoomEntryPolicy, setRoomAccessCode, getRoomAccessCode,
-  setRoomPinPolicy, setRoomKnockEnabled,
+  setRoomPinPolicy, setRoomKnockEnabled, setRoomWhiteboardLock,
 } from "../lib/rooms";
 import { clearRoomChat } from "../lib/chatMessages";
 
@@ -46,8 +46,9 @@ export default function RoomSettingsModal({
   const [currentCode, setCurrentCode] = useState("");      // loaded PIN, for diffing
   const [pinPolicy, setPinPolicy] = useState("admins");    // who can pin for everyone
   const [knockEnabled, setKnockEnabled] = useState(true);  // accept knocks while occupied
+  const [whiteboardLocked, setWhiteboardLocked] = useState(false); // lock board to managers
   const [busy, setBusy] = useState(false);
-  const [dirty, setDirty] = useState({ name: false, color: false, gating: false, duration: false, access: false, pin: false });
+  const [dirty, setDirty] = useState({ name: false, color: false, gating: false, duration: false, access: false, pin: false, whiteboard: false });
   // Two-step delete: clicking the trash icon flips this to true and the
   // footer swaps in a Confirm / Cancel pair. Avoids needing a separate
   // modal layer for a single destructive action.
@@ -70,9 +71,10 @@ export default function RoomSettingsModal({
     setEntryPolicy(room.entry_policy || "open");
     setPinPolicy(room.pin_policy || "admins");
     setKnockEnabled(room.knock_enabled !== false);
+    setWhiteboardLocked(room.whiteboard_locked === true);
     setAccessCode("");
     setCurrentCode("");
-    setDirty({ name: false, color: false, gating: false, duration: false, access: false, pin: false });
+    setDirty({ name: false, color: false, gating: false, duration: false, access: false, pin: false, whiteboard: false });
     setConfirmDelete(false);
     setConfirmClear(false);
     setBusy(false);
@@ -165,6 +167,9 @@ export default function RoomSettingsModal({
     }
     if (dirty.pin && pinPolicy !== (room.pin_policy || "admins")) {
       tasks.push(setRoomPinPolicy(room.id, pinPolicy).then((r) => r.error && errs.push(r.error)));
+    }
+    if (dirty.whiteboard && whiteboardLocked !== (room.whiteboard_locked === true)) {
+      tasks.push(setRoomWhiteboardLock(room.id, whiteboardLocked).then((r) => r.error && errs.push(r.error)));
     }
     await Promise.all(tasks);
     setBusy(false);
@@ -489,6 +494,29 @@ export default function RoomSettingsModal({
           </p>
         </div>
 
+        {/* Whiteboard — by default anyone in the room can attach / swap the
+            shared board. Lock it to keep that to managers only. */}
+        <div className="mb-4">
+          <label className={labelCls}>
+            <PenLine className="inline w-3.5 h-3.5 mr-1 -mt-0.5" />
+            Whiteboard
+          </label>
+          <label className="mt-1.5 flex items-start gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={whiteboardLocked}
+              onChange={(e) => { setWhiteboardLocked(e.target.checked); setDirty((d) => ({ ...d, whiteboard: true })); }}
+              className="mt-0.5 h-4 w-4 rounded accent-teal-600"
+            />
+            <span>
+              <span className={`text-sm ${dark ? "text-slate-200" : "text-slate-700"}`}>Only managers can change the whiteboard</span>
+              <span className={`block text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                Off (default): anyone in the room can attach, swap, or remove the shared whiteboard. On: only the room's managers can — everyone else still sees whatever's attached.
+              </span>
+            </span>
+          </label>
+        </div>
+
         <div className="flex items-center gap-2">
           {confirmDelete ? (
             <div className="flex items-center gap-2 flex-1">
@@ -575,7 +603,7 @@ export default function RoomSettingsModal({
                 <Button
                   type="button"
                   onClick={handleSave}
-                  disabled={busy || !(dirty.name || dirty.color || dirty.gating || dirty.duration || dirty.access || dirty.pin) || !name.trim()}
+                  disabled={busy || !(dirty.name || dirty.color || dirty.gating || dirty.duration || dirty.access || dirty.pin || dirty.whiteboard) || !name.trim()}
                 >
                   {busy ? "Saving…" : "Save"}
                 </Button>

@@ -18,6 +18,7 @@ import NotificationBell from "./notifications/NotificationBell";
 import NavMessages from "./messages/NavMessages";
 import { useSyncSession } from "../context/SyncSessionContext";
 import WorkClockBar from "./nav/WorkClockBar";
+import NavPomodoroClock from "./nav/NavPomodoroClock";
 import WorkingNowBar from "./nav/WorkingNowBar";
 import WorldClockNav from "./WorldClockNav";
 import PomodoroNavButton from "./nav/PomodoroNavButton";
@@ -252,6 +253,7 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
           {showRow2 && (
             <div className="hidden xl:flex items-center justify-between gap-3 pb-2 -mt-1">
               <div className="flex items-center gap-3">
+                <NavPomodoroClock />
                 <WorkClockBar dark={darkMode} />
               </div>
               <div className="flex items-center gap-3">
