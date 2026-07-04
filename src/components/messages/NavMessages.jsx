@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare, Hash, Users, ExternalLink, Megaphone, Folder } from "lucide-react";
+import { MessageSquare, Users, ExternalLink, Folder } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useMessages } from "../../context/MessagesContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import UserAvatar from "../UserAvatar";
-import { Thread, conversationName, listStamp } from "../../pages/MessagesPage";
+import { Thread, conversationName, channelGlyph, listStamp } from "../../pages/MessagesPage";
 
 // One recent-conversation row in the quick view: kind icon/avatar, name, last
 // activity stamp, and an unread dot.
@@ -22,7 +22,7 @@ function QuickRow({ c, memberById, onOpen, dark }) {
       className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${dark ? "hover:bg-white/5" : "hover:bg-slate-50"}`}
     >
       {kind === "channel" ? (
-        <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{c.post_policy === "admins" ? <Megaphone className="w-4 h-4" /> : <Hash className="w-4 h-4" />}</span>
+        <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{channelGlyph(c)}</span>
       ) : kind === "group" ? (
         <span className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
       ) : (
