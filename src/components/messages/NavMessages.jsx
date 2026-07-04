@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare, Hash, Users, ExternalLink } from "lucide-react";
+import { MessageSquare, Hash, Users, ExternalLink, Megaphone, Folder } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useMessages } from "../../context/MessagesContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -22,7 +22,7 @@ function QuickRow({ c, memberById, onOpen, dark }) {
       className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${dark ? "hover:bg-white/5" : "hover:bg-slate-50"}`}
     >
       {kind === "channel" ? (
-        <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}><Hash className="w-4 h-4" /></span>
+        <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{c.post_policy === "admins" ? <Megaphone className="w-4 h-4" /> : <Hash className="w-4 h-4" />}</span>
       ) : kind === "group" ? (
         <span className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
       ) : (
@@ -44,7 +44,7 @@ export default function NavMessages() {
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
-  const { activeConversations = [], unread, markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const { activeConversations = [], unread, folders = [], markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -55,11 +55,17 @@ export default function NavMessages() {
   const memberById = useMemo(() => new Map(teamMembers.map((m) => [m.user_id, m])), [teamMembers]);
   const others = useMemo(() => teamMembers.filter((m) => m.user_id !== userId), [teamMembers, userId]);
 
-  // Most-recent first, capped — the quick view is a shortlist, not the full inbox.
-  const recents = useMemo(
-    () => [...activeConversations].sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)).slice(0, 12),
-    [activeConversations]
-  );
+  // Channels grouped into their shared folders (mirrors the sidebar), plus a
+  // recency-sorted shortlist of DMs / group chats.
+  const { folderSections, ungroupedChannels, recentsDM } = useMemo(() => {
+    const fIds = new Set(folders.map((f) => f.id));
+    const byPos = (a, b) => (a.folder_position - b.folder_position) || (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
+    const chans = activeConversations.filter((c) => c.kind === "channel");
+    const sections = folders.map((f) => ({ folder: f, items: chans.filter((c) => c.folder_id === f.id).sort(byPos) })).filter((s) => s.items.length);
+    const ungrouped = chans.filter((c) => !c.folder_id || !fIds.has(c.folder_id)).sort(byPos);
+    const dms = activeConversations.filter((c) => c.kind !== "channel").sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)).slice(0, 10);
+    return { folderSections: sections, ungroupedChannels: ungrouped, recentsDM: dms };
+  }, [activeConversations, folders]);
   const active = activeConversations.find((c) => c.id === activeId) || null;
 
   // Close on outside click; reset to the list whenever it closes.
@@ -121,14 +127,35 @@ export default function NavMessages() {
                 </button>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto py-1">
-                {recents.length === 0 ? (
+                {activeConversations.length === 0 ? (
                   <div className={`flex flex-col items-center justify-center gap-2 py-16 text-center ${dark ? "text-slate-500" : "text-slate-400"}`}>
                     <MessageSquare className="w-7 h-7 opacity-60" />
                     <p className="text-sm">No conversations yet.</p>
                     <button type="button" onClick={() => openFull(null)} className="text-[var(--color-accent)] text-sm font-semibold">Start one</button>
                   </div>
                 ) : (
-                  recents.map((c) => <QuickRow key={c.id} c={c} memberById={memberById} onOpen={(x) => setActiveId(x.id)} dark={dark} />)
+                  <>
+                    {folderSections.map((s) => (
+                      <div key={s.folder.id} className="mb-0.5">
+                        <div className={`flex items-center gap-1.5 px-3 pt-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>
+                          <Folder className="w-3.5 h-3.5" /> <span className="truncate">{s.folder.name}</span>
+                        </div>
+                        {s.items.map((c) => <QuickRow key={c.id} c={c} memberById={memberById} onOpen={(x) => setActiveId(x.id)} dark={dark} />)}
+                      </div>
+                    ))}
+                    {ungroupedChannels.length > 0 && (
+                      <div className="mb-0.5">
+                        {folderSections.length > 0 && <div className={`px-3 pt-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>Channels</div>}
+                        {ungroupedChannels.map((c) => <QuickRow key={c.id} c={c} memberById={memberById} onOpen={(x) => setActiveId(x.id)} dark={dark} />)}
+                      </div>
+                    )}
+                    {recentsDM.length > 0 && (
+                      <div>
+                        <div className={`px-3 pt-2 pb-0.5 text-[11px] font-semibold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>Direct messages</div>
+                        {recentsDM.map((c) => <QuickRow key={c.id} c={c} memberById={memberById} onOpen={(x) => setActiveId(x.id)} dark={dark} />)}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </>
