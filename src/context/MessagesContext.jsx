@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { useTeamOptional } from "./TeamContext";
-import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation } from "../lib/messages";
+import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation, listChannelFolders, createChannelFolder, renameChannelFolder, deleteChannelFolder, reorderChannelFolders, setChannelFolder } from "../lib/messages";
 
 // Direct / group / channel messaging — in-app layer. One realtime channel on
 // dm_messages (RLS scopes delivery to my conversations + my channels) drives
@@ -25,7 +25,9 @@ export function MessagesProvider({ children }) {
   const team = useTeamOptional() || {};
   const activeTeamId = team.activeTeamId || null;
   const teamMembers = team.teamMembers || [];
+  const isTeamAdmin = !!team.isAdmin;
   const [conversations, setConversations] = useState([]);
+  const [folders, setFolders] = useState([]); // shared, team-wide channel folders (active org)
   const msgListeners = useRef(new Set());
   const reactionListeners = useRef(new Set());
   const reloadTimer = useRef(null);
@@ -34,6 +36,36 @@ export function MessagesProvider({ children }) {
     if (!userId) { setConversations([]); return; }
     setConversations(await listConversations(userId));
   }, [userId]);
+
+  const reloadFolders = useCallback(async () => {
+    if (!activeTeamId) { setFolders([]); return; }
+    setFolders(await listChannelFolders(activeTeamId));
+  }, [activeTeamId]);
+
+  useEffect(() => { reloadFolders(); }, [reloadFolders]);
+
+  const createFolder = useCallback(async (name) => {
+    if (!activeTeamId) return null;
+    const { id } = await createChannelFolder(activeTeamId, name);
+    if (id) await reloadFolders();
+    return id;
+  }, [activeTeamId, reloadFolders]);
+  const renameFolder = useCallback(async (id, name) => { await renameChannelFolder(id, name); await reloadFolders(); }, [reloadFolders]);
+  const deleteFolder = useCallback(async (id) => {
+    setFolders((prev) => prev.filter((f) => f.id !== id));
+    await deleteChannelFolder(id);
+    await Promise.all([reloadFolders(), reload()]);
+  }, [reloadFolders, reload]);
+  const reorderFolders = useCallback(async (ids) => {
+    setFolders((prev) => ids.map((id) => prev.find((f) => f.id === id)).filter(Boolean));
+    await reorderChannelFolders(ids);
+    await reloadFolders();
+  }, [reloadFolders]);
+  const assignFolder = useCallback(async (conversationId, folderId) => {
+    setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, folder_id: folderId || null } : c)));
+    await setChannelFolder(conversationId, folderId);
+    await reload();
+  }, [reload]);
 
   useEffect(() => {
     if (!userId) { setConversations([]); return undefined; }
@@ -150,6 +182,7 @@ export function MessagesProvider({ children }) {
     conversations, activeConversations, unread, unreadByOrg, reload,
     startDm, createGroup, createChannel, browseChannels, joinOpenChannel,
     deleteConversation, hideConversation,
+    folders, isTeamAdmin, createFolder, renameFolder, deleteFolder, reorderFolders, assignFolder,
     markRead, subscribeMessages, subscribeReactions,
   };
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;
