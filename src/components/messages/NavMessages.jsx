@@ -6,7 +6,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import UserAvatar from "../UserAvatar";
-import { Thread, conversationName, channelGlyph, listStamp } from "../../pages/MessagesPage";
+import { Thread, conversationName, channelGlyph, channelColor, listStamp } from "../../pages/MessagesPage";
 
 // One recent-conversation row in the quick view: kind icon/avatar, name, last
 // activity stamp, and an unread dot.
@@ -22,7 +22,7 @@ function QuickRow({ c, memberById, onOpen, dark }) {
       className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${dark ? "hover:bg-white/5" : "hover:bg-slate-50"}`}
     >
       {kind === "channel" ? (
-        <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${c.org_team_color || "#14b8a6"}22`, color: c.org_team_color || "#14b8a6" }}>{channelGlyph(c)}</span>
+        <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${channelColor(c)}22`, color: channelColor(c) }}>{channelGlyph(c)}</span>
       ) : kind === "group" ? (
         <span className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${dark ? "bg-[var(--color-surface-raised)] text-slate-300" : "bg-slate-200 text-slate-600"}`}><Users className="w-4 h-4" /></span>
       ) : (
@@ -60,7 +60,7 @@ export default function NavMessages() {
   const { folderSections, ungroupedChannels, recentsDM } = useMemo(() => {
     const fIds = new Set(folders.map((f) => f.id));
     const byPos = (a, b) => (a.folder_position - b.folder_position) || (new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
-    const chans = activeConversations.filter((c) => c.kind === "channel");
+    const chans = activeConversations.filter((c) => c.kind === "channel" && !c.archived_at);
     const sections = folders.map((f) => ({ folder: f, items: chans.filter((c) => c.folder_id === f.id).sort(byPos) })).filter((s) => s.items.length);
     const ungrouped = chans.filter((c) => !c.folder_id || !fIds.has(c.folder_id)).sort(byPos);
     const dms = activeConversations.filter((c) => c.kind !== "channel").sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)).slice(0, 10);
