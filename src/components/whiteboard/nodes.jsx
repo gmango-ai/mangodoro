@@ -597,28 +597,86 @@ function WidthHandle({ id, rootRef }) {
   );
 }
 
+// Bottom drag strip that PINS a text node's height (data.h) — the box then has a
+// fixed height and clips overflow (with a reveal control). Mirrors WidthHandle;
+// double-click releases the height back to auto-hug. Pair with WidthHandle to
+// shape the box in both dimensions.
+function HeightHandle({ id, rootRef }) {
+  const { setNodes, getViewport } = useReactFlow();
+  const onPointerDown = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = rootRef.current?.offsetHeight || 100;
+    const zoom = getViewport().zoom || 1;
+    const move = (ev) => {
+      const h = Math.max(40, Math.round(startH + (ev.clientY - startY) / zoom));
+      setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, h } } : n)));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const release = (e) => {
+    e.stopPropagation();
+    setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, h: undefined } } : n)));
+  };
+  return (
+    <div
+      className="nodrag nowheel"
+      onPointerDown={onPointerDown}
+      onDoubleClick={release}
+      title="Drag to set height · double-click to auto-fit"
+      style={{
+        position: "absolute", left: 6, right: 6, bottom: -5, height: 8,
+        cursor: "ns-resize", borderRadius: 4, background: SELECT, opacity: 0.55, zIndex: 6,
+      }}
+    />
+  );
+}
+
 export const TextNode = memo(function TextNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
+  const { setNodes } = useReactFlow();
   const rootRef = useRef(null);
+  const contentRef = useRef(null);
+  const [overflowing, setOverflowing] = useState(false);
   // Optional background turns a text node into a label / chip / callout. When a
   // fill is set the default text colour auto-contrasts against it (like sticky
   // and shape do); radius + padding round the chip.
   const fill = data?.fill || null;
   const radius = data?.radius ?? 8;
   const textColor = data?.textColor || (fill ? readableText(fill) : "var(--color-text)");
-  // Width modes: a text node hugs its content by DEFAULT (grows horizontally as
-  // you type). Drag the right handle to pin a width (data.w) — text then wraps to
-  // that width and the HEIGHT auto-fits, because we never set an explicit node
-  // height (React Flow measures the wrapped content). Double-click the handle to
-  // release the width back to auto-hug.
-  const fixed = typeof data?.w === "number" && data.w > 0;
+  // Box modes: a text node hugs its content by DEFAULT (grows as you type). Drag
+  // the RIGHT handle to pin a width (data.w) — text wraps to it, height auto-fits.
+  // Drag the BOTTOM handle to pin a height (data.h) — the box is then fixed and
+  // clips overflow, with a "show all" reveal. Double-click a handle to release.
+  const fixedW = typeof data?.w === "number" && data.w > 0;
+  const fixedH = typeof data?.h === "number" && data.h > 0;
+
+  // Detect clipped overflow so we can flag it + offer a reveal.
+  useEffect(() => {
+    if (!fixedH) { setOverflowing(false); return; }
+    const el = contentRef.current;
+    if (!el) return;
+    setOverflowing(el.scrollHeight - el.clientHeight > 2);
+  }, [fixedH, data?.h, data?.w, data?.text, data?.fontSize]);
+
+  const revealAll = (e) => {
+    e.stopPropagation();
+    setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, h: undefined } } : n)));
+  };
+
   return (
     <div
       ref={rootRef}
       style={{
         position: "relative",
-        width: fixed ? data.w : undefined,
-        minWidth: fixed ? undefined : 180,
+        width: fixedW ? data.w : undefined,
+        minWidth: fixedW ? undefined : 180,
         padding: fill ? (TEXT_PAD[data?.pad] || TEXT_PAD.md) : "8px 12px",
         background: fill || (selected ? SELECT_FILL : "transparent"),
         borderRadius: radius,
@@ -626,18 +684,56 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         color: textColor,
       }}
     >
-      <FourHandles visible={false} />
-      <EditableText
-        value={data?.text}
-        onChange={setText}
-        placeholder="Type some text…"
-        nodeId={id}
-        selected={selected}
-        markdown
-        wrap={fixed}
-        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
-      />
+      {/* Text is a label, not a flowchart box — no connection handles (you draw
+          edges between shapes, not from text). */}
+      <div
+        ref={contentRef}
+        style={fixedH ? { height: data.h, overflow: "hidden" } : undefined}
+      >
+        <EditableText
+          value={data?.text}
+          onChange={setText}
+          placeholder="Type some text…"
+          nodeId={id}
+          selected={selected}
+          markdown
+          wrap={fixedW || fixedH}
+          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
+        />
+      </div>
+      {/* Clipped-overflow affordance: a "…" while idle, a "show all" (releases
+          the pinned height so it auto-fits) when selected. */}
+      {fixedH && overflowing && (
+        selected ? (
+          <button
+            type="button"
+            className="nodrag"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={revealAll}
+            title="Show all text (auto-fit height)"
+            style={{
+              position: "absolute", right: 4, bottom: 3, zIndex: 7,
+              fontSize: 10, fontWeight: 700, lineHeight: 1,
+              padding: "2px 6px", borderRadius: 9999,
+              background: SELECT, color: "#fff", border: "none", cursor: "pointer",
+            }}
+          >
+            … show all
+          </button>
+        ) : (
+          <span
+            aria-hidden
+            style={{
+              position: "absolute", right: 6, bottom: 2, zIndex: 7,
+              fontWeight: 800, opacity: 0.55, pointerEvents: "none", color: textColor,
+            }}
+          >
+            …
+          </span>
+        )
+      )}
       {selected && !data?.locked && <WidthHandle id={id} rootRef={rootRef} />}
+      {selected && !data?.locked && <HeightHandle id={id} rootRef={rootRef} />}
     </div>
   );
 });
