@@ -6,7 +6,6 @@ import { legacyToAvailability } from "../../lib/presence";
 import { applyStatusOverride } from "../../lib/statusActions";
 
 const PRESENCE = [
-  { key: "active", label: "Active", dotLight: "bg-emerald-500", dotDark: "bg-emerald-400" },
   { key: "available", label: "Available", dotLight: "bg-emerald-500", dotDark: "bg-emerald-400" },
   { key: "heads_down", label: "Focusing", dotLight: "bg-violet-500", dotDark: "bg-violet-400" },
   { key: "in_meeting", label: "Meeting", dotLight: "bg-rose-500", dotDark: "bg-rose-400" },
