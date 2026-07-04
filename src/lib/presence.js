@@ -30,7 +30,7 @@ export const PRESENCE_RING = {
 };
 
 export const PRESENCE_LABEL = {
-  active: "Active",
+  active: "Available", // 'active' is unified into 'available' in the new model
   available: "Available",
   heads_down: "Focusing",
   in_meeting: "In a meeting",
