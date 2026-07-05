@@ -9,7 +9,7 @@ import { readFileSync, mkdirSync } from "node:fs";
 const SVG_PATH = "public/logo.svg";
 const OUT_DIR = "assets";
 
-const BRAND_TEAL = "#0d9488";
+const BRAND_ORANGE = "#EF8148";
 const LIGHT_BG = "#ffffff";
 const DARK_BG = "#0f172a";
 const WHITE = "#ffffff";
@@ -60,7 +60,7 @@ console.log("Generating app assets from public/logo.svg…");
 // gives iOS-style margins without looking small.
 await composite({
   canvasSize: 1024,
-  bgColor: BRAND_TEAL,
+  bgColor: BRAND_ORANGE,
   logoColor: WHITE,
   logoScale: 0.6,
   outPath: `${OUT_DIR}/icon-only.png`,
@@ -79,8 +79,8 @@ await composite({
 });
 await composite({
   canvasSize: 1024,
-  bgColor: BRAND_TEAL,
-  logoColor: BRAND_TEAL, // logo invisible — background only
+  bgColor: BRAND_ORANGE,
+  logoColor: BRAND_ORANGE, // logo invisible — background only
   logoScale: 0.01,
   outPath: `${OUT_DIR}/icon-background.png`,
 });
@@ -92,7 +92,7 @@ await composite({
 await composite({
   canvasSize: 2732,
   bgColor: LIGHT_BG,
-  logoColor: BRAND_TEAL,
+  logoColor: BRAND_ORANGE,
   logoScale: 0.22,
   outPath: `${OUT_DIR}/splash.png`,
 });
