@@ -28,7 +28,8 @@ export default function RetroDeleteModal({ open, onClose, retro, busy, onConfirm
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={busy ? undefined : onClose}
+          disabled={busy}
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
             dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
