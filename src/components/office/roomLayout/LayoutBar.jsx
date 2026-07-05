@@ -22,7 +22,12 @@ export default function LayoutBar({
   const pillCls = `inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
     dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
   }`;
-  const menuCls = `absolute right-0 top-9 z-40 w-52 p-1 rounded-xl border shadow-lg ${
+  // The Add button stays on mobile (bigger touch target), while the quick
+  // toggles + arrange collapse away.
+  const addBtnCls = `inline-flex items-center justify-center gap-1.5 px-3 sm:px-2.5 h-10 sm:h-7 rounded-full text-[13px] sm:text-[11px] font-semibold transition-colors ${
+    dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
+  }`;
+  const menuCls = `absolute right-0 top-11 sm:top-9 z-40 w-52 p-1 rounded-xl border shadow-lg ${
     dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
   }`;
   const itemCls = `w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-medium inline-flex items-center gap-2 transition-colors ${
@@ -31,6 +36,9 @@ export default function LayoutBar({
 
   return (
     <div className="flex items-center gap-1.5">
+      {/* Quick panel toggles + arrange are desktop-only (hidden on mobile);
+          the mobile room header keeps just the Add button below. */}
+      <div className="hidden sm:flex items-center gap-1.5">
       {/* Quick view buttons — pinned panels, one click to drop one in or pull
           it back out, no Arrange mode needed. Filled = shown. */}
       {(panels || []).map(({ id, title, Icon }) => {
@@ -106,6 +114,7 @@ export default function LayoutBar({
         <Move className="w-3.5 h-3.5" />
         <span className="hidden lg:inline">{arranging ? "Done" : "Arrange"}</span>
       </button>
+      </div>
 
       <div className="relative">
         {addMenu ? (
@@ -115,9 +124,9 @@ export default function LayoutBar({
             title="Add to the view"
             aria-haspopup="menu"
             aria-expanded={open}
-            className={pillCls}
+            className={addBtnCls}
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-5 h-5 sm:w-3.5 sm:h-3.5" />
             <span className="hidden lg:inline">Add</span>
           </button>
         ) : (
