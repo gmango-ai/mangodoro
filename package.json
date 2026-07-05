@@ -19,7 +19,7 @@
     "electron:pack": "bun run electron:sync && cd electron && npm run electron:pack",
     "electron:dist": "bun run electron:sync && cd electron && npm run electron:make",
     "electron:release": "node scripts/electron-release.mjs",
-    "gen:app-assets": "node scripts/generate-app-assets.mjs && bunx @capacitor/assets generate --ios --android --iconBackgroundColor '#0d9488' --iconBackgroundColorDark '#0d9488' --splashBackgroundColor '#ffffff' --splashBackgroundColorDark '#0f172a'"
+    "gen:app-assets": "node scripts/generate-app-assets.mjs && bunx @capacitor/assets generate --ios --android --iconBackgroundColor '#EF8148' --iconBackgroundColorDark '#EF8148' --splashBackgroundColor '#ffffff' --splashBackgroundColorDark '#0f172a'"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.0",

@@ -346,7 +346,8 @@ struct PomodoroHomeWidgetView: View {
     private func statusChip(_ s: PomodoroSnapshot) -> some View {
         let text = s.activeTransition() != nil ? "Syncing…" : (s.isRunning ? "Running" : "Paused")
         return HStack(spacing: 6) {
-            Circle().fill(accent(s)).frame(width: 6, height: 6)
+            // Dim the dot while paused, matching the small view's indicator.
+            Circle().fill(s.isRunning ? accent(s) : theme.sub).frame(width: 6, height: 6)
             Text(text).font(.system(size: 11, weight: .semibold)).foregroundColor(theme.sub).lineLimit(1)
         }
         .padding(.horizontal, 9)
@@ -370,7 +371,7 @@ struct PomodoroHomeWidgetView: View {
     }
 
     private var emptyContent: some View {
-        let accent = Color.teal
+        let accent = airyBrandFallback
         return VStack(spacing: 10) {
             AiryRing(fraction: 1, accent: accent, track: theme.track, size: 54, lineWidth: 6) {
                 Image(systemName: "play.fill").font(.system(size: 18, weight: .bold)).foregroundColor(accent)
