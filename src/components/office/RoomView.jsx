@@ -200,18 +200,13 @@ export default function RoomView({
         }`}
         style={{ background: `linear-gradient(180deg, ${accent}12, transparent)` }}
       >
-        {/* Split into two groups that stack into two rows when the bar
-            is narrow and collapse back to one row when it's wide. We key
-            off a *container* query (the header's own width) rather than a
-            viewport breakpoint because the room view loses ~288px to the
-            inline widgets sidebar when it's open — so the same viewport
-            can be one row (sidebar closed) or two (sidebar open). The
-            single row only fits once the header is ~576px+ wide, which is
-            roughly a 925px viewport with the sidebar open. */}
-        <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:gap-3">
-          {/* Identity row — room name, switcher, leave. Grows to fill
-              the bar in one-row mode; the first of two rows when narrow. */}
-          <div className="flex items-center gap-3 min-w-0 @xl:flex-1">
+        {/* One row always: identity on the left (grows + truncates), controls
+            on the right (shrink-0). The quick panel toggles collapse away on
+            mobile (see LayoutBar), so the controls stay compact enough to
+            share the row with the room name even on a phone. */}
+        <div className="flex flex-row items-center gap-2 @xl:gap-3">
+          {/* Identity — room name, switcher. Grows to fill and truncates. */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             {/* Widgets toggle — opens the pomodoro / room / world-clock / goals
                 sidebar (a full overlay on mobile). Sits left of the room title;
                 shown on every size (larger touch target on mobile). */}
