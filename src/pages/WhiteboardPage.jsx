@@ -310,7 +310,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
         aria-label="Choose shape"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+        className={`${CARET_CLS} ${
           dark
             ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
             : "bg-white text-slate-500 border border-slate-200"
@@ -320,6 +320,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
       </button>
       {open && (
         <>
+          <MaybeFlyoutPortal>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
             className={`absolute bottom-11 left-1/2 -translate-x-1/2 z-20 p-2 rounded-2xl border shadow-lg grid grid-cols-5 gap-1 ${
@@ -349,6 +350,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
               </button>
             ))}
           </div>
+          </MaybeFlyoutPortal>
         </>
       )}
       {ghost && createPortal(
@@ -379,13 +381,17 @@ function ToolChevron({ label, open, setOpen, dark }) {
       aria-label={label}
       onClick={() => setOpen((v) => !v)}
       aria-expanded={open}
-      className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
-        dark
-          ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
-          : "bg-white text-slate-500 border border-slate-200"
+      className={`${CARET_CLS} ${
+        WB_TOUCH
+          ? open
+            ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
+            : dark ? "text-slate-400" : "text-slate-500"
+          : dark
+            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
+            : "bg-white text-slate-500 border border-slate-200"
       }`}
     >
-      <ChevronDown className="w-2.5 h-2.5" />
+      <ChevronDown className={WB_TOUCH ? "w-4 h-4" : "w-2.5 h-2.5"} />
     </button>
   );
 }
@@ -393,7 +399,7 @@ function ToolChevron({ label, open, setOpen, dark }) {
 // Light-styled options flyout (backdrop + panel) shared by the rail tools.
 function ToolPopover({ dark, onClose, children }) {
   return (
-    <>
+    <MaybeFlyoutPortal>
       <div className="fixed inset-0 z-10" onClick={onClose} />
       <div
         className={`absolute bottom-11 left-1/2 -translate-x-1/2 z-20 p-2.5 rounded-2xl border shadow-lg ${
@@ -405,7 +411,7 @@ function ToolPopover({ dark, onClose, children }) {
       >
         {children}
       </div>
-    </>
+    </MaybeFlyoutPortal>
   );
 }
 
@@ -623,6 +629,7 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
       <ToolChevron label="New-text defaults" open={open} setOpen={setOpen} dark={dark} />
       {open && (
         <>
+          <MaybeFlyoutPortal>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
             className="absolute bottom-11 left-1/2 -translate-x-1/2 z-20 rounded-xl shadow-2xl overflow-hidden"
@@ -637,6 +644,7 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
               forDefaults
             />
           </div>
+          </MaybeFlyoutPortal>
         </>
       )}
     </div>
@@ -734,7 +742,7 @@ function LaserTool({ dark, active, color, setColor, onToggle }) {
         aria-label="Laser colour"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full shadow border-2"
+        className={WB_TOUCH ? "w-7 h-11 -ml-1.5 rounded-xl border-2" : "absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full shadow border-2"}
         style={{ background: cur, borderColor: dark ? "var(--color-surface)" : "#fff" }}
       />
       {open && (
@@ -772,6 +780,29 @@ const PAINT_QUICK_COLORS = [
 const WB_TOUCH =
   typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 const TOOL_BTN_SIZE = WB_TOUCH ? "w-11 h-11" : "w-8 h-8";
+// Touch: the 14px corner caret is untappable — full-height chevron grouped
+// beside the tool instead.
+const CARET_CLS = WB_TOUCH
+  ? "w-7 h-11 -ml-1.5 rounded-full flex items-center justify-center"
+  : "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow";
+
+// Hosts a tool flyout. Desktop: anchored above its trigger (absolute inside
+// the tool's relative wrapper). Touch: the toolbar scrolls horizontally and
+// would clip it — portal to <body>, centered above the bar (clearance kept
+// in --wb-toolbar-clear by the toolbar measurer; -44px compensates the
+// child's own bottom-11 anchor).
+function MaybeFlyoutPortal({ children }) {
+  if (!WB_TOUCH) return <>{children}</>;
+  return createPortal(
+    <div
+      className="fixed left-1/2 -translate-x-1/2 z-[80]"
+      style={{ bottom: "calc(var(--bottom-inset, 0px) + var(--wb-toolbar-clear, 64px) - 44px)" }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
 
 function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
   const divider = <div className={`w-px h-6 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />;
@@ -1336,7 +1367,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     toolbarRO.current?.disconnect();
     toolbarRO.current = null;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setToolbarH(el.offsetHeight || 44));
+    const ro = new ResizeObserver(() => {
+      const h = el.offsetHeight || 44;
+      setToolbarH(h);
+      // Portaled flyouts + the mobile inspector read this to clear the bar.
+      document.documentElement.style.setProperty("--wb-toolbar-clear", `${15 + h + 8}px`);
+    });
     ro.observe(el);
     toolbarRO.current = ro;
   }, []);
@@ -1356,7 +1392,23 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (!st.active) { clearTimeout(st.timer); marqueeRef.current = null; }
       return;
     }
-    if (!(e.target instanceof Element) || !e.target.closest(".react-flow__pane")) return;
+    if (!(e.target instanceof Element)) return;
+    const nodeEl = e.target.closest(".react-flow__node");
+    if (nodeEl) {
+      // Select on POINTERDOWN: Safari treats the first tap on nodes with
+      // hover-revealed handles as hover only and eats the click, which made
+      // selection take two taps.
+      const id = nodeEl.getAttribute("data-id");
+      if (id) {
+        setNodes((nds) => {
+          const t = nds.find((n) => n.id === id);
+          if (!t || t.selected || t.type === "zone") return nds;
+          return nds.map((n) => (n.id === id ? { ...n, selected: true } : n.selected ? { ...n, selected: false } : n));
+        });
+      }
+      return; // a node press is never a marquee
+    }
+    if (!e.target.closest(".react-flow__pane")) return;
     const container = e.currentTarget;
     const { clientX: x0, clientY: y0, pointerId: id } = e;
     const timer = setTimeout(() => {
@@ -1431,12 +1483,34 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // the page padding below the canvas or shove content under the tab bar.
   useEffect(() => {
     if (embedded) return undefined;
+    const html = document.documentElement;
     const body = document.body;
-    const prev = { overflow: body.style.overflow, overscroll: body.style.overscrollBehavior };
+    const prev = {
+      htmlOverflow: html.style.overflow,
+      overflow: body.style.overflow,
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+      overscroll: body.style.overscrollBehavior,
+    };
+    html.style.overflow = "hidden";
     body.style.overflow = "hidden";
     body.style.overscrollBehavior = "none";
+    if (WB_TOUCH) {
+      // iOS pans the document despite overflow:hidden — pin the body so a
+      // drag on the app header can't shove the canvas half off-screen with
+      // no way to scroll back.
+      window.scrollTo(0, 0);
+      body.style.position = "fixed";
+      body.style.top = "0";
+      body.style.width = "100%";
+    }
     return () => {
+      html.style.overflow = prev.htmlOverflow;
       body.style.overflow = prev.overflow;
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.width = prev.width;
       body.style.overscrollBehavior = prev.overscroll;
     };
   }, [embedded]);
@@ -3271,7 +3345,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         // hold Space to drag-pan. Left-drag still marquee-selects.
         panOnScroll
         zoomOnScroll={false}
-        zoomOnPinch
+        // Touch: once d3-zoom accepts a touchstart (required for pinch), any
+        // one-finger drag pans — which stole pen/brush/laser strokes. Pinch
+        // is off while a draw tool is armed; leave the tool to navigate.
+        zoomOnPinch={!(WB_TOUCH && (tool === "pen" || tool === "brush" || tool === "laser"))}
         // Hold to pan with a left-drag: Space everywhere; in laser/brush mode
         // also ⌘/Ctrl so you can move the canvas while the left button draws.
         panActivationKeyCode={tool === "laser" || tool === "brush" ? ["Space", "Control", "Meta"] : "Space"}
@@ -3538,10 +3615,19 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             flyouts opening upward. */}
         {selectedNode && singleSelection && WB_TOUCH && (
           <Panel position="bottom-center" className="w-max z-40" style={{ bottom: 15 + toolbarH + 8 }}>
-            <div className="[&_button]:min-h-10">
+            <div className="flex items-end gap-1.5 [&_button]:min-h-10">
               <DropUpContext.Provider value={true}>
                 <Inspector wrapBar node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
               </DropUpContext.Provider>
+              <button
+                type="button"
+                onClick={deleteSelected}
+                aria-label="Delete selected"
+                className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center text-red-400 shadow-2xl active:bg-white/10"
+                style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.08)" }}
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
             </div>
           </Panel>
         )}
