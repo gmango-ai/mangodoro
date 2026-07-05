@@ -1,7 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
-import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll } from "../lib/notifications";
+import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll, typeMeta } from "../lib/notifications";
+import { useResolvedSelf } from "../hooks/useResolvedSelf";
+import { deliveryAction } from "../lib/notificationDelivery";
+import { notificationSurfaces } from "../lib/notificationSurfaces";
+import { useNotificationLeader } from "../hooks/useNotificationLeader";
 import { playForNotification } from "../lib/uiSounds";
 
 // Notification layer — in-app delivery.
@@ -39,6 +43,10 @@ export function NotificationProvider({ children }) {
   const availabilityRef = useRef("available");
   availabilityRef.current = resolved?.availability || "available";
 
+  // Multi-tab consolidation: one tab per browser holds this lock and is the sole
+  // OS-notification owner, so N open tabs don't fire N banners for one event.
+  const isLeaderRef = useNotificationLeader();
+
   const [items, setItems] = useState([]);
   const [toasts, setToasts] = useState([]);
   // Single source of truth — derive the badge from items so it can't drift /
@@ -68,25 +76,29 @@ export function NotificationProvider({ children }) {
     // routing). High/urgent always break through; low/normal are muted while you
     // focus but still shown.
     const action = deliveryAction(n.priority || "normal", availabilityRef.current);
-    // In-app toast — always show it so a notification is never silently lost
-    // (there's no return-from-focus digest yet). The chime only plays when the
-    // policy allows sound.
-    if (channels.includes("inapp")) {
+    const wantsDesktop = (typeMeta(n.type)?.channels || channels).includes("desktop");
+    // Split the surfaces across tabs so multiple open tabs don't duplicate:
+    //   • toast + sound → only the tab you're LOOKING at (visible);
+    //   • OS banner     → only the elected leader tab (one per browser).
+    // The bell/inbox stay per-tab. Type-aware arrival sound (chat vs
+    // notification) plays only when the focus policy allows it; OS notification
+    // surfaces even when the tab is focused (per preference), alongside the toast.
+    const surfaces = notificationSurfaces({
+      channels,
+      action,
+      wantsDesktop,
+      isLeader: isLeaderRef.current,
+      isVisible: typeof document !== "undefined" && document.visibilityState === "visible",
+      permissionGranted: typeof Notification !== "undefined" && Notification.permission === "granted",
+      quietHours: withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd),
+    });
+    if (surfaces.toast) {
       const id = _toastSeq++;
       setToasts((t) => [...t, { id, n }].slice(-4));
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
-      if (action.sound) playNotificationChime();
+      if (surfaces.sound) playForNotification(n.type);
     }
-    // OS notification — fires whenever the type wants desktop, the policy allows
-    // a push, permission is granted, and it's not quiet hours. Per preference it
-    // surfaces to the OS ALWAYS, even when the tab is focused (not just when
-    // backgrounded), so you get the native popup alongside the in-app toast.
-    const wantsDesktop = (typeMeta(n.type)?.channels || channels).includes("desktop");
-    if (
-      action.push && wantsDesktop &&
-      typeof Notification !== "undefined" && Notification.permission === "granted" &&
-      !withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd)
-    ) {
+    if (surfaces.os) {
       try { new Notification(n.title, { body: n.body || "", icon: "/icon-192.png", tag: n.type }); } catch { /* */ }
     }
   }, []);
