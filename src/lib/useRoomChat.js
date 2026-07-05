@@ -38,9 +38,18 @@ export function useRoomChat(roomId, userId) {
 
   // Resolve the room's channel first (general rooms only). null → legacy.
   useEffect(() => {
-    if (!roomId) { setConvId(null); return undefined; }
+    if (!roomId) {
+      setConvId(null);
+      setMessages([]);
+      setLoading(false);
+      setError(null);
+      return undefined;
+    }
     let alive = true;
     setConvId(undefined);
+    setMessages([]);
+    setLoading(true);
+    setError(null);
     getRoomChannelId(roomId).then((cid) => { if (alive) setConvId(cid ?? null); });
     return () => { alive = false; };
   }, [roomId]);
