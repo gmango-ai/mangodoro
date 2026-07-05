@@ -130,6 +130,7 @@ import {
 } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
 import { DropUpContext } from "../components/whiteboard/toolbarUI";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 import PaintLayer from "../components/whiteboard/PaintLayer";
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
@@ -810,8 +811,8 @@ function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
   );
   return (
     <Panel
-      position="bottom-center"
-      // Stacked ABOVE the main bottom-center toolbar; the offset tracks the
+      position="bottom-left"
+      // Stacked ABOVE the main (bottom-left) toolbar; the offset tracks the
       // toolbar's measured height so a wrapped (two-row) toolbar still clears.
       style={{ bottom: bottomOffset }}
       className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg max-w-[94vw] overflow-x-auto ${
@@ -1491,41 +1492,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   };
 
   // The editor is a fixed-viewport surface — lock body scrolling while it's
-  // mounted so iOS rubber-banding (e.g. dragging the top chrome) can't reveal
+  // mounted (shared with Messages/Office) so iOS rubber-banding can't reveal
   // the page padding below the canvas or shove content under the tab bar.
-  useEffect(() => {
-    if (embedded) return undefined;
-    const html = document.documentElement;
-    const body = document.body;
-    const prev = {
-      htmlOverflow: html.style.overflow,
-      overflow: body.style.overflow,
-      position: body.style.position,
-      top: body.style.top,
-      width: body.style.width,
-      overscroll: body.style.overscrollBehavior,
-    };
-    html.style.overflow = "hidden";
-    body.style.overflow = "hidden";
-    body.style.overscrollBehavior = "none";
-    if (WB_TOUCH) {
-      // iOS pans the document despite overflow:hidden — pin the body so a
-      // drag on the app header can't shove the canvas half off-screen with
-      // no way to scroll back.
-      window.scrollTo(0, 0);
-      body.style.position = "fixed";
-      body.style.top = "0";
-      body.style.width = "100%";
-    }
-    return () => {
-      html.style.overflow = prev.htmlOverflow;
-      body.style.overflow = prev.overflow;
-      body.style.position = prev.position;
-      body.style.top = prev.top;
-      body.style.width = prev.width;
-      body.style.overscrollBehavior = prev.overscroll;
-    };
-  }, [embedded]);
+  useBodyScrollLock(!embedded);
 
   // Default style seeded into new text nodes (persisted per device). A ref keeps
   // the latest for the stable double-click-create handler.
@@ -3516,10 +3485,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           </Panel>
         )}
 
-        {/* w-max: the panel is absolutely positioned at left:50%, which
-            otherwise shrink-to-fits it to ~half the container width and wraps
-            the row far too early; max-content sizing uses the full cap. */}
-        <Panel position="bottom-center" className="w-max">
+        {/* Bottom-left so collapsing the toolbar keeps it anchored to the left
+            edge instead of drifting to centre. w-max sizes to content (up to
+            the 100vw cap), then scrolls horizontally when it overflows. */}
+        <Panel position="bottom-left" className="w-max max-w-[calc(100vw-24px)]">
           <div
             ref={toolbarRef}
             className={`wb-scroll-x flex flex-row flex-nowrap items-center gap-0.5 p-1 rounded-2xl border shadow-sm w-max max-w-[calc(100vw-24px)] overflow-x-auto ${
@@ -3680,7 +3649,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             bar above the main toolbar instead, with taller targets and
             flyouts opening upward. */}
         {touchInspectorVisible && (
-          <Panel position="bottom-center" className="w-max z-40" style={{ bottom: touchInspectorBottom }}>
+          <Panel position="bottom-left" className="w-max z-40" style={{ bottom: touchInspectorBottom }}>
             <div ref={touchInspectorRef} className="flex items-center gap-1.5">
               {/* The pill scrolls; the trash stays pinned outside it. */}
               <div className="wb-scroll-x overflow-x-auto rounded-xl max-w-[calc(100vw-84px)] [&_button]:min-h-11 [&_.lucide]:w-5 [&_.lucide]:h-5">
@@ -3724,8 +3693,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
       {/* Shape-number legend — shown while dragging a connector or hovering a
           quick-connect arrow, so people know which number makes which shape.
-          The current pick is highlighted. */}
-      {(connecting || hoveringArrow) && (
+          The current pick is highlighted. Desktop only — it's a keyboard hint
+          (1–9), useless without a keyboard. */}
+      {!WB_TOUCH && (connecting || hoveringArrow) && (
         <div
           className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-40 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border shadow-lg pointer-events-none ${
             dark ? "bg-[var(--color-surface)]/95 border-[var(--color-border)]" : "bg-white/95 border-slate-200"

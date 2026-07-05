@@ -188,12 +188,13 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
               </span>
             </NavLink>
 
-            {/* Mobile row 1: messages + notifications + a collapse toggle for
-                row 2 — the clock / who's-working / world-clock widgets live on
-                mobile row 2 below (hidden when collapsed to reclaim height). */}
+            {/* Mobile row 1: pomodoro quick-open (Messages moved to the bottom
+                nav) + notifications + a collapse toggle for row 2. The clock /
+                who's-working / world-clock widgets live on mobile row 2 below
+                (hidden when collapsed to reclaim height). */}
             <div className="xl:hidden ml-auto flex items-center gap-1">
-              <NavMessages />
-              <NotificationBell />
+              {!onPomodoroPage && <PomodoroNavButton dark={darkMode} onOpen={onOpenPomodoro} />}
+              <NotificationBell size="lg" />
               <button
                 type="button"
                 onClick={toggleRow2}
@@ -284,11 +285,6 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
               <WorkClockBar dark={darkMode} />
               <WorkingNowBar dark={darkMode} />
               <WorldClockNav dark={darkMode} />
-              {!onPomodoroPage && (
-                <div className="ml-auto">
-                  <PomodoroNavButton dark={darkMode} onOpen={onOpenPomodoro} />
-                </div>
-              )}
             </div>
           )}
         </div>
