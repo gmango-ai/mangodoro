@@ -121,7 +121,7 @@ export default function Inspector({ node, patchNodeData, setLocked, onReorder, s
 
   return (
     <div onPointerDown={stop} onClick={stop}>
-      <Pill className={wrapBar ? "flex-wrap justify-center max-w-[calc(100vw-20px)]" : ""}>
+      <Pill className={wrapBar ? "w-max" : ""}>
         {isShape && (
           <Dropdown
             openKey="shape"
