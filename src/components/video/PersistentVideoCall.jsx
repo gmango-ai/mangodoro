@@ -37,6 +37,11 @@ const PIP_HIDDEN_CSS =
 const IS_TOUCH =
   typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 const STAGE_CSS = "position:absolute;inset:0;z-index:20;";
+// Maximized: the host covers the viewport (below the drive overlay's z-200,
+// above nav/PiP). Safe-area padding keeps the stage out of the notch.
+const MAX_CSS =
+  "position:fixed;inset:0;z-index:130;background:#0f172a;box-sizing:border-box;" +
+  "padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);";
 
 const PIP_WIDTH = 320;
 const PIP_HEIGHT = 200;
@@ -53,13 +58,13 @@ function pipRect() {
 }
 
 export default function PersistentVideoCall() {
-  const { call, startCall, endCall, updateCall, stageEl, poppedOut, setPoppedOut, setCanPopOut, registerPopout } = useVideoCall();
+  const { call, startCall, endCall, updateCall, stageEl, poppedOut, setPoppedOut, setCanPopOut, registerPopout, maximized } = useVideoCall();
   const { syncSession } = useSyncSession();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
   const reparentSafe = resolveVideoProvider() === VIDEO.LIVEKIT;
-  const inPiP = !stageEl;
+  const inPiP = !stageEl && !maximized;
 
   // Pop-out: move the (re-parentable) call host into an OS-level Document
   // Picture-in-Picture window that floats above other apps. Chromium/Electron
@@ -127,7 +132,10 @@ export default function PersistentVideoCall() {
     // don't remove it on cleanup — doing so would yank the host straight back out
     // of the pop-out window the instant `poppedOut` flips (which showed a blank
     // window). Final teardown is handled by the unmount-only effect below.
-    if (stageEl) {
+    if (maximized) {
+      host.style.cssText = MAX_CSS;
+      document.body.appendChild(host);
+    } else if (stageEl) {
       host.style.cssText = STAGE_CSS;
       stageEl.appendChild(host);
     } else {
@@ -136,7 +144,7 @@ export default function PersistentVideoCall() {
     }
     try { host.querySelectorAll("video").forEach((v) => v.play?.().catch(() => {})); } catch { /* */ }
     return undefined;
-  }, [stageEl, call, reparentSafe, poppedOut]);
+  }, [stageEl, call, reparentSafe, poppedOut, maximized]);
 
   // Detach the host only when this component truly unmounts (sign-out).
   useEffect(() => () => { try { hostRef.current?.remove(); } catch { /* */ } }, []);
