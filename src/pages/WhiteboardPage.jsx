@@ -22,6 +22,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import {
   ArrowLeft,
+  LassoSelect,
   Maximize,
   Target,
   Pencil,
@@ -171,12 +172,22 @@ const OPPOSITE_TARGET = { t: "b", r: "l", b: "t", l: "r" };
 
 // Toolbar icon button — themed tints per tool kind. `active` gives a filled
 // look for toggle tools (e.g. the laser pointer mode).
+// Lives in the top chrome card next to undo/redo (the editor sits inside a
+// ReactFlowProvider, so useReactFlow works up here too).
 function FitViewButton({ dark }) {
   const rf = useReactFlow();
   return (
-    <ToolButton title="Fit view" dark={dark} onClick={() => rf.fitView({ padding: 0.2, duration: 300 })}>
+    <button
+      type="button"
+      onClick={() => rf.fitView({ padding: 0.2, duration: 300 })}
+      title="Fit view"
+      aria-label="Fit view"
+      className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+        dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+      }`}
+    >
       <Maximize className="w-4 h-4" />
-    </ToolButton>
+    </button>
   );
 }
 
@@ -590,7 +601,10 @@ const PAINT_QUICK_COLORS = [
 
 // Floating toolbar shown while the brush is active — brush/eraser, colour, size
 // and opacity in one place (room to grow: brush types, smoothing, etc.).
-function PaintToolbar({ dark, style, setStyle }) {
+const WB_TOUCH =
+  typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+
+function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
   const divider = <div className={`w-px h-6 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />;
   const labelCls = `text-[10px] font-bold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`;
   const numCls = `text-[11px] tabular-nums ${dark ? "text-slate-300" : "text-slate-600"}`;
@@ -612,10 +626,9 @@ function PaintToolbar({ dark, style, setStyle }) {
   return (
     <Panel
       position="bottom-center"
-      // Stacked ABOVE the main bottom-center toolbar (which sits at the panel
-      // margin); the emote bar's barOffset (96 → 140 while painting) already
-      // assumes this two-layer arrangement.
-      style={{ bottom: 64 }}
+      // Stacked ABOVE the main bottom-center toolbar; the offset tracks the
+      // toolbar's measured height so a wrapped (two-row) toolbar still clears.
+      style={{ bottom: bottomOffset }}
       className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg max-w-[94vw] overflow-x-auto ${
         dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
       }`}
@@ -1136,6 +1149,34 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     try { localStorage.setItem("ql_wb_minimap", showMinimap ? "1" : "0"); } catch { /* */ }
   }, [showMinimap]);
   const [saveTplOpen, setSaveTplOpen] = useState(false); // "Save as template" dialog
+
+  // Measured height of the bottom toolbar (it can wrap to two rows on narrow
+  // phones) — the paint toolbar and the emote bar stack above it by this.
+  const toolbarRO = useRef(null);
+  const [toolbarH, setToolbarH] = useState(44);
+  const toolbarRef = useCallback((el) => {
+    toolbarRO.current?.disconnect();
+    toolbarRO.current = null;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setToolbarH(el.offsetHeight || 44));
+    ro.observe(el);
+    toolbarRO.current = ro;
+  }, []);
+
+  // The editor is a fixed-viewport surface — lock body scrolling while it's
+  // mounted so iOS rubber-banding (e.g. dragging the top chrome) can't reveal
+  // the page padding below the canvas or shove content under the tab bar.
+  useEffect(() => {
+    if (embedded) return undefined;
+    const body = document.body;
+    const prev = { overflow: body.style.overflow, overscroll: body.style.overscrollBehavior };
+    body.style.overflow = "hidden";
+    body.style.overscrollBehavior = "none";
+    return () => {
+      body.style.overflow = prev.overflow;
+      body.style.overscrollBehavior = prev.overscroll;
+    };
+  }, [embedded]);
 
   // Default style seeded into new text nodes (persisted per device). A ref keeps
   // the latest for the stable double-click-create handler.
@@ -2715,19 +2756,26 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
         // Laser mode is point-only: no selecting, dragging, or connecting — so
         // you can gesture over the board without disturbing it.
-        nodesDraggable={tool === "select"}
-        nodesConnectable={tool === "select"}
-        elementsSelectable={tool === "select"}
-        selectionOnDrag={tool === "select"}
+        nodesDraggable={tool === "select" || tool === "marquee"}
+        nodesConnectable={tool === "select" || tool === "marquee"}
+        elementsSelectable={tool === "select" || tool === "marquee"}
+        // Touch: one-finger drag PANS and pinch stays a clean zoom (a drag
+        // marquee used to open under the first finger of every pinch); area
+        // select is the explicit lasso tool, which hands back to select once
+        // a marquee is drawn. Desktop keeps left-drag marquee.
+        selectionOnDrag={WB_TOUCH ? tool === "marquee" : tool === "select"}
+        onSelectionEnd={() => { if (tool === "marquee") setTool("select"); }}
         selectionMode={SelectionMode.Partial}
         // Shift adds to selection, freeing ⌘/Ctrl for the click-to-clone quick action.
         multiSelectionKeyCode="Shift"
         // Zoom way out for big boards (default floor is 0.5); a bit more in too.
         minZoom={0.1}
         maxZoom={3}
-        // Left-drag is reserved (marquee in select, draw in pen/laser-ink), so
-        // panning is always middle/right-drag — plus the activation key below.
-        panOnDrag={[1, 2]}
+        // Desktop: left-drag is reserved (marquee in select, draw in pen), so
+        // panning is middle/right-drag — plus the activation key below. Touch:
+        // in select mode one-finger drag pans; every other tool keeps the
+        // finger for its own gesture (lasso marquee, pen/laser/brush strokes).
+        panOnDrag={WB_TOUCH && tool === "select" ? true : [1, 2]}
         // Trackpad: two-finger scroll pans, pinch zooms (ctrl/⌘+scroll too);
         // hold Space to drag-pan. Left-drag still marquee-selects.
         panOnScroll
@@ -2759,7 +2807,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             the bottom toolbar, so a lone corner button (which the wide toolbar
             overlapped on phones) has nothing left to offer. */}
         {/* Hidden on phones (hidden sm:block) — the minimap eats scarce screen
-            on mobile and duplicates the toolbar's fit-view. */}
+            on mobile and duplicates the top bar's fit-view. */}
         {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" className="hidden sm:block" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
@@ -2790,7 +2838,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         )}
 
         {/* Paint toolbar — brush/eraser, colour, size, opacity (brush mode). */}
-        {tool === "brush" && <PaintToolbar dark={dark} style={brushStyle} setStyle={setBrushStyle} />}
+        {tool === "brush" && <PaintToolbar dark={dark} style={brushStyle} setStyle={setBrushStyle} bottomOffset={15 + toolbarH + 8} />}
 
         {/* Align / distribute toolbar — only with 2+ top-level nodes selected. */}
         {multiCount >= 2 && (
@@ -2834,14 +2882,35 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           </Panel>
         )}
 
-        <Panel
-          position="bottom-center"
-          className={`flex flex-row flex-wrap items-center justify-center gap-0.5 p-1 rounded-2xl border shadow-sm max-w-[calc(100vw-24px)] ${
-            dark
-              ? "bg-[var(--color-surface)] border-[var(--color-border)]"
-              : "bg-white border-slate-200"
-          }`}
-        >
+        {/* w-max: the panel is absolutely positioned at left:50%, which
+            otherwise shrink-to-fits it to ~half the container width and wraps
+            the row far too early; max-content sizing uses the full cap. */}
+        <Panel position="bottom-center" className="w-max">
+          <div
+            ref={toolbarRef}
+            className={`flex flex-row flex-wrap items-center justify-center gap-0.5 p-1 rounded-2xl border shadow-sm w-max max-w-[calc(100vw-24px)] ${
+              dark
+                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+                : "bg-white border-slate-200"
+            }`}
+          >
+          {WB_TOUCH && (
+            <>
+              <ToolButton
+                title="Select area"
+                dark={dark}
+                active={tool === "marquee"}
+                onClick={() => setTool((t) => (t === "marquee" ? "select" : "marquee"))}
+              >
+                <LassoSelect className="w-4 h-4" />
+              </ToolButton>
+              <div
+                className={`w-px h-5 mx-0.5 ${
+                  dark ? "bg-[var(--color-border)]" : "bg-slate-200"
+                }`}
+              />
+            </>
+          )}
           <StickyTool
             dark={dark}
             onAdd={(hex) =>
@@ -2939,12 +3008,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           >
             <Trash2 className="w-4 h-4" />
           </ToolButton>
-          <div
-            className={`w-px h-5 mx-0.5 ${
-              dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-            }`}
-          />
-          <FitViewButton dark={dark} />
+          </div>
         </Panel>
 
         {/* Node inspector (shape/fill/border/text) hovers above the
@@ -3003,7 +3067,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             back-nav, title, template badge, save state, the reactions-bar
             toggle, and archive. The inner row flex-wraps on narrow phones (see
             below) so it folds to two rows instead of overflowing. */}
-      <div className="absolute left-3 top-3 z-40 flex flex-col gap-2 items-start max-w-[calc(100%-24px)]">
+      <div className="absolute left-3 top-3 z-40 flex flex-col gap-2 items-start max-w-[calc(100%-24px)] touch-none">
         <div
           // flex-wrap so the toolbar folds onto a second row on narrow phones
           // instead of overflowing the canvas (every child is shrink-0). The
@@ -3136,6 +3200,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           >
             <Redo2 className="w-4 h-4" />
           </button>
+          <FitViewButton dark={dark} />
           {!compact && (
             <>
               <div
@@ -3290,7 +3355,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             pass through except on the chip itself. */}
       {template?.hasGoal && !compact && (
         <div
-          className="absolute left-1/2 -translate-x-1/2 top-3 z-30 flex items-stretch max-w-[calc(100%-32px)]"
+          className="absolute left-1/2 -translate-x-1/2 top-3 z-30 flex items-stretch max-w-[calc(100%-32px)] touch-none"
           style={{ pointerEvents: "none" }}
         >
           <div
@@ -3377,7 +3442,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         // The drawing toolbar now lives at bottom-center too, so lift the emote
         // bar above it (clears the toolbar even when it wraps to two rows on a
         // phone); extra lift while the paint toolbar is also showing.
-        barOffset={tool === "brush" ? 140 : 96}
+        // Sit just above whatever's stacked at bottom-center: the measured
+        // toolbar (panel margin 15 + height + gap), plus the paint bar while
+        // painting.
+        barOffset={toolbarH + 11 + (tool === "brush" ? 54 : 0)}
       />
     </main>
   );
