@@ -85,14 +85,20 @@ struct AiryTheme {
 
 // MARK: - Phase helpers
 
+/// Brand fallback when no accent hex was mirrored (fresh installs, stale
+/// snapshots): the Mangodoro orange, sampled from the app icon's gradient
+/// midpoint (#EC785A → #EF8148 → #F6A40A).
+@available(iOS 14.0, *)
+let airyBrandFallback = Color(hex: "#EF8148") ?? .orange
+
 /// Work uses the user's accent; breaks use the analogous break color
-/// (falling back to the accent, then system teal == the app's #0d9488).
+/// (falling back to the accent, then the brand orange).
 @available(iOS 14.0, *)
 func airyPhaseAccent(mode: String, accentHex: String?, breakHex: String?) -> Color {
     if mode != "work" {
-        return Color(hex: breakHex) ?? Color(hex: accentHex) ?? .teal
+        return Color(hex: breakHex) ?? Color(hex: accentHex) ?? airyBrandFallback
     }
-    return Color(hex: accentHex) ?? .teal
+    return Color(hex: accentHex) ?? airyBrandFallback
 }
 
 /// Per-mode fallback length when the content state predates
