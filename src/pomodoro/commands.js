@@ -22,6 +22,45 @@ function pushCrossDeviceLiveActivity({ isRunning, endsAtMs, pausedSecondsLeft, e
   } catch { /* best-effort */ }
 }
 
+// The DB payload for a flush: current state with the override fields applied
+// (durations / auto_transition only when explicitly overridden).
+function buildFlushPayload(base, override) {
+  const payload = {
+    mode: override.mode ?? base.mode,
+    sessions: override.sessions ?? base.sessions,
+    is_running: override.is_running ?? base.isRunning,
+    remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
+    pending_mode: Object.prototype.hasOwnProperty.call(override, "pending_mode")
+      ? override.pending_mode
+      : base.pendingMode,
+  };
+  if (Object.prototype.hasOwnProperty.call(override, "durations")) {
+    payload.durations = override.durations;
+  }
+  if (Object.prototype.hasOwnProperty.call(override, "auto_transition")) {
+    payload.auto_transition = override.auto_transition;
+  }
+  return payload;
+}
+
+// Post-write bookkeeping shared by both flush paths: track the server's
+// ends_at/updated_at and fan the new state out to other devices' surfaces.
+function applyFlushResult(data, payload, { endsAtMsRef, lastLocalWriteAtMsRef, clearActivity, isSynced }) {
+  if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
+  else endsAtMsRef.current = null;
+  const writeMs = remoteUpdatedAtMs(data);
+  if (writeMs != null) lastLocalWriteAtMsRef.current = writeMs;
+  pushCrossDeviceLiveActivity({
+    ended: clearActivity,
+    isRunning: payload.is_running,
+    endsAtMs: data?.ends_at ? new Date(data.ends_at).getTime() : null,
+    pausedSecondsLeft: payload.remaining_seconds,
+    mode: payload.mode,
+    isSynced,
+  });
+  return data;
+}
+
 export async function flushToServer({
   userId,
   syncSession,
@@ -42,21 +81,7 @@ export async function flushToServer({
 
   const canWriteSync = syncSession && syncSession.controller_id === userId;
   if (canWriteSync) {
-    const payload = {
-      mode: override.mode ?? base.mode,
-      sessions: override.sessions ?? base.sessions,
-      is_running: override.is_running ?? base.isRunning,
-      remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
-      pending_mode: Object.prototype.hasOwnProperty.call(override, "pending_mode")
-        ? override.pending_mode
-        : base.pendingMode,
-    };
-    if (Object.prototype.hasOwnProperty.call(override, "durations")) {
-      payload.durations = override.durations;
-    }
-    if (Object.prototype.hasOwnProperty.call(override, "auto_transition")) {
-      payload.auto_transition = override.auto_transition;
-    }
+    const payload = buildFlushPayload(base, override);
     const { data, error } = await supabase
       .from("sync_sessions")
       .update(payload)
@@ -67,38 +92,11 @@ export async function flushToServer({
       console.warn("sync session flush:", error.message);
       return null;
     }
-    if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
-    else endsAtMsRef.current = null;
-    const writeMs = remoteUpdatedAtMs(data);
-    if (writeMs != null) lastLocalWriteAtMsRef.current = writeMs;
-    pushCrossDeviceLiveActivity({
-      ended: clearActivity,
-      isRunning: payload.is_running,
-      endsAtMs: data?.ends_at ? new Date(data.ends_at).getTime() : null,
-      pausedSecondsLeft: payload.remaining_seconds,
-      mode: payload.mode,
-      isSynced: true,
-    });
-    return data;
+    return applyFlushResult(data, payload, { endsAtMsRef, lastLocalWriteAtMsRef, clearActivity, isSynced: true });
   }
 
   if (!syncSession) {
-    const payload = {
-      user_id: userId,
-      mode: override.mode ?? base.mode,
-      sessions: override.sessions ?? base.sessions,
-      is_running: override.is_running ?? base.isRunning,
-      remaining_seconds: Math.max(0, override.remaining_seconds ?? base.secondsLeft),
-      pending_mode: Object.prototype.hasOwnProperty.call(override, "pending_mode")
-        ? override.pending_mode
-        : base.pendingMode,
-    };
-    if (Object.prototype.hasOwnProperty.call(override, "durations")) {
-      payload.durations = override.durations;
-    }
-    if (Object.prototype.hasOwnProperty.call(override, "auto_transition")) {
-      payload.auto_transition = override.auto_transition;
-    }
+    const payload = { user_id: userId, ...buildFlushPayload(base, override) };
     const { data, error } = await supabase
       .from("user_pomodoro_state")
       .upsert(payload, { onConflict: "user_id" })
@@ -108,19 +106,7 @@ export async function flushToServer({
       console.warn("pomodoro sync:", error.message);
       return null;
     }
-    if (data?.ends_at) endsAtMsRef.current = new Date(data.ends_at).getTime();
-    else endsAtMsRef.current = null;
-    const writeMs = remoteUpdatedAtMs(data);
-    if (writeMs != null) lastLocalWriteAtMsRef.current = writeMs;
-    pushCrossDeviceLiveActivity({
-      ended: clearActivity,
-      isRunning: payload.is_running,
-      endsAtMs: data?.ends_at ? new Date(data.ends_at).getTime() : null,
-      pausedSecondsLeft: payload.remaining_seconds,
-      mode: payload.mode,
-      isSynced: false,
-    });
-    return data;
+    return applyFlushResult(data, payload, { endsAtMsRef, lastLocalWriteAtMsRef, clearActivity, isSynced: false });
   }
 
   return null;

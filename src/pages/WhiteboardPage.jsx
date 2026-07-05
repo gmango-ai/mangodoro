@@ -275,6 +275,71 @@ function ShapesMenu({ dark, onPick }) {
   );
 }
 
+// Corner caret shared by the rail tools — toggles the options flyout.
+function ToolChevron({ label, open, setOpen, dark }) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={() => setOpen((v) => !v)}
+      aria-expanded={open}
+      className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+        dark
+          ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
+          : "bg-white text-slate-500 border border-slate-200"
+      }`}
+    >
+      <ChevronDown className="w-2.5 h-2.5" />
+    </button>
+  );
+}
+
+// Light-styled options flyout (backdrop + panel) shared by the rail tools.
+function ToolPopover({ dark, onClose, children }) {
+  return (
+    <>
+      <div className="fixed inset-0 z-10" onClick={onClose} />
+      <div
+        className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
+          dark
+            ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+            : "bg-white border-slate-200"
+        }`}
+        style={{ width: 188 }}
+      >
+        {children}
+      </div>
+    </>
+  );
+}
+
+// 6-across swatch grid shared by the sticky / pen / laser flyouts.
+function PaletteGrid({ colors, selected, onPick }) {
+  return (
+    <div className="grid grid-cols-6 gap-1">
+      {colors.map((hex) => (
+        <button
+          key={hex}
+          type="button"
+          title={hex}
+          onClick={() => onPick(hex)}
+          className="w-6 h-6 rounded-md transition-transform hover:scale-110"
+          style={{
+            background: hex,
+            outline:
+              selected.toLowerCase() === hex.toLowerCase()
+                ? "2px solid #f97316"
+                : "none",
+            outlineOffset: 1,
+            boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 // Sticky tool for the rail. The button shows the current default color
 // and adds a note in it; the corner caret opens a palette flyout to
 // change the default (curated pastels + any custom hex). Picking a color
@@ -313,80 +378,38 @@ function StickyTool({ dark, onAdd }) {
           }}
         />
       </button>
-      <button
-        type="button"
-        title="Choose sticky color"
-        aria-label="Choose sticky color"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
-          dark
-            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
-            : "bg-white text-slate-500 border border-slate-200"
-        }`}
-      >
-        <ChevronDown className="w-2.5 h-2.5" />
-      </button>
+      <ToolChevron label="Choose sticky color" open={open} setOpen={setOpen} dark={dark} />
       {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+        <ToolPopover dark={dark} onClose={() => setOpen(false)}>
           <div
-            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
-              dark
-                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
-                : "bg-white border-slate-200"
+            className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${
+              dark ? "text-slate-500" : "text-slate-400"
             }`}
-            style={{ width: 188 }}
           >
-            <div
-              className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${
-                dark ? "text-slate-500" : "text-slate-400"
-              }`}
-            >
-              Sticky color
-            </div>
-            <div className="grid grid-cols-6 gap-1">
-              {STICKY_PALETTE.map((hex) => (
-                <button
-                  key={hex}
-                  type="button"
-                  title={hex}
-                  onClick={() => pick(hex)}
-                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
-                  style={{
-                    background: hex,
-                    outline:
-                      current.toLowerCase() === hex.toLowerCase()
-                        ? "2px solid #f97316"
-                        : "none",
-                    outlineOffset: 1,
-                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
-                  }}
-                />
-              ))}
-            </div>
-            <label
-              className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${
-                dark ? "text-slate-300" : "text-slate-600"
-              }`}
-            >
-              <input
-                type="color"
-                value={/^#[0-9a-fA-F]{6}$/.test(current) ? current : "#fde68a"}
-                onChange={(e) => pick(e.target.value)}
-                style={{
-                  width: 24,
-                  height: 24,
-                  padding: 0,
-                  border: "none",
-                  background: "none",
-                  cursor: "pointer",
-                }}
-              />
-              Custom color
-            </label>
+            Sticky color
           </div>
-        </>
+          <PaletteGrid colors={STICKY_PALETTE} selected={current} onPick={pick} />
+          <label
+            className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${
+              dark ? "text-slate-300" : "text-slate-600"
+            }`}
+          >
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(current) ? current : "#fde68a"}
+              onChange={(e) => pick(e.target.value)}
+              style={{
+                width: 24,
+                height: 24,
+                padding: 0,
+                border: "none",
+                background: "none",
+                cursor: "pointer",
+              }}
+            />
+            Custom color
+          </label>
+        </ToolPopover>
       )}
     </div>
   );
@@ -410,20 +433,7 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
       >
         <Type className="w-4 h-4" />
       </button>
-      <button
-        type="button"
-        title="New-text defaults"
-        aria-label="New-text defaults"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
-          dark
-            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
-            : "bg-white text-slate-500 border border-slate-200"
-        }`}
-      >
-        <ChevronDown className="w-2.5 h-2.5" />
-      </button>
+      <ToolChevron label="New-text defaults" open={open} setOpen={setOpen} dark={dark} />
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
@@ -467,79 +477,44 @@ function PenTool({ dark, active, style, setStyle, onToggle }) {
       >
         <Pencil className="w-4 h-4" />
       </button>
-      <button
-        type="button"
-        title="Pen options"
-        aria-label="Pen options"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
-          dark
-            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
-            : "bg-white text-slate-500 border border-slate-200"
-        }`}
-      >
-        <ChevronDown className="w-2.5 h-2.5" />
-      </button>
+      <ToolChevron label="Pen options" open={open} setOpen={setOpen} dark={dark} />
       {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
-              dark
-                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
-                : "bg-white border-slate-200"
-            }`}
-            style={{ width: 188 }}
-          >
-            <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              Pen colour
-            </div>
-            <div className="grid grid-cols-6 gap-1">
-              {PEN_COLORS.map((hex) => (
-                <button
-                  key={hex}
-                  type="button"
-                  title={hex}
-                  onClick={() => setStyle((s) => ({ ...s, color: hex }))}
-                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
-                  style={{
-                    background: hex,
-                    outline: style.color.toLowerCase() === hex.toLowerCase() ? "2px solid #f97316" : "none",
-                    outlineOffset: 1,
-                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
-                  }}
-                />
-              ))}
-            </div>
-            <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
-              <input
-                type="color"
-                value={/^#[0-9a-fA-F]{6}$/.test(style.color) ? style.color : "#0f172a"}
-                onChange={(e) => setStyle((s) => ({ ...s, color: e.target.value }))}
-                style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
-              />
-              Custom colour
-            </label>
-            <div className={`text-[10px] font-bold uppercase tracking-wide mt-2.5 mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              Width
-            </div>
-            <div className="flex gap-1">
-              {PEN_WIDTHS.map(([label, w]) => (
-                <button
-                  key={w}
-                  type="button"
-                  onClick={() => setStyle((s) => ({ ...s, width: w }))}
-                  className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
-                    style.width === w
-                      ? dark ? "bg-white/15 text-white" : "bg-slate-200 text-slate-700"
-                      : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
-                  }`}
-                >{label}</button>
-              ))}
-            </div>
+        <ToolPopover dark={dark} onClose={() => setOpen(false)}>
+          <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Pen colour
           </div>
-        </>
+          <PaletteGrid
+            colors={PEN_COLORS}
+            selected={style.color}
+            onPick={(hex) => setStyle((s) => ({ ...s, color: hex }))}
+          />
+          <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(style.color) ? style.color : "#0f172a"}
+              onChange={(e) => setStyle((s) => ({ ...s, color: e.target.value }))}
+              style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+            />
+            Custom colour
+          </label>
+          <div className={`text-[10px] font-bold uppercase tracking-wide mt-2.5 mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Width
+          </div>
+          <div className="flex gap-1">
+            {PEN_WIDTHS.map(([label, w]) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => setStyle((s) => ({ ...s, width: w }))}
+                className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                  style.width === w
+                    ? dark ? "bg-white/15 text-white" : "bg-slate-200 text-slate-700"
+                    : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >{label}</button>
+            ))}
+          </div>
+        </ToolPopover>
       )}
     </div>
   );
@@ -576,43 +551,23 @@ function LaserTool({ dark, active, color, setColor, onToggle }) {
         style={{ background: cur, borderColor: dark ? "var(--color-surface)" : "#fff" }}
       />
       {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
-              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-            }`}
-            style={{ width: 188 }}
-          >
-            <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>Laser colour</div>
-            <div className="grid grid-cols-6 gap-1">
-              {PEN_COLORS.filter((c) => c !== "#ffffff").map((hex) => (
-                <button
-                  key={hex}
-                  type="button"
-                  title={hex}
-                  onClick={() => setColor(hex)}
-                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
-                  style={{
-                    background: hex,
-                    outline: cur.toLowerCase() === hex.toLowerCase() ? "2px solid #f97316" : "none",
-                    outlineOffset: 1,
-                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
-                  }}
-                />
-              ))}
-            </div>
-            <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
-              <input
-                type="color"
-                value={/^#[0-9a-fA-F]{6}$/.test(cur) ? cur : "#ef4444"}
-                onChange={(e) => setColor(e.target.value)}
-                style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
-              />
-              Custom colour
-            </label>
-          </div>
-        </>
+        <ToolPopover dark={dark} onClose={() => setOpen(false)}>
+          <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>Laser colour</div>
+          <PaletteGrid
+            colors={PEN_COLORS.filter((c) => c !== "#ffffff")}
+            selected={cur}
+            onPick={setColor}
+          />
+          <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(cur) ? cur : "#ef4444"}
+              onChange={(e) => setColor(e.target.value)}
+              style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+            />
+            Custom colour
+          </label>
+        </ToolPopover>
       )}
     </div>
   );
@@ -899,6 +854,32 @@ function freshId(prefix) {
   // 36ms time + counter is plenty to avoid id collisions inside one
   // tab without dragging in a uuid dep just for this.
   return `${prefix}-${Date.now().toString(36)}-${_idSeq++}`;
+}
+
+// Shared by cloneNodes / alt-drag clone: expand the picked ids to any framed
+// children, drop zones, and mint fresh ids for the copies.
+function collectCloneSources(all, ids) {
+  const set = new Set(ids);
+  for (const n of all) if (n.parentId && set.has(n.parentId)) set.add(n.id); // frame children ride along
+  const src = all.filter((n) => set.has(n.id) && n.type !== "zone");
+  const idMap = new Map(src.map((n) => [n.id, freshId(n.type || "dup")]));
+  return { src, idMap };
+}
+
+// Duplicate the edges fully inside a cloned selection onto the fresh ids.
+function duplicateInternalEdges(eds, idMap) {
+  const inside = eds.filter((e) => idMap.has(e.source) && idMap.has(e.target));
+  if (!inside.length) return eds;
+  return eds.concat(
+    inside.map((e) => ({
+      ...e,
+      id: freshId("e"),
+      selected: false,
+      source: idMap.get(e.source),
+      target: idMap.get(e.target),
+      data: e.data ? { ...e.data } : e.data, // anchors are node-relative; route re-bases off the new ends
+    }))
+  );
 }
 
 // In-app clipboard for copy / cut / paste. localStorage so it survives
@@ -2209,12 +2190,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // node and ⌘/Ctrl-D on the selection. Offset is grid-aligned so clones stay
   // tidy.
   const cloneNodes = useCallback((ids, dx = 32, dy = 32) => {
-    const all = rf.getNodes();
-    const set = new Set(ids);
-    for (const n of all) if (n.parentId && set.has(n.parentId)) set.add(n.id); // frame children ride along
-    const src = all.filter((n) => set.has(n.id) && n.type !== "zone");
+    const { src, idMap } = collectCloneSources(rf.getNodes(), ids);
     if (!src.length) return;
-    const idMap = new Map(src.map((n) => [n.id, freshId(n.type || "dup")]));
     const clones = src.map((n) => {
       const childOfCloned = n.parentId && idMap.has(n.parentId);
       const next = { ...n, id: idMap.get(n.id), data: { ...n.data }, selected: true };
@@ -2229,20 +2206,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     setNodes((nds) =>
       nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(clones)
     );
-    setEdges((eds) => {
-      const inside = eds.filter((e) => idMap.has(e.source) && idMap.has(e.target));
-      if (!inside.length) return eds;
-      return eds.concat(
-        inside.map((e) => ({
-          ...e,
-          id: freshId("e"),
-          selected: false,
-          source: idMap.get(e.source),
-          target: idMap.get(e.target),
-          data: e.data ? { ...e.data } : e.data, // anchors are node-relative; route re-bases off the new ends
-        }))
-      );
-    });
+    setEdges((eds) => duplicateInternalEdges(eds, idMap));
   }, [rf, setNodes, setEdges]);
   // Ref so the keydown handler (subscribed once) can call the latest clone fn.
   const cloneRef = useRef(null);
@@ -2309,11 +2273,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     const ids = node.selected
       ? all.filter((n) => n.selected && n.type !== "zone").map((n) => n.id)
       : [node.id];
-    const set = new Set(ids);
-    for (const n of all) if (n.parentId && set.has(n.parentId)) set.add(n.id); // frame children ride along
-    const src = all.filter((n) => set.has(n.id) && n.type !== "zone");
+    const { src, idMap } = collectCloneSources(all, ids);
     if (!src.length) return;
-    const idMap = new Map(src.map((n) => [n.id, freshId(n.type || "dup")]));
     const clones = src.map((n) => {
       const next = { ...n, id: idMap.get(n.id), data: { ...n.data }, selected: false, dragging: false };
       if (n.parentId && idMap.has(n.parentId)) next.parentId = idMap.get(n.parentId);
@@ -2321,15 +2282,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       return next;
     });
     setNodes((nds) => nds.concat(clones));
-    setEdges((eds) => {
-      const inside = eds.filter((e) => idMap.has(e.source) && idMap.has(e.target));
-      if (!inside.length) return eds;
-      return eds.concat(inside.map((e) => ({
-        ...e, id: freshId("e"), selected: false,
-        source: idMap.get(e.source), target: idMap.get(e.target),
-        data: e.data ? { ...e.data } : e.data,
-      })));
-    });
+    setEdges((eds) => duplicateInternalEdges(eds, idMap));
   }, [rf, setNodes, setEdges]);
 
   // ── copy / cut / paste ──────────────────────────────────────────────

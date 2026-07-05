@@ -108,7 +108,12 @@ export function availability(p) {
   if (lm != null && ws != null && we != null && ws !== we) {
     const off = ws < we ? (lm < ws || lm >= we) : (lm < ws && lm >= we);
     if (off) badge = "off hours";
-    else if (we - lm > 0 && we - lm <= 30) badge = "wrapping up";
+    else {
+      // Minutes until the end, modulo a day, so windows whose end wraps past
+      // midnight (e.g. 09:00–00:15 at 23:55) still show "wrapping up".
+      const toEnd = (we - lm + 1440) % 1440;
+      if (toEnd > 0 && toEnd <= 30) badge = "wrapping up";
+    }
   }
   return { label, badge, loc: today.loc || null };
 }

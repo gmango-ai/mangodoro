@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, Home, MessageSquare, Lock, Users2, Check, Clock } from "lucide-react";
 import { createRoomV2 } from "../lib/rooms";
+import Modal from "./Modal";
 
 const ROOM_COLORS = [
   "#14b8a6", "#0ea5e9", "#6366f1", "#8b5cf6", "#ec4899",
@@ -114,7 +115,7 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4" onClick={onClose}>
+    <Modal onClose={onClose}>
       <form className={cardCls} onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <button
           type="button"
@@ -299,6 +300,6 @@ export default function CreateRoomModal({ open, onClose, teamId, userId, isAdmin
           </Button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

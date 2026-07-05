@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, Briefcase, Clock, DollarSign } from "lucide-react";
 import UserAvatar from "./UserAvatar";
+import Modal from "./Modal";
 
 // Admin modal for editing a member's HR fields. Persists via the
 // caller's onSave (which wraps updateMemberHR from TeamContext).
@@ -49,10 +50,7 @@ export default function MemberHRModal({ open, onClose, member, onSave }) {
   const inputCls = dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "";
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4"
-      onClick={onClose}
-    >
+    <Modal onClose={onClose}>
       <form className={cardCls} onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <button
           type="button"
@@ -165,6 +163,6 @@ export default function MemberHRModal({ open, onClose, member, onSave }) {
           </Button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

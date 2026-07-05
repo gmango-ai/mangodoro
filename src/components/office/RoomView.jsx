@@ -9,6 +9,8 @@ import {
   Copy, Check,
 } from "lucide-react";
 import { getRoomAccessCode } from "../../lib/rooms";
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { formatClock } from "../../lib/utils";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { openPomodoroSurface } from "../../lib/pomodoroSurface";
 import KnockRequests from "./KnockRequests";
@@ -41,8 +43,6 @@ const KIND_LABEL = {
 // session-synced so every participant sees the same value.
 function PomodoroChip() {
   const { mode, secondsLeft, isRunning } = usePomodoro();
-  const mins = String(Math.floor(Math.max(0, secondsLeft) / 60)).padStart(2, "0");
-  const secs = String(Math.max(0, secondsLeft) % 60).padStart(2, "0");
   const onBreak = mode !== "work";
   return (
     <button
@@ -63,7 +63,7 @@ function PomodoroChip() {
       ) : (
         <Play className="w-3 h-3" fill="currentColor" />
       )}
-      <span className="font-display tabular-nums">{mins}:{secs}</span>
+      <span className="font-display tabular-nums">{formatClock(secondsLeft, { padMinutes: true })}</span>
       <span className="text-[10px] uppercase tracking-wider opacity-80">
         {onBreak ? "break" : "work"}
       </span>
@@ -112,7 +112,7 @@ export default function RoomView({
   // room_secrets returns nothing to anyone else), so it can be grabbed and
   // shared straight from the header.
   const [accessCode, setAccessCode] = useState("");
-  const [codeCopied, setCodeCopied] = useState(false);
+  const [codeCopied, copyCode] = useCopyToClipboard();
   const isCodeRoom = room?.entry_policy === "code";
   useEffect(() => {
     if (!isCodeRoom || !canEditRoom || !room?.id) { setAccessCode(""); return; }
@@ -122,11 +122,7 @@ export default function RoomView({
   }, [room?.id, isCodeRoom, canEditRoom]);
   async function copyAccessCode() {
     if (!accessCode) return;
-    try {
-      await navigator.clipboard.writeText(accessCode);
-      setCodeCopied(true);
-      setTimeout(() => setCodeCopied(false), 1500);
-    } catch { /* clipboard unavailable */ }
+    await copyCode(accessCode);
   }
 
   if (!room) return null;

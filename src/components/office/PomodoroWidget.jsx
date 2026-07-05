@@ -2,6 +2,7 @@ import { Clock, Play, Pause, RotateCcw, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { openPomodoroSurface } from "../../lib/pomodoroSurface";
+import { formatClock } from "../../lib/utils";
 import WidgetSection from "./WidgetSection";
 
 // Compact pomodoro controls for the WidgetsSidebar.
@@ -21,8 +22,7 @@ export default function PomodoroWidget({ dark }) {
   } = usePomodoro();
 
   const onBreak = mode !== "work";
-  const mins = String(Math.floor(Math.max(0, secondsLeft) / 60)).padStart(2, "0");
-  const secs = String(Math.max(0, secondsLeft) % 60).padStart(2, "0");
+  const clock = formatClock(secondsLeft, { padMinutes: true });
   const modeLabel = mode === "work"
     ? "Work"
     : mode === "longBreak" ? "Long break" : "Short break";
@@ -54,7 +54,7 @@ export default function PomodoroWidget({ dark }) {
             className="text-3xl font-display font-bold tabular-nums tracking-tight"
             style={{ color: onBreak ? "var(--color-break)" : "var(--color-accent)" }}
           >
-            {mins}:{secs}
+            {clock}
           </div>
           <div className="flex items-center justify-between mt-0.5">
             <span className={`text-[10px] uppercase tracking-wider font-bold ${
