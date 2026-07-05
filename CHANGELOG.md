@@ -4,6 +4,22 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-04
+
+### New & improved
+
+- UI(Electron): distinguish Pomodoro tray phases
+
+### Fixes
+
+- Allow tray popover to open without main timer handler
+- Stale timer handler readiness and popover opening bugs
+- (Pomodoro): remove break transition
+- (Electron): wait for Pomodoro timer command readiness
+- Command acknowledgement race condition in PomodoroEngine
+- (Electron): repair menubar Pomodoro popover controls
+- (Electron): allow video providers through CSP
+
 ## 2026-07-03
 
 ### Fixes
