@@ -46,7 +46,20 @@ export async function enableWebPush(userId) {
   const perm = await Notification.requestPermission();
   if (perm !== "granted") return { error: "Notification permission denied." };
 
-  const reg = await navigator.serviceWorker.ready;
+  // navigator.serviceWorker.ready NEVER resolves when no SW is registered — and
+  // the SW is only built in a production build, not the dev server. Race it
+  // against a timeout so we can fail clearly only when no registration exists.
+  let reg = await Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+  ]);
+  if (!reg) {
+    const pendingReg = await navigator.serviceWorker.getRegistration();
+    if (!pendingReg) {
+      return { error: "Push service worker isn't ready — web push works on the deployed/production build, not the dev server." };
+    }
+    reg = pendingReg.active ? pendingReg : await navigator.serviceWorker.ready;
+  }
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
     sub = await reg.pushManager.subscribe({

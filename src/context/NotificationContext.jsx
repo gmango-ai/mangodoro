@@ -4,6 +4,8 @@ import { useApp } from "./AppContext";
 import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll, typeMeta } from "../lib/notifications";
 import { useResolvedSelf } from "../hooks/useResolvedSelf";
 import { deliveryAction } from "../lib/notificationDelivery";
+import { notificationSurfaces } from "../lib/notificationSurfaces";
+import { NOTIFICATION_LEADER_LOCK, useNotificationLeader } from "../hooks/useNotificationLeader";
 import { playForNotification } from "../lib/uiSounds";
 
 // Notification layer — in-app delivery.
@@ -32,6 +34,52 @@ function withinQuietHours(start, end) {
   return a <= b ? cur >= a && cur < b : cur >= a || cur < b; // overnight window
 }
 
+function osNotificationClaimKey(n) {
+  return n?.id ? `mango-notif-os-shown:${n.id}` : null;
+}
+
+function claimOsNotification(n) {
+  const key = osNotificationClaimKey(n);
+  if (!key || typeof localStorage === "undefined") return true;
+  try {
+    if (localStorage.getItem(key)) return false;
+    localStorage.setItem(key, String(Date.now()));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function showOsNotification(n) {
+  if (!claimOsNotification(n)) return;
+  try { new Notification(n.title, { body: n.body || "", icon: "/icon-192.png", tag: n.type }); } catch { /* */ }
+}
+
+function handoffLockName(n) {
+  return `mango-notif-os-handoff:${n?.id || `${n?.type || "unknown"}:${n?.title || ""}:${n?.body || ""}`}`;
+}
+
+async function showOsNotificationDuringLeaderHandoff(n, isLeaderRef) {
+  if (typeof navigator === "undefined" || !navigator.locks?.query || !navigator.locks?.request) return;
+  try {
+    if (isLeaderRef.current) {
+      showOsNotification(n);
+      return;
+    }
+    const { held = [] } = await navigator.locks.query();
+    if (isLeaderRef.current) {
+      showOsNotification(n);
+      return;
+    }
+    if (held.some((lock) => lock.name === NOTIFICATION_LEADER_LOCK)) return;
+    await navigator.locks.request(handoffLockName(n), { mode: "exclusive", ifAvailable: true }, (lock) => {
+      if (lock) showOsNotification(n);
+    });
+  } catch {
+    // The normal leader path already failed closed; keep the handoff fallback best-effort.
+  }
+}
+
 export function NotificationProvider({ children }) {
   const { session, settings } = useApp();
   const userId = session?.user?.id;
@@ -40,6 +88,10 @@ export function NotificationProvider({ children }) {
   const { resolved } = useResolvedSelf();
   const availabilityRef = useRef("available");
   availabilityRef.current = resolved?.availability || "available";
+
+  // Multi-tab consolidation: one tab per browser holds this lock and is the sole
+  // OS-notification owner, so N open tabs don't fire N banners for one event.
+  const isLeaderRef = useNotificationLeader();
 
   const [items, setItems] = useState([]);
   const [toasts, setToasts] = useState([]);
@@ -64,30 +116,35 @@ export function NotificationProvider({ children }) {
     // routing). High/urgent always break through; low/normal are muted while you
     // focus but still shown.
     const action = deliveryAction(n.priority || "normal", availabilityRef.current);
-    // In-app toast — always show it so a notification is never silently lost
-    // (there's no return-from-focus digest yet). The arrival audio cue is
-    // type-aware (staging's playForNotification: chat vs notification), but only
-    // plays when the focus policy allows sound — muted while you focus for low/
-    // normal. This only runs off a realtime INSERT (initial fetch doesn't call
-    // it), so it's a real "just now" notification; per-type prefs are implicit
-    // (you only receive types you've enabled).
-    if (channels.includes("inapp")) {
+    const wantsDesktop = (typeMeta(n.type)?.channels || channels).includes("desktop");
+    // Split the surfaces across tabs so multiple open tabs don't duplicate:
+    //   • toast + sound → only the tab you're LOOKING at (visible);
+    //   • OS banner     → only the elected leader tab (one per browser).
+    // The bell/inbox stay per-tab. Type-aware arrival sound (chat vs
+    // notification) plays only when the focus policy allows it; OS notification
+    // surfaces even when the tab is focused (per preference), alongside the toast.
+    const isLeader = isLeaderRef.current;
+    const permissionGranted = typeof Notification !== "undefined" && Notification.permission === "granted";
+    const quietHours = withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd);
+    const surfaces = notificationSurfaces({
+      channels,
+      action,
+      wantsDesktop,
+      isLeader,
+      isVisible: typeof document !== "undefined" && document.visibilityState === "visible",
+      permissionGranted,
+      quietHours,
+    });
+    if (surfaces.toast) {
       const id = _toastSeq++;
       setToasts((t) => [...t, { id, n }].slice(-4));
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
-      if (action.sound) playForNotification(n.type);
+      if (surfaces.sound) playForNotification(n.type);
     }
-    // OS notification — fires whenever the type wants desktop, the policy allows
-    // a push, permission is granted, and it's not quiet hours. Per preference it
-    // surfaces to the OS ALWAYS, even when the tab is focused (not just when
-    // backgrounded), so you get the native popup alongside the in-app toast.
-    const wantsDesktop = (typeMeta(n.type)?.channels || channels).includes("desktop");
-    if (
-      action.push && wantsDesktop &&
-      typeof Notification !== "undefined" && Notification.permission === "granted" &&
-      !withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd)
-    ) {
-      try { new Notification(n.title, { body: n.body || "", icon: "/icon-192.png", tag: n.type }); } catch { /* */ }
+    if (surfaces.os) {
+      showOsNotification(n);
+    } else if (!isLeader && !!action?.push && wantsDesktop && permissionGranted && !quietHours) {
+      showOsNotificationDuringLeaderHandoff(n, isLeaderRef);
     }
   }, []);
 
