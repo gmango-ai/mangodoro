@@ -14,12 +14,14 @@ function timeAgo(ts) {
 
 // Bell + unread badge in the nav; opens an inbox dropdown. Clicking an item
 // marks it read and routes via payload.route. Closes on outside click.
-export default function NotificationBell() {
+export default function NotificationBell({ size = "md" }) {
   const { items, unread, markRead, markAllRead, clearOne, clearAll } = useNotifications();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const btnSize = size === "lg" ? "w-11 h-11" : "w-9 h-9";
+  const iconSize = size === "lg" ? "w-6 h-6" : "w-5 h-5";
   const ref = useRef(null);
 
   useEffect(() => {
@@ -46,9 +48,9 @@ export default function NotificationBell() {
         onClick={() => setOpen((o) => !o)}
         title="Notifications"
         aria-label="Notifications"
-        className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-colors ${dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
+        className={`relative ${btnSize} rounded-full flex items-center justify-center transition-colors ${dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
       >
-        <Bell className="w-5 h-5" />
+        <Bell className={iconSize} />
         {unread > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
             {unread > 9 ? "9+" : unread}

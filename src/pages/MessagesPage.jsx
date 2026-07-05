@@ -22,6 +22,7 @@ import { attachToMessage, listAttachments, isImage } from "../lib/messageAttachm
 import { emitMention } from "../lib/notifications";
 import { playMessage } from "../lib/uiSounds";
 import { supabase } from "../supabase";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 
 // Quick-reaction set for the picker (presets + a few common extras, deduped).
 const QUICK_REACTIONS = [...new Set([...EMOTES.map((e) => e.glyph), "😂", "😮", "😢", "🙏", "👀", "✅"])];
@@ -435,7 +436,19 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
     setMessages((cur) => { refreshSidecars(cur); return cur; });
   }), [subscribeReactions, refreshSidecars]);
 
-  useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages]);
+  // Keep the view pinned to the newest message. A plain effect fires before
+  // images/attachments finish loading (so scrollHeight is still short and it
+  // lands mid-thread), and a conversation switch needs to jump to the bottom
+  // immediately. rAF after paint + a short retry covers the async growth.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const toBottom = () => { el.scrollTop = el.scrollHeight; };
+    toBottom();
+    const raf = requestAnimationFrame(toBottom);
+    const t = setTimeout(toBottom, 150);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+  }, [messages, convId]);
 
   // presence: typing + online. The topic is shared across USERS (that's how
   // typing propagates), so it must stay deterministic per conversation — which
@@ -1308,6 +1321,7 @@ function LoadingPane({ dark }) {
 }
 
 export default function MessagesPage() {
+  useBodyScrollLock();
   const { session } = useApp();
   const userId = session?.user?.id;
   const { teamMembers = [], orgTeams = [], myOrgTeamLeadIds = new Set(), isAdmin } = useTeam();
@@ -1344,7 +1358,7 @@ export default function MessagesPage() {
   const onHide = async (c) => { if (activeId === c.id) open(null); await hideConversation?.(c.id); };
 
   return (
-    <div className={`mx-auto w-full max-w-6xl h-[calc(100dvh-var(--nav-h)-var(--bottom-inset))] sm:h-[calc(100dvh-var(--nav-h)-var(--bottom-inset)-1.5rem)] sm:my-3 flex overflow-hidden rounded-none sm:rounded-2xl sm:border ${dark ? "bg-[var(--color-surface)] sm:border-[var(--color-border)]" : "bg-white sm:border-slate-200"}`}>
+    <div className={`mx-auto w-full max-w-6xl h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))] sm:h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset)-1.5rem)] sm:my-3 flex overflow-hidden rounded-none sm:rounded-2xl sm:border ${dark ? "bg-[var(--color-surface)] sm:border-[var(--color-border)]" : "bg-white sm:border-slate-200"}`}>
       {/* Sidebar — full width on mobile when nothing open; fixed column on desktop */}
       <aside className={`${showMain ? "hidden md:flex" : "flex"} w-full md:w-[340px] md:shrink-0 flex-col md:border-r ${dark ? "md:border-[var(--color-border)]" : "md:border-slate-200"}`}>
         <Sidebar conversations={activeConversations} nameOf={nameOf} memberById={memberById} activeId={activeId} userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, Lock, Bell, Loader2 } from "lucide-react";
 import { supabase } from "../../supabase";
 import { requestRoomEntry } from "../../lib/rooms";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import WidgetsSidebar from "./WidgetsSidebar";
 import RoomView from "./RoomView";
 import HallwayView from "./HallwayView";
@@ -68,6 +69,7 @@ export default function OfficeShell({
   onlineCount, canEdit, busy, onJoin, onStart, onEnterRoom, onEditOffice,
   onEditRoom, canEditRoom,
 }) {
+  useBodyScrollLock();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
