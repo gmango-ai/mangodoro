@@ -1,4 +1,9 @@
+import { createContext, useContext } from "react";
 import { ChevronDown } from "lucide-react";
+
+// Flyout direction for Dropdowns. Bottom-anchored bars (the mobile node
+// inspector) provide `true` so panels open upward instead of off-screen.
+export const DropUpContext = createContext(false);
 
 // Shared FigJam-style contextual-toolbar primitives. Both the edge toolbar
 // (edges.jsx) and the node toolbar (Inspector.jsx) build from these so the
@@ -11,10 +16,10 @@ export const PALETTE = [
 ];
 
 // The dark rounded shell every contextual toolbar sits in.
-export function Pill({ children }) {
+export function Pill({ children, className = "" }) {
   return (
     <div
-      className="flex items-center gap-0.5 px-1.5 py-1 rounded-xl shadow-2xl"
+      className={`flex items-center gap-0.5 px-1.5 py-1 rounded-xl shadow-2xl ${className}`}
       style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.08)" }}
     >
       {children}
@@ -29,6 +34,7 @@ export function ToolDivider() {
 // An icon button that toggles a popover panel. `openKey` identifies this
 // dropdown within the toolbar's single `open` state, so only one is open.
 export function Dropdown({ openKey, open, setOpen, icon, title, width, children }) {
+  const up = useContext(DropUpContext);
   return (
     <div className="relative">
       <button
@@ -43,7 +49,7 @@ export function Dropdown({ openKey, open, setOpen, icon, title, width, children 
       </button>
       {open === openKey && (
         <div
-          className="absolute top-8 left-0 z-30 rounded-lg shadow-2xl p-1"
+          className={`absolute ${up ? "bottom-8" : "top-8"} left-0 z-30 rounded-lg shadow-2xl p-1`}
           style={{ minWidth: width || 96, background: "#1f2937", border: "1px solid rgba(255,255,255,.1)" }}
         >
           {children}
