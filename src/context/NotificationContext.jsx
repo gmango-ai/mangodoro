@@ -5,7 +5,7 @@ import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRe
 import { useResolvedSelf } from "../hooks/useResolvedSelf";
 import { deliveryAction } from "../lib/notificationDelivery";
 import { notificationSurfaces } from "../lib/notificationSurfaces";
-import { useNotificationLeader } from "../hooks/useNotificationLeader";
+import { NOTIFICATION_LEADER_LOCK, useNotificationLeader } from "../hooks/useNotificationLeader";
 import { playForNotification } from "../lib/uiSounds";
 
 // Notification layer — in-app delivery.
@@ -32,6 +32,52 @@ function withinQuietHours(start, end) {
   const a = sh * 60 + sm, b = eh * 60 + em;
   if (Number.isNaN(a) || Number.isNaN(b)) return false;
   return a <= b ? cur >= a && cur < b : cur >= a || cur < b; // overnight window
+}
+
+function osNotificationClaimKey(n) {
+  return n?.id ? `mango-notif-os-shown:${n.id}` : null;
+}
+
+function claimOsNotification(n) {
+  const key = osNotificationClaimKey(n);
+  if (!key || typeof localStorage === "undefined") return true;
+  try {
+    if (localStorage.getItem(key)) return false;
+    localStorage.setItem(key, String(Date.now()));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function showOsNotification(n) {
+  if (!claimOsNotification(n)) return;
+  try { new Notification(n.title, { body: n.body || "", icon: "/icon-192.png", tag: n.type }); } catch { /* */ }
+}
+
+function handoffLockName(n) {
+  return `mango-notif-os-handoff:${n?.id || `${n?.type || "unknown"}:${n?.title || ""}:${n?.body || ""}`}`;
+}
+
+async function showOsNotificationDuringLeaderHandoff(n, isLeaderRef) {
+  if (typeof navigator === "undefined" || !navigator.locks?.query || !navigator.locks?.request) return;
+  try {
+    if (isLeaderRef.current) {
+      showOsNotification(n);
+      return;
+    }
+    const { held = [] } = await navigator.locks.query();
+    if (isLeaderRef.current) {
+      showOsNotification(n);
+      return;
+    }
+    if (held.some((lock) => lock.name === NOTIFICATION_LEADER_LOCK)) return;
+    await navigator.locks.request(handoffLockName(n), { mode: "exclusive", ifAvailable: true }, (lock) => {
+      if (lock) showOsNotification(n);
+    });
+  } catch {
+    // The normal leader path already failed closed; keep the handoff fallback best-effort.
+  }
 }
 
 export function NotificationProvider({ children }) {
@@ -77,14 +123,17 @@ export function NotificationProvider({ children }) {
     // The bell/inbox stay per-tab. Type-aware arrival sound (chat vs
     // notification) plays only when the focus policy allows it; OS notification
     // surfaces even when the tab is focused (per preference), alongside the toast.
+    const isLeader = isLeaderRef.current;
+    const permissionGranted = typeof Notification !== "undefined" && Notification.permission === "granted";
+    const quietHours = withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd);
     const surfaces = notificationSurfaces({
       channels,
       action,
       wantsDesktop,
-      isLeader: isLeaderRef.current,
+      isLeader,
       isVisible: typeof document !== "undefined" && document.visibilityState === "visible",
-      permissionGranted: typeof Notification !== "undefined" && Notification.permission === "granted",
-      quietHours: withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd),
+      permissionGranted,
+      quietHours,
     });
     if (surfaces.toast) {
       const id = _toastSeq++;
@@ -93,7 +142,9 @@ export function NotificationProvider({ children }) {
       if (surfaces.sound) playForNotification(n.type);
     }
     if (surfaces.os) {
-      try { new Notification(n.title, { body: n.body || "", icon: "/icon-192.png", tag: n.type }); } catch { /* */ }
+      showOsNotification(n);
+    } else if (!isLeader && !!action?.push && wantsDesktop && permissionGranted && !quietHours) {
+      showOsNotificationDuringLeaderHandoff(n, isLeaderRef);
     }
   }, []);
 
