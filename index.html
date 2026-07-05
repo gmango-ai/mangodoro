@@ -18,7 +18,21 @@
     >
   </head>
   <body style="background-color: #000000; margin: 0;">
-    <div id="root"></div>
+    <!-- Boot skeleton: pure HTML/CSS so it paints before ANY JS. React's
+         first render into #root replaces it wholesale. -->
+    <div id="root">
+      <style>
+        .boot-sk { min-height: 100vh; background: #000; padding: calc(env(safe-area-inset-top) + 14px) 16px 16px; box-sizing: border-box; }
+        .boot-sk .b { background: #161e2e; border-radius: 14px; animation: bootpulse 1.4s ease-in-out infinite; }
+        @keyframes bootpulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+      </style>
+      <div class="boot-sk">
+        <div class="b" style="height:40px;width:42%;margin-bottom:22px"></div>
+        <div class="b" style="height:110px;margin-bottom:14px"></div>
+        <div class="b" style="height:110px;margin-bottom:14px"></div>
+        <div class="b" style="height:260px"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

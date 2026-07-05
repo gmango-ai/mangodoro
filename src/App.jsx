@@ -74,14 +74,15 @@ function publishElectronAuthSession(session) {
 }
 
 // Shared placeholder shown while a lazy route chunk downloads. Dependency-
-// free CSS spinner so it doesn't itself pull anything into the eager bundle.
+// free skeleton page (theme-aware via the dark: variant) so the swap reads
+// as content arriving, not a blank pause.
+const SK = "animate-pulse bg-slate-200/70 dark:bg-[var(--color-surface-raised)]";
 const ROUTE_FALLBACK = (
-  <div className="flex items-center justify-center py-24">
-    <div
-      className="w-6 h-6 rounded-full border-2 border-[var(--color-accent)] border-t-transparent animate-spin"
-      role="status"
-      aria-label="Loading"
-    />
+  <div className="px-4 pt-6 max-w-[1400px] mx-auto space-y-4" role="status" aria-label="Loading">
+    <div className={`h-7 w-44 rounded-lg ${SK}`} />
+    <div className={`h-28 rounded-2xl ${SK}`} />
+    <div className={`h-28 rounded-2xl ${SK}`} />
+    <div className={`h-64 rounded-2xl ${SK}`} />
   </div>
 );
 

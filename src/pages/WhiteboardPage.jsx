@@ -568,27 +568,6 @@ function StickyTool({ dark, onAdd, onDropAt }) {
               Custom color
             </label>
           </div>
-          <PaletteGrid colors={STICKY_PALETTE} selected={current} onPick={pick} />
-          <label
-            className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${
-              dark ? "text-slate-300" : "text-slate-600"
-            }`}
-          >
-            <input
-              type="color"
-              value={/^#[0-9a-fA-F]{6}$/.test(current) ? current : "#fde68a"}
-              onChange={(e) => pick(e.target.value)}
-              style={{
-                width: 24,
-                height: 24,
-                padding: 0,
-                border: "none",
-                background: "none",
-                cursor: "pointer",
-              }}
-            />
-            Custom color
-          </label>
         </ToolPopover>
       )}
       {ghost && createPortal(
@@ -1665,6 +1644,32 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // Last pointer position in FLOW coords — so paste lands under the cursor.
   const lastPtRef = useRef(null);
   const lastClientRef = useRef(null); // last cursor position in SCREEN coords
+  // The single pointer that owns the current pen/laser/brush stroke. A second
+  // finger landing mid-stroke means navigation (pinch) — abort the stroke so
+  // it doesn't zigzag between the two fingers.
+  const strokePidRef = useRef(null);
+  const cancelActiveStroke = useCallback(() => {
+    strokePidRef.current = null;
+    if (laserDrawingRef.current) {
+      laserDrawingRef.current = false;
+      setLaserPressing(false);
+      const lp = lastPtRef.current;
+      if (lp) pushCursor(lp.x, lp.y, false, false, laserColorRef.current);
+    }
+    if (paintStrokeIdRef.current) {
+      const id = paintStrokeIdRef.current;
+      pushPaint({ id, brush: paintBrushRef.current, pts: paintBatchRef.current, end: true });
+      paintBatchRef.current = [];
+      paintRef.current?.apply({ id, brush: paintBrushRef.current, pts: [], end: true }, true);
+      paintStrokeIdRef.current = null;
+    }
+    if (drawingRef.current) {
+      drawingRef.current = null;
+      if (drawRafRef.current) { cancelAnimationFrame(drawRafRef.current); drawRafRef.current = 0; }
+      setDrawPath(null);
+    }
+  }, [pushCursor, pushPaint]);
+
   const onWbPointerMove = useCallback(
     (e) => {
       lastClientRef.current = { x: e.clientX, y: e.clientY };
@@ -1674,8 +1679,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         // Laser dot (mine + peers') shows only while pressing, so broadcast the
         // laser flag tied to the press, not just the mode.
         pushCursor(p.x, p.y, laserDrawingRef.current, laserDrawingRef.current, laserColorRef.current);
+        // Only the stroke-owning pointer extends it — a stray second finger
+        // must not feed points in.
+        const owns = strokePidRef.current === null || strokePidRef.current === e.pointerId;
         // Laser ink: append while the button is held (the trail fades itself).
-        if (laserDrawingRef.current) {
+        if (owns && laserDrawingRef.current) {
           const arr = laserInkRef.current;
           const last = arr[arr.length - 1];
           if (!last || Math.abs(p.x - last.x) + Math.abs(p.y - last.y) > 1) {
@@ -1683,13 +1691,13 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           }
         }
         // Raster brush: rasterise locally each move; batch the broadcast.
-        if (paintStrokeIdRef.current) {
+        if (owns && paintStrokeIdRef.current) {
           paintRef.current?.apply({ id: paintStrokeIdRef.current, brush: paintBrushRef.current, pts: [[p.x, p.y]] }, true);
           paintBatchRef.current.push([p.x, p.y]);
           const now = Date.now();
           if (now - paintLastFlushRef.current > 70) { paintLastFlushRef.current = now; flushPaint(); }
         }
-        const dr = drawingRef.current;
+        const dr = owns ? drawingRef.current : null;
         if (dr) {
           const last = dr.points[dr.points.length - 1];
           // Drop near-duplicate samples so the path stays light.
@@ -1722,6 +1730,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       // In laser / brush mode, ⌘/Ctrl+drag pans (handled by ReactFlow), so the
       // left-drag stays free for the laser ink / brush — don't capture it.
       if ((mode === "laser" || mode === "brush") && (e.ctrlKey || e.metaKey)) return;
+      if (strokePidRef.current != null) {
+        // Second finger mid-stroke → the user is pinching to navigate.
+        cancelActiveStroke();
+        return;
+      }
       let p;
       try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
       if (mode === "pen") {
@@ -1748,10 +1761,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         paintLastFlushRef.current = Date.now();
         paintRef.current?.apply({ id, brush, pts: [[p.x, p.y]] }, true);
       }
+      strokePidRef.current = e.pointerId;
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
       e.preventDefault();
     },
-    [rf, pushCursor]
+    [rf, pushCursor, cancelActiveStroke]
   );
 
   // Pen up: commit the stroke as a draw node (bbox-relative points). Tiny taps
@@ -1790,6 +1804,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   const onWbPointerUp = useCallback(
     (e) => {
+      // Only the stroke-owning pointer ends it.
+      if (strokePidRef.current != null && e.pointerId !== strokePidRef.current) return;
+      strokePidRef.current = null;
       if (laserDrawingRef.current) {
         laserDrawingRef.current = false;
         setLaserPressing(false);
