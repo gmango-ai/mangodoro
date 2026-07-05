@@ -25,7 +25,7 @@ import SoundLibrary from "../components/SoundLibrary";
 import TimeSelect from "../components/TimeSelect";
 import { toDisplayTime } from "../lib/utils";
 import { loadPomodoroSoundSettings, savePomodoroSoundSettings, USER_SOUND_PREFIX } from "../lib/pomodoroSound";
-import { clearCachedNotificationSound } from "../lib/nativeNotifications";
+import { clearCachedNotificationSound, nativePushSupported, getNativePushStatus, enableNativePush } from "../lib/nativeNotifications";
 import { NOTIFICATION_TYPES, listPreferences, setPreferenceEnabled } from "../lib/notifications";
 import { REMINDERS, REMINDER_INTERVALS, reminderConfig } from "../lib/reminders";
 import { TIMEZONES, browserTimezone, localTimeLabel } from "../lib/timezone";
@@ -1514,8 +1514,40 @@ function NotificationsSection({ dark }) {
     await setPreferenceEnabled(userId, type, next);
   };
 
-  // Browser web-push (notifications delivered even when the app is closed).
+  // Push when the app is closed. Two transports depending on platform:
+  //   • native iOS app → APNs alert push (Web Push can't run in the WKWebView)
+  //   • web / installed PWA → browser Web Push
+  const isNativePush = nativePushSupported();
   const pushSupported = webPushSupported();
+
+  // Native (iOS) alert-push permission.
+  const [nativePushStatus, setNativePushStatus] = useState("prompt");
+  const [nativeBusy, setNativeBusy] = useState(false);
+  useEffect(() => {
+    if (isNativePush) getNativePushStatus().then(setNativePushStatus);
+  }, [isNativePush]);
+  const nativeOn = nativePushStatus === "granted";
+  const nativeDenied = nativePushStatus === "denied";
+  const enableNative = async () => {
+    if (nativeOn || nativeBusy) return;
+    if (nativeDenied) {
+      setError("Notifications are off for Mangodoro. Turn them on in iOS Settings › Mangodoro › Notifications.");
+      return;
+    }
+    setNativeBusy(true);
+    try {
+      const { granted, error: err } = await enableNativePush(userId);
+      setNativePushStatus(granted ? "granted" : "denied");
+      if (granted) flashSaved();
+      else if (err) setError(err);
+    } catch (e) {
+      setError(e?.message || "Couldn't enable notifications.");
+    } finally {
+      setNativeBusy(false);
+    }
+  };
+
+  // Browser web-push (notifications delivered even when the app is closed).
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   useEffect(() => { isWebPushEnabled().then(setPushOn); }, []);
@@ -1652,7 +1684,28 @@ function NotificationsSection({ dark }) {
         )}
       </SectionCard>
 
-      {pushSupported && (
+      {isNativePush ? (
+        <SectionCard
+          title="Push when the app is closed"
+          hint={
+            nativeDenied
+              ? "Notifications are off for Mangodoro. Turn them on in iOS Settings › Mangodoro › Notifications."
+              : "Get mentions, knocks, and reminders on this device even when the app is closed."
+          }
+          dark={dark}
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={nativeOn}
+            disabled={nativeBusy || nativeOn}
+            onClick={enableNative}
+            className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${nativeOn ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"} ${nativeBusy ? "opacity-50" : ""}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${nativeOn ? "translate-x-4" : ""}`} />
+          </button>
+        </SectionCard>
+      ) : pushSupported ? (
         <SectionCard
           title="Push when the app is closed"
           hint="Also get notifications on this device when Mangodoro isn't open in a tab (uses the browser's push service)."
@@ -1669,7 +1722,7 @@ function NotificationsSection({ dark }) {
             <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${pushOn ? "translate-x-4" : ""}`} />
           </button>
         </SectionCard>
-      )}
+      ) : null}
 
       <SectionCard
         title="What to notify me about"

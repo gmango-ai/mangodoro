@@ -406,4 +406,57 @@ export async function initDeviceWidgetPush(userId) {
   }
 }
 
+// Listen for native alert-notification taps (iOS). The push handler in
+// PersistentTimerPlugin fires "notificationTapped" with the route the APNs
+// alert (native-push edge fn) carried. `cb` receives that route string.
+// Returns the listener handle (has .remove()), or null off iOS. Uses the
+// already-registered plugin — do NOT registerPlugin("LiveActivity") again.
+export async function addNotificationTapListener(cb) {
+  if (getPlatform() !== "ios") return null;
+  try {
+    return await IOSLiveActivity.addListener("notificationTapped", ({ url }) => {
+      if (url) cb(url);
+    });
+  } catch (e) {
+    console.warn("[persistentTimer] notificationTapped listener failed", e);
+    return null;
+  }
+}
+
+// Drain a route from a notification tapped before the listener attached (cold
+// launch straight from the notification). Returns the route string or null.
+export async function consumePendingNotificationRoute() {
+  if (getPlatform() !== "ios") return null;
+  try {
+    const { url } = await IOSLiveActivity.getPendingNotificationURL();
+    return url || null;
+  } catch {
+    return null;
+  }
+}
+
+// Prompt for iOS notification authorization (alert+sound+badge) so native-push
+// ALERT pushes actually display. Returns { granted }. iOS-only.
+export async function requestNativeNotificationPermission() {
+  if (getPlatform() !== "ios") return { granted: false };
+  try {
+    return await IOSLiveActivity.requestNotificationPermission();
+  } catch (e) {
+    console.warn("[persistentTimer] requestNotificationPermission failed", e);
+    return { granted: false };
+  }
+}
+
+// Read current iOS notification authorization. Returns { status:
+// "granted" | "denied" | "prompt" } (or "unsupported" off iOS).
+export async function getNativeNotificationPermission() {
+  if (getPlatform() !== "ios") return { status: "unsupported" };
+  try {
+    return await IOSLiveActivity.getNotificationPermission();
+  } catch (e) {
+    console.warn("[persistentTimer] getNotificationPermission failed", e);
+    return { status: "prompt" };
+  }
+}
+
 export const hasPersistentTimerSurface = isMobileApp || isElectron;
