@@ -780,6 +780,10 @@ const PAINT_QUICK_COLORS = [
 const WB_TOUCH =
   typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 const TOOL_BTN_SIZE = WB_TOUCH ? "w-11 h-11" : "w-8 h-8";
+const BOTTOM_PANEL_GAP = 8;
+const PAINT_TOOLBAR_STACK_H = 54;
+const TOUCH_INSPECTOR_FALLBACK_H = 54;
+
 // Touch: the 14px corner caret is untappable — full-height chevron grouped
 // beside the tool instead.
 const CARET_CLS = WB_TOUCH
@@ -1376,6 +1380,19 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     ro.observe(el);
     toolbarRO.current = ro;
   }, []);
+  const touchInspectorRO = useRef(null);
+  const [touchInspectorH, setTouchInspectorH] = useState(TOUCH_INSPECTOR_FALLBACK_H);
+  const touchInspectorRef = useCallback((el) => {
+    touchInspectorRO.current?.disconnect();
+    touchInspectorRO.current = null;
+    if (!el) return;
+    const update = () => setTouchInspectorH(el.offsetHeight || TOUCH_INSPECTOR_FALLBACK_H);
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    touchInspectorRO.current = ro;
+  }, []);
 
   // Long-press (350ms) then drag = marquee select on touch. RF's drag-marquee
   // is desktop-only here (on touch it opened under the first finger of every
@@ -1414,6 +1431,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     const timer = setTimeout(() => {
       const cur = marqueeRef.current;
       if (!cur || cur.id !== id) return;
+      if (toolRef.current !== "select") {
+        marqueeRef.current = null;
+        return;
+      }
       cur.active = true;
       navigator.vibrate?.(10);
       // End the pan gesture d3-zoom opened on this touch so the canvas
@@ -3005,6 +3026,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     () => nodes.filter((n) => n.selected && n.type !== "zone" && !n.parentId).length,
     [nodes]
   );
+  const touchInspectorVisible = !!(selectedNode && singleSelection && WB_TOUCH);
+  const bottomStackOffset = 15 + toolbarH + BOTTOM_PANEL_GAP;
+  const brushStackH = tool === "brush" ? PAINT_TOOLBAR_STACK_H : 0;
+  const touchInspectorBottom = bottomStackOffset + brushStackH;
+  const touchInspectorStackH = touchInspectorVisible ? touchInspectorH + BOTTOM_PANEL_GAP : 0;
+  const emoteBarOffset = toolbarH + 11 + brushStackH + touchInspectorStackH;
 
   // Align / distribute the selected top-level nodes by their bounding boxes.
   const arrange = useCallback(
@@ -3406,7 +3433,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         )}
 
         {/* Paint toolbar — brush/eraser, colour, size, opacity (brush mode). */}
-        {tool === "brush" && <PaintToolbar dark={dark} style={brushStyle} setStyle={setBrushStyle} bottomOffset={15 + toolbarH + 8} />}
+        {tool === "brush" && <PaintToolbar dark={dark} style={brushStyle} setStyle={setBrushStyle} bottomOffset={bottomStackOffset} />}
 
         {/* Align / distribute toolbar — only with 2+ top-level nodes selected. */}
         {multiCount >= 2 && (
@@ -3613,9 +3640,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {/* Touch: the hovering NodeToolbar is fiddly on a phone — a static
             bar above the main toolbar instead, with taller targets and
             flyouts opening upward. */}
-        {selectedNode && singleSelection && WB_TOUCH && (
-          <Panel position="bottom-center" className="w-max z-40" style={{ bottom: 15 + toolbarH + 8 }}>
-            <div className="flex items-end gap-1.5 [&_button]:min-h-10">
+        {touchInspectorVisible && (
+          <Panel position="bottom-center" className="w-max z-40" style={{ bottom: touchInspectorBottom }}>
+            <div ref={touchInspectorRef} className="flex items-end gap-1.5 [&_button]:min-h-10">
               <DropUpContext.Provider value={true}>
                 <Inspector wrapBar node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
               </DropUpContext.Provider>
@@ -4140,9 +4167,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         channelKey={`whiteboard:${board.id}`}
         barPosition={emoteBarOn ? "bottom-center" : "hidden"}
         // Sit just above whatever's stacked at bottom-center: the measured
-        // toolbar (panel margin 15 + height + gap), plus the paint bar while
-        // painting.
-        barOffset={toolbarH + 11 + (tool === "brush" ? 54 : 0)}
+        // toolbar (panel margin 15 + height + gap), plus any paint/inspector
+        // bars stacked above it.
+        barOffset={emoteBarOffset}
       />
     </main>
   );
