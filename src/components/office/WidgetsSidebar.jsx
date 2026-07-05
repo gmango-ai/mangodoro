@@ -134,7 +134,7 @@ function SortableSlot({ id, children }) {
 // room attaches for shared work.)
 function WhiteboardWidget({ dark }) {
   const { syncSession } = useSyncSession();
-  const { rooms, isAdmin } = useTeam();
+  const { rooms, isAdmin, myOrgTeamLeadIds } = useTeam();
   const { session } = useApp();
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -146,7 +146,10 @@ function WhiteboardWidget({ dark }) {
   // only managers can change it (server enforces; UI hides the controls).
   const room = syncSession?.room_id ? rooms?.find((r) => r.id === syncSession.room_id) : null;
   const locked = room?.whiteboard_locked === true;
-  const canManageRoom = isAdmin || (!!room && room.created_by === session?.user?.id);
+  const gatingTeamIds = (room?.room_teams || []).map((rt) => rt.org_team_id);
+  const canManageRoom = isAdmin
+    || (!!room && room.created_by === session?.user?.id)
+    || gatingTeamIds.some((id) => myOrgTeamLeadIds?.has(id));
   const canLead = inSession && (!locked || canManageRoom);
 
   async function unlink() {
