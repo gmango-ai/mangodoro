@@ -4,7 +4,6 @@ import {
   ReactFlow,
   ReactFlowProvider,
   Background,
-  Controls,
   Panel,
   MiniMap,
   useNodesState,
@@ -23,6 +22,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import {
   ArrowLeft,
+  Maximize,
   Target,
   Pencil,
   Archive,
@@ -171,6 +171,15 @@ const OPPOSITE_TARGET = { t: "b", r: "l", b: "t", l: "r" };
 
 // Toolbar icon button — themed tints per tool kind. `active` gives a filled
 // look for toggle tools (e.g. the laser pointer mode).
+function FitViewButton({ dark }) {
+  const rf = useReactFlow();
+  return (
+    <ToolButton title="Fit view" dark={dark} onClick={() => rf.fitView({ padding: 0.2, duration: 300 })}>
+      <Maximize className="w-4 h-4" />
+    </ToolButton>
+  );
+}
+
 function ToolButton({ title, onClick, tone = "neutral", dark, active, children }) {
   const tones = {
     neutral: dark
@@ -603,9 +612,10 @@ function PaintToolbar({ dark, style, setStyle }) {
   return (
     <Panel
       position="bottom-center"
-      // Bottom-centre, clear of the nav; the emote bar lifts above it while
-      // painting (see EmoteOverlay barOffset) so the two never collide.
-      style={{ bottom: 12 }}
+      // Stacked ABOVE the main bottom-center toolbar (which sits at the panel
+      // margin); the emote bar's barOffset (96 → 140 while painting) already
+      // assumes this two-layer arrangement.
+      style={{ bottom: 64 }}
       className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg max-w-[94vw] overflow-x-auto ${
         dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
       }`}
@@ -2745,11 +2755,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             horizontal={helperLines.horizontal}
           />
         )}
-        {/* Fit-view only — zoom in/out and the interactivity lock are dropped
-            (pinch/scroll still zoom). */}
-        <Controls position="bottom-left" showZoom={false} showInteractive={false} />
+        {/* No floating <Controls> — pinch/scroll zoom, and fit-view lives in
+            the bottom toolbar, so a lone corner button (which the wide toolbar
+            overlapped on phones) has nothing left to offer. */}
         {/* Hidden on phones (hidden sm:block) — the minimap eats scarce screen
-            on mobile and duplicates the fit-view button now at top-left. */}
+            on mobile and duplicates the toolbar's fit-view. */}
         {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" className="hidden sm:block" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
@@ -2929,6 +2939,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           >
             <Trash2 className="w-4 h-4" />
           </ToolButton>
+          <div
+            className={`w-px h-5 mx-0.5 ${
+              dark ? "bg-[var(--color-border)]" : "bg-slate-200"
+            }`}
+          />
+          <FitViewButton dark={dark} />
         </Panel>
 
         {/* Node inspector (shape/fill/border/text) hovers above the
