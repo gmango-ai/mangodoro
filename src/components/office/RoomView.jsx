@@ -202,11 +202,9 @@ export default function RoomView({
         }`}
         style={{ background: `linear-gradient(180deg, ${accent}12, transparent)` }}
       >
-        {/* One row always: identity on the left (grows + truncates), controls
-            on the right (shrink-0). The quick panel toggles collapse away on
-            mobile (see LayoutBar), so the controls stay compact enough to
-            share the row with the room name even on a phone. */}
-        <div className="flex flex-row items-center gap-2 @xl:gap-3">
+        {/* Stack the controls below the identity until the header container is
+            wide enough for both clusters to share one row without clipping. */}
+        <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:gap-3">
           {/* Identity — room name, switcher. Grows to fill and truncates. */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             {/* Widgets toggle — opens the pomodoro / room / world-clock / goals
