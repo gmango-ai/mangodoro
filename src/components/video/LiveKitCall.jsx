@@ -2209,7 +2209,14 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   );
 }
 
+const IS_COARSE_POINTER =
+  typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+
 function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, deafened, onToggleDeafen, chromeless, hideControls }) {
+  // Phone stages are tiny — surface a one-tap CSS maximize (host re-parents to
+  // a viewport overlay, see PersistentVideoCall) instead of the Fullscreen API
+  // item buried in the More menu, which iPhone WKWebView doesn't support.
+  const { maximized, setMaximized } = useVideoCall();
   // Mirror mic/speaker/connection state to the drive-mode bridge (giant car UI).
   useDriveBridge({ micMuted, onToggleMic });
   // Collapse the control bar to icon-only below this width so the video can
@@ -2368,6 +2375,16 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
           />
         </LayoutContextProvider>
       </SelfViewContext.Provider>
+      {IS_COARSE_POINTER && !chromeless && !hideControls && (
+        <button
+          type="button"
+          onClick={() => setMaximized(!maximized)}
+          aria-label={maximized ? "Exit fullscreen" : "Fullscreen"}
+          className="absolute top-2 right-2 z-40 flex items-center justify-center w-11 h-11 rounded-xl bg-slate-900/70 text-white backdrop-blur-sm active:bg-slate-800"
+        >
+          {maximized ? <Shrink className="w-5 h-5" /> : <Expand className="w-5 h-5" />}
+        </button>
+      )}
       {!hideControls && !chromeless && (
         <div
           className={`absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-3 pointer-events-none transition-opacity duration-300 ${
