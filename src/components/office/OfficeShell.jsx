@@ -279,7 +279,7 @@ export default function OfficeShell({
   // Dynamic Island phones, which pushed the room's bottom "add panels" dock off
   // screen. env() is 0 on desktop.
   return (
-    <div className={`flex h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))] w-full ${
+    <div className={`relative flex h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
       {/* Desktop widgets sidebar.
@@ -295,14 +295,15 @@ export default function OfficeShell({
         {sidebarOpen && sidebar}
       </div>
 
-      {/* Mobile drawer */}
+      {/* Mobile drawer — absolute (not fixed) so it only covers the room area
+          between the top nav and bottom nav, not the whole viewport. */}
       {mobileSidebarOpen && (
         <div
-          className="md:hidden fixed inset-0 z-[150] bg-black/50"
+          className="md:hidden absolute inset-0 z-[150] bg-black/50"
           onClick={() => setMobileSidebarOpen(false)}
         >
           <div
-            className="absolute inset-y-0 left-0 w-72 max-w-[80vw] h-full"
+            className="absolute inset-y-0 left-0 w-72 max-w-[80vw] h-full overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {sidebar}
