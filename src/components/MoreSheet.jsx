@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Timer, Settings as SettingsIcon, Sun, Moon, LogOut } from "lucide-react";
+import { Timer, Car, Settings as SettingsIcon, Sun, Moon, LogOut } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
@@ -128,6 +128,10 @@ export default function MoreSheet({
           <button type="button" onClick={() => { onClose(); onOpenPomodoro?.(); }} className={itemCls}>
             <Timer className="w-5 h-5" /> Quick timer
           </button>
+
+          <NavLink to="/drive" onClick={onClose} className={itemCls}>
+            <Car className="w-5 h-5" /> Drive mode
+          </NavLink>
 
           <NavLink to="/settings" onClick={onClose} className={itemCls}>
             <SettingsIcon className="w-5 h-5" /> Settings

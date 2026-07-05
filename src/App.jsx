@@ -62,6 +62,7 @@ const JoinRetroPage = lazy(() => import("./pages/JoinRetroPage"));
 const LocalTimerPage = lazy(() => import("./pages/LocalTimerPage"));
 const DevicePairPage = lazy(() => import("./pages/DevicePairPage"));
 const DeviceKioskPage = lazy(() => import("./pages/DeviceKioskPage"));
+const DriveModePage = lazy(() => import("./pages/DriveModePage"));
 import { applyAccent } from "./lib/accent";
 import { toElectronAuthPayload } from "./electron/authSessionBridge";
 
@@ -368,6 +369,7 @@ function AppLayout({ session }) {
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
             />
             <Route path="/office" element={<OfficePage />} />
+            <Route path="/drive" element={<DriveModePage />} />
             <Route path="/office/r/:roomId" element={<OfficePage />} />
             <Route path="/settings" element={<SettingsPage />} />
             {/* /account merged into /settings → Profile section. */}
