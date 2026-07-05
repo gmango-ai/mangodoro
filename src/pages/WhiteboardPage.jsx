@@ -23,7 +23,6 @@ import {
 import "@xyflow/react/dist/style.css";
 import {
   ArrowLeft,
-  LassoSelect,
   Maximize,
   Target,
   Pencil,
@@ -130,6 +129,7 @@ import {
   BrushCursor,
 } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
+import { DropUpContext } from "../components/whiteboard/toolbarUI";
 import PaintLayer from "../components/whiteboard/PaintLayer";
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
@@ -222,7 +222,7 @@ function ToolButton({ title, onClick, tone = "neutral", dark, active, children }
       aria-label={title}
       aria-pressed={active || undefined}
       onClick={onClick}
-      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${active ? activeCls : tones[tone]}`}
+      className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors ${active ? activeCls : tones[tone]}`}
     >
       {children}
     </button>
@@ -296,7 +296,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
         onPointerDown={startDrag(current)}
         onPointerMove={moveDrag}
         onPointerUp={endDrag(() => onPick(current))}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
+        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
           dark
             ? "text-sky-400 hover:bg-sky-500/15"
             : "text-sky-600 hover:bg-sky-50"
@@ -492,7 +492,7 @@ function StickyTool({ dark, onAdd, onDropAt }) {
         onPointerDown={onBtnPointerDown}
         onPointerMove={onBtnPointerMove}
         onPointerUp={onBtnPointerUp}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
+        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
           dark ? "hover:bg-white/10" : "hover:bg-slate-100"
         }`}
       >
@@ -614,7 +614,7 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
         title="Add text"
         aria-label="Add text"
         onClick={() => onAdd()}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors ${
           dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
         }`}
       >
@@ -656,7 +656,7 @@ function PenTool({ dark, active, style, setStyle, onToggle }) {
         aria-label="Pen"
         aria-pressed={active}
         onClick={onToggle}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors ${
           active
             ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
             : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
@@ -720,7 +720,7 @@ function LaserTool({ dark, active, color, setColor, onToggle }) {
         aria-label="Laser pointer"
         aria-pressed={active}
         onClick={onToggle}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors ${
           active
             ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
             : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
@@ -768,8 +768,10 @@ const PAINT_QUICK_COLORS = [
 
 // Floating toolbar shown while the brush is active — brush/eraser, colour, size
 // and opacity in one place (room to grow: brush types, smoothing, etc.).
+// 44px tool targets on touch (Apple HIG); compact 32px with a mouse.
 const WB_TOUCH =
   typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+const TOOL_BTN_SIZE = WB_TOUCH ? "w-11 h-11" : "w-8 h-8";
 
 function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
   const divider = <div className={`w-px h-6 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />;
@@ -1338,6 +1340,91 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     ro.observe(el);
     toolbarRO.current = ro;
   }, []);
+
+  // Long-press (350ms) then drag = marquee select on touch. RF's drag-marquee
+  // is desktop-only here (on touch it opened under the first finger of every
+  // pinch), so this owns the gesture: kill the pan d3 opened, draw the rect,
+  // select intersecting nodes on release.
+  const marqueeRef = useRef(null);
+  const suppressPaneClickRef = useRef(0);
+  const [marqueeRect, setMarqueeRect] = useState(null);
+  const marqueePointerDown = (e) => {
+    if (!WB_TOUCH || e.pointerType !== "touch" || tool !== "select") return;
+    const st = marqueeRef.current;
+    if (st) {
+      // Second finger — it's a pinch, not a marquee.
+      if (!st.active) { clearTimeout(st.timer); marqueeRef.current = null; }
+      return;
+    }
+    if (!(e.target instanceof Element) || !e.target.closest(".react-flow__pane")) return;
+    const container = e.currentTarget;
+    const { clientX: x0, clientY: y0, pointerId: id } = e;
+    const timer = setTimeout(() => {
+      const cur = marqueeRef.current;
+      if (!cur || cur.id !== id) return;
+      cur.active = true;
+      navigator.vibrate?.(10);
+      // End the pan gesture d3-zoom opened on this touch so the canvas
+      // doesn't drift under the marquee.
+      const pane = container.querySelector(".react-flow__pane");
+      try {
+        const touch = new Touch({ identifier: id, target: pane, clientX: x0, clientY: y0 });
+        pane?.dispatchEvent(new TouchEvent("touchcancel", { bubbles: true, changedTouches: [touch] }));
+      } catch { /* Touch() unsupported — worst case the canvas pans slightly */ }
+      setMarqueeRect({ x0, y0, x1: x0, y1: y0 });
+    }, 350);
+    marqueeRef.current = { id, x0, y0, x1: x0, y1: y0, active: false, timer };
+  };
+  const marqueePointerMove = (e) => {
+    const st = marqueeRef.current;
+    if (!st || e.pointerId !== st.id) return;
+    if (!st.active) {
+      // Moved before the hold elapsed — it's a pan; stand down.
+      if (Math.hypot(e.clientX - st.x0, e.clientY - st.y0) > 12) {
+        clearTimeout(st.timer);
+        marqueeRef.current = null;
+      }
+      return;
+    }
+    e.stopPropagation();
+    st.x1 = e.clientX;
+    st.y1 = e.clientY;
+    setMarqueeRect({ x0: st.x0, y0: st.y0, x1: st.x1, y1: st.y1 });
+  };
+  const marqueePointerUp = (e) => {
+    const st = marqueeRef.current;
+    if (!st || e.pointerId !== st.id) return;
+    marqueeRef.current = null;
+    if (!st.active) { clearTimeout(st.timer); return; }
+    e.stopPropagation();
+    // The pane fires a click after release, which would clear the fresh
+    // selection — swallow it (see onClickCapture below).
+    suppressPaneClickRef.current = Date.now() + 500;
+    setMarqueeRect(null);
+    const minX = Math.min(st.x0, st.x1), maxX = Math.max(st.x0, st.x1);
+    const minY = Math.min(st.y0, st.y1), maxY = Math.max(st.y0, st.y1);
+    if (maxX - minX < 6 && maxY - minY < 6) return; // stationary hold — no-op
+    const a = rf.screenToFlowPosition({ x: minX, y: minY });
+    const b = rf.screenToFlowPosition({ x: maxX, y: maxY });
+    const sel = new Set();
+    for (const n of rf.getNodes()) {
+      if (n.type === "zone") continue;
+      const inode = rf.getInternalNode(n.id);
+      const pos = inode?.internals?.positionAbsolute || n.position;
+      const w = n.measured?.width ?? n.width ?? 0;
+      const h = n.measured?.height ?? n.height ?? 0;
+      if (pos.x < b.x && pos.x + w > a.x && pos.y < b.y && pos.y + h > a.y) sel.add(n.id);
+    }
+    if (sel.size) {
+      setNodes((nds) => nds.map((n) => (n.selected === sel.has(n.id) ? n : { ...n, selected: sel.has(n.id) })));
+    }
+  };
+  const onEditorClickCapture = (e) => {
+    if (Date.now() < suppressPaneClickRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  };
 
   // The editor is a fixed-viewport surface — lock body scrolling while it's
   // mounted so iOS rubber-banding (e.g. dragging the top chrome) can't reveal
@@ -2812,8 +2899,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       e.preventDefault();
       e.stopPropagation();
       cloneNodes([node.id]);
+      return;
     }
-  }, [cloneNodes]);
+    // Touch: guarantee one tap = selected. RF's own tap selection has been
+    // flaky on mobile (took a second tap); force it from the click.
+    if (WB_TOUCH && node.type !== "zone" && !node.selected) {
+      setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, selected: true } : n.selected ? { ...n, selected: false } : n)));
+    }
+  }, [cloneNodes, setNodes]);
 
   // ── selection inspector ──
   const selectedNode = useMemo(
@@ -3046,7 +3139,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // ── early returns ──
   const frameCls = embedded
     ? "w-full h-full p-4 space-y-3"
-    : "px-4 pt-6 pb-6 max-w-[1400px] mx-auto space-y-3";
+    // Phones: edge-to-edge — the editor is viewport-height, so any page
+    // padding overflows below the canvas as a dead band / pushes content
+    // under the tab bar. The card look starts at sm.
+    : "max-w-[1400px] mx-auto sm:px-4 sm:pt-6 sm:pb-6 sm:space-y-3";
   if (loading) {
     return (
       <main className={frameCls}>
@@ -3101,11 +3197,28 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           : "h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))]"
       }`}
       onPointerMove={onWbPointerMove}
-      onPointerDownCapture={onWbPointerDownCapture}
+      onPointerDownCapture={(e) => { marqueePointerDown(e); onWbPointerDownCapture(e); }}
+      onPointerMoveCapture={marqueePointerMove}
+      onPointerUpCapture={marqueePointerUp}
+      onPointerCancelCapture={marqueePointerUp}
+      onClickCapture={onEditorClickCapture}
       onPointerUp={onWbPointerUp}
       onPointerCancel={onWbPointerUp}
     >
       <EdgeMarkerDefs />
+      {marqueeRect && (
+        <div
+          className="fixed z-[60] pointer-events-none rounded-sm"
+          style={{
+            left: Math.min(marqueeRect.x0, marqueeRect.x1),
+            top: Math.min(marqueeRect.y0, marqueeRect.y1),
+            width: Math.abs(marqueeRect.x1 - marqueeRect.x0),
+            height: Math.abs(marqueeRect.y1 - marqueeRect.y0),
+            border: "1.5px dashed var(--color-accent)",
+            background: "color-mix(in srgb, var(--color-accent) 10%, transparent)",
+          }}
+        />
+      )}
       {/* The embedded (room) board now shows the full title-bar toolbar
           (export / capture / save-template / reactions), at parity with the
           full page — so the old standalone top-right PNG button is gone. */}
@@ -3136,15 +3249,13 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
         // Laser mode is point-only: no selecting, dragging, or connecting — so
         // you can gesture over the board without disturbing it.
-        nodesDraggable={tool === "select" || tool === "marquee"}
-        nodesConnectable={tool === "select" || tool === "marquee"}
-        elementsSelectable={tool === "select" || tool === "marquee"}
-        // Touch: one-finger drag PANS and pinch stays a clean zoom (a drag
-        // marquee used to open under the first finger of every pinch); area
-        // select is the explicit lasso tool, which hands back to select once
-        // a marquee is drawn. Desktop keeps left-drag marquee.
-        selectionOnDrag={WB_TOUCH ? tool === "marquee" : tool === "select"}
-        onSelectionEnd={() => { if (tool === "marquee") setTool("select"); }}
+        nodesDraggable={tool === "select"}
+        nodesConnectable={tool === "select"}
+        elementsSelectable={tool === "select"}
+        // Touch: one-finger drag PANS and pinch stays a clean zoom; area
+        // select is long-press-then-drag (the custom marquee above). Desktop
+        // keeps RF's left-drag marquee.
+        selectionOnDrag={WB_TOUCH ? false : tool === "select"}
         selectionMode={SelectionMode.Partial}
         // Shift adds to selection, freeing ⌘/Ctrl for the click-to-clone quick action.
         multiSelectionKeyCode="Shift"
@@ -3154,7 +3265,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         // Desktop: left-drag is reserved (marquee in select, draw in pen), so
         // panning is middle/right-drag — plus the activation key below. Touch:
         // in select mode one-finger drag pans; every other tool keeps the
-        // finger for its own gesture (lasso marquee, pen/laser/brush strokes).
+        // finger for its own gesture (pen/laser/brush strokes).
         panOnDrag={WB_TOUCH && tool === "select" ? true : [1, 2]}
         // Trackpad: two-finger scroll pans, pinch zooms (ctrl/⌘+scroll too);
         // hold Space to drag-pan. Left-drag still marquee-selects.
@@ -3258,14 +3369,18 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           </Panel>
         )}
 
-        <Panel
-          position="center-left"
-          className={`flex flex-col items-center gap-1 p-1 rounded-2xl border shadow-sm ${
-            dark
-              ? "bg-[var(--color-surface)] border-[var(--color-border)]"
-              : "bg-white border-slate-200"
-          }`}
-        >
+        {/* w-max: the panel is absolutely positioned at left:50%, which
+            otherwise shrink-to-fits it to ~half the container width and wraps
+            the row far too early; max-content sizing uses the full cap. */}
+        <Panel position="bottom-center" className="w-max">
+          <div
+            ref={toolbarRef}
+            className={`wb-scroll-x flex flex-row flex-nowrap items-center gap-0.5 p-1 rounded-2xl border shadow-sm w-max max-w-[calc(100vw-24px)] overflow-x-auto ${
+              dark
+                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+                : "bg-white border-slate-200"
+            }`}
+          >
           {/* Collapse the toolbar (press Q for the quick-tool palette). */}
           <button
             type="button"
@@ -3280,7 +3395,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             {toolbarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
           </button>
           {toolbarOpen && (
-          <div className={compact ? "grid grid-cols-2 gap-0.5 place-items-center" : "flex flex-col items-center gap-0.5"}>
+          <div className="flex flex-row flex-nowrap items-center gap-0.5">
           <StickyTool
             dark={dark}
             onAdd={(hex) =>
@@ -3395,7 +3510,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {/* Node inspector (shape/fill/border/text) hovers above the
               selected node, like the edge toolbar. Edges use their own
               floating contextual toolbar (rendered on the edge itself). */}
-        {selectedNode && singleSelection && (
+        {selectedNode && singleSelection && !WB_TOUCH && (
           <NodeToolbar
             nodeId={selectedNode.id}
             isVisible
@@ -3411,6 +3526,19 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           >
             <Inspector node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
           </NodeToolbar>
+        )}
+
+        {/* Touch: the hovering NodeToolbar is fiddly on a phone — a static
+            bar above the main toolbar instead, with taller targets and
+            flyouts opening upward. */}
+        {selectedNode && singleSelection && WB_TOUCH && (
+          <Panel position="bottom-center" className="w-max z-40" style={{ bottom: 15 + toolbarH + 8 }}>
+            <div className="[&_button]:min-h-10">
+              <DropUpContext.Provider value={true}>
+                <Inspector wrapBar node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
+              </DropUpContext.Provider>
+            </div>
+          </Panel>
         )}
 
         {/* Comment thread popover, anchored to the right of the open node. */}

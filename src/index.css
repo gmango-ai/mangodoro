@@ -352,6 +352,10 @@ html.electron .ql-drag-region [role="button"] {
    pages shrink and scroll pages pad to clear it. Narrow-desktop / Electron (fine
    pointer) keep the hamburger and never see the bar. (Breakpoint matches the
    xl: nav-visibility classes in Nav.jsx.) */
+/* Horizontal scroller with no visible scrollbar (whiteboard toolbar). */
+.wb-scroll-x { scrollbar-width: none; }
+.wb-scroll-x::-webkit-scrollbar { display: none; }
+
 .ql-bottom-nav { display: none; }
 @media (max-width: 1279.98px) {
   html.touch .ql-bottom-nav { display: block; }
