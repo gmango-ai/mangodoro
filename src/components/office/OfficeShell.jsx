@@ -354,12 +354,13 @@ export default function OfficeShell({
             onJoin={() => onJoin?.(selectedRoom)}
             onStart={() => onStart?.(selectedRoom)}
             sidebarOpen={sidebarOpen}
-            // Desktop toggles the inline rail; mobile opens the drawer overlay.
+            mobileSidebarOpen={mobileSidebarOpen}
+            // Desktop toggles the inline rail; mobile toggles the drawer overlay.
             onToggleSidebar={() => {
               if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
                 setSidebarOpen(!sidebarOpen);
               } else {
-                setMobileSidebarOpen(true);
+                setMobileSidebarOpen((open) => !open);
               }
             }}
             onOpenRoomSwitcher={() => setOverlayOpen(true)}
