@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Maximize2, X, PictureInPicture2 } from "lucide-react";
+import { Car, Maximize2, PhoneOff, PictureInPicture2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useVideoCall } from "../../context/VideoCallContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
@@ -28,6 +28,14 @@ const PIP_CSS =
   "position:fixed;bottom:16px;right:16px;width:320px;height:200px;z-index:120;" +
   "border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.5);" +
   "background:#0f172a;border:1px solid rgb(51,65,85);";
+// On phones the floating video window is unusable (covers the page, controls
+// too small to hit), so the host parks offscreen-invisible — audio keeps
+// playing — and a compact "in call" pill below carries the actions instead.
+const PIP_HIDDEN_CSS =
+  "position:fixed;bottom:0;right:0;width:1px;height:1px;opacity:0;" +
+  "pointer-events:none;overflow:hidden;";
+const IS_TOUCH =
+  typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 const STAGE_CSS = "position:absolute;inset:0;z-index:20;";
 
 const PIP_WIDTH = 320;
@@ -123,7 +131,7 @@ export default function PersistentVideoCall() {
       host.style.cssText = STAGE_CSS;
       stageEl.appendChild(host);
     } else {
-      host.style.cssText = PIP_CSS;
+      host.style.cssText = IS_TOUCH ? PIP_HIDDEN_CSS : PIP_CSS;
       document.body.appendChild(host);
     }
     try { host.querySelectorAll("video").forEach((v) => v.play?.().catch(() => {})); } catch { /* */ }
@@ -234,6 +242,9 @@ export default function PersistentVideoCall() {
         roomId={call.roomId}
         displayName={call.displayName}
         compact={compact}
+        // The floating PiP has its own thin header (back-to-room + leave); the
+        // full control bar only renders when a page stages the call.
+        hideControls={inPiP}
         publish={call.mode !== "spectate"}
         listen={call.listen !== false}
         choices={call.choices}
@@ -248,7 +259,7 @@ export default function PersistentVideoCall() {
       {/* In-app PiP chrome: a thin header with back-to-room + leave. (Pop-out
           lives in the call control bar's More menu now.) Hidden once popped out —
           that header lives in the OS window then. */}
-      {inPiP && !poppedOut && (
+      {inPiP && !poppedOut && !IS_TOUCH && (
         <div className="absolute top-0 left-0 right-0 flex items-center justify-between gap-2 px-2 py-1 bg-slate-900/80 backdrop-blur-sm text-white text-[11px] font-semibold pointer-events-none">
           <span className="truncate pointer-events-none">In call</span>
           <div className="flex items-center gap-1 pointer-events-auto">
@@ -280,6 +291,44 @@ export default function PersistentVideoCall() {
     return (
       <>
         {createPortal(content, hostRef.current)}
+        {/* Mobile stand-in for the hidden floating window: the call is
+            audio-only in the background; this pill is how you get back to it
+            (room stage / drive mode) or hang up. */}
+        {inPiP && !poppedOut && IS_TOUCH && (
+          <div
+            className="fixed inset-x-3 z-[120]"
+            style={{ bottom: "calc(var(--bottom-inset) + 5.5rem)" }}
+          >
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900/95 text-white shadow-2xl px-4 py-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" aria-hidden />
+              <span className="flex-1 min-w-0 text-sm font-semibold truncate">In call</span>
+              <button
+                type="button"
+                onClick={() => navigate("/drive")}
+                aria-label="Drive mode"
+                className="flex items-center justify-center w-11 h-11 rounded-xl active:bg-white/10"
+              >
+                <Car className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/office/r/${call.roomId}`)}
+                aria-label="Back to room"
+                className="flex items-center justify-center w-11 h-11 rounded-xl active:bg-white/10"
+              >
+                <Maximize2 className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => endCall("user-leave-pip")}
+                aria-label="Leave call"
+                className="flex items-center justify-center w-11 h-11 rounded-xl text-red-400 active:bg-red-500/20"
+              >
+                <PhoneOff className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
         {/* While popped out the host lives in the OS window, so the app's slot is
             empty — leave a small card to bring it back. */}
         {poppedOut && (

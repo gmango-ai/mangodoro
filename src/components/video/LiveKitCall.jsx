@@ -2209,7 +2209,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   );
 }
 
-function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, deafened, onToggleDeafen, chromeless }) {
+function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, deafened, onToggleDeafen, chromeless, hideControls }) {
   // Mirror mic/speaker/connection state to the drive-mode bridge (giant car UI).
   useDriveBridge({ micMuted, onToggleMic });
   // Collapse the control bar to icon-only below this width so the video can
@@ -2349,8 +2349,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     <div
       ref={rootRef}
       className={`relative flex flex-col w-full h-full ${isFullscreen ? "bg-slate-950" : ""}`}
-      onPointerMove={compact ? undefined : reveal}
-      onPointerDown={compact ? undefined : reveal}
+      onPointerMove={reveal}
+      onPointerDown={reveal}
     >
       <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
       <AutoMicController enabled={autoMic} />
@@ -2368,7 +2368,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
           />
         </LayoutContextProvider>
       </SelfViewContext.Provider>
-      {!compact && !chromeless && (
+      {!hideControls && !chromeless && (
         <div
           className={`absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-3 pointer-events-none transition-opacity duration-300 ${
             controlsShown ? "opacity-100" : "opacity-0"
@@ -2419,7 +2419,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   );
 }
 
-export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, chromeless = false, onJoinIn, emote, onJoined, onLeft, onError }) {
+export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, chromeless = false, hideControls = false, onJoinIn, emote, onJoined, onLeft, onError }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [token, setToken] = useState(null);
@@ -2554,7 +2554,7 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
           {/* Silent connection-health recorder — feeds the disconnect report so a
               force disconnect can be explained, not just observed. */}
           <ConnectionDiagnostics roomId={roomId} />
-          <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} deafened={deafened} onToggleDeafen={toggleDeafen} chromeless={chromeless} />
+          <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} deafened={deafened} onToggleDeafen={toggleDeafen} chromeless={chromeless} hideControls={hideControls} />
           {/* Owns in-room cluster management (leader handoff). Mount once. */}
           <RoomClusterManager />
           {/* Restore the saved audio-output device on connect. */}
