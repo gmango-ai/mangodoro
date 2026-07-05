@@ -286,7 +286,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
   };
 
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       {/* One click drops the last-used shape (no dropdown) so you can chain a
           flowchart fast; drag to place it exactly; the caret opens the full
           catalogue + remembers it. */}
@@ -490,7 +490,7 @@ function StickyTool({ dark, onAdd, onDropAt }) {
   };
 
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       <button
         type="button"
         title="Add sticky note — or drag to place"
@@ -614,7 +614,7 @@ function StickyTool({ dark, onAdd, onDropAt }) {
 function TextTool({ onAdd, prefs, setPrefs, dark }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       <button
         type="button"
         title="Add text"
@@ -657,7 +657,7 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
 function PenTool({ dark, active, style, setStyle, onToggle }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       <button
         type="button"
         title={active ? "Pen (on) — Esc to exit" : "Pen — draw freehand"}
@@ -721,7 +721,7 @@ function LaserTool({ dark, active, color, setColor, onToggle }) {
   const [open, setOpen] = useState(false);
   const cur = color || "#ef4444";
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       <button
         type="button"
         title={active ? "Laser (on) — drag to draw a fading line, ⌘/Ctrl-drag to pan, Esc to exit" : "Laser pointer — point things out & underline"}
@@ -780,6 +780,8 @@ const PAINT_QUICK_COLORS = [
 const WB_TOUCH =
   typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 const TOOL_BTN_SIZE = WB_TOUCH ? "w-11 h-11" : "w-8 h-8";
+// Tool + its options caret read as one grouped row on touch.
+const TOOL_GROUP_CLS = WB_TOUCH ? "relative flex items-center" : "relative";
 const BOTTOM_PANEL_GAP = 8;
 const PAINT_TOOLBAR_STACK_H = 54;
 const TOUCH_INSPECTOR_FALLBACK_H = 54;
@@ -1491,6 +1493,16 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     if (sel.size) {
       setNodes((nds) => nds.map((n) => (n.selected === sel.has(n.id) ? n : { ...n, selected: sel.has(n.id) })));
     }
+  };
+  // Draw modes: one finger draws, two fingers navigate. Once d3-zoom accepts
+  // a touchstart (needed for pinch) it pans on ANY one-finger drag, stealing
+  // strokes — so single-touch events are stopped in capture before its pane
+  // listeners see them. Two-finger events pass through (pinch-zoom/pan), and
+  // the pen/brush/laser handlers use POINTER events, which are unaffected.
+  const blockSingleTouchInDraw = (e) => {
+    if (!WB_TOUCH) return;
+    if (tool !== "pen" && tool !== "brush" && tool !== "laser") return;
+    if (e.touches.length === 1) e.stopPropagation();
   };
   const onEditorClickCapture = (e) => {
     if (Date.now() < suppressPaneClickRef.current) {
@@ -3032,6 +3044,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const touchInspectorBottom = bottomStackOffset + brushStackH;
   const touchInspectorStackH = touchInspectorVisible ? touchInspectorH + BOTTOM_PANEL_GAP : 0;
   const emoteBarOffset = toolbarH + 11 + brushStackH + touchInspectorStackH;
+  useEffect(() => {
+    if (!touchInspectorVisible) return;
+    // Portaled inspector dropdowns read this to open just above the bar.
+    document.documentElement.style.setProperty(
+      "--wb-inspector-clear",
+      `${touchInspectorBottom + touchInspectorH + 8}px`,
+    );
+  }, [touchInspectorVisible, touchInspectorBottom, touchInspectorH]);
 
   // Align / distribute the selected top-level nodes by their bounding boxes.
   const arrange = useCallback(
@@ -3302,6 +3322,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       onPointerMoveCapture={marqueePointerMove}
       onPointerUpCapture={marqueePointerUp}
       onPointerCancelCapture={marqueePointerUp}
+      onTouchStartCapture={blockSingleTouchInDraw}
+      onTouchMoveCapture={blockSingleTouchInDraw}
       onClickCapture={onEditorClickCapture}
       onPointerUp={onWbPointerUp}
       onPointerCancel={onWbPointerUp}
@@ -3372,10 +3394,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         // hold Space to drag-pan. Left-drag still marquee-selects.
         panOnScroll
         zoomOnScroll={false}
-        // Touch: once d3-zoom accepts a touchstart (required for pinch), any
-        // one-finger drag pans — which stole pen/brush/laser strokes. Pinch
-        // is off while a draw tool is armed; leave the tool to navigate.
-        zoomOnPinch={!(WB_TOUCH && (tool === "pen" || tool === "brush" || tool === "laser"))}
+        // Touch draw modes: single-finger touches never reach d3 (see the
+        // onTouchStartCapture block on the container), so one finger draws
+        // while two-finger gestures still pinch-zoom/pan the canvas.
+        zoomOnPinch
         // Hold to pan with a left-drag: Space everywhere; in laser/brush mode
         // also ⌘/Ctrl so you can move the canvas while the left button draws.
         panActivationKeyCode={tool === "laser" || tool === "brush" ? ["Space", "Control", "Meta"] : "Space"}
@@ -3642,18 +3664,21 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             flyouts opening upward. */}
         {touchInspectorVisible && (
           <Panel position="bottom-center" className="w-max z-40" style={{ bottom: touchInspectorBottom }}>
-            <div ref={touchInspectorRef} className="flex items-end gap-1.5 [&_button]:min-h-10">
-              <DropUpContext.Provider value={true}>
-                <Inspector wrapBar node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
-              </DropUpContext.Provider>
+            <div ref={touchInspectorRef} className="flex items-center gap-1.5">
+              {/* The pill scrolls; the trash stays pinned outside it. */}
+              <div className="wb-scroll-x overflow-x-auto rounded-xl max-w-[calc(100vw-84px)] [&_button]:min-h-11 [&_.lucide]:w-5 [&_.lucide]:h-5">
+                <DropUpContext.Provider value={true}>
+                  <Inspector wrapBar node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
+                </DropUpContext.Provider>
+              </div>
               <button
                 type="button"
                 onClick={deleteSelected}
                 aria-label="Delete selected"
-                className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center text-red-400 shadow-2xl active:bg-white/10"
+                className="w-12 h-12 shrink-0 rounded-xl flex items-center justify-center text-red-400 shadow-2xl active:bg-white/10"
                 style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.08)" }}
               >
-                <Trash2 className="w-5 h-5" />
+                <Trash2 className="w-6 h-6" />
               </button>
             </div>
           </Panel>
