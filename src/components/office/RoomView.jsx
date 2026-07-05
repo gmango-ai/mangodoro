@@ -212,6 +212,9 @@ export default function RoomView({
           {/* Identity row — room name, switcher, leave. Grows to fill
               the bar in one-row mode; the first of two rows when narrow. */}
           <div className="flex items-center gap-3 min-w-0 @xl:flex-1">
+            {/* Widgets toggle — opens the pomodoro / room / world-clock / goals
+                sidebar (a full overlay on mobile). Sits left of the room title;
+                shown on every size (larger touch target on mobile). */}
             {onToggleSidebar && (
               <Button
                 variant="ghost"
@@ -220,11 +223,11 @@ export default function RoomView({
                 title={sidebarOpen ? "Hide widgets" : "Show widgets"}
                 aria-label={sidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
                 aria-pressed={sidebarOpen}
-                className={`hidden md:inline-flex h-8 w-8 shrink-0 ${
+                className={`inline-flex h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
                   dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
                 }`}
               >
-                <SidebarIcon className="w-4 h-4" />
+                <SidebarIcon className="w-5 h-5 sm:w-4 sm:h-4" />
               </Button>
             )}
 
@@ -290,47 +293,6 @@ export default function RoomView({
               </button>
             )}
 
-            {/* Room settings — opens the same RoomSettingsModal used on
-                the team page (name, color, team gating, meeting duration,
-                delete). Only shown to users who can actually edit this
-                room; the RPCs enforce permission server-side regardless. */}
-            {canEditRoom && onEditRoom && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onEditRoom(room)}
-                title="Room settings"
-                aria-label="Room settings"
-                className={`h-8 w-8 shrink-0 ${
-                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <Settings className="w-4 h-4" />
-              </Button>
-            )}
-
-            {/* Leave room — navigates to the hallway, which trips the
-                auto-leave effect in OfficeShell (same path as the
-                overlay's "Leave to hallway"). Kept right next to the
-                name so leaving is a one-click action, not buried in the
-                switcher overlay. */}
-            {onLeaveRoom && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onLeaveRoom}
-                title="Leave room"
-                aria-label="Leave room"
-                className={`h-8 w-8 shrink-0 ${
-                  dark
-                    ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
-                    : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
-                }`}
-              >
-                <LogOut className="w-4 h-4" />
-              </Button>
-            )}
-
             {gatingTeams.length > 0 && (
               <div className="hidden xl:flex flex-wrap items-center gap-1.5">
                 {gatingTeams.map((t) => (
@@ -347,9 +309,10 @@ export default function RoomView({
             )}
           </div>
 
-          {/* Controls row — session status + layout tools. Drops to a
-              second row when the bar is too narrow for one row. */}
-          <div className="flex items-center gap-2 @xl:gap-3 justify-between @xl:justify-end shrink-0">
+          {/* Controls row — session status + add-view + settings/leave.
+              Hugs the right on both mobile (second row) and desktop. Drops to
+              a second row when the bar is too narrow for one row. */}
+          <div className="flex items-center gap-2 @xl:gap-3 justify-end shrink-0">
             <RoomSessionAction
               room={room}
               activeSession={activeSession}
@@ -359,6 +322,8 @@ export default function RoomView({
               currentSyncSession={currentSyncSession}
             />
 
+            {/* Add-view lives here (just before settings); the quick panel
+                toggles + arrange collapse away on mobile, leaving only Add. */}
             <LayoutBar
               addMenu
               onReset={reset}
@@ -372,6 +337,39 @@ export default function RoomView({
               onTogglePanel={togglePanel}
               onAddWeb={() => addWeb("")}
             />
+
+            {/* Settings + Leave — pinned to the far right. Larger touch
+                targets on mobile. */}
+            {canEditRoom && onEditRoom && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onEditRoom(room)}
+                title="Room settings"
+                aria-label="Room settings"
+                className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
+                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Settings className="w-5 h-5 sm:w-4 sm:h-4" />
+              </Button>
+            )}
+            {onLeaveRoom && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onLeaveRoom}
+                title="Leave room"
+                aria-label="Leave room"
+                className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
+                  dark
+                    ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
+                    : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+                }`}
+              >
+                <LogOut className="w-5 h-5 sm:w-4 sm:h-4" />
+              </Button>
+            )}
           </div>
         </div>
       </header>
