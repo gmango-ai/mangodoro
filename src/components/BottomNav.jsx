@@ -1,20 +1,23 @@
 import { NavLink } from "react-router-dom";
-import { Timer, Building2, Presentation, Users, MoreHorizontal } from "lucide-react";
+import { Timer, Building2, Presentation, MessageSquare, MoreHorizontal } from "lucide-react";
+import { useMessages } from "../context/MessagesContext";
 
 // Glassmorphic bottom tab bar for touch / small screens (thumb-reachable,
 // one-handed). Shown only on coarse-pointer devices below `lg` (see index.css —
 // it replaces the top hamburger there); the desktop nav and the narrow-desktop
 // hamburger are untouched. Four primary destinations + a "More" tab that opens
-// the existing drawer (Time tracker, Quick timer, Settings, theme, Sign out).
+// the existing drawer (Org, Time tracker, Quick timer, Settings, theme, Sign out).
+// Messages is a bottom-nav tab (first-class on mobile); Org moved into "More".
 
 const TABS = [
-  { to: "/pomodoro", label: "Timer", Icon: Timer, badge: true },
+  { to: "/pomodoro", label: "Timer", Icon: Timer, badge: "sessions" },
   { to: "/office", label: "Office", Icon: Building2 },
   { to: "/whiteboards", label: "Boards", Icon: Presentation },
-  { to: "/team", label: "Org", Icon: Users },
+  { to: "/messages", label: "Chat", Icon: MessageSquare, badge: "unread" },
 ];
 
 export default function BottomNav({ dark, hasTeamSessions, onMore }) {
+  const { unread = 0 } = useMessages();
   const item = "relative flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition-colors";
   const idle = dark ? "text-slate-400" : "text-slate-500";
 
@@ -42,8 +45,13 @@ export default function BottomNav({ dark, hasTeamSessions, onMore }) {
                 )}
                 <span className="relative">
                   <Icon className="w-[22px] h-[22px]" strokeWidth={isActive ? 2.4 : 2} />
-                  {badge && hasTeamSessions && (
+                  {badge === "sessions" && hasTeamSessions && (
                     <span className="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse" />
+                  )}
+                  {badge === "unread" && unread > 0 && (
+                    <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-4 text-center">
+                      {unread > 9 ? "9+" : unread}
+                    </span>
                   )}
                 </span>
                 <span>{label}</span>
