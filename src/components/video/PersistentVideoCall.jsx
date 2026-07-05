@@ -127,7 +127,12 @@ export default function PersistentVideoCall() {
   useLayoutEffect(() => {
     if (!reparentSafe || poppedOut) return undefined;
     const host = hostRef.current;
-    if (!host || !call) return undefined;
+    if (!host) return undefined;
+    // Call ended: detach the host. In maximized mode it's a position:fixed
+    // inset-0 overlay — leaving it attached (now empty, since the portal
+    // renders null) covered the whole screen and stranded the user on a black
+    // "call" screen after tapping Leave while fullscreen.
+    if (!call) { try { host.remove(); } catch { /* */ } return undefined; }
     // appendChild MOVES the node (auto-detaching it from its old parent), so we
     // don't remove it on cleanup — doing so would yank the host straight back out
     // of the pop-out window the instant `poppedOut` flips (which showed a blank

@@ -14,6 +14,7 @@ export const PREF = {
   mirror: "ql_lk_mirror",   // flip your OWN camera (self-view) horizontally
   selfFloat: "ql_lk_selffloat", // show your own tile as a floating PiP, not in the grid
   spotlightIgnoreSelf: "ql_lk_spot_ignore_self", // don't spotlight yourself to yourself
+  fit: "ql_lk_fit",   // "cover" (fill + crop) | "contain" (fit, show whole frame)
 };
 
 export function loadPref(key, fallback) {
