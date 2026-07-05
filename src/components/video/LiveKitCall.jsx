@@ -34,6 +34,7 @@ import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttemp
 import { diagReset, diagRecord, diagReport, diagEnv } from "./livekitDiagnostics";
 import { useFullscreen } from "./useFullscreen";
 import { useGlobalPin } from "./useGlobalPin";
+import { useDriveBridge } from "./useDriveBridge";
 import { playHandRaise } from "../../lib/uiSounds";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
@@ -2209,6 +2210,8 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
 }
 
 function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, deafened, onToggleDeafen, chromeless }) {
+  // Mirror mic/speaker/connection state to the drive-mode bridge (giant car UI).
+  useDriveBridge({ micMuted, onToggleMic });
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
   const rootRef = useRef(null);
