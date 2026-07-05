@@ -5,6 +5,7 @@ import { Browser } from "@capacitor/browser";
 import { supabase } from "./supabase";
 import { isMobileApp } from "./lib/platform";
 import { requestNotificationPermissions } from "./lib/nativeNotifications";
+import { addNotificationTapListener, consumePendingNotificationRoute } from "./lib/persistentTimer";
 import AuthPage from "./AuthPage";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -137,6 +138,24 @@ function AppLayout({ session }) {
     return () => {
       window.removeEventListener("mangodoro:nav", onNav);
       window.removeEventListener("mangodoro:route", onNav);
+    };
+  }, [navigate]);
+
+  // Native alert-notification taps → deep-link. The iOS push handler
+  // (PersistentTimerPlugin, fed by the native-push edge fn) reports the route
+  // the alert carried; also drains a route captured before the listener existed
+  // (cold launch straight from the notification). No-op off iOS.
+  useEffect(() => {
+    let handle;
+    (async () => {
+      handle = await addNotificationTapListener((url) => {
+        if (typeof url === "string" && url.startsWith("/")) navigate(url);
+      });
+      const pending = await consumePendingNotificationRoute();
+      if (pending && pending.startsWith("/")) navigate(pending);
+    })();
+    return () => {
+      handle?.remove?.();
     };
   }, [navigate]);
 

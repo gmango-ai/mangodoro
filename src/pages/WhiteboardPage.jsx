@@ -243,7 +243,7 @@ function ShapesMenu({ dark, onPick }) {
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
-            className={`absolute left-10 top-0 z-20 p-2 rounded-2xl border shadow-lg grid grid-cols-5 gap-1 ${
+            className={`absolute bottom-11 left-1/2 -translate-x-1/2 z-20 p-2 rounded-2xl border shadow-lg grid grid-cols-5 gap-1 ${
               dark
                 ? "bg-[var(--color-surface)] border-[var(--color-border)]"
                 : "bg-white border-slate-200"
@@ -301,7 +301,7 @@ function ToolPopover({ dark, onClose, children }) {
     <>
       <div className="fixed inset-0 z-10" onClick={onClose} />
       <div
-        className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
+        className={`absolute bottom-11 left-1/2 -translate-x-1/2 z-20 p-2.5 rounded-2xl border shadow-lg ${
           dark
             ? "bg-[var(--color-surface)] border-[var(--color-border)]"
             : "bg-white border-slate-200"
@@ -438,7 +438,7 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
-            className="absolute left-10 top-0 z-20 rounded-xl shadow-2xl overflow-hidden"
+            className="absolute bottom-11 left-1/2 -translate-x-1/2 z-20 rounded-xl shadow-2xl overflow-hidden"
             style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.1)" }}
           >
             <div className="px-2.5 pt-2 text-[10px] font-bold uppercase tracking-wide text-white/40">
@@ -2745,8 +2745,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             horizontal={helperLines.horizontal}
           />
         )}
-        <Controls position="bottom-left" />
-        {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
+        {/* Fit-view only — zoom in/out and the interactivity lock are dropped
+            (pinch/scroll still zoom). */}
+        <Controls position="bottom-left" showZoom={false} showInteractive={false} />
+        {/* Hidden on phones (hidden sm:block) — the minimap eats scarce screen
+            on mobile and duplicates the fit-view button now at top-left. */}
+        {!compact && showMinimap && <MiniMap pannable zoomable position="bottom-right" className="hidden sm:block" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
 
@@ -2821,8 +2825,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         )}
 
         <Panel
-          position="center-left"
-          className={`flex flex-col items-center gap-0.5 p-1 rounded-2xl border shadow-sm ${
+          position="bottom-center"
+          className={`flex flex-row flex-wrap items-center justify-center gap-0.5 p-1 rounded-2xl border shadow-sm max-w-[calc(100vw-24px)] ${
             dark
               ? "bg-[var(--color-surface)] border-[var(--color-border)]"
               : "bg-white border-slate-200"
@@ -2841,7 +2845,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             onAdd={() => addNodeAtCenter("text", textStyleRef.current)}
           />
           <div
-            className={`h-px w-5 my-0.5 ${
+            className={`w-px h-5 mx-0.5 ${
               dark ? "bg-[var(--color-border)]" : "bg-slate-200"
             }`}
           />
@@ -2885,7 +2889,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             }}
           />
           <div
-            className={`h-px w-5 my-0.5 ${
+            className={`w-px h-5 mx-0.5 ${
               dark ? "bg-[var(--color-border)]" : "bg-slate-200"
             }`}
           />
@@ -2913,7 +2917,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             onToggle={() => setTool((t) => (t === "laser" ? "select" : "laser"))}
           />
           <div
-            className={`h-px w-5 my-0.5 ${
+            className={`w-px h-5 mx-0.5 ${
               dark ? "bg-[var(--color-border)]" : "bg-slate-200"
             }`}
           />
@@ -2979,12 +2983,16 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       {/* Photoshop-style brush ring while painting (replaces the crosshair). */}
       <BrushCursor active={tool === "brush"} size={brushStyle.size} color={brushStyle.color} erase={brushStyle.erase} />
 
-      {/* Breadcrumb / board chrome — a floating card pinned top-left,
-            like the timer. Holds back-nav, title, template badge, save
-            state, the reactions-bar toggle, and archive. */}
+      {/* Breadcrumb / board chrome — a floating card pinned top-left. Holds
+            back-nav, title, template badge, save state, the reactions-bar
+            toggle, and archive. The inner row flex-wraps on narrow phones (see
+            below) so it folds to two rows instead of overflowing. */}
       <div className="absolute left-3 top-3 z-40 flex flex-col gap-2 items-start max-w-[calc(100%-24px)]">
         <div
-          className="flex items-center gap-2 px-2.5 py-1.5 rounded-2xl border shadow-md"
+          // flex-wrap so the toolbar folds onto a second row on narrow phones
+          // instead of overflowing the canvas (every child is shrink-0). The
+          // outer max-w-[calc(100%-24px)] caps the row width so the wrap fires.
+          className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-2xl border shadow-md"
           style={{
             background: dark ? "var(--color-surface)" : "#fff",
             borderColor: dark ? "var(--color-border)" : "rgb(226,232,240)",
@@ -3004,7 +3012,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
                 <ArrowLeft className="w-4 h-4" />
               </Link>
               <div
-                className={`w-px h-4 ${
+                className={`hidden sm:block w-px h-4 ${
                   dark ? "bg-[var(--color-border)]" : "bg-slate-200"
                 }`}
               />
@@ -3080,7 +3088,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             </span>
           )}
           <div
-            className={`w-px h-4 ${
+            className={`hidden sm:block w-px h-4 ${
               dark ? "bg-[var(--color-border)]" : "bg-slate-200"
             }`}
           />
@@ -3115,7 +3123,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           {!compact && (
             <>
               <div
-                className={`w-px h-4 ${
+                className={`hidden sm:block w-px h-4 ${
                   dark ? "bg-[var(--color-border)]" : "bg-slate-200"
                 }`}
               />
@@ -3350,8 +3358,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       <EmoteOverlay
         channelKey={`whiteboard:${board.id}`}
         barPosition={emoteBarOn && !compact ? "bottom-center" : "hidden"}
-        // Lift the emote bar above the paint toolbar while it's showing.
-        barOffset={tool === "brush" ? 80 : 0}
+        // The drawing toolbar now lives at bottom-center too, so lift the emote
+        // bar above it (clears the toolbar even when it wraps to two rows on a
+        // phone); extra lift while the paint toolbar is also showing.
+        barOffset={tool === "brush" ? 140 : 96}
       />
     </main>
   );
