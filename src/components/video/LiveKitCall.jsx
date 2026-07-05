@@ -177,7 +177,7 @@ function bgToOptions(bg, customBg) {
 // Per-device self-view prefs shared from the control bar down to the tiles:
 //   mirror — flip your own camera horizontally (your view only)
 //   float  — render your own tile as a draggable PiP instead of a grid cell
-const SelfViewContext = createContext({ mirror: true, float: true, setMirror: () => {}, setFloat: () => {} });
+const SelfViewContext = createContext({ mirror: true, float: true, fit: "cover", setMirror: () => {}, setFloat: () => {} });
 
 const RoomEntryHoldContext = createContext({
   entryHoldPending: false,
@@ -1249,6 +1249,7 @@ function CallControlBar({
   autoMic, onToggleAutoMic,
   ptt, onTogglePtt,
   mirror, onToggleMirror,
+  fit, onToggleFit,
   selfFloat, onToggleSelfFloat,
   micMuted, onToggleMic,
   deafened, onToggleDeafen,
@@ -1306,6 +1307,7 @@ function CallControlBar({
               <BackgroundEffects value={bg} onChange={onChangeBg} customBg={customBg} onUpload={onUploadBg} />
               <div className="my-1 border-t border-white/10" />
               <SettingRow icon={FlipHorizontal2} label="Mirror my video" active={mirror} onClick={onToggleMirror} />
+              <SettingRow icon={fit === "contain" ? Shrink : Expand} label="Fit video (show full frame)" active={fit === "contain"} onClick={onToggleFit} />
               <SettingRow icon={PictureInPicture2} label="Float my video" active={selfFloat} onClick={onToggleSelfFloat} />
             </DeviceSettingsMenu>
           )}
@@ -1726,7 +1728,7 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   // Mirror only YOUR OWN camera (the convention — your self-view reads like a
   // mirror), and only the camera, never a screen share. `[&_video]` flips the
   // <video> LiveKit renders inside ParticipantTile.
-  const { mirror } = useContext(SelfViewContext);
+  const { mirror, fit } = useContext(SelfViewContext);
   const flip = mirror && participant?.isLocal && trackRef?.source === Track.Source.Camera;
   // Camera off → cover LiveKit's generic gray silhouette with a clean initials
   // avatar (a soft per-person gradient), which reads far more modern.
@@ -1757,7 +1759,7 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
           : "In room";
   return (
     <div
-      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""}`}
+      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""} ${fit === "contain" ? "[&_video]:!object-contain" : ""}`}
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
 
@@ -2210,6 +2212,11 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
             tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
             focusKey={stageFocusKey}
             focusKeys={stageFocusKeys}
+            // Portrait stage (phone held upright) → taller 3:4 tiles so faces
+            // fill more of the frame vertically; landscape keeps 16:9. Tracks
+            // live via the stage's own width/height, so a device rotation (or
+            // app resize) re-solves automatically.
+            aspect={h > w * 1.1 ? 3 / 4 : 16 / 9}
           />
         </div>
         {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
@@ -2310,6 +2317,11 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // Meet convention).
   const [mirror, setMirror] = useState(() => loadPref(PREF.mirror, "1") === "1");
   const [selfFloat, setSelfFloat] = useState(() => loadPref(PREF.selfFloat, "1") === "1");
+  // Video crop: "cover" fills the tile (crops edges) — the default; "contain"
+  // shows the WHOLE camera frame letterboxed (see more of yourself, esp. on a
+  // portrait phone). Per-device pref, applied to every tile's <video>.
+  const [videoFit, setVideoFit] = useState(() => (loadPref(PREF.fit, "cover") === "contain" ? "contain" : "cover"));
+  const toggleFit = () => setVideoFit((f) => (f === "cover" ? "contain" : "cover"));
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.spotlightIgnoreSelf, spotlightIgnoreSelf ? "1" : "0"), [spotlightIgnoreSelf]);
@@ -2319,7 +2331,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   useEffect(() => savePref(PREF.ptt, ptt ? "1" : "0"), [ptt]);
   useEffect(() => savePref(PREF.mirror, mirror ? "1" : "0"), [mirror]);
   useEffect(() => savePref(PREF.selfFloat, selfFloat ? "1" : "0"), [selfFloat]);
-  const selfView = useMemo(() => ({ mirror, float: selfFloat, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat]);
+  useEffect(() => savePref(PREF.fit, videoFit), [videoFit]);
+  const selfView = useMemo(() => ({ mirror, float: selfFloat, fit: videoFit, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat, videoFit]);
 
   // Push-to-talk key handling. micMuted lives in the parent; we drive it via the
   // passed toggle, reading the latest value through a ref so the listeners never
@@ -2435,6 +2448,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onTogglePtt={() => setPtt((v) => !v)}
               mirror={mirror}
               onToggleMirror={() => setMirror((v) => !v)}
+              fit={videoFit}
+              onToggleFit={toggleFit}
               selfFloat={selfFloat}
               onToggleSelfFloat={() => setSelfFloat((v) => !v)}
               micMuted={micMuted}
