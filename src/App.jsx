@@ -28,6 +28,7 @@ import ClockOutModal from "./components/ClockOutModal";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import WhatsNew from "./components/WhatsNew";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
+import DriveModeSuggest from "./components/DriveModeSuggest";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
 import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
@@ -381,6 +382,9 @@ function AppLayout({ session }) {
               call survives page navigation. Renders as a PiP when no
               page has provided a stageEl via VideoCallContext. */}
           <PersistentVideoCall />
+          {/* Car-Bluetooth detector — offers the /drive takeover when a car's
+              hands-free audio device appears. */}
+          <DriveModeSuggest />
         </div>
       </div>
     </div>
