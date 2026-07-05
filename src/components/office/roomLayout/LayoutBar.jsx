@@ -38,8 +38,8 @@ export default function LayoutBar({
 
   return (
     <div className="flex items-center gap-1.5">
-      {/* Quick panel toggles + arrange are desktop-only (hidden on mobile);
-          the mobile room header keeps just the Add button below. */}
+      {/* Quick panel toggles are desktop-only (hidden on mobile);
+          the mobile room header keeps just the Add button unless arranging. */}
       <div className="hidden sm:flex items-center gap-1.5">
       {/* Quick view buttons — pinned panels, one click to drop one in or pull
           it back out, no Arrange mode needed. Filled = shown. */}
@@ -102,21 +102,20 @@ export default function LayoutBar({
       {(panels || []).length > 0 && (
         <span className={`w-px h-4 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
       )}
-
+      </div>
       <button
         type="button"
         onClick={onToggleArrange}
         title={arranging ? "Done arranging" : "Rearrange panels"}
         aria-pressed={arranging}
-        className={`inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
+        className={`${arranging ? "inline-flex" : "hidden sm:inline-flex"} items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
           arranging ? "text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
         }`}
         style={arranging ? { background: accent } : {}}
       >
         <Move className="w-3.5 h-3.5" />
-        <span className="hidden lg:inline">{arranging ? "Done" : "Arrange"}</span>
+        <span className={arranging ? "inline" : "hidden lg:inline"}>{arranging ? "Done" : "Arrange"}</span>
       </button>
-      </div>
 
       <div className="relative">
         {addMenu ? (

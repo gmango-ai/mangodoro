@@ -57,7 +57,7 @@ function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, current
 
 export default function RoomView({
   room, activeSession, orgTeams, busy, onJoin, onStart,
-  sidebarOpen, onToggleSidebar, onOpenRoomSwitcher, onLeaveRoom,
+  sidebarOpen, mobileSidebarOpen = false, onToggleSidebar, onOpenRoomSwitcher, onLeaveRoom,
   onEditRoom, canEditRoom,
 }) {
   const { theme } = useTheme();
@@ -190,7 +190,8 @@ export default function RoomView({
     .map((rt) => (orgTeams || []).find((t) => t.id === rt.org_team_id))
     .filter(Boolean);
 
-  const SidebarIcon = sidebarOpen ? PanelLeftClose : PanelLeftOpen;
+  const DesktopSidebarIcon = sidebarOpen ? PanelLeftClose : PanelLeftOpen;
+  const MobileSidebarIcon = mobileSidebarOpen ? PanelLeftClose : PanelLeftOpen;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -211,19 +212,34 @@ export default function RoomView({
                 sidebar (a full overlay on mobile). Sits left of the room title;
                 shown on every size (larger touch target on mobile). */}
             {onToggleSidebar && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onToggleSidebar}
-                title={sidebarOpen ? "Hide widgets" : "Show widgets"}
-                aria-label={sidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
-                aria-pressed={sidebarOpen}
-                className={`inline-flex h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
-                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <SidebarIcon className="w-5 h-5 sm:w-4 sm:h-4" />
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onToggleSidebar}
+                  title={mobileSidebarOpen ? "Hide widgets" : "Show widgets"}
+                  aria-label={mobileSidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
+                  aria-pressed={mobileSidebarOpen}
+                  className={`inline-flex md:hidden h-10 w-10 shrink-0 ${
+                    dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <MobileSidebarIcon className="w-5 h-5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onToggleSidebar}
+                  title={sidebarOpen ? "Hide widgets" : "Show widgets"}
+                  aria-label={sidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
+                  aria-pressed={sidebarOpen}
+                  className={`hidden md:inline-flex h-8 w-8 shrink-0 ${
+                    dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <DesktopSidebarIcon className="w-4 h-4" />
+                </Button>
+              </>
             )}
 
             {/* Room identity — clickable. Opens the office overlay so
