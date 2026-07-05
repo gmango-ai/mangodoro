@@ -400,6 +400,14 @@ export function TeamProvider({ session, children }) {
     }
   }, [activeTeamId, userId]);
 
+  useEffect(() => {
+    setOrgTeams([]);
+    setMyOrgTeamIds(new Set());
+    setMyOrgTeamLeadIds(new Set());
+    setTeamsByUserId(new Map());
+    setOrgTeamMemberCounts(new Map());
+  }, [activeTeamId]);
+
   useEffect(() => { loadOrgTeamsForActive(); }, [loadOrgTeamsForActive]);
 
   // Realtime: pick up changes to either the team list or my memberships.
