@@ -1,21 +1,43 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BaseEdge, EdgeLabelRenderer, MarkerType, useReactFlow, useStore } from "@xyflow/react";
-import { Type, Minus, Spline, MoveRight, AlignJustify, Sparkles } from "lucide-react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { BaseEdge, EdgeLabelRenderer, useReactFlow, useStore } from "@xyflow/react";
+import { Type, Minus, Spline, AlignJustify, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { Pill, ToolDivider, Dropdown, SwatchGrid } from "./toolbarUI";
 import { routeAround, sideNormal, MARGIN } from "./routing";
 import { snapToGrid } from "./snapping";
+import { ShapeSvg } from "./nodes";
+
+// Provided by WhiteboardPage: the shape the current connect-drag will create
+// (picked via number keys), so the live ghost matches. Null → mirror the parent.
+export const ConnectShapeContext = createContext(null);
+const LEGACY_GHOST = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
 // follow each edge's stroke colour, so they recolour for free.
 export function EdgeMarkerDefs() {
+  // All four end-caps as custom markers so BOTH ends can use any of them and
+  // dot/diamond render reliably (we set the path's marker-start/end ourselves
+  // rather than relying on React Flow's object-marker generation). orient
+  // "auto-start-reverse" makes directional caps point the right way on EITHER
+  // end; fill/stroke "context-stroke" follows each edge's colour for free.
+  // refX is the point placed at the line's end. Arrow/open sit it 2 units BEHIND
+  // the tip so the wide part of the head covers the line's stroke — ending the
+  // line exactly at the pointy tip lets the thick stroke poke out past it. Dot &
+  // diamond use their CENTRE, so a line ending there lands in their middle. The
+  // gap off the node comes from insetting the line's end (CAP_GAP / CAP_REACH).
   return (
     <svg aria-hidden style={{ position: "absolute", width: 0, height: 0 }}>
       <defs>
-        <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" markerUnits="strokeWidth" orient="auto">
+        <marker id="wb-arrow" markerWidth="10" markerHeight="10" refX="7" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
+          <path d="M1.5 1.5 L9 5 L1.5 8.5 Z" fill="context-stroke" />
+        </marker>
+        <marker id="wb-open" markerWidth="10" markerHeight="10" refX="7" refY="5" markerUnits="strokeWidth" orient="auto-start-reverse">
+          <path d="M2 1.5 L9 5 L2 8.5" fill="none" stroke="context-stroke" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </marker>
+        <marker id="wb-dot" markerWidth="8" markerHeight="8" refX="4" refY="4" markerUnits="strokeWidth" orient="auto-start-reverse">
           <circle cx="4" cy="4" r="3" fill="context-stroke" />
         </marker>
-        <marker id="wb-diamond" markerWidth="11" markerHeight="11" refX="5.5" refY="5.5" markerUnits="strokeWidth" orient="auto">
+        <marker id="wb-diamond" markerWidth="11" markerHeight="11" refX="5.5" refY="5.5" markerUnits="strokeWidth" orient="auto-start-reverse">
           <path d="M5.5 1 L10 5.5 L5.5 10 L1 5.5 Z" fill="context-stroke" />
         </marker>
       </defs>
@@ -198,14 +220,66 @@ const ROUTES = [
 ];
 const EDGE_CAPS = [["None", "none"], ["Arrow", "arrow"], ["Open arrow", "open"], ["Dot", "dot"], ["Diamond", "diamond"]];
 
-function capMarker(kind, color) {
+// Cap kind → the custom marker url (or none). Used for BOTH ends.
+function capUrl(kind) {
   switch (kind) {
-    case "arrow": return { type: MarkerType.ArrowClosed, color };
-    case "open": return { type: MarkerType.Arrow, color };
+    case "arrow": return "url(#wb-arrow)";
+    case "open": return "url(#wb-open)";
     case "dot": return "url(#wb-dot)";
     case "diamond": return "url(#wb-diamond)";
-    default: return undefined;
+    default: return undefined; // "none"
   }
+}
+
+// Small breathing gap (flow px) left between a cap's node-facing extreme and the
+// node it points at, plus — per cap — how far (in marker units) that extreme
+// sits past the cap's reference point (arrow/open tip == ref, so 0; dot &
+// diamond ref is their centre). Together these set how far the line's end is
+// pulled back so the cap floats just off the node. See the inset math in
+// EditableEdge.
+const CAP_GAP = 5;
+const CAP_REACH = { arrow: 2, open: 2, dot: 3, diamond: 4.5 };
+
+// Move `from` toward `toward` by `dist` px (never past ~80% of the way), so
+// insetting an endpoint never overshoots its first bend.
+function insetAlong(from, toward, dist) {
+  const dx = toward.x - from.x, dy = toward.y - from.y;
+  const L = Math.hypot(dx, dy) || 1;
+  const d = Math.min(dist, L * 0.8);
+  return { x: from.x + (dx / L) * d, y: from.y + (dy / L) * d };
+}
+
+// The end-cap drawn AS the endpoint drag handle — the cap's shape, but WHITE
+// filled with a border in the edge colour (the old dot-handle look), centred on
+// the handle origin (where the line now ends: a dot's / diamond's middle, near a
+// directional cap's tip). Directional caps point +x (toward the node). "none"
+// returns null → the base handle dot stands in as the grab target.
+function capHandleGlyph(cap, color) {
+  const p = { fill: "#fff", stroke: color, strokeWidth: 2.5, strokeLinejoin: "round", strokeLinecap: "round" };
+  switch (cap) {
+    case "arrow":
+    case "open": return <path d="M5 0 L-9 -7.5 L-9 7.5 Z" {...p} />;
+    case "dot": return <circle cx="0" cy="0" r="6.5" {...p} />;
+    case "diamond": return <path d="M8 0 L0 -7 L-8 0 L0 7 Z" {...p} />;
+    default: return null; // "none"
+  }
+}
+
+// Mini edge preview for the cap pickers — a short line with the cap on the given
+// end, so you can see the shape AND tell start from finish at a glance. Reuses
+// the shared markers; currentColor drives context-stroke to match the toolbar.
+function CapPreview({ cap, end }) {
+  const url = capUrl(cap);
+  const m = end === "start" ? { markerStart: url } : { markerEnd: url };
+  // Explicit light stroke (NOT currentColor): the markers colour themselves via
+  // context-stroke, which passes the referencing line's stroke VALUE — a
+  // "currentColor" keyword would resolve to black inside the marker, so give it
+  // a real colour that reads on the dark toolbar.
+  return (
+    <svg width="40" height="14" viewBox="0 0 40 14" aria-hidden style={{ display: "block", overflow: "visible" }}>
+      <line x1="8" y1="7" x2="32" y2="7" stroke="#e2e8f0" strokeWidth="1.6" strokeLinecap="round" {...m} />
+    </svg>
+  );
 }
 
 function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
@@ -216,6 +290,7 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
   const routing = data?.routing || "elbow";
   const curviness = data?.curviness ?? 18;
   const endCap = data?.endCap || "arrow";
+  const startCap = data?.startCap || "none";
   const setStyle = (p) => patchEdge({ style: { ...style, ...p } });
   const opt = (active, onClick, label) => (
     <button key={label} type="button" onClick={() => { onClick(); setOpen(null); }}
@@ -223,11 +298,19 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
       {label}
     </button>
   );
+  // Cap option with a live mini-preview of the cap on the correct end.
+  const capOpt = (active, onClick, label, cap, end) => (
+    <button key={label} type="button" onClick={() => { onClick(); setOpen(null); }}
+      className={`flex items-center gap-2.5 w-full text-left px-2 py-1 rounded text-[12px] whitespace-nowrap ${active ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"}`}>
+      <span className="w-10 shrink-0 flex items-center"><CapPreview cap={cap} end={end} /></span>
+      <span>{label}</span>
+    </button>
+  );
   return (
     <div className="nodrag nopan" style={{ position: "absolute", transform: `translate(-50%,-100%) translate(${x}px,${y - 18}px)`, pointerEvents: "all", zIndex: 50 }}>
       <Pill>
         <Dropdown openKey="color" open={open} setOpen={setOpen} icon={<span className="w-4 h-4 rounded-full border border-white/30" style={{ background: color }} />}>
-          <SwatchGrid value={color} onPick={(c) => patchEdge({ style: { ...style, stroke: c }, ...(endCap !== "none" ? { markerEnd: capMarker(endCap, c) } : {}) })} />
+          <SwatchGrid value={color} onPick={(c) => patchEdge({ style: { ...style, stroke: c } })} />
         </Dropdown>
         <Dropdown openKey="weight" open={open} setOpen={setOpen} icon={<AlignJustify className="w-4 h-4" />}>
           {WEIGHTS.map(([l, v]) => opt(width === v, () => setStyle({ strokeWidth: v }), l))}
@@ -263,8 +346,13 @@ function EdgeToolbar({ x, y, style, data, patchEdge, onEditLabel }) {
             r.label,
           ))}
         </Dropdown>
-        <Dropdown openKey="cap" open={open} setOpen={setOpen} icon={<MoveRight className="w-4 h-4" />}>
-          {EDGE_CAPS.map(([l, k]) => opt(endCap === k, () => patchEdge({ markerEnd: capMarker(k, color), data: { ...data, endCap: k } }), l))}
+        <Dropdown openKey="capStart" open={open} setOpen={setOpen} title="Start-end cap" icon={<CapPreview cap={startCap} end="start" />}>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1 pb-0.5">Start end</div>
+          {EDGE_CAPS.map(([l, k]) => capOpt(startCap === k, () => patchEdge({ data: { ...data, startCap: k } }), l, k, "start"))}
+        </Dropdown>
+        <Dropdown openKey="cap" open={open} setOpen={setOpen} title="Finish-end cap" icon={<CapPreview cap={endCap} end="finish" />}>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-white/40 px-2 pt-1 pb-0.5">Finish end</div>
+          {EDGE_CAPS.map(([l, k]) => capOpt(endCap === k, () => patchEdge({ data: { ...data, endCap: k } }), l, k, "finish"))}
         </Dropdown>
         <ToolDivider />
         <button type="button" title="Tidy — auto-route around nodes"
@@ -398,9 +486,13 @@ export function snappedAnchor(rect, px, py) {
 const EditableEdge = memo(function EditableEdge({
   id, source, target, sourceX, sourceY, targetX, targetY,
   sourcePosition, targetPosition,
-  markerStart, markerEnd, style, data, selected,
+  style, data, selected,
 }) {
   const { setEdges, screenToFlowPosition, getNode, getNodes } = useReactFlow();
+  // End-caps come from data (both ends independently). Default: a target arrow,
+  // no source cap. Custom markers → reliable dot/diamond + start-end support.
+  const markerStart = capUrl(data?.startCap ?? "none");
+  const markerEnd = capUrl(data?.endCap ?? "arrow");
 
   // Endpoint resolution, recomputed live from the node rects so a dragged
   // node's edges re-anchor in real time:
@@ -536,7 +628,29 @@ const EditableEdge = memo(function EditableEdge({
   // Live endpoint frame, captured when a route is pinned so it can be re-based.
   const endRef = useRef();
   endRef.current = { sx: sX, sy: sY, tx: tX, ty: tY, sPos, tPos };
-  const path = roundedPath(full, routing === "curve" ? Math.min(curviness, 30) : 8);
+  // Direction each end points (interior neighbour → endpoint), in degrees — so a
+  // cap-shaped endpoint handle can orient exactly like the real marker does.
+  const srcAdj = full.length > 1 ? full[1] : { x: tX, y: tY };
+  const tgtAdj = full.length > 1 ? full[full.length - 2] : { x: sX, y: sY };
+  const srcAngle = (Math.atan2(sY - srcAdj.y, sX - srcAdj.x) * 180) / Math.PI;
+  const tgtAngle = (Math.atan2(tY - tgtAdj.y, tX - tgtAdj.x) * 180) / Math.PI;
+
+  // Pull the line's END back from the node so its cap floats with a small gap.
+  // The line stops at the cap's REFERENCE point (dot/diamond centre, arrow tip),
+  // and we inset just enough that the cap's node-facing extreme clears the
+  // perimeter by GAP: inset = reach·strokeWidth + GAP, where `reach` is how far
+  // (in marker units) that extreme sits past the reference point. So symmetric
+  // caps end up with the line landing in their middle, arrows keep tip-forward,
+  // and every cap breathes a little off the node.
+  const sw = Number(style?.strokeWidth) || 2;
+  const startCapKind = data?.startCap || "none";
+  const endCapKind = data?.endCap || "arrow";
+  const insetS = startCapKind === "none" ? 0 : (CAP_REACH[startCapKind] || 0) * sw + CAP_GAP;
+  const insetT = endCapKind === "none" ? 0 : (CAP_REACH[endCapKind] || 0) * sw + CAP_GAP;
+  const capS = insetS > 0 && full.length > 1 ? insetAlong(full[0], full[1], insetS) : full[0];
+  const capT = insetT > 0 && full.length > 1 ? insetAlong(full[full.length - 1], full[full.length - 2], insetT) : full[full.length - 1];
+  const displayFull = full.length > 1 ? [capS, ...full.slice(1, -1), capT] : full;
+  const path = roundedPath(displayFull, routing === "curve" ? Math.min(curviness, 30) : 8);
   const labelPt = pointAtT(path, data?.labelT ?? 0.5) || { x: (sX + tX) / 2, y: (sY + tY) / 2 };
   // The toolbar always floats above the edge's highest point (smallest y),
   // not wherever the label happens to sit, so it never overlaps the line.
@@ -754,16 +868,18 @@ const EditableEdge = memo(function EditableEdge({
               boxShadow: "0 1px 4px rgba(0,0,0,.4)",
             }} />
         ))}
-        {/* Endpoint handles: shown on hover or selection, sitting right ON
-            the endpoint. They live in the edge-label layer (above the node
-            layer) so they win the click over the node's connection dot —
-            and because they're not a child of the node, grabbing one does
-            NOT reveal the node's dots. Drag to slide the end anywhere around
-            the perimeter, or drop on another node to re-attach. This moves
-            the EXISTING edge (never spawns a new one). */}
+        {/* Endpoint handles rendered AS the end-cap itself, in the cap's shape but
+            WHITE with a border in the edge colour (the old dot-handle look) so on
+            hover/selection the cap reads clearly as a grab target. They sit on the
+            (inset) cap point, oriented like the real marker, and live in the
+            edge-label layer (above the node layer) so they win the click over the
+            node's connection dot without revealing the node's dots. A "none" end
+            gets a plain dot to grab. Drag to slide the end around the perimeter,
+            or drop on another node to re-attach — this moves the EXISTING edge
+            (never spawns a new one). */}
         {(soleSelected || hovered) && [
-          { which: "source", x: sX, y: sY },
-          { which: "target", x: tX, y: tY },
+          { which: "source", x: capS.x, y: capS.y, angle: srcAngle, cap: startCapKind },
+          { which: "target", x: capT.x, y: capT.y, angle: tgtAngle, cap: endCapKind },
         ].map((ep) => (
           <div key={`ep-${ep.which}`} className="nodrag nopan"
             onPointerEnter={enterHover}
@@ -773,11 +889,15 @@ const EditableEdge = memo(function EditableEdge({
             style={{
               position: "absolute",
               transform: `translate(-50%,-50%) translate(${ep.x}px,${ep.y}px)`,
-              pointerEvents: "all", zIndex: 9,
-              width: 16, height: 16, borderRadius: 9999,
-              background: "#fff", border: `3px solid ${color}`,
-              cursor: "grab", boxShadow: "0 1px 4px rgba(0,0,0,.4)",
-            }} />
+              pointerEvents: "all", zIndex: 9, cursor: "grab",
+              filter: "drop-shadow(0 1px 3px rgba(0,0,0,.4))",
+            }}>
+            <svg width="34" height="34" viewBox="-17 -17 34 34" style={{ display: "block", overflow: "visible" }}>
+              {ep.cap === "none"
+                ? <circle r="6.5" fill="#fff" stroke={color} strokeWidth="3" />
+                : <g transform={`rotate(${ep.angle})`}>{capHandleGlyph(ep.cap, color)}</g>}
+            </svg>
+          </div>
         ))}
 
         {/* Snap-point hints on the node you're re-aiming an endpoint at —
@@ -858,6 +978,7 @@ function perimeterSnapPoints(rect) {
 
 export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode }) {
   const { getNodes } = useReactFlow();
+  const pickedShape = useContext(ConnectShapeContext);
   const fp = fromPosition || "right";
   const sRect = nodeRect(fromNode);
 
@@ -902,6 +1023,10 @@ export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode 
   const place = connectedNodePlacement(center, toX, toY, { w: sw, h: sh });
   const gx = snapToGrid(place.x), gy = snapToGrid(place.y);
   const ghostRect = { x: gx, y: gy, w: sw, h: sh };
+  // The ghost draws the ACTUAL shape a drop would create — the number-picked
+  // shape if any, else the parent's (so it mirrors) — instead of a plain box.
+  const isShapeParent = ["shape", "rect", "ellipse", "diamond"].includes(fromNode?.type);
+  const ghostShape = pickedShape || (isShapeParent ? (fromNode?.data?.shape || LEGACY_GHOST[fromNode?.type] || "process") : "process");
   const sp = sRect ? anchorPoint(sRect, { side: fp, t: 0.5 }) : { x: fromX, y: fromY, pos: fp };
   const tSide = sRect ? complementSide(fp, sRect, ghostRect) : SIDE_POS[place.side];
   const tp = anchorPoint(ghostRect, { side: tSide, t: 0.5 });
@@ -911,8 +1036,9 @@ export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode 
     <g>
       <path fill="none" stroke={accent} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" d={d} />
       <circle cx={sp.x} cy={sp.y} r={3.5} fill={accent} />
-      <rect x={gx} y={gy} width={sw} height={sh} rx={12}
-        fill="rgba(100,116,139,.06)" stroke={accent} strokeWidth={1.5} strokeDasharray="6 5" opacity={0.6} />
+      <g transform={`translate(${gx},${gy})`} opacity={0.75}>
+        <ShapeSvg shape={ghostShape} w={sw} h={sh} fill="rgba(100,116,139,.06)" stroke={accent} sw={1.5} dash="6 5" />
+      </g>
       <g transform={`translate(${tp.x},${tp.y})`}>
         <circle r={9} fill="#fff" stroke={accent} strokeWidth={2.5} />
         <path d="M-4 0 H4 M0 -4 V4" stroke={accent} strokeWidth={2} strokeLinecap="round" />

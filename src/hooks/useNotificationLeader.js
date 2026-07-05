@@ -13,6 +13,8 @@ import { useEffect, useRef } from "react";
 // Returns a ref (read `.current`), not state, so a memoized handler can check
 // leadership at call time without re-subscribing or re-rendering on handoff.
 //
+export const NOTIFICATION_LEADER_LOCK = "mango-notif-leader";
+
 // Fallback: browsers without Web Locks (older Safari) get `true` — we never
 // SUPPRESS notifications when we can't coordinate; at worst duplicates reappear
 // there, which is strictly safer than dropping a notification.
@@ -30,7 +32,7 @@ export function useNotificationLeader() {
 
     navigator.locks
       .request(
-        "mango-notif-leader",
+        NOTIFICATION_LEADER_LOCK,
         { mode: "exclusive", signal: controller.signal },
         () =>
           new Promise((resolve) => {

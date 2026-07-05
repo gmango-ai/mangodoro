@@ -1,0 +1,11 @@
+-- No-op reconciliation record.
+--
+-- The delete/leave migration (20260704170000_messaging_delete_leave) was applied
+-- to the shared DB twice — once via `supabase db push` (recorded as 20260704170000,
+-- which matches the local file) and once via the Supabase MCP during development
+-- (recorded as this version, 20260704170955). Its SQL is fully idempotent
+-- (create-or-replace + add-column-if-not-exists), so both applies were harmless.
+--
+-- This file exists only so the remote-recorded version has a matching local file
+-- and `supabase db push` stays clean. It intentionally does nothing.
+select 1;

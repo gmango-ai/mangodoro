@@ -399,6 +399,18 @@ html.electron-popover body::before {
   inset: -3px; /* ~18px grab target around the 12px dot */
   border-radius: 9999px;
 }
+/* Directional "create connected shape" arrows — hidden until the shape is
+ * hovered or selected (same reveal as the connection dots). */
+.wb-quick-arrow {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.react-flow__node:hover .wb-quick-arrow,
+.react-flow__node.selected .wb-quick-arrow {
+  opacity: 1;
+  pointer-events: auto;
+}
 /* NodeResizer handles. Corners get a bigger dot + invisible margin, and the
  * side LINES get a modest invisible grab corridor too so you can resize by
  * dragging an edge — not just a corner. The connection dots sit at the side
