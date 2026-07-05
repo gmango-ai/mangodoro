@@ -2195,6 +2195,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   let stageFocusKeys = null;
   let audienceTiles = [];
   const AUDIENCE_H = 80;
+  const stageAspect = h > w * 1.1 ? 3 / 4 : 16 / 9;
   if (dualSpotlight) {
     // Two equal big tiles — the pinned view + the live speaker. No focus keys →
     // the adaptive stage lays them out as an even 2-cell grid, nothing else.
@@ -2209,6 +2210,11 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   } else if (mode === "presenter" && focusTrack) {
     stageTiles = baseTiles;
     stageFocusKey = refKey(focusTrack);
+  } else if (baseTiles.length > capFor(w, h, 130, stageAspect)) {
+    const cap = capFor(w, h - AUDIENCE_H, 130, stageAspect);
+    const ordered = rankTiles(baseTiles, featuredSpeakerForStage, speaking);
+    stageTiles = ordered.slice(0, cap);
+    audienceTiles = ordered.slice(cap);
   } else {
     const ordered = rankTiles(baseTiles, rankOpts);
     if (ordered.length > capFor(w, h)) {
@@ -2232,7 +2238,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
             // fill more of the frame vertically; landscape keeps 16:9. Tracks
             // live via the stage's own width/height, so a device rotation (or
             // app resize) re-solves automatically.
-            aspect={h > w * 1.1 ? 3 / 4 : 16 / 9}
+            aspect={stageAspect}
           />
         </div>
         {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
