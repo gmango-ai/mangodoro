@@ -48,14 +48,17 @@ export async function enableWebPush(userId) {
 
   // navigator.serviceWorker.ready NEVER resolves when no SW is registered — and
   // the SW is only built in a production build, not the dev server. Race it
-  // against a timeout so we fail with a clear message instead of hanging (which
-  // would otherwise wedge the caller's busy flag and disable the UI).
-  const reg = await Promise.race([
+  // against a timeout so we can fail clearly only when no registration exists.
+  let reg = await Promise.race([
     navigator.serviceWorker.ready,
     new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
   ]);
   if (!reg) {
-    return { error: "Push service worker isn't ready — web push works on the deployed/production build, not the dev server." };
+    const pendingReg = await navigator.serviceWorker.getRegistration();
+    if (!pendingReg) {
+      return { error: "Push service worker isn't ready — web push works on the deployed/production build, not the dev server." };
+    }
+    reg = pendingReg.active ? pendingReg : await navigator.serviceWorker.ready;
   }
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
