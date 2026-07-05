@@ -188,11 +188,22 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
               </span>
             </NavLink>
 
-            {/* Mobile row 1: messages + notifications only — the clock /
-                who's-working / world-clock widgets live on mobile row 2 below. */}
+            {/* Mobile row 1: messages + notifications + a collapse toggle for
+                row 2 — the clock / who's-working / world-clock widgets live on
+                mobile row 2 below (hidden when collapsed to reclaim height). */}
             <div className="xl:hidden ml-auto flex items-center gap-1">
               <NavMessages />
               <NotificationBell />
+              <button
+                type="button"
+                onClick={toggleRow2}
+                aria-label={row2Open ? "Hide quick actions" : "Show quick actions"}
+                aria-expanded={row2Open}
+                title={row2Open ? "Hide quick actions row" : "Show quick actions row"}
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                {row2Open ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+              </button>
             </div>
 
             {/* Desktop row 1: nav + comms + account. Ambient quick actions live
@@ -264,19 +275,22 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
             </div>
           )}
 
-          {/* Row 2 (mobile only) — the widgets that expand into pills (clock-in,
-              who's-working, world clock) + a pomodoro quick-open, keeping mobile
-              row 1 uncluttered. */}
-          <div className="xl:hidden flex items-center gap-2 h-10">
-            <WorkClockBar dark={darkMode} />
-            <WorkingNowBar dark={darkMode} />
-            <WorldClockNav dark={darkMode} />
-            {!onPomodoroPage && (
-              <div className="ml-auto">
-                <PomodoroNavButton dark={darkMode} onOpen={onOpenPomodoro} />
-              </div>
-            )}
-          </div>
+          {/* Row 2 (mobile only, collapsible) — the widgets that expand into
+              pills (clock-in, who's-working, world clock) + a pomodoro
+              quick-open, keeping mobile row 1 uncluttered. Collapsing it
+              shrinks --nav-h so full-height pages reclaim the space. */}
+          {showRow2 && (
+            <div className="xl:hidden flex items-center gap-2 h-10">
+              <WorkClockBar dark={darkMode} />
+              <WorkingNowBar dark={darkMode} />
+              <WorldClockNav dark={darkMode} />
+              {!onPomodoroPage && (
+                <div className="ml-auto">
+                  <PomodoroNavButton dark={darkMode} onOpen={onOpenPomodoro} />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </header>
 
