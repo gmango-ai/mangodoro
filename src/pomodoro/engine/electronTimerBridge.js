@@ -52,13 +52,27 @@ export function createElectronTimerBridge({ onState, onCommand }) {
       if (isMain) bridge.publishState?.(snapshot);
     },
     sendCommand: (method, args) => {
-      if (isSlave) {
-        bridge.sendCommand?.(method, args);
-        return true;
-      }
-      return false;
+      if (!isSlave) return false;
+      const result = bridge.sendCommand?.(method, args);
+      if (!result) return false;
+      if (typeof result.then !== "function") return !!result;
+      return result
+        .then((response) => {
+          const ok = response?.ok !== false;
+          if (!ok) logCommandFailure(method, response?.reason);
+          return ok;
+        })
+        .catch((error) => {
+          logCommandFailure(method, error?.message || error);
+          return false;
+        });
     },
     isSlave,
     isMain,
   };
+}
+
+function logCommandFailure(method, reason) {
+  if (typeof console === "undefined") return;
+  console.warn("[electronTimerBridge] command failed", method, reason || "unknown");
 }

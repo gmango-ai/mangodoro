@@ -37,8 +37,12 @@ contextBridge.exposeInMainWorld("__electronPopover", {
 // Cross-window Pomodoro engine sync (main owns Realtime; popover mirrors).
 if (isPopover) {
   let stateHandler: ((snapshot: unknown) => void) | null = null;
+  let authHandler: ((session: unknown) => void) | null = null;
   ipcRenderer.on("mangodoro:timer:state", (_event, snapshot) => {
     stateHandler?.(snapshot);
+  });
+  ipcRenderer.on("mangodoro:auth:session", (_event, session) => {
+    authHandler?.(session);
   });
   contextBridge.exposeInMainWorld("__electronTimerBridge", {
     role: "slave",
@@ -54,12 +58,46 @@ if (isPopover) {
     sendCommand: (method: string, args?: unknown[]) =>
       ipcRenderer.invoke("mangodoro:timer:command", { method, args }),
   });
+  contextBridge.exposeInMainWorld("__electronAuthBridge", {
+    getSession: () => ipcRenderer.invoke("mangodoro:auth:getSession"),
+    onSession: (cb: (session: unknown) => void) => {
+      authHandler = cb;
+      ipcRenderer.invoke("mangodoro:auth:getSession").then((session) => {
+        if (session) cb(session);
+      });
+      return () => {
+        if (authHandler === cb) authHandler = null;
+      };
+    },
+    publishSession: () => false,
+  });
 } else {
-  let commandHandler: ((method: string, args?: unknown[]) => void) | null = null;
+  let commandHandler: ((method: string, args?: unknown[]) => unknown | Promise<unknown>) | null = null;
   ipcRenderer.on(
     "mangodoro:timer:command-relay",
-    (_event, payload: { method: string; args?: unknown[] }) => {
-      commandHandler?.(payload.method, payload.args);
+    async (_event, payload: { id?: string; method: string; args?: unknown[] }) => {
+      if (!payload?.id) {
+        commandHandler?.(payload.method, payload.args);
+        return;
+      }
+      if (!commandHandler) {
+        ipcRenderer.send("mangodoro:timer:command-result", {
+          id: payload.id,
+          ok: false,
+          reason: "main-handler-unavailable",
+        });
+        return;
+      }
+      try {
+        await commandHandler(payload.method, payload.args);
+        ipcRenderer.send("mangodoro:timer:command-result", { id: payload.id, ok: true });
+      } catch (e) {
+        ipcRenderer.send("mangodoro:timer:command-result", {
+          id: payload.id,
+          ok: false,
+          reason: (e as Error)?.message || "main-handler-failed",
+        });
+      }
     }
   );
   contextBridge.exposeInMainWorld("__electronTimerBridge", {
@@ -67,13 +105,23 @@ if (isPopover) {
     publishState: (snapshot: unknown) => {
       ipcRenderer.send("mangodoro:timer:publish", snapshot);
     },
-    onCommand: (cb: (method: string, args?: unknown[]) => void) => {
+    onCommand: (cb: (method: string, args?: unknown[]) => unknown | Promise<unknown>) => {
       commandHandler = cb;
+      ipcRenderer.send("mangodoro:timer:main-handler-ready");
     },
     offCommand: () => {
       commandHandler = null;
+      ipcRenderer.send("mangodoro:timer:main-handler-unready");
     },
     sendCommand: () => false,
+  });
+  contextBridge.exposeInMainWorld("__electronAuthBridge", {
+    publishSession: (payload: unknown) => {
+      ipcRenderer.send("mangodoro:auth:publish", payload);
+      return true;
+    },
+    getSession: () => Promise.resolve(null),
+    onSession: () => () => {},
   });
 }
 

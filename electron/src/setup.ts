@@ -11,6 +11,7 @@ import electronIsDev from 'electron-is-dev';
 import electronServe from 'electron-serve';
 import windowStateKeeper from 'electron-window-state';
 import { join } from 'path';
+import { buildContentSecurityPolicy } from './csp';
 
 // Define components for a watcher to detect when the webapp is changed so we can reload in Dev mode.
 const reloadWatcher = {
@@ -243,31 +244,12 @@ export class ElectronCapacitorApp {
 }
 
 // Set a CSP up for our application based on the custom scheme.
-// Extended beyond the scaffold default so the renderer can:
-//   - hit Supabase (REST + realtime websockets + storage CDN)
-//   - load Google Fonts CSS + font files
-//   - run Google OAuth flows that we hand off to the OAuth popup
-//   - render images from Supabase storage / user avatars / accent assets
 export function setupContentSecurityPolicy(customScheme: string): void {
-  const supabase = 'https://*.supabase.co wss://*.supabase.co';
-  const fonts = 'https://fonts.googleapis.com https://fonts.gstatic.com';
-  const oauth = 'https://accounts.google.com https://*.googleusercontent.com';
-
-  const directives = [
-    `default-src ${customScheme}://* 'unsafe-inline' 'unsafe-eval' data: blob:`,
-    `connect-src ${customScheme}://* ${supabase} ${oauth} 'self' data: blob:`,
-    `style-src ${customScheme}://* ${fonts} 'unsafe-inline'`,
-    `font-src ${customScheme}://* ${fonts} data:`,
-    `img-src ${customScheme}://* ${supabase} ${oauth} https: data: blob:`,
-    `script-src ${customScheme}://* 'unsafe-inline' 'unsafe-eval'${electronIsDev ? ' devtools://*' : ''}`,
-    `media-src ${customScheme}://* ${supabase} https: data: blob:`,
-  ];
-
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [directives.join('; ')],
+        'Content-Security-Policy': [buildContentSecurityPolicy(customScheme, electronIsDev)],
       },
     });
   });

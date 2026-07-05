@@ -75,7 +75,7 @@ export default function TimerControls({ size = "md" }) {
     <div className="flex items-center gap-3">
       <button
         type="button"
-        onClick={resetTimer}
+        onClick={() => resetTimer()}
         disabled={disabled}
         title="Reset"
         className={`${sz.reset} rounded-full inline-flex items-center justify-center transition-colors ${
@@ -87,7 +87,7 @@ export default function TimerControls({ size = "md" }) {
       {isInTransition ? (
         <button
           type="button"
-          onClick={skipTransition}
+          onClick={() => skipTransition()}
           disabled={disabled}
           className={`${sz.play} rounded-full text-white shadow-lg inline-flex items-center justify-center transition-all ${
             disabled ? "opacity-40 cursor-default" : ""
@@ -99,7 +99,7 @@ export default function TimerControls({ size = "md" }) {
       ) : (
         <button
           type="button"
-          onClick={toggleRun}
+          onClick={() => toggleRun()}
           disabled={disabled}
           className={`${sz.play} rounded-full text-white shadow-lg inline-flex items-center justify-center transition-all ${
             disabled ? "opacity-40 cursor-default" : ""

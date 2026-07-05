@@ -126,7 +126,7 @@ function refreshTrayUi() {
     tray.setToolTip("Mangodoro");
   } else {
     const remainingMs = Math.max(0, state.endsAtMs - Date.now());
-    tray.setTitle(formatMMSS(remainingMs));
+    tray.setTitle(formatTrayTitle(state.mode, remainingMs));
     tray.setToolTip(`${state.label} · ${formatMMSS(remainingMs)} remaining`);
   }
 }
@@ -176,6 +176,11 @@ function formatMMSS(ms: number) {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+export function formatTrayTitle(mode: Mode, ms: number) {
+  const symbol = mode === "work" ? "●" : "○";
+  return `${symbol} ${formatMMSS(ms)}`;
 }
 
 function buildTrayImage(_state: TimerState | null) {

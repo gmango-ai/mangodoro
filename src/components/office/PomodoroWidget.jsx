@@ -71,7 +71,7 @@ export default function PomodoroWidget({ dark }) {
         {canControl ? (
           <div className="flex gap-1.5">
             <Button
-              onClick={toggleRun}
+              onClick={() => toggleRun()}
               size="sm"
               variant={isRunning ? "outline" : "default"}
               className="flex-1"
@@ -83,7 +83,7 @@ export default function PomodoroWidget({ dark }) {
               )}
             </Button>
             <Button
-              onClick={resetTimer}
+              onClick={() => resetTimer()}
               size="sm"
               variant="outline"
               title="Reset timer"

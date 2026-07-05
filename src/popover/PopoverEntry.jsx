@@ -14,6 +14,7 @@ import TimerControls from "../components/pomodoro/TimerControls";
 import SessionDots from "../components/pomodoro/SessionDots";
 import QuickActionsPopover from "./QuickActionsPopover";
 import ErrorBoundary from "../components/ErrorBoundary";
+import { restoreElectronAuthSession } from "../electron/authSessionBridge";
 
 // Signed-out menubar popover: a compact, no-account local timer (same shared
 // components as the app) instead of a dead "sign in first" message. Mirrors the
@@ -83,9 +84,53 @@ export default function PopoverEntry() {
   const [session, setSession] = useState(undefined);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => data.subscription.unsubscribe();
+    let cancelled = false;
+
+    async function adoptElectronSession(payload) {
+      if (cancelled) return;
+      if (!payload) {
+        setSession(null);
+        return;
+      }
+      try {
+        const restored = await restoreElectronAuthSession(supabase, payload);
+        if (!cancelled) setSession(restored ?? null);
+      } catch (e) {
+        console.warn("[popover] failed to restore Electron auth session", e);
+        if (!cancelled) setSession(null);
+      }
+    }
+
+    async function resolveInitialSession() {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (data.session) {
+        setSession(data.session);
+        return;
+      }
+
+      const payload = await window.__electronAuthBridge?.getSession?.();
+      if (cancelled) return;
+      if (payload) {
+        await adoptElectronSession(payload);
+      } else {
+        setSession(null);
+      }
+    }
+
+    resolveInitialSession();
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => {
+      if (!cancelled) setSession(s);
+    });
+    const unsubscribeElectron = window.__electronAuthBridge?.onSession?.((payload) => {
+      if (cancelled) return;
+      adoptElectronSession(payload);
+    });
+    return () => {
+      cancelled = true;
+      data.subscription.unsubscribe();
+      unsubscribeElectron?.();
+    };
   }, []);
 
   if (session === undefined) {

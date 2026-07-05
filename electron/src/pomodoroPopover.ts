@@ -1,6 +1,11 @@
 import { app, BrowserWindow, ipcMain, screen, Tray } from "electron";
 import path from "path";
 import { pushTimerStateToPopover } from "./timerBridge";
+import {
+  computeAnchoredPopoverPosition,
+  computeFallbackPopoverPosition,
+  hasUsableBounds,
+} from "./pomodoroPopoverPosition";
 
 // Menubar popover BrowserWindow — Spark-style. Frameless, hides on
 // blur, repositions under the tray icon on every show, stays alive
@@ -147,23 +152,19 @@ function togglePopover(hooks: PopoverHooks) {
 // unknown so we fall back to top-right of the primary display.
 function positionUnderTray(win: BrowserWindow, tray: Tray | null) {
   const winBounds = win.getBounds();
-  const display = screen.getPrimaryDisplay().workArea;
 
   if (tray) {
     const trayBounds = tray.getBounds();
-    if (trayBounds.width > 0 && trayBounds.height > 0) {
-      let x = Math.round(trayBounds.x + trayBounds.width / 2 - winBounds.width / 2);
-      let y = Math.round(trayBounds.y + trayBounds.height + 6);
-      // Keep within the work area so we don't render off-screen.
-      x = Math.max(display.x + 8, Math.min(x, display.x + display.width - winBounds.width - 8));
-      y = Math.max(display.y + 8, y);
-      win.setPosition(x, y, false);
+    if (hasUsableBounds(trayBounds)) {
+      const display = screen.getDisplayMatching(trayBounds).workArea;
+      const position = computeAnchoredPopoverPosition(winBounds, trayBounds, display);
+      win.setPosition(position.x, position.y, false);
       return;
     }
   }
 
   // Fallback: top-right corner.
-  const x = display.x + display.width - winBounds.width - 16;
-  const y = display.y + 16;
-  win.setPosition(x, y, false);
+  const display = screen.getPrimaryDisplay().workArea;
+  const position = computeFallbackPopoverPosition(winBounds, display);
+  win.setPosition(position.x, position.y, false);
 }

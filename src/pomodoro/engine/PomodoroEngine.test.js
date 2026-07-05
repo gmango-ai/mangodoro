@@ -236,6 +236,27 @@ describe("PomodoroEngine attach/detach", () => {
   });
 });
 
+describe("PomodoroEngine command execution", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns async reset work so command relay waits for completion", async () => {
+    const engine = new PomodoroEngine("test-user-id");
+    let resolveFlush;
+    const flushPromise = new Promise((resolve) => {
+      resolveFlush = resolve;
+    });
+    vi.spyOn(engine, "_doFlush").mockReturnValue(flushPromise);
+
+    const result = engine._executeCommand("resetTimer");
+
+    expect(result).toBe(flushPromise);
+    resolveFlush();
+    await expect(result).resolves.toBeUndefined();
+  });
+});
+
 describe("PomodoroEngine phase alarms", () => {
   let lsStore;
 
@@ -346,6 +367,41 @@ describe("PomodoroEngine phase alarms", () => {
     await engine._maybePlaySyncPhaseSound("work", prevPhase, Date.now() - 1000);
 
     expect(playCompletionSoundMock).not.toHaveBeenCalled();
+  });
+
+  it("starts the long break directly after the fourth completed focus session", async () => {
+    tabLeaderMock.getIsLeader.mockReturnValue(true);
+    supabase.from.mockImplementation(() => {
+      const c = {
+        select: vi.fn(),
+        upsert: vi.fn(),
+        single: vi.fn().mockResolvedValue({ data: {}, error: null }),
+      };
+      c.upsert.mockReturnValue(c);
+      c.select.mockReturnValue(c);
+      return c;
+    });
+    const engine = new PomodoroEngine("test-user-id");
+    engine._leaderLifecycleActive = true;
+    engine._state.isRunning = true;
+    engine._state.secondsLeft = 0;
+    engine._state.mode = "work";
+    engine._state.sessions = 3;
+    engine._state.pendingMode = null;
+    engine._refs.modeRef.current = "work";
+    engine._refs.sessionsRef.current = 3;
+    engine._refs.pendingModeRef.current = null;
+    engine._refs.endsAtMsRef.current = Date.now();
+
+    engine._runCompletionCheck();
+    await Promise.resolve();
+
+    expect(engine._state.mode).toBe("longBreak");
+    expect(engine._state.pendingMode).toBe(null);
+    expect(engine._state.secondsLeft).toBe(900);
+    expect(engine._state.isRunning).toBe(true);
+    expect(playCompletionSoundMock).toHaveBeenCalledTimes(1);
+    expect(playCompletionSoundMock.mock.calls[0][1]).toMatchObject({ event: "work" });
   });
 });
 

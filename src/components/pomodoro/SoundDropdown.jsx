@@ -17,16 +17,15 @@ import SoundLibrary from "../SoundLibrary";
 //   🔊 Alert Sound                 [ Soft Bell ▾ ]
 //
 // Click → expands the full SoundLibrary in a panel below (categories,
-// focus vs break selection, custom user/team sounds) plus the
-// auto-transition toggle. Best of both: clean surface chrome on the
-// closed state, the rich library when the user actually wants to
-// pick.
+// focus vs break selection, custom user/team sounds). Best of both:
+// clean surface chrome on the closed state, the rich library when the
+// user actually wants to pick.
 export default function SoundDropdown({ label = "Alert Sound" }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { settings } = useApp();
   const { teamSounds } = useTeam();
-  const { isSynced, isController, autoTransition, setAutoTransition } = usePomodoro();
+  const { isSynced, isController } = usePomodoro();
   const [open, setOpen] = useState(false);
   const [soundSettings, setSoundSettings] = useState(() => loadPomodoroSoundSettings());
   const wrapperRef = useRef(null);
@@ -97,30 +96,6 @@ export default function SoundDropdown({ label = "Alert Sound" }) {
             onSelectBreak={(presetId) => update({ breakEndPreset: presetId })}
             onUpdateSettings={update}
           />
-          <label
-            className={`flex items-center justify-between gap-2 rounded-xl border p-3 text-xs ${
-              dark
-                ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-300"
-                : "bg-white border-slate-200 text-slate-600"
-            }`}
-          >
-            <span>5-second countdown before breaks</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoTransition}
-              onClick={() => setAutoTransition(!autoTransition)}
-              className={`shrink-0 w-9 h-5 rounded-full relative transition-colors ${
-                autoTransition ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                  autoTransition ? "translate-x-4" : ""
-                }`}
-              />
-            </button>
-          </label>
         </div>
       )}
     </div>
