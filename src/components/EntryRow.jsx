@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 import TimeSelect from "./TimeSelect";
@@ -37,6 +37,11 @@ export default function EntryRow({ entry, index }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const isEditing = inlineEditId === entry.id;
+
+  const entryProjects = useMemo(
+    () => (entry.project_ids || []).map((id) => projects.find((p) => p.id === id)).filter(Boolean),
+    [entry.project_ids, projects]
+  );
 
   const inputClass = `w-full px-4 py-3 rounded-lg text-sm transition-all focus:outline-none focus:ring-2 ${
     dark
@@ -199,7 +204,6 @@ export default function EntryRow({ entry, index }) {
   }
 
   const bm = unpaidBreakMins(entry);
-  const entryProjects = (entry.project_ids || []).map((id) => projects.find((p) => p.id === id)).filter(Boolean);
 
   const startH = timeToHour(entry.start);
   const endH = timeToHour(entry.end);

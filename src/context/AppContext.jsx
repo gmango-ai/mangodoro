@@ -162,7 +162,7 @@ export function AppProvider({ session, children }) {
         // cross-device because it lives in Postgres.
         fetchCurrentTaskSegment().then(({ data: seg }) => {
           if (seg) setCurrentTask({ id: seg.id, description: seg.description, started_at: seg.started_at });
-        });
+        }).catch((e) => console.warn("fetchCurrentTaskSegment:", e?.message || e));
       } else if (dbClock?.stopped === true) {
         clockInFromDBRef.current = true;
         setClockIn(null);
@@ -328,7 +328,7 @@ export function AppProvider({ session, children }) {
       // Refresh the open task too — another tab may have switched it.
       fetchCurrentTaskSegment().then(({ data: seg }) => {
         setCurrentTask(seg ? { id: seg.id, description: seg.description, started_at: seg.started_at } : null);
-      });
+      }).catch((e) => console.warn("fetchCurrentTaskSegment:", e?.message || e));
     }
     function onVisible() { if (!document.hidden) syncFromDB(); }
     document.addEventListener("visibilitychange", onVisible);
@@ -397,7 +397,9 @@ export function AppProvider({ session, children }) {
       user_id: session.user.id,
       google_access_token: session.provider_token,
       google_token_expiry: expiry,
-    }, { onConflict: "user_id" }).then();
+    }, { onConflict: "user_id" }).then(({ error }) => {
+      if (error) console.warn("save google token:", error.message);
+    });
   }, [session?.provider_token]);
 
   // ── Clock tick ───────────────────────────────────────────────
@@ -419,7 +421,9 @@ export function AppProvider({ session, children }) {
     localStorage.setItem("ql_clock_in", JSON.stringify(data));
     setClockIn(data);
     if (session?.user?.id) {
-      supabase.from("user_settings").update({ active_clock: data }).eq("user_id", session.user.id).then();
+      supabase.from("user_settings").update({ active_clock: data }).eq("user_id", session.user.id).then(({ error }) => {
+        if (error) console.warn("sync active_clock:", error.message);
+      });
       // Open the first task segment for this clock-in. Empty description
       // is fine — the user can name it after the fact via switchTask.
       startTaskSegment(taskDescription || "").then(({ data: id }) => {
@@ -505,7 +509,9 @@ export function AppProvider({ session, children }) {
     localStorage.removeItem("ql_clock_in");
     setClockIn(null);
     if (session?.user?.id) {
-      supabase.from("user_settings").update({ active_clock: { stopped: true } }).eq("user_id", session.user.id).then();
+      supabase.from("user_settings").update({ active_clock: { stopped: true } }).eq("user_id", session.user.id).then(({ error }) => {
+        if (error) console.warn("sync active_clock:", error.message);
+      });
       // Close the open segment immediately so its ended_at reflects
       // the actual clock-out time rather than the form-submit time.
       stopTaskSegment().catch(() => {});
@@ -514,23 +520,19 @@ export function AppProvider({ session, children }) {
     return prefilled;
   }
 
-  function clockedElapsed() {
-    if (!clockIn?.start) return "";
-    const [sh, sm] = clockIn.start.split(":").map(Number);
+  // Human elapsed time since a same-day "HH:MM" start.
+  function elapsedSince(startStr) {
+    if (!startStr) return "";
+    const [sh, sm] = startStr.split(":").map(Number);
     const now = new Date();
     const diff = now.getHours() * 60 + now.getMinutes() - (sh * 60 + sm);
     if (diff <= 0) return "0m";
     return diff >= 60 ? `${Math.floor(diff / 60)}h ${diff % 60}m` : `${diff}m`;
   }
 
-  function breakElapsed() {
-    if (!clockIn?.activeBreak) return "";
-    const [sh, sm] = clockIn.activeBreak.start.split(":").map(Number);
-    const now = new Date();
-    const diff = now.getHours() * 60 + now.getMinutes() - (sh * 60 + sm);
-    if (diff <= 0) return "0m";
-    return diff >= 60 ? `${Math.floor(diff / 60)}h ${diff % 60}m` : `${diff}m`;
-  }
+  function clockedElapsed() { return elapsedSince(clockIn?.start); }
+
+  function breakElapsed() { return elapsedSince(clockIn?.activeBreak?.start); }
 
   // Switch the open task to a new description. Closes the existing
   // open segment and opens a new one in a single RPC call.
@@ -906,9 +908,12 @@ export function AppProvider({ session, children }) {
   }
 
   // ── Flash message ────────────────────────────────────────────
+  const flashTimerRef = useRef(null);
+  useEffect(() => () => { if (flashTimerRef.current) clearTimeout(flashTimerRef.current); }, []);
   function flash(msg) {
     setExportMsg(msg);
-    setTimeout(() => setExportMsg(""), 2500);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setExportMsg(""), 2500);
   }
 
   // ── Export / import ──────────────────────────────────────────
@@ -1279,7 +1284,11 @@ export function AppProvider({ session, children }) {
     setSettings((prev) => {
       const cur = prev.onboarding && typeof prev.onboarding === "object" ? prev.onboarding : {};
       const next = mutate(cur) || cur;
-      supabase.from("user_settings").update({ onboarding: next }).eq("user_id", session.user.id);
+      // NOTE: postgrest builders are lazy — without .then() the request
+      // never fires, so this .then() is what actually executes the write.
+      supabase.from("user_settings").update({ onboarding: next }).eq("user_id", session.user.id).then(({ error }) => {
+        if (error) console.warn("save onboarding:", error.message);
+      });
       return { ...prev, onboarding: next };
     });
   }, [session?.user?.id]);

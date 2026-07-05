@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Video, MessageSquare, PenLine, Timer, Users } from "lucide-react";
 import RoomChatPanel from "../../RoomChatPanel";
 import RoomWhiteboardPanel from "./RoomWhiteboardPanel";
 import DevicePortalCall from "../../video/DevicePortalCall";
 import UserAvatar from "../../UserAvatar";
+import { formatClock } from "../../../lib/utils";
+import { useVisibilityPausedInterval } from "../../../hooks/useVisibilityPausedInterval";
 
 // The KIOSK panel registry — the device-side counterpart to panels.jsx
 // (ROOM_PANELS). Same shape ({ id, title, icon, min, render(ctx) }) so it drops
@@ -16,21 +18,15 @@ import UserAvatar from "../../UserAvatar";
 
 const MODE_LABEL = { work: "Focus", shortBreak: "Short break", longBreak: "Long break" };
 
-function fmtClock(s) {
-  const mm = String(Math.floor(Math.max(0, s) / 60)).padStart(2, "0");
-  const ss = String(Math.max(0, s) % 60).padStart(2, "0");
-  return `${mm}:${ss}`;
-}
-
 // Self-ticking so the layout doesn't have to re-render every second — the panel
 // owns its countdown from the session's ends_at (running) or remaining_seconds.
 function DeviceTimerPanel({ sess }) {
   const [, force] = useState(0);
-  useEffect(() => {
-    if (!sess?.is_running) return undefined;
-    const id = setInterval(() => force((n) => (n + 1) % 1e9), 500);
-    return () => clearInterval(id);
-  }, [sess?.is_running, sess?.ends_at]);
+  useVisibilityPausedInterval(
+    () => force((n) => (n + 1) % 1e9),
+    1000,
+    { enabled: !!sess?.is_running }
+  );
 
   const secondsLeft = (() => {
     if (!sess) return 0;
@@ -52,7 +48,7 @@ function DeviceTimerPanel({ sess }) {
             className="font-bold tabular-nums leading-none"
             style={{ fontSize: "clamp(2.5rem, 14vw, 9rem)", fontFamily: "'Parkinsans', sans-serif", letterSpacing: "0.01em" }}
           >
-            {fmtClock(secondsLeft)}
+            {formatClock(secondsLeft, { padMinutes: true })}
           </div>
         </>
       ) : (

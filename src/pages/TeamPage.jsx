@@ -36,6 +36,7 @@ import RoomSettingsModal from "../components/RoomSettingsModal";
 import OrgDevicesPanel from "../components/OrgDevicesPanel";
 import { joinSyncSession } from "../lib/syncSession";
 import { getShareableBaseUrl } from "../lib/platform";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
 import { compressImage } from "../lib/imageCompress";
@@ -86,8 +87,7 @@ export default function TeamPage() {
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedInvite, copyInvite] = useCopyToClipboard(2000);
   // Which org_team's member-management modal is open. Null = none.
   const [hrMember, setHrMember] = useState(null);
 // Per-member team-management modal — "what teams is Jacob on?". The
@@ -246,17 +246,13 @@ export default function TeamPage() {
 
   async function handleCopyCode() {
     if (!activeTeam?.invite_code) return;
-    await navigator.clipboard.writeText(activeTeam.invite_code);
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
+    await copyInvite(activeTeam.invite_code, "code");
   }
 
   async function handleCopyLink() {
     if (!activeTeam?.invite_code) return;
     const link = `${getShareableBaseUrl()}/team/join/${activeTeam.invite_code}`;
-    await navigator.clipboard.writeText(link);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
+    await copyInvite(link, "link");
   }
 
   async function handleRegenerateCode() {
@@ -547,8 +543,8 @@ export default function TeamPage() {
             onCopyCode={handleCopyCode}
             onCopyLink={handleCopyLink}
             onRegenerate={handleRegenerateCode}
-            copiedCode={copiedCode}
-            copiedLink={copiedLink}
+            copiedCode={copiedInvite === "code"}
+            copiedLink={copiedInvite === "link"}
             memberCount={teamMembers.length}
           />
           )}

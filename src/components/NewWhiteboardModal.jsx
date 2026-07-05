@@ -4,6 +4,7 @@ import { useApp } from "../context/AppContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, PenLine, Check, Users, User as UserIcon } from "lucide-react";
+import Modal from "./Modal";
 import {
   createWhiteboard,
   listWhiteboardTemplates,
@@ -93,13 +94,7 @@ export default function NewWhiteboardModal({ open, onClose, teamId, onCreated })
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4"
-      onClick={onClose}
-      onKeyDown={(e) => { if (e.key === "Escape") onClose?.(); }}
-      role="dialog"
-      aria-modal="true"
-    >
+    <Modal onClose={onClose}>
       <form className={cardCls} onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <button
           type="button"
@@ -184,6 +179,6 @@ export default function NewWhiteboardModal({ open, onClose, teamId, onCreated })
           </Button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "./ThemeContext";
 import ProfileCard from "../components/profile/ProfileCard";
@@ -22,6 +22,7 @@ export function ProfileProvider({ children }) {
 
   const openProfile = useCallback((userId, rect) => { if (userId) setOpen({ userId, rect: rect || null }); }, []);
   const close = useCallback(() => setOpen(null), []);
+  const value = useMemo(() => ({ openProfile, close }), [openProfile, close]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -45,7 +46,7 @@ export function ProfileProvider({ children }) {
   }
 
   return (
-    <ProfileCtx.Provider value={{ openProfile, close }}>
+    <ProfileCtx.Provider value={value}>
       {children}
       {open && (
         <div

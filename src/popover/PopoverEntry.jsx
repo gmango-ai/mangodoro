@@ -14,7 +14,7 @@ import TimerControls from "../components/pomodoro/TimerControls";
 import SessionDots from "../components/pomodoro/SessionDots";
 import QuickActionsPopover from "./QuickActionsPopover";
 import ErrorBoundary from "../components/ErrorBoundary";
-import { restoreElectronAuthSession } from "../electron/authSessionBridge";
+import { usePopoverAutoResize } from "./usePopoverAutoResize";
 
 // Signed-out menubar popover: a compact, no-account local timer (same shared
 // components as the app) instead of a dead "sign in first" message. Mirrors the
@@ -30,18 +30,7 @@ function PopoverLocalTimer() {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
-  useEffect(() => {
-    const bridge = window.__electronPopover;
-    if (!bridge?.resize) return undefined;
-    const el = containerRef.current;
-    if (!el) return undefined;
-    const ro = new ResizeObserver((entries) => {
-      const h = Math.ceil(entries[0].contentRect.height);
-      if (h > 0) bridge.resize(h);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  usePopoverAutoResize(containerRef);
 
   return (
     <LocalPomodoroProvider>

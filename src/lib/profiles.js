@@ -10,13 +10,23 @@ export async function getProfile(userId) {
   return data || null;
 }
 
-export async function getProfiles(ids) {
+async function fetchProfilesMap(ids, columns) {
   const list = [...new Set((ids || []).filter(Boolean))];
   if (!list.length) return {};
-  const { data } = await supabase.from("profiles").select("*").in("user_id", list);
+  const { data } = await supabase.from("profiles").select(columns).in("user_id", list);
   const map = {};
   (data || []).forEach((p) => { map[p.user_id] = p; });
   return map;
+}
+
+export async function getProfiles(ids) {
+  return fetchProfilesMap(ids, "*");
+}
+
+// Lean identity fetch — for callers that only render name + avatar and don't
+// need the schedule/OOO/availability columns.
+export async function getProfilesBasic(ids) {
+  return fetchProfilesMap(ids, "user_id, display_name, avatar_url");
 }
 
 export async function updateMyProfile(userId, patch) {

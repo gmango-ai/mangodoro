@@ -1,6 +1,7 @@
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { isMobileApp, getPlatform } from "./platform";
+import { blobToBase64 } from "./utils";
 import { USER_SOUND_PREFIX, TEAM_SOUND_PREFIX } from "./pomodoroSound";
 
 // All scheduling for the pomodoro alarm shares one ID so a new schedule
@@ -200,15 +201,3 @@ function extensionFromUrl(url) {
   }
 }
 
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      const comma = dataUrl.indexOf(",");
-      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : "");
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}

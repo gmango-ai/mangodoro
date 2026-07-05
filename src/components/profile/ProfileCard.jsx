@@ -8,6 +8,7 @@ import FollowButton from "../FollowButton";
 import { presenceDot, presenceLabel } from "../../lib/presence";
 import { getProfile } from "../../lib/profiles";
 import { getUserWorkSummary } from "../../lib/workStatus";
+import { useVisibilityPausedInterval } from "../../hooks/useVisibilityPausedInterval";
 import { availability, isOutOfOfficeAny, tzAbbrev } from "../../lib/timezone";
 import { formatDuration } from "../../lib/utils";
 
@@ -32,10 +33,7 @@ export default function ProfileCard({ userId, onOpenFull }) {
     return () => { on = false; };
   }, [userId]);
 
-  useEffect(() => {
-    const id = setInterval(() => force((n) => n + 1), 30000);
-    return () => clearInterval(id);
-  }, []);
+  useVisibilityPausedInterval(() => force((n) => n + 1), 30000);
 
   const isMe = session?.user?.id === userId;
   const { label: localTime, badge: hoursBadge, loc } = availability(profile || {});

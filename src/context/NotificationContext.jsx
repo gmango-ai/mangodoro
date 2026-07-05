@@ -56,6 +56,12 @@ export function NotificationProvider({ children }) {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const notificationIdsRef = useRef(new Set());
+  // Pending toast auto-dismiss timers — cleared on provider unmount.
+  const toastTimersRef = useRef(new Set());
+  useEffect(() => () => {
+    for (const t of toastTimersRef.current) clearTimeout(t);
+    toastTimersRef.current.clear();
+  }, []);
 
   const dismissToast = useCallback((id) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
@@ -95,7 +101,11 @@ export function NotificationProvider({ children }) {
     if (surfaces.toast) {
       const id = _toastSeq++;
       setToasts((t) => [...t, { id, n }].slice(-4));
-      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
+      const timer = setTimeout(() => {
+        toastTimersRef.current.delete(timer);
+        setToasts((t) => t.filter((x) => x.id !== id));
+      }, 6000);
+      toastTimersRef.current.add(timer);
       if (surfaces.sound) playForNotification(n.type);
     }
     if (surfaces.os) {
@@ -151,6 +161,9 @@ export function NotificationProvider({ children }) {
     await apiClearAll();
   }, []);
 
-  const value = { items, unread, toasts, dismissToast, markRead, markAllRead, clearOne, clearAll };
+  const value = useMemo(
+    () => ({ items, unread, toasts, dismissToast, markRead, markAllRead, clearOne, clearAll }),
+    [items, unread, toasts, dismissToast, markRead, markAllRead, clearOne, clearAll],
+  );
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }

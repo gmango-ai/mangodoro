@@ -147,6 +147,27 @@ export function formatSince(start, now = Date.now()) {
   return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
 }
 
+// Countdown/timer display from seconds — "m:ss", or "mm:ss" with padMinutes.
+export function formatClock(totalSeconds, { padMinutes = false } = {}) {
+  const s = Math.max(0, Math.floor(totalSeconds || 0));
+  const m = Math.floor(s / 60);
+  return `${padMinutes ? String(m).padStart(2, "0") : m}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// "just now" / "Xm ago" / "Xh ago" / "Xd ago" — for last-seen stamps.
+// Accepts epoch ms or an ISO string; `now` is injectable for tests.
+export function formatAgo(start, now = Date.now()) {
+  if (start == null) return "";
+  const startMs = typeof start === "number" ? start : new Date(start).getTime();
+  if (!Number.isFinite(startMs)) return "";
+  const mins = Math.floor((now - startMs) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.floor(mins / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 export function formatMoney(amount) {
   return "$" + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
@@ -177,6 +198,14 @@ export function toDisplayTime(val) {
   const period = h < 12 ? "AM" : "PM";
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
+}
+
+// Short random id for channel names / temp keys (crypto-backed when available).
+export function randomId(len = 8) {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID().replace(/-/g, "").slice(0, len);
+  }
+  return Math.random().toString(36).slice(2, 2 + len);
 }
 
 // ── Date helpers ─────────────────────────────────────────────
@@ -274,7 +303,7 @@ export async function downloadFile(blob, filename) {
 // FileReader gives us a base64 string without blowing the JS stack on
 // larger blobs — btoa(String.fromCharCode(...uint8)) chokes around a
 // few MB, which timesheet XLSX exports can hit.
-function blobToBase64(blob) {
+export function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
