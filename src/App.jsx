@@ -146,15 +146,31 @@ function AppLayout({ session }) {
   // the alert carried; also drains a route captured before the listener existed
   // (cold launch straight from the notification). No-op off iOS.
   useEffect(() => {
+    let disposed = false;
     let handle;
+    let lastHandledRoute = null;
+    let dedupeTimer;
+    const navigateToNotificationRoute = (url) => {
+      if (disposed || typeof url !== "string" || !url.startsWith("/") || url === lastHandledRoute) return;
+      lastHandledRoute = url;
+      clearTimeout(dedupeTimer);
+      dedupeTimer = setTimeout(() => {
+        if (lastHandledRoute === url) lastHandledRoute = null;
+      }, 1000);
+      navigate(url);
+    };
     (async () => {
-      handle = await addNotificationTapListener((url) => {
-        if (typeof url === "string" && url.startsWith("/")) navigate(url);
-      });
+      handle = await addNotificationTapListener(navigateToNotificationRoute);
+      if (disposed) {
+        handle?.remove?.();
+        return;
+      }
       const pending = await consumePendingNotificationRoute();
-      if (pending && pending.startsWith("/")) navigate(pending);
+      navigateToNotificationRoute(pending);
     })();
     return () => {
+      disposed = true;
+      clearTimeout(dedupeTimer);
       handle?.remove?.();
     };
   }, [navigate]);
