@@ -531,12 +531,12 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandle
     /// Called from the Settings "Push when the app is closed" toggle.
     @objc func requestNotificationPermission(_ call: CAPPluginCall) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-            if granted {
-                DispatchQueue.main.async {
+            DispatchQueue.main.async {
+                if granted {
                     UIApplication.shared.registerForRemoteNotifications()
                 }
+                call.resolve(["granted": granted])
             }
-            call.resolve(["granted": granted])
         }
     }
 
@@ -555,7 +555,9 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandle
             @unknown default:
                 status = "prompt"
             }
-            call.resolve(["status": status])
+            DispatchQueue.main.async {
+                call.resolve(["status": status])
+            }
         }
     }
 
