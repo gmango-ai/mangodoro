@@ -19,6 +19,7 @@ import PendingActionBanner from "./PendingActionBanner";
 import AlarmStopBanner from "./AlarmStopBanner";
 import MeetingCountdown from "./MeetingCountdown";
 import GoalsList from "../GoalsList";
+import StatusChip from "../StatusChip";
 import { useWeekGoals } from "../../hooks/useWeekGoals";
 import { useTimerTitleAndBadge } from "./useTimerTitleAndBadge";
 import {
@@ -319,6 +320,13 @@ export default function PomodoroSurface({
         <div className="space-y-4">
           {/* Mode picker — pill tabs */}
           <ModePicker />
+
+          {/* Unified status — glanceable resolved status right on the timer
+              surface, click to set an override. Ties the status system to the
+              pomodoro clock so "what I'm doing" travels with your focus. */}
+          <div className="flex justify-center">
+            <StatusChip />
+          </div>
 
           {/* Pending action confirm */}
           {controlsLocked && <PendingActionBanner />}

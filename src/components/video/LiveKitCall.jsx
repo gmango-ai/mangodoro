@@ -1733,6 +1733,15 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   const micOff = !!participant && participant.isMicrophoneEnabled === false;
   const dispName = participant?.name || participant?.identity || "Guest";
   const initial = (dispName.trim()[0] || "?").toUpperCase();
+  // Camera-off tile shows the person's profile photo, with initials as the
+  // fallback (guest, no photo, or a load error). Identity == user_id.
+  const { teamMembers } = useTeam();
+  const avatarSrc = useMemo(
+    () => (teamMembers || []).find((tm) => tm.user_id === participant?.identity)?.avatar_url || null,
+    [teamMembers, participant?.identity]
+  );
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  useEffect(() => { setAvatarFailed(false); }, [avatarSrc]);
   // Amber for whoever carries the room's audio I/O — the device, the current mic
   // source, or the speakers — muted chip for the rest.
   const active = !!role && (role.isDevice || role.isMicSource || role.isAudioSink);
@@ -1810,14 +1819,15 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
         )}
       </div>
 
-      {/* Camera-off: an initials avatar over LiveKit's default silhouette. */}
+      {/* Camera-off: the person's profile photo over LiveKit's default
+          silhouette, with an initials avatar as the fallback. */}
       {camOff && (
         <div
           className="absolute inset-0 z-[1] flex items-center justify-center"
           style={{ background: "radial-gradient(circle at 50% 36%, #1b2840, #0b1220)" }}
         >
           <div
-            className="rounded-full flex items-center justify-center text-white font-semibold ring-1 ring-white/10 shadow-lg"
+            className="rounded-full flex items-center justify-center overflow-hidden text-white font-semibold ring-1 ring-white/10 shadow-lg"
             style={{
               width: "clamp(44px, 26%, 116px)",
               aspectRatio: "1",
@@ -1825,7 +1835,16 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
               background: avatarGradient(participant?.identity || dispName),
             }}
           >
-            {initial}
+            {avatarSrc && !avatarFailed ? (
+              <img
+                src={avatarSrc}
+                alt=""
+                className="w-full h-full object-cover"
+                onError={() => setAvatarFailed(true)}
+              />
+            ) : (
+              initial
+            )}
           </div>
         </div>
       )}

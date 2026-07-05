@@ -1,5 +1,5 @@
 import { Video, MessageSquare, PenLine } from "lucide-react";
-import RoomChatPanel from "../../RoomChatPanel";
+import RoomChatPanel, { ChatHeaderActions } from "../../RoomChatPanel";
 import RoomVideoStage from "../../video/RoomVideoStage";
 import RoomWhiteboardPanel from "./RoomWhiteboardPanel";
 
@@ -28,7 +28,8 @@ export const ROOM_PANELS = {
     title: "Chat",
     icon: MessageSquare,
     min: 200,
-    render: ({ room, userId }) => <RoomChatPanel roomId={room.id} userId={userId} fillHeight />,
+    render: ({ room, userId }) => <RoomChatPanel roomId={room.id} userId={userId} fillHeight chromeless />,
+    headerActions: ({ room }) => <ChatHeaderActions roomId={room.id} />,
   },
   whiteboard: {
     id: "whiteboard",

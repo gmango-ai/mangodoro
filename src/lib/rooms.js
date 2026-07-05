@@ -7,7 +7,7 @@ export async function listRooms(teamId) {
   const { data, error } = await supabase
     .from("rooms")
     .select(`
-      id, team_id, name, kind, color, entry_policy, pin_policy, knock_enabled, created_by, created_at, archived_at,
+      id, team_id, name, kind, color, entry_policy, pin_policy, knock_enabled, whiteboard_locked, created_by, created_at, archived_at,
       layout_x, layout_y, layout_w, layout_h, max_duration_minutes,
       room_teams ( org_team_id )
     `)
@@ -171,6 +171,17 @@ export async function setRoomKnockEnabled(roomId, enabled) {
   const { error } = await supabase.rpc("set_room_knock_enabled", {
     p_room_id: roomId,
     p_enabled: !!enabled,
+  });
+  return { error };
+}
+
+// Lock the shared-whiteboard feature to managers only. Default false =
+// anyone in the room may attach / swap / detach the board. Server enforces the
+// manager check (owner / admin / gating-team lead).
+export async function setRoomWhiteboardLock(roomId, locked) {
+  const { error } = await supabase.rpc("set_room_whiteboard_lock", {
+    p_room_id: roomId,
+    p_locked: !!locked,
   });
   return { error };
 }

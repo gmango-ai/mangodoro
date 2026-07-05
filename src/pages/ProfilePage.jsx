@@ -5,6 +5,7 @@ import ProfileGoals from "../components/profile/ProfileGoals";
 import ProfileLunch from "../components/profile/ProfileLunch";
 import ProfileWorkSummary from "../components/profile/ProfileWorkSummary";
 import ProfilePresenceTimeline from "../components/profile/ProfilePresenceTimeline";
+import ProfilePomodoroTasks from "../components/profile/ProfilePomodoroTasks";
 import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 
@@ -35,6 +36,9 @@ export default function ProfilePage() {
       <div className="rounded-2xl border shadow-sm mt-3 p-3.5" style={cardStyle}>
         <ProfileGoals userId={userId} />
       </div>
+      {/* Focus tasks tracked from the "What did you work on?" popup — self only
+          (task_segments is own-rows). */}
+      {isMe && <ProfilePomodoroTasks cardStyle={cardStyle} />}
       {isMe && (
         <div className="rounded-2xl border shadow-sm mt-3 p-3.5" style={cardStyle}>
           <ProfileLunch />

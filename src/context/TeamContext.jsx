@@ -67,7 +67,7 @@ export function TeamProvider({ session, children }) {
     setTeamLoading(true);
     const { data, error } = await supabase
       .from("team_members")
-      .select("team_id, role, is_owner, teams(id, name, invite_code, created_by, created_at, icon_url, color, office_vibe, sounds_admin_only)")
+      .select("team_id, role, is_owner, teams(id, name, invite_code, created_by, created_at, icon_url, color, office_vibe, sounds_admin_only, channels_auto_join)")
       .eq("user_id", userId);
     setTeamLoading(false);
 
@@ -552,6 +552,7 @@ export function TeamProvider({ session, children }) {
     if (patch.color !== undefined) allowed.color = patch.color;
     if (patch.office_vibe !== undefined) allowed.office_vibe = patch.office_vibe;
     if (patch.sounds_admin_only !== undefined) allowed.sounds_admin_only = patch.sounds_admin_only;
+    if (patch.channels_auto_join !== undefined) allowed.channels_auto_join = patch.channels_auto_join;
     if (Object.keys(allowed).length === 0) return { data: null };
     const { data, error } = await supabase
       .from("teams")

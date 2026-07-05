@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { useTeamOptional } from "./TeamContext";
-import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead } from "../lib/messages";
+import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation, listChannelFolders, createChannelFolder, renameChannelFolder, deleteChannelFolder, reorderChannelFolders, setChannelFolder, placeChannel, setChannelMeta } from "../lib/messages";
 
 // Direct / group / channel messaging — in-app layer. One realtime channel on
 // dm_messages (RLS scopes delivery to my conversations + my channels) drives
@@ -25,7 +25,9 @@ export function MessagesProvider({ children }) {
   const team = useTeamOptional() || {};
   const activeTeamId = team.activeTeamId || null;
   const teamMembers = team.teamMembers || [];
+  const isTeamAdmin = !!team.isAdmin;
   const [conversations, setConversations] = useState([]);
+  const [folders, setFolders] = useState([]); // shared, team-wide channel folders (active org)
   const msgListeners = useRef(new Set());
   const reactionListeners = useRef(new Set());
   const reloadTimer = useRef(null);
@@ -34,6 +36,49 @@ export function MessagesProvider({ children }) {
     if (!userId) { setConversations([]); return; }
     setConversations(await listConversations(userId));
   }, [userId]);
+
+  const reloadFolders = useCallback(async () => {
+    if (!activeTeamId) { setFolders([]); return; }
+    setFolders(await listChannelFolders(activeTeamId));
+  }, [activeTeamId]);
+
+  useEffect(() => { reloadFolders(); }, [reloadFolders]);
+
+  const createFolder = useCallback(async (name) => {
+    if (!activeTeamId) return null;
+    const { id } = await createChannelFolder(activeTeamId, name);
+    if (id) await reloadFolders();
+    return id;
+  }, [activeTeamId, reloadFolders]);
+  const renameFolder = useCallback(async (id, name) => { await renameChannelFolder(id, name); await reloadFolders(); }, [reloadFolders]);
+  const deleteFolder = useCallback(async (id) => {
+    setFolders((prev) => prev.filter((f) => f.id !== id));
+    await deleteChannelFolder(id);
+    await Promise.all([reloadFolders(), reload()]);
+  }, [reloadFolders, reload]);
+  const reorderFolders = useCallback(async (ids) => {
+    setFolders((prev) => ids.map((id) => prev.find((f) => f.id === id)).filter(Boolean));
+    await reorderChannelFolders(ids);
+    await reloadFolders();
+  }, [reloadFolders]);
+  const assignFolder = useCallback(async (conversationId, folderId) => {
+    setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, folder_id: folderId || null } : c)));
+    await setChannelFolder(conversationId, folderId);
+    await reload();
+  }, [reload]);
+
+  // Drop a channel into a folder (or null) at a specific spot: update the moved
+  // channel's folder + rewrite folder_position for the whole target group so the
+  // manual order sticks. orderedIds = the target group's ids in their new order.
+  const placeChannelAt = useCallback(async (conversationId, folderId, orderedIds) => {
+    const pos = new Map((orderedIds || []).map((id, i) => [id, i]));
+    setConversations((prev) => prev.map((c) => {
+      if (c.id === conversationId) return { ...c, folder_id: folderId || null, folder_position: pos.get(c.id) ?? c.folder_position };
+      return pos.has(c.id) ? { ...c, folder_position: pos.get(c.id) } : c;
+    }));
+    await placeChannel(conversationId, folderId, orderedIds);
+    await reload();
+  }, [reload]);
 
   useEffect(() => {
     if (!userId) { setConversations([]); return undefined; }
@@ -96,10 +141,41 @@ export function MessagesProvider({ children }) {
     return id;
   }, [reload]);
 
-  const createChannel = useCallback(async (orgTeamId, title) => {
-    const { id } = await createOrgTeamChannel(orgTeamId, title);
-    if (id) await reload();
+  const createChannel = useCallback(async (orgTeamId, title, visibility = "org_team", announcement = false) => {
+    const { id } = await createOrgTeamChannel(orgTeamId, title, visibility);
+    if (id) {
+      if (announcement) await setChannelMeta(id, { postPolicy: "admins" });
+      await reload();
+    }
     return id;
+  }, [reload]);
+
+  // Browse open channels the user can join, and join one (then it lands in the
+  // inbox). Powers the "Browse channels" surface in the New-message sheet.
+  const browseChannels = useCallback(async () => {
+    const { data } = await listJoinableChannels();
+    return data;
+  }, []);
+  const joinOpenChannel = useCallback(async (conversationId) => {
+    const { error } = await joinChannel(conversationId);
+    if (!error) await reload();
+    return !error;
+  }, [reload]);
+
+  // Delete a channel/group for everyone (drop it from local state immediately,
+  // then reconcile). Leave/hide just removes it from MY inbox.
+  const deleteConversation = useCallback(async (convId) => {
+    const { error } = await apiDeleteConversation(convId);
+    if (!error) setConversations((prev) => prev.filter((c) => c.id !== convId));
+    await reload();
+    return !error;
+  }, [reload]);
+
+  const hideConversation = useCallback(async (convId) => {
+    setConversations((prev) => prev.filter((c) => c.id !== convId));
+    const { error } = await apiHideConversation(convId);
+    if (error) await reload();
+    return !error;
   }, [reload]);
 
   const markRead = useCallback(async (convId, kind = "dm") => {
@@ -120,7 +196,10 @@ export function MessagesProvider({ children }) {
 
   const value = {
     conversations, activeConversations, unread, unreadByOrg, reload,
-    startDm, createGroup, createChannel, markRead, subscribeMessages, subscribeReactions,
+    startDm, createGroup, createChannel, browseChannels, joinOpenChannel,
+    deleteConversation, hideConversation,
+    folders, isTeamAdmin, createFolder, renameFolder, deleteFolder, reorderFolders, assignFolder, placeChannelAt,
+    markRead, subscribeMessages, subscribeReactions,
   };
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;
 }
