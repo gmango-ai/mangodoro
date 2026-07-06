@@ -33,7 +33,7 @@ export default function ActionButtonsBar() {
           <button
             type="button"
             onClick={() => takeControl(syncSession.id)}
-            className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold transition-colors ${
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-full text-sm font-semibold transition-colors ${
               dark
                 ? "border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white"
                 : "border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white"
@@ -46,7 +46,7 @@ export default function ActionButtonsBar() {
         <button
           type="button"
           onClick={endSession}
-          className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold transition-colors ${
+          className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-full text-sm font-semibold transition-colors ${
             dark
               ? "border border-red-500/40 text-red-400 hover:bg-red-500/10"
               : "border border-red-200 text-red-600 hover:bg-red-50"
@@ -65,7 +65,7 @@ export default function ActionButtonsBar() {
         <button
           type="button"
           onClick={() => takeControl(syncSession.id)}
-          className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold transition-colors ${
+          className={`flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-full text-sm font-semibold transition-colors ${
             dark
               ? "border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white"
               : "border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white"
@@ -78,7 +78,7 @@ export default function ActionButtonsBar() {
       <button
         type="button"
         onClick={leaveSession}
-        className={`${isController ? "flex-1" : "flex-1"} inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold transition-colors ${
+        className={`${isController ? "flex-1" : "flex-1"} inline-flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-full text-sm font-semibold transition-colors ${
           dark
             ? "border border-red-500/40 text-red-400 hover:bg-red-500/10"
             : "border border-red-200 text-red-600 hover:bg-red-50"

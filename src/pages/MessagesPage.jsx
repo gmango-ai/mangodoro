@@ -215,7 +215,7 @@ function ReactionPills({ reactions, onToggle, onAdd, dark }) {
           key={emoji}
           type="button"
           onClick={() => onToggle(emoji, mine)}
-          className={`inline-flex items-center gap-1 px-1.5 h-6 rounded-full text-[12px] border transition-colors ${
+          className={`inline-flex items-center gap-1 px-1.5 h-7 sm:h-6 rounded-full text-[12px] border transition-colors ${
             mine ? "bg-[var(--color-accent-light)] border-[var(--color-accent)] text-[var(--color-accent)] font-semibold"
                  : dark ? "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10" : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200"
           }`}
@@ -224,8 +224,8 @@ function ReactionPills({ reactions, onToggle, onAdd, dark }) {
         </button>
       ))}
       <button type="button" onClick={(e) => onAdd(e.currentTarget)} aria-label="Add reaction"
-        className={`inline-flex items-center justify-center w-6 h-6 rounded-full border ${dark ? "border-white/10 text-slate-400 hover:bg-white/10" : "border-slate-200 text-slate-400 hover:bg-slate-100"}`}>
-        <SmilePlus className="w-3.5 h-3.5" />
+        className={`inline-flex items-center justify-center w-7 h-7 sm:w-6 sm:h-6 rounded-full border ${dark ? "border-white/10 text-slate-400 hover:bg-white/10" : "border-slate-200 text-slate-400 hover:bg-slate-100"}`}>
+        <SmilePlus className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
       </button>
     </div>
   );
@@ -327,7 +327,7 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
                     <Paperclip className="w-4 h-4 text-slate-400" /><span className="text-[8px] px-1 truncate max-w-full text-slate-400">{f.name}</span>
                   </div>}
               <button type="button" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} aria-label="Remove"
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center shadow"><X className="w-3 h-3" /></button>
+                className="absolute -top-1.5 -right-1.5 w-6 h-6 sm:w-5 sm:h-5 rounded-full bg-slate-800 text-white flex items-center justify-center shadow"><X className="w-3.5 h-3.5 sm:w-3 sm:h-3" /></button>
             </div>
           ))}
         </div>
@@ -345,8 +345,8 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
         {allowImages && <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files || []); e.target.value = ""; }} />}
         {allowImages && (
           <button type="button" onClick={() => fileRef.current?.click()} aria-label="Attach"
-            className={`shrink-0 w-9 h-9 rounded-xl inline-flex items-center justify-center ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
-            <Paperclip className="w-[18px] h-[18px]" />
+            className={`shrink-0 w-11 h-11 sm:w-9 sm:h-9 rounded-xl inline-flex items-center justify-center ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+            <Paperclip className="w-5 h-5 sm:w-[18px] sm:h-[18px]" />
           </button>
         )}
         <textarea
@@ -359,8 +359,8 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
           className={`flex-1 resize-none bg-transparent py-2 text-sm outline-none max-h-40 ${dark ? "text-slate-100 placeholder:text-slate-500" : "text-slate-800 placeholder:text-slate-400"}`}
         />
         <button type="button" onClick={submit} disabled={!draft.trim() && files.length === 0} aria-label="Send"
-          className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-xl bg-[var(--color-accent)] text-white disabled:opacity-30 transition-opacity">
-          <Send className="w-[18px] h-[18px]" />
+          className="shrink-0 inline-flex items-center justify-center w-11 h-11 sm:w-9 sm:h-9 rounded-xl bg-[var(--color-accent)] text-white disabled:opacity-30 transition-opacity">
+          <Send className="w-5 h-5 sm:w-[18px] sm:h-[18px]" />
         </button>
       </div>
     </div>
@@ -375,7 +375,7 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
     <div className={`flex items-center gap-3 px-3 sm:px-4 h-14 shrink-0 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
       {/* In the embedded quick-view (onOpenFull set) the back arrow is always
           shown so you can return to the list; on the full page it's mobile-only. */}
-      <button type="button" onClick={onBack} className={`${onOpenFull ? "" : "md:hidden"} p-1.5 -ml-1 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Back">
+      <button type="button" onClick={onBack} className={`${onOpenFull ? "" : "md:hidden"} p-3 sm:p-1.5 -ml-1 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Back">
         <ArrowLeft className="w-5 h-5" />
       </button>
       {kind === "channel" ? (
@@ -393,17 +393,17 @@ function ConvHeader({ conversation, name, memberById, canManage, onBack, onToggl
         {kind === "channel" && conversation?.topic && <span className={`block text-[12px] truncate ${dark ? "text-slate-500" : "text-slate-400"}`}>{conversation.topic}</span>}
       </div>
       {onOpenRoom && conversation?.room_id && (
-        <button type="button" onClick={onOpenRoom} aria-label="Open room" title="Open room" className={`p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+        <button type="button" onClick={onOpenRoom} aria-label="Open room" title="Open room" className={`p-3 sm:p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
           <DoorOpen className="w-[18px] h-[18px]" />
         </button>
       )}
       {onOpenFull && (
-        <button type="button" onClick={onOpenFull} aria-label="Open in Messages" title="Open full page" className={`p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+        <button type="button" onClick={onOpenFull} aria-label="Open in Messages" title="Open full page" className={`p-3 sm:p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
           <ExternalLink className="w-[18px] h-[18px]" />
         </button>
       )}
       {canManage && (
-        <button type="button" onClick={onToggleSettings} aria-label="Channel settings" className={`p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
+        <button type="button" onClick={onToggleSettings} aria-label="Channel settings" className={`p-3 sm:p-2 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>
           <Settings2 className="w-[18px] h-[18px]" />
         </button>
       )}
@@ -636,8 +636,8 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
                       <textarea value={editDraft} onChange={(e) => setEditDraft(e.target.value)} rows={2}
                         className={`rounded-lg border px-2.5 py-1.5 text-sm ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"}`} />
                       <div className="flex gap-3 text-[12px]">
-                        <button onClick={() => saveEdit(m.id)} className="font-semibold text-[var(--color-accent)]">Save</button>
-                        <button onClick={() => setEditing(null)} className="text-slate-400">Cancel</button>
+                        <button onClick={() => saveEdit(m.id)} className="font-semibold text-[var(--color-accent)] py-2 sm:py-0">Save</button>
+                        <button onClick={() => setEditing(null)} className="text-slate-400 py-2 sm:py-0">Cancel</button>
                       </div>
                     </div>
                   ) : (
@@ -654,11 +654,11 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
                 {editing !== m.id && (
                   <div className={`absolute -top-3 right-3 flex items-center rounded-lg border shadow-sm transition-opacity opacity-100 md:opacity-0 md:group-hover:opacity-100 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
                     <button type="button" onClick={(e) => setEmoji({ messageId: m.id, anchor: e.currentTarget })} aria-label="React"
-                      className={`p-1.5 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}><SmilePlus className="w-4 h-4" /></button>
+                      className={`p-2.5 sm:p-1.5 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}><SmilePlus className="w-5 h-5 sm:w-4 sm:h-4" /></button>
                     {mine && <button type="button" onClick={() => { setEditing(m.id); setEditDraft(m.body); }} aria-label="Edit"
-                      className={`p-1.5 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}><Pencil className="w-4 h-4" /></button>}
+                      className={`p-2.5 sm:p-1.5 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}><Pencil className="w-5 h-5 sm:w-4 sm:h-4" /></button>}
                     {mine && <button type="button" onClick={() => onDelete(m.id)} aria-label="Delete"
-                      className="p-1.5 text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>}
+                      className="p-2.5 sm:p-1.5 text-slate-400 hover:text-red-500"><Trash2 className="w-5 h-5 sm:w-4 sm:h-4" /></button>}
                   </div>
                 )}
               </div>
@@ -729,7 +729,7 @@ export function ChannelSettings({ conversation, memberById, dark, onClose, onSav
     onClose();
   };
   const inputCls = `w-full rounded-lg border px-3 py-2 text-sm ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100" : "bg-white border-slate-200 text-slate-800"}`;
-  const rowCls = `flex items-center gap-2 text-xs ${dark ? "text-slate-300" : "text-slate-700"}`;
+  const rowCls = `flex items-center gap-2 py-1.5 sm:py-0 text-xs ${dark ? "text-slate-300" : "text-slate-700"}`;
   return (
     <div className={`px-4 py-3 border-b space-y-2.5 max-h-[70vh] overflow-y-auto ${dark ? "border-[var(--color-border)] bg-[var(--color-surface-raised)]" : "border-slate-200 bg-slate-50"}`}>
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Channel name" className={inputCls} />
@@ -784,8 +784,8 @@ export function ChannelSettings({ conversation, memberById, dark, onClose, onSav
       <div className="flex items-center justify-between pt-1">
         <span className={`text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{roster.length} members</span>
         <div className="flex gap-3">
-          <button type="button" onClick={onClose} className="text-sm text-slate-400">Cancel</button>
-          <button type="button" onClick={save} disabled={busy} className="text-sm font-semibold text-[var(--color-accent)]">{busy ? "â€¦" : "Save"}</button>
+          <button type="button" onClick={onClose} className="text-sm text-slate-400 py-2 sm:py-0">Cancel</button>
+          <button type="button" onClick={save} disabled={busy} className="text-sm font-semibold text-[var(--color-accent)] py-2 sm:py-0">{busy ? "â€¦" : "Save"}</button>
         </div>
       </div>
     </div>
@@ -830,12 +830,12 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className={`flex items-center justify-between px-4 h-14 shrink-0 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
-        <button type="button" onClick={onCancel} className={`p-1.5 -ml-1 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Cancel"><X className="w-5 h-5" /></button>
+        <button type="button" onClick={onCancel} className={`p-3 sm:p-1.5 -ml-1 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`} aria-label="Cancel"><X className="w-5 h-5" /></button>
         <span className={`text-[15px] font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>{mode === "channel" ? "New channel" : mode === "browse" ? "Browse channels" : "New message"}</span>
         {mode === "browse" ? (
           <span className="w-10" />
         ) : (
-          <button type="button" onClick={go} disabled={mode === "channel" ? !canCreateChannel : picked.length === 0} className="text-sm font-semibold text-[var(--color-accent)] disabled:opacity-40">
+          <button type="button" onClick={go} disabled={mode === "channel" ? !canCreateChannel : picked.length === 0} className="text-sm font-semibold text-[var(--color-accent)] disabled:opacity-40 py-2 sm:py-0">
             {mode === "channel" ? "Create" : picked.length > 1 ? "Create" : "Start"}
           </button>
         )}
@@ -843,7 +843,7 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
 
       <div className="flex gap-1.5 px-4 pt-3 shrink-0">
         {[["people", "People", null], ["channel", "Channel", Hash], ["browse", "Browse", Search]].map(([k, label, Icon]) => (
-          <button key={k} type="button" onClick={() => setMode(k)} className={`px-3 h-8 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5 ${mode === k ? "bg-[var(--color-accent)] text-white" : dark ? "bg-white/5 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
+          <button key={k} type="button" onClick={() => setMode(k)} className={`px-3 h-11 sm:h-8 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5 ${mode === k ? "bg-[var(--color-accent)] text-white" : dark ? "bg-white/5 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
             {Icon && <Icon className="w-3.5 h-3.5" />}{label}
           </button>
         ))}
@@ -858,7 +858,7 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
               const disabled = v === "org_team" && creatableTeams.length === 0;
               return (
                 <button key={v} type="button" disabled={disabled} onClick={() => setVisibility(v)}
-                  className={`flex-1 px-3 h-9 rounded-lg text-[13px] font-semibold border transition-colors disabled:opacity-40 ${
+                  className={`flex-1 px-3 h-11 sm:h-9 rounded-lg text-[13px] font-semibold border transition-colors disabled:opacity-40 ${
                     visibility === v ? "bg-[var(--color-accent)] text-white border-[var(--color-accent)]" : dark ? "border-[var(--color-border)] text-slate-300" : "border-slate-200 text-slate-600"
                   }`}>
                   {label}
@@ -907,7 +907,7 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
                   <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{c.member_count || 0} member{Number(c.member_count) === 1 ? "" : "s"}{c.topic ? ` Â· ${c.topic}` : ""}</span>
                 </span>
                 <button type="button" disabled={joining === c.id} onClick={async () => { setJoining(c.id); await onJoin?.(c.id); setJoining(""); }}
-                  className="shrink-0 px-3 h-8 rounded-full text-[13px] font-semibold text-white bg-[var(--color-accent)] disabled:opacity-50">
+                  className="shrink-0 px-3 h-11 sm:h-8 rounded-full text-[13px] font-semibold text-white bg-[var(--color-accent)] disabled:opacity-50">
                   {joining === c.id ? "Joiningâ€¦" : "Join"}
                 </button>
               </div>
@@ -922,7 +922,7 @@ function NewMessage({ others, orgTeams, leadOrAdminTeamIds, onCancel, onStartDm,
             </div>
           )}
           <div className="px-4 pt-3 shrink-0">
-            <div className={`flex items-center gap-2 rounded-lg px-3 h-9 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
+            <div className={`flex items-center gap-2 rounded-lg px-3 h-11 sm:h-9 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
               <Search className="w-4 h-4 text-slate-400" />
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people" className={`flex-1 bg-transparent text-sm outline-none ${dark ? "text-slate-100 placeholder:text-slate-500" : "text-slate-800 placeholder:text-slate-400"}`} />
             </div>
@@ -1005,36 +1005,36 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
         {!compact && <span className={`block text-[11px] ${dark ? "text-slate-500" : "text-slate-400"}`}>{listStamp(c.last_message_at)}</span>}
       </span>
       {/* hover actions */}
-      <div className={`absolute right-2 ${menu ? "flex" : "hidden group-hover:flex"} items-center gap-0.5`}>
+      <div className={`absolute right-2 flex ${menu ? "" : "md:hidden md:group-hover:flex"} items-center gap-0.5`}>
         {c.kind !== "channel" && (
           <button type="button" onClick={(e) => { e.stopPropagation(); onPin(c); }} aria-label={c.pinned_at ? "Unpin" : "Pin"}
-            className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{c.pinned_at ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}</button>
+            className={`p-2.5 sm:p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{c.pinned_at ? <PinOff className="w-5 h-5 sm:w-3.5 sm:h-3.5" /> : <Pin className="w-5 h-5 sm:w-3.5 sm:h-3.5" />}</button>
         )}
         {!c.force_notify && (
           <button type="button" onClick={(e) => { e.stopPropagation(); onMute(c); }} aria-label={muted ? "Unmute" : "Mute"}
-            className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{muted ? <BellOff className="w-3.5 h-3.5" /> : <Bell className="w-3.5 h-3.5" />}</button>
+            className={`p-2.5 sm:p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}>{muted ? <BellOff className="w-5 h-5 sm:w-3.5 sm:h-3.5" /> : <Bell className="w-5 h-5 sm:w-3.5 sm:h-3.5" />}</button>
         )}
         <div className="relative" ref={menuRef}>
           <button type="button" onClick={(e) => { e.stopPropagation(); setMenu((m) => !m); setConfirmDel(false); }} aria-label="More"
-            className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}><MoreHorizontal className="w-3.5 h-3.5" /></button>
+            className={`p-2.5 sm:p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10 bg-[var(--color-surface)]" : "text-slate-400 hover:bg-slate-200 bg-white"}`}><MoreHorizontal className="w-5 h-5 sm:w-3.5 sm:h-3.5" /></button>
           {menu && (
             <div onClick={(e) => e.stopPropagation()}
               className={`absolute right-0 top-full mt-1 w-52 py-1 rounded-xl border shadow-xl z-30 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
               {canMove && (
                 <>
                   <button type="button" onClick={() => setMoveOpen((v) => !v)}
-                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 sm:py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
                     <FolderInput className="w-3.5 h-3.5" /> Move to folder
                   </button>
                   {moveOpen && (
                     <div className={`max-h-48 overflow-y-auto border-y my-1 ${dark ? "border-[var(--color-border)]" : "border-slate-100"}`}>
                       <button type="button" onClick={() => { close(); onAssignFolder(c, null); }}
-                        className={`w-full text-left pl-8 pr-3 py-1.5 text-[13px] ${!c.folder_id ? "text-[var(--color-accent)] font-semibold" : dark ? "text-slate-400 hover:bg-white/5" : "text-slate-500 hover:bg-slate-50"}`}>
+                        className={`w-full text-left pl-8 pr-3 py-2.5 sm:py-1.5 text-[13px] ${!c.folder_id ? "text-[var(--color-accent)] font-semibold" : dark ? "text-slate-400 hover:bg-white/5" : "text-slate-500 hover:bg-slate-50"}`}>
                         No folder
                       </button>
                       {folders.map((f) => (
                         <button key={f.id} type="button" onClick={() => { close(); onAssignFolder(c, f.id); }}
-                          className={`w-full text-left pl-8 pr-3 py-1.5 text-[13px] truncate ${c.folder_id === f.id ? "text-[var(--color-accent)] font-semibold" : dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
+                          className={`w-full text-left pl-8 pr-3 py-2.5 sm:py-1.5 text-[13px] truncate ${c.folder_id === f.id ? "text-[var(--color-accent)] font-semibold" : dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
                           {f.name}
                         </button>
                       ))}
@@ -1043,18 +1043,18 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
                 </>
               )}
               <button type="button" onClick={() => { close(); onHide(c); }}
-                className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
+                className={`w-full flex items-center gap-2 px-3 py-2.5 sm:py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}>
                 <LogOut className="w-3.5 h-3.5" /> {leaveLabel}
               </button>
               {canDelete && (
                 confirmDel ? (
                   <button type="button" onClick={() => { close(); onDelete(c); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[13px] font-semibold text-white bg-rose-500 hover:bg-rose-600">
+                    className="w-full flex items-center gap-2 px-3 py-2.5 sm:py-1.5 text-[13px] font-semibold text-white bg-rose-500 hover:bg-rose-600">
                     <Trash2 className="w-3.5 h-3.5" /> Delete for everyone?
                   </button>
                 ) : (
                   <button type="button" onClick={() => setConfirmDel(true)}
-                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-rose-300 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}>
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 sm:py-1.5 text-[13px] ${dark ? "text-rose-300 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}>
                     <Trash2 className="w-3.5 h-3.5" /> Delete {c.kind === "group" ? "group" : "channel"}
                   </button>
                 )
@@ -1063,7 +1063,7 @@ function Row({ c, nameOf, memberById, active, userId, isAdmin, myOrgTeamLeadIds,
           )}
         </div>
       </div>
-      {unread && <span className="group-hover:hidden w-2.5 h-2.5 rounded-full bg-[var(--color-accent)] shrink-0" />}
+      {unread && <span className="hidden md:block md:group-hover:hidden w-2.5 h-2.5 rounded-full bg-[var(--color-accent)] shrink-0" />}
     </div>
   );
 }
@@ -1098,8 +1098,8 @@ function FolderGroup({ folder, items, collapsed, onToggle, canOrganize, onRename
         onDragOver={folderDragActive ? (e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); onFolderReorderOver?.(folder.id, (e.clientY - r.top) < r.height / 2); } : undefined}
         onDrop={folderDragActive ? (e) => { e.preventDefault(); e.stopPropagation(); onFolderReorderDrop?.(); } : undefined}
         className={`group/f flex items-center gap-1 pl-2 pr-3 pt-2 pb-0.5 ${canDragFolder && !editing ? "cursor-grab active:cursor-grabbing" : ""}`}>
-        <button type="button" onClick={onToggle} className="p-0.5 text-slate-400 hover:text-slate-500" aria-label={collapsed ? "Expand" : "Collapse"}>
-          {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        <button type="button" onClick={onToggle} className="p-2 sm:p-0.5 text-slate-400 hover:text-slate-500" aria-label={collapsed ? "Expand" : "Collapse"}>
+          {collapsed ? <ChevronRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" /> : <ChevronDown className="w-4 h-4 sm:w-3.5 sm:h-3.5" />}
         </button>
         <Folder className="w-3.5 h-3.5 text-slate-400 shrink-0" />
         {editing ? (
@@ -1113,17 +1113,17 @@ function FolderGroup({ folder, items, collapsed, onToggle, canOrganize, onRename
         {canOrganize && !editing && (
           <div className="relative shrink-0" ref={menuRef}>
             <button type="button" onClick={() => { setMenu((m) => !m); setConfirmDel(false); }} aria-label="Folder options"
-              className="opacity-0 group-hover/f:opacity-100 p-0.5 text-slate-400 hover:text-slate-500"><MoreHorizontal className="w-3.5 h-3.5" /></button>
+              className="opacity-100 md:opacity-0 md:group-hover/f:opacity-100 p-2 sm:p-0.5 text-slate-400 hover:text-slate-500"><MoreHorizontal className="w-5 h-5 sm:w-3.5 sm:h-3.5" /></button>
             {menu && (
               <div className={`absolute right-0 top-full mt-1 w-40 py-1 rounded-xl border shadow-xl z-30 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
                 <button type="button" onClick={() => { setMenu(false); setEditing(true); }}
-                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}><Pencil className="w-3.5 h-3.5" /> Rename</button>
+                  className={`w-full flex items-center gap-2 px-3 py-2.5 sm:py-1.5 text-[13px] ${dark ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-slate-50"}`}><Pencil className="w-3.5 h-3.5" /> Rename</button>
                 {confirmDel ? (
                   <button type="button" onClick={() => { setMenu(false); setConfirmDel(false); onDelete(folder.id); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[13px] font-semibold text-white bg-rose-500 hover:bg-rose-600"><Trash2 className="w-3.5 h-3.5" /> Delete folder?</button>
+                    className="w-full flex items-center gap-2 px-3 py-2.5 sm:py-1.5 text-[13px] font-semibold text-white bg-rose-500 hover:bg-rose-600"><Trash2 className="w-3.5 h-3.5" /> Delete folder?</button>
                 ) : (
                   <button type="button" onClick={() => setConfirmDel(true)}
-                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-[13px] ${dark ? "text-rose-300 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}><Trash2 className="w-3.5 h-3.5" /> Delete folder</button>
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 sm:py-1.5 text-[13px] ${dark ? "text-rose-300 hover:bg-rose-500/10" : "text-rose-600 hover:bg-rose-50"}`}><Trash2 className="w-3.5 h-3.5" /> Delete folder</button>
                 )}
               </div>
             )}
@@ -1230,16 +1230,16 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
         <span className={`text-lg font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>Messages</span>
         <div className="flex items-center gap-1">
           <button type="button" onClick={toggleCompact} title={compact ? "Comfortable list" : "Compact list"} aria-label="Toggle list density"
-            className={`w-8 h-8 rounded-full inline-flex items-center justify-center ${compact ? "text-[var(--color-accent)]" : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-400 hover:bg-slate-100"}`}>
-            {compact ? <Rows3 className="w-4 h-4" /> : <Rows2 className="w-4 h-4" />}
+            className={`w-11 h-11 sm:w-8 sm:h-8 rounded-full inline-flex items-center justify-center ${compact ? "text-[var(--color-accent)]" : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-400 hover:bg-slate-100"}`}>
+            {compact ? <Rows3 className="w-5 h-5 sm:w-4 sm:h-4" /> : <Rows2 className="w-5 h-5 sm:w-4 sm:h-4" />}
           </button>
-          <button type="button" onClick={onNew} aria-label="New message" className="inline-flex items-center gap-1.5 pl-2.5 pr-3 h-8 rounded-full bg-[var(--color-accent)] text-white text-[13px] font-semibold hover:opacity-90">
+          <button type="button" onClick={onNew} aria-label="New message" className="inline-flex items-center gap-1.5 pl-2.5 pr-3 h-11 sm:h-8 rounded-full bg-[var(--color-accent)] text-white text-[13px] font-semibold hover:opacity-90">
             <Plus className="w-4 h-4" /> New
           </button>
         </div>
       </div>
       <div className="px-3 py-2.5 shrink-0">
-        <div className={`flex items-center gap-2 rounded-lg px-3 h-9 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
+        <div className={`flex items-center gap-2 rounded-lg px-3 h-11 sm:h-9 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
           <Search className="w-4 h-4 text-slate-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search conversations" className={`flex-1 bg-transparent text-sm outline-none ${dark ? "text-slate-100 placeholder:text-slate-500" : "text-slate-800 placeholder:text-slate-400"}`} />
         </div>
@@ -1260,7 +1260,7 @@ function Sidebar({ conversations, nameOf, memberById, activeId, userId, isAdmin,
               <div className={sectionLabel()}>Channels</div>
               {canOrganize && (
                 <button type="button" onClick={() => setNewFolder("")} title="New folder" aria-label="New folder"
-                  className={`p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-400 hover:bg-slate-100"}`}><FolderPlus className="w-4 h-4" /></button>
+                  className={`p-2.5 sm:p-1 rounded ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-400 hover:bg-slate-100"}`}><FolderPlus className="w-5 h-5 sm:w-4 sm:h-4" /></button>
               )}
             </div>
             {newFolder !== null && (
