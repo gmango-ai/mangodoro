@@ -2355,10 +2355,13 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // portrait phone). Per-device pref, applied to every tile's <video>.
   const [videoFit, setVideoFit] = useState(() => (loadPref(PREF.fit, "cover") === "contain" ? "contain" : "cover"));
   const toggleFit = () => setVideoFit((f) => (f === "cover" ? "contain" : "cover"));
-  // Self-view rotation. Auto (device orientation) runs on touch, but it's
-  // unreliable in the iOS WKWebView; a MANUAL rotate button (0/90/180/270)
-  // guarantees you can fix an upside-down/sideways face. Manual, when set,
-  // overrides auto; 0 = follow auto.
+  // ── Device-orientation handling ──────────────────────────────────────────
+  // Rotate the WHOLE fullscreen call UI to counter the device turn: because
+  // your eyes turned with the phone, that leaves remote video AND the
+  // non-mirrored self-view upright for free, and makes the layout landscape.
+  // Only the mirrored self-view needs an extra 180° in landscape (a mirror
+  // reverses rotation sense). A manual rotate button overrides auto for fixups.
+  // Auto is a toggle (default on); manual is always available.
   const [autoRotateEnabled, setAutoRotateEnabled] = useState(() => loadPref(PREF.autoRotate, "1") === "1");
   const autoRotate = useDeviceRotation(IS_COARSE_POINTER && autoRotateEnabled);
   const [manualRotate, setManualRotate] = useState(0);
@@ -2369,7 +2372,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const autoSelf = uiRotated
     ? (mirror ? 180 : 0)
     : (mirror ? (360 - deviceAngle) % 360 : deviceAngle);
-  const selfRotate = (autoSelf + manualRotate) % 360;
+  const selfRotate = manualRotate || autoSelf;
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.spotlightIgnoreSelf, spotlightIgnoreSelf ? "1" : "0"), [spotlightIgnoreSelf]);
