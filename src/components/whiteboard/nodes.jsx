@@ -1,4 +1,4 @@
-import { lazy, Suspense, memo, createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
+import { memo, createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
 import { nodeAbsPos, sortParentsFirst } from "./frame";
 import { Target, ChevronDown, Building2, User, Star, X, Plus, CalendarClock, Check } from "lucide-react";
@@ -8,6 +8,7 @@ import { useApp } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
 import { setGoal, clearGoalNode, GOAL_TIMEFRAMES, timeframeToParams } from "../../lib/goals";
 import { fontStack } from "../../lib/whiteboardFonts";
+import FullEmojiPicker from "../emotes/FullEmojiPicker";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -69,7 +70,6 @@ function taskListComponents(value, onChange) {
 
 // Full emoji picker for sticky reactions — lazy so its chunk only loads
 // when someone opens it.
-const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
 // Preferred sticky colour (per device) — new stickies (toolbar + frame
 // double-click) use it; changing a sticky's colour updates it.
@@ -519,20 +519,7 @@ function NodeReactions({ id, data, selected, style }) {
         <>
           <div className="nodrag" onPointerDown={(e) => { stop(e); setEmojiOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
           <div className="nodrag nowheel" onPointerDown={stop} style={{ zIndex: 60, borderRadius: 12, overflow: "hidden", boxShadow: "0 16px 36px -16px rgba(0,0,0,.5)" }}>
-            <Suspense fallback={null}>
-              <EmojiPicker
-                onEmojiClick={(d) => { react(d.emoji); setEmojiOpen(false); }}
-                theme={dark ? "dark" : "light"}
-                emojiStyle="native"
-                width={300}
-                height={360}
-                lazyLoadEmojis
-                autoFocusSearch={false}
-                skinTonesDisabled
-                previewConfig={{ showPreview: false }}
-                searchPlaceholder="Search emoji"
-              />
-            </Suspense>
+            <FullEmojiPicker dark={dark} height={360} onPick={(g) => { react(g); setEmojiOpen(false); }} />
           </div>
         </>
       )}

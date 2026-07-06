@@ -13,6 +13,7 @@ import { useMessages } from "../context/MessagesContext";
 import { useTheme } from "../context/ThemeContext";
 import UserAvatar from "../components/UserAvatar";
 import { EMOTES } from "../components/emotes/presets";
+import FullEmojiPicker from "../components/emotes/FullEmojiPicker";
 import {
   listMessages, sendMessage, editMessage, deleteMessage,
   listReactions, toggleReaction, listReadMarks, setChannelMeta,
@@ -113,26 +114,38 @@ function Body({ text, mentionNames, className = "" }) {
 }
 
 // ── viewport-aware emoji picker (portal so nothing clips it) ──
+// Quick-reaction strip with a "+" that expands to the shared FullEmojiPicker
+// (the SAME picker the whiteboard / call emote bar uses) so you can pick ANY
+// emoji, not just the presets. Themed to match the rest of the app.
 function EmojiPopover({ anchor, onPick, onClose, dark }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
+  const [full, setFull] = useState(false);
 
   useLayoutEffect(() => {
     if (!anchor) return;
     const r = anchor.getBoundingClientRect();
     const M = 8;
-    // Width from the ACTUAL number of quick reactions (each button ~34px), capped
-    // to the viewport so it never runs off-screen — it wraps to more rows instead.
-    const full = QUICK_REACTIONS.length * 34 + 14;
-    const W = Math.min(full, window.innerWidth - 2 * M);
-    const rows = Math.ceil(full / W);
-    const H = rows * 40 + 6;
+    let W, H;
+    if (full) {
+      // The full picker's own fixed size.
+      W = Math.min(300, window.innerWidth - 2 * M);
+      H = 380;
+    } else {
+      // Width from the ACTUAL number of quick reactions (each button ~40px on
+      // touch), capped to the viewport so it never runs off-screen — it wraps
+      // to more rows instead. Reserve one slot for the "+" more button.
+      const wide = (QUICK_REACTIONS.length + 1) * 40 + 14;
+      W = Math.min(wide, window.innerWidth - 2 * M);
+      const rows = Math.ceil(wide / W);
+      H = rows * 46 + 6;
+    }
     let left = Math.min(r.left, window.innerWidth - W - M);
     left = Math.max(M, left);
     let top = r.top - H - 6;
     if (top < M) top = r.bottom + 6;
     setPos({ top, left, W });
-  }, [anchor]);
+  }, [anchor, full]);
 
   useEffect(() => {
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
@@ -146,14 +159,29 @@ function EmojiPopover({ anchor, onPick, onClose, dark }) {
   return createPortal(
     <div
       ref={ref}
-      style={{ position: "fixed", top: pos.top, left: pos.left, maxWidth: pos.W, zIndex: 70 }}
-      className={`flex flex-wrap items-center gap-0.5 rounded-2xl border px-1.5 py-1 shadow-xl ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
+      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 70 }}
+      className={`rounded-2xl border shadow-xl overflow-hidden ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
     >
-      {QUICK_REACTIONS.map((g) => (
-        <button key={g} type="button" onClick={() => onPick(g)} className="w-8 h-8 rounded-full text-lg leading-none hover:bg-slate-500/15 transition-transform hover:scale-110">
-          {g}
-        </button>
-      ))}
+      {full ? (
+        <FullEmojiPicker dark={dark} width={pos.W} onPick={(g) => onPick(g)} />
+      ) : (
+        <div style={{ maxWidth: pos.W }} className="flex flex-wrap items-center gap-0.5 px-1.5 py-1">
+          {QUICK_REACTIONS.map((g) => (
+            <button key={g} type="button" onClick={() => onPick(g)} className="w-10 h-10 sm:w-8 sm:h-8 rounded-full text-xl sm:text-lg leading-none hover:bg-slate-500/15 transition-transform hover:scale-110">
+              {g}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setFull(true)}
+            aria-label="Pick any emoji"
+            title="More emojis"
+            className={`w-10 h-10 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-colors ${dark ? "text-slate-400 hover:text-slate-200 hover:bg-white/10" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"}`}
+          >
+            <Plus className="w-5 h-5 sm:w-4 sm:h-4" />
+          </button>
+        </div>
+      )}
     </div>,
     document.body,
   );
