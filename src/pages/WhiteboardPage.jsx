@@ -815,7 +815,7 @@ function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
       // Stacked ABOVE the main (bottom-left) toolbar; the offset tracks the
       // toolbar's measured height so a wrapped (two-row) toolbar still clears.
       style={{ bottom: bottomOffset }}
-      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg max-w-[94vw] overflow-x-auto ${
+      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg max-w-[calc(100%-16px)] overflow-x-auto ${
         dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
       }`}
     >
@@ -3486,12 +3486,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         )}
 
         {/* Bottom-left so collapsing the toolbar keeps it anchored to the left
-            edge instead of drifting to centre. w-max sizes to content (up to
-            the 100vw cap), then scrolls horizontally when it overflows. */}
-        <Panel position="bottom-left" className="w-max max-w-[calc(100vw-24px)]">
+            edge instead of drifting to centre. Capped to the FLOW CONTAINER
+            width (100% — a React Flow Panel is positioned within it), so an
+            embedded room panel scrolls the rail instead of clipping it; w-max
+            sizes to content up to that cap. */}
+        <Panel position="bottom-left" className="w-max max-w-[calc(100%-16px)]">
           <div
             ref={toolbarRef}
-            className={`wb-scroll-x flex flex-row flex-nowrap items-center gap-0.5 p-1 rounded-2xl border shadow-sm w-max max-w-[calc(100vw-24px)] overflow-x-auto ${
+            className={`wb-scroll-x flex flex-row flex-nowrap items-center gap-0.5 p-1 rounded-2xl border shadow-sm w-max max-w-full overflow-x-auto ${
               dark
                 ? "bg-[var(--color-surface)] border-[var(--color-border)]"
                 : "bg-white border-slate-200"
@@ -3649,10 +3651,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             bar above the main toolbar instead, with taller targets and
             flyouts opening upward. */}
         {touchInspectorVisible && (
-          <Panel position="bottom-left" className="w-max z-40" style={{ bottom: touchInspectorBottom }}>
-            <div ref={touchInspectorRef} className="flex items-center gap-1.5">
-              {/* The pill scrolls; the trash stays pinned outside it. */}
-              <div className="wb-scroll-x overflow-x-auto rounded-xl max-w-[calc(100vw-84px)] [&_button]:min-h-11 [&_.lucide]:w-5 [&_.lucide]:h-5">
+          <Panel position="bottom-left" className="w-max max-w-[calc(100%-16px)] z-40" style={{ bottom: touchInspectorBottom }}>
+            <div ref={touchInspectorRef} className="flex items-center gap-1.5 max-w-full">
+              {/* The pill scrolls (capped to the flow container so a room panel
+                  doesn't clip it); the trash stays pinned outside it. */}
+              <div className="wb-scroll-x overflow-x-auto rounded-xl max-w-[calc(100%-56px)] [&_button]:min-h-11 [&_.lucide]:w-5 [&_.lucide]:h-5">
                 <DropUpContext.Provider value={true}>
                   <Inspector wrapBar node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
                 </DropUpContext.Provider>
