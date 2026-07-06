@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { registerPlugin } from "@capacitor/core";
-import { isMobileApp } from "../../lib/platform";
+import { getPlatform, isMobileApp } from "../../lib/platform";
 
 // Rotation (0 | 90 | 180 | 270) to apply to the local self-view so it stays
 // upright as you turn the phone. The app is portrait-locked, but iOS rotates
@@ -13,7 +13,7 @@ import { isMobileApp } from "../../lib/platform";
 // orientation via the LiveActivity plugin (permission-free, works while the UI
 // is orientation-locked). The web DeviceMotion path is kept only as a
 // best-effort fallback for the browser/installed PWA.
-const LiveActivity = isMobileApp ? registerPlugin("LiveActivity") : null;
+const LiveActivity = isMobileApp && getPlatform() === "ios" ? registerPlugin("LiveActivity") : null;
 
 export function useDeviceRotation(enabled) {
   const [angle, setAngle] = useState(0);
@@ -28,9 +28,14 @@ export function useDeviceRotation(enabled) {
       let handle = null;
       (async () => {
         try {
-          handle = await LiveActivity.addListener("deviceOrientation", ({ angle: a }) => {
+          const listener = await LiveActivity.addListener("deviceOrientation", ({ angle: a }) => {
             if (!cancelled && typeof a === "number") setAngle((((a % 360) + 360) % 360));
           });
+          if (cancelled) {
+            listener?.remove?.();
+            return;
+          }
+          handle = listener;
           await LiveActivity.startOrientation();
         } catch { /* plugin without orientation (older build) — no rotation */ }
       })();

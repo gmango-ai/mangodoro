@@ -332,8 +332,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandle
     @objc func startOrientation(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { call.resolve(); return }
-            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             if self.orientationObserver == nil {
+                UIDevice.current.beginGeneratingDeviceOrientationNotifications()
                 self.orientationObserver = NotificationCenter.default.addObserver(
                     forName: UIDevice.orientationDidChangeNotification,
                     object: nil, queue: .main
@@ -352,8 +352,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandle
             if let obs = self.orientationObserver {
                 NotificationCenter.default.removeObserver(obs)
                 self.orientationObserver = nil
+                UIDevice.current.endGeneratingDeviceOrientationNotifications()
             }
-            UIDevice.current.endGeneratingDeviceOrientationNotifications()
             call.resolve()
         }
     }
