@@ -1251,7 +1251,6 @@ function CallControlBar({
   ptt, onTogglePtt,
   mirror, onToggleMirror,
   fit, onToggleFit,
-  autoRotate, onToggleAutoRotate,
   selfFloat, onToggleSelfFloat,
   micMuted, onToggleMic,
   deafened, onToggleDeafen,
@@ -1310,9 +1309,6 @@ function CallControlBar({
               <div className="my-1 border-t border-white/10" />
               <SettingRow icon={FlipHorizontal2} label="Mirror my video" active={mirror} onClick={onToggleMirror} />
               <SettingRow icon={fit === "contain" ? Shrink : Expand} label="Fit video (show full frame)" active={fit === "contain"} onClick={onToggleFit} />
-              {IS_COARSE_POINTER && (
-                <SettingRow icon={RotateCw} label="Auto-rotate my video" active={autoRotate} onClick={onToggleAutoRotate} />
-              )}
               <SettingRow icon={PictureInPicture2} label="Float my video" active={selfFloat} onClick={onToggleSelfFloat} />
             </DeviceSettingsMenu>
           )}
@@ -1739,7 +1735,11 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   // Counter-rotate my own camera to the physical device orientation (the app is
   // portrait-locked but iOS rotates the capture). Only the local camera; remote
   // tiles arrive upright. rotate + object-cover so it still fills after turning.
-  const rot = isLocalCam ? selfRotate : 0;
+  const rawRot = isLocalCam ? selfRotate : 0;
+  // Mirror (scaleX -1) reverses the sense of rotation, so negate the angle when
+  // the self-view is mirrored — otherwise a turned phone rotates the "wrong"
+  // way (the 90°-off-with-mirror bug). 0 and 180 are unaffected.
+  const rot = flip ? (360 - rawRot) % 360 : rawRot;
   const rotCls = rot === 180 ? "[&_video]:rotate-180" : rot === 90 ? "[&_video]:rotate-90" : rot === 270 ? "[&_video]:-rotate-90" : "";
   // Camera off → cover LiveKit's generic gray silhouette with a clean initials
   // avatar (a soft per-person gradient), which reads far more modern.
@@ -2334,11 +2334,13 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // portrait phone). Per-device pref, applied to every tile's <video>.
   const [videoFit, setVideoFit] = useState(() => (loadPref(PREF.fit, "cover") === "contain" ? "contain" : "cover"));
   const toggleFit = () => setVideoFit((f) => (f === "cover" ? "contain" : "cover"));
-  // Auto-rotate my self-view to the device (portrait-locked app, but iOS rotates
-  // the camera capture). On by default on touch — the hook requests motion
-  // access on the first touch; the toggle lets you turn it off.
-  const [autoRotate, setAutoRotate] = useState(() => loadPref(PREF.autoRotate, IS_COARSE_POINTER ? "1" : "0") === "1");
-  const selfRotate = useDeviceRotation(autoRotate);
+  // Self-view rotation. Auto (device orientation) runs on touch, but it's
+  // unreliable in the iOS WKWebView; a MANUAL rotate button (0/90/180/270)
+  // guarantees you can fix an upside-down/sideways face. Manual, when set,
+  // overrides auto; 0 = follow auto.
+  const autoRotate = useDeviceRotation(IS_COARSE_POINTER);
+  const [manualRotate, setManualRotate] = useState(0);
+  const selfRotate = manualRotate || autoRotate;
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.spotlightIgnoreSelf, spotlightIgnoreSelf ? "1" : "0"), [spotlightIgnoreSelf]);
@@ -2349,7 +2351,6 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   useEffect(() => savePref(PREF.mirror, mirror ? "1" : "0"), [mirror]);
   useEffect(() => savePref(PREF.selfFloat, selfFloat ? "1" : "0"), [selfFloat]);
   useEffect(() => savePref(PREF.fit, videoFit), [videoFit]);
-  useEffect(() => savePref(PREF.autoRotate, autoRotate ? "1" : "0"), [autoRotate]);
   const selfView = useMemo(() => ({ mirror, float: selfFloat, fit: videoFit, selfRotate, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat, videoFit, selfRotate]);
 
   // Push-to-talk key handling. micMuted lives in the parent; we drive it via the
@@ -2426,14 +2427,27 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
         </LayoutContextProvider>
       </SelfViewContext.Provider>
       {IS_COARSE_POINTER && !chromeless && !hideControls && (
-        <button
-          type="button"
-          onClick={() => setMaximized(!maximized)}
-          aria-label={maximized ? "Exit fullscreen" : "Fullscreen"}
-          className="absolute top-2 right-2 z-40 flex items-center justify-center w-11 h-11 rounded-xl bg-slate-900/70 text-white backdrop-blur-sm active:bg-slate-800"
-        >
-          {maximized ? <Shrink className="w-5 h-5" /> : <Expand className="w-5 h-5" />}
-        </button>
+        <div className="absolute top-2 right-2 z-40 flex flex-col items-end gap-2">
+          <button
+            type="button"
+            onClick={() => setMaximized(!maximized)}
+            aria-label={maximized ? "Exit fullscreen" : "Fullscreen"}
+            className="flex items-center justify-center w-11 h-11 rounded-xl bg-slate-900/70 text-white backdrop-blur-sm active:bg-slate-800"
+          >
+            {maximized ? <Shrink className="w-5 h-5" /> : <Expand className="w-5 h-5" />}
+          </button>
+          {/* Rotate MY video 90° per tap (fixes an upside-down/sideways face
+              when the phone is turned; the app stays portrait-locked). */}
+          <button
+            type="button"
+            onClick={() => setManualRotate((r) => (r + 90) % 360)}
+            aria-label="Rotate my video"
+            title={`Rotate my video (${manualRotate}°)`}
+            className={`relative flex items-center justify-center w-11 h-11 rounded-xl backdrop-blur-sm active:opacity-80 ${manualRotate ? "bg-[var(--color-accent)] text-white" : "bg-slate-900/70 text-white"}`}
+          >
+            <RotateCw className="w-5 h-5" />
+          </button>
+        </div>
       )}
       {!hideControls && !chromeless && (
         <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col items-center px-2 pb-3 gap-1.5 pointer-events-none">
@@ -2476,8 +2490,6 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onToggleMirror={() => setMirror((v) => !v)}
               fit={videoFit}
               onToggleFit={toggleFit}
-              autoRotate={autoRotate}
-              onToggleAutoRotate={() => setAutoRotate((v) => !v)}
               selfFloat={selfFloat}
               onToggleSelfFloat={() => setSelfFloat((v) => !v)}
               micMuted={micMuted}
