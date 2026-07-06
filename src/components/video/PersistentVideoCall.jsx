@@ -58,7 +58,7 @@ function pipRect() {
 }
 
 export default function PersistentVideoCall() {
-  const { call, startCall, endCall, updateCall, stageEl, poppedOut, setPoppedOut, setCanPopOut, registerPopout, maximized } = useVideoCall();
+  const { call, startCall, endCall, updateCall, stageEl, poppedOut, setPoppedOut, setCanPopOut, registerPopout, maximized, hideChrome } = useVideoCall();
   const { syncSession } = useSyncSession();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -256,8 +256,9 @@ export default function PersistentVideoCall() {
         displayName={call.displayName}
         compact={compact}
         // The floating PiP has its own thin header (back-to-room + leave); the
-        // full control bar only renders when a page stages the call.
-        hideControls={inPiP}
+        // full control bar only renders when a page stages the call. Drive mode
+        // stages the video but supplies its own giant controls (hideChrome).
+        hideControls={inPiP || hideChrome}
         publish={call.mode !== "spectate"}
         listen={call.listen !== false}
         choices={call.choices}
