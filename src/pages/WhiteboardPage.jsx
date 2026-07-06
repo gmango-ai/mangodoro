@@ -200,6 +200,15 @@ function FitViewButton({ dark }) {
   );
 }
 
+// Group separator in the bottom toolbar. Shown on every size (it keeps the
+// scrolling rail readable by chunking related tools) with a little breathing
+// room on either side.
+function ToolbarDivider({ dark }) {
+  return (
+    <div className={`w-px h-6 self-center shrink-0 mx-1 sm:mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+  );
+}
+
 function ToolButton({ title, onClick, tone = "neutral", dark, active, children }) {
   const tones = {
     neutral: dark
@@ -223,7 +232,7 @@ function ToolButton({ title, onClick, tone = "neutral", dark, active, children }
       aria-label={title}
       aria-pressed={active || undefined}
       onClick={onClick}
-      className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors ${active ? activeCls : tones[tone]}`}
+      className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors ${active ? activeCls : tones[tone]}`}
     >
       {children}
     </button>
@@ -297,7 +306,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
         onPointerDown={startDrag(current)}
         onPointerMove={moveDrag}
         onPointerUp={endDrag(() => onPick(current))}
-        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
           dark
             ? "text-sky-400 hover:bg-sky-500/15"
             : "text-sky-600 hover:bg-sky-50"
@@ -499,7 +508,7 @@ function StickyTool({ dark, onAdd, onDropAt }) {
         onPointerDown={onBtnPointerDown}
         onPointerMove={onBtnPointerMove}
         onPointerUp={onBtnPointerUp}
-        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
           dark ? "hover:bg-white/10" : "hover:bg-slate-100"
         }`}
       >
@@ -600,7 +609,7 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
         title="Add text"
         aria-label="Add text"
         onClick={() => onAdd()}
-        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors ${
           dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
         }`}
       >
@@ -644,7 +653,7 @@ function PenTool({ dark, active, style, setStyle, onToggle }) {
         aria-label="Pen"
         aria-pressed={active}
         onClick={onToggle}
-        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors ${
           active
             ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
             : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
@@ -708,7 +717,7 @@ function LaserTool({ dark, active, color, setColor, onToggle }) {
         aria-label="Laser pointer"
         aria-pressed={active}
         onClick={onToggle}
-        className={`${TOOL_BTN_SIZE} rounded-full flex items-center justify-center transition-colors ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors ${
           active
             ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
             : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
@@ -3465,7 +3474,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         <Panel position="bottom-left" className="w-max max-w-[calc(100%-16px)]">
           <div
             ref={toolbarRef}
-            className={`wb-scroll-x flex flex-row flex-nowrap items-center gap-0.5 p-1 rounded-2xl border shadow-sm w-max max-w-full overflow-x-auto ${
+            className={`wb-scroll-x flex flex-row flex-nowrap items-center gap-1 sm:gap-0.5 p-1.5 sm:p-1 rounded-2xl border shadow-sm w-max max-w-full overflow-x-auto ${
               dark
                 ? "bg-[var(--color-surface)] border-[var(--color-border)]"
                 : "bg-white border-slate-200"
@@ -3478,14 +3487,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             title={toolbarOpen ? "Hide toolbar · press Q for quick tools" : "Show toolbar"}
             aria-label={toolbarOpen ? "Hide toolbar" : "Show toolbar"}
             aria-pressed={toolbarOpen}
-            className={`w-8 h-7 rounded-lg inline-flex items-center justify-center transition-colors ${
+            className={`${TOOL_BTN_SIZE} shrink-0 rounded-xl inline-flex items-center justify-center transition-colors ${
               dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
             }`}
           >
             {toolbarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
           </button>
+          {toolbarOpen && <ToolbarDivider dark={dark} />}
           {toolbarOpen && (
-          <div className="flex flex-row flex-nowrap items-center gap-0.5">
+          <div className="flex flex-row flex-nowrap items-center gap-1 sm:gap-0.5">
           <StickyTool
             dark={dark}
             onAdd={(hex) =>
@@ -3501,13 +3511,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             setPrefs={setTextStyle}
             onAdd={() => addNodeAtCenter("text", textStyleRef.current)}
           />
-          {!compact && (
-            <div
-              className={`h-px w-5 my-0.5 ${
-                dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-              }`}
-            />
-          )}
+          <ToolbarDivider dark={dark} />
           <ShapesMenu
             dark={dark}
             onPick={(shape) => addNodeAtCenter("shape", { shape })}
@@ -3548,13 +3552,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
               if (f) addImageNode(f);
             }}
           />
-          {!compact && (
-            <div
-              className={`h-px w-5 my-0.5 ${
-                dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-              }`}
-            />
-          )}
+          <ToolbarDivider dark={dark} />
           <PenTool
             dark={dark}
             active={tool === "pen"}
@@ -3578,13 +3576,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             setColor={setLaserColor}
             onToggle={() => setTool((t) => (t === "laser" ? "select" : "laser"))}
           />
-          {!compact && (
-            <div
-              className={`h-px w-5 my-0.5 ${
-                dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-              }`}
-            />
-          )}
+          <ToolbarDivider dark={dark} />
           <ToolButton
             title="Delete selected"
             tone="red"
