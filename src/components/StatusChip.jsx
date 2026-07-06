@@ -67,7 +67,7 @@ export default function StatusChip() {
         type="button"
         onClick={() => (open ? setOpen(false) : openMenu())}
         title={title}
-        className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+        className="flex items-center gap-1.5 min-h-11 sm:min-h-0 rounded-full px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${availabilityDot(availability)}`} />
         <span className="font-medium">{availabilityLabel(availability)}</span>
@@ -88,7 +88,7 @@ export default function StatusChip() {
             onKeyDown={(e) => { if (e.key === "Enter") apply(overridden ? availability : "available"); }}
             maxLength={80}
             placeholder="What are you up to?"
-            className={`w-full rounded-md border px-2 py-1.5 text-xs ${
+            className={`w-full rounded-md border px-2 py-2.5 sm:py-1.5 text-sm sm:text-xs ${
               dark
                 ? "bg-[var(--color-bg)] border-[var(--color-border)] text-slate-200 placeholder:text-slate-500"
                 : "bg-white border-slate-200 text-slate-700 placeholder:text-slate-400"
@@ -104,7 +104,7 @@ export default function StatusChip() {
                 key={a}
                 type="button"
                 onClick={() => apply(a)}
-                className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs ${
+                className={`flex items-center gap-1.5 rounded-md px-2 py-2.5 sm:py-1.5 text-sm sm:text-xs ${
                   sel
                     ? dark ? "bg-[var(--color-bg)] text-slate-100" : "bg-slate-100 text-slate-800"
                     : dark ? "text-slate-200 hover:bg-[var(--color-bg)]" : "text-slate-700 hover:bg-slate-100"
@@ -126,7 +126,7 @@ export default function StatusChip() {
                 key={e.key}
                 type="button"
                 onClick={() => setExp(e.key)}
-                className={`flex-1 rounded-md px-1.5 py-1 text-[11px] ${
+                className={`flex-1 rounded-md px-1.5 py-2 sm:py-1 text-xs sm:text-[11px] ${
                   exp === e.key
                     ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
                     : dark ? "text-slate-400 hover:bg-[var(--color-bg)]" : "text-slate-500 hover:bg-slate-100"
@@ -142,7 +142,7 @@ export default function StatusChip() {
           <button
             type="button"
             onClick={backToAuto}
-            className={`mt-1 w-full rounded-md px-2 py-1.5 text-xs font-medium ${
+            className={`mt-1 w-full rounded-md px-2 py-2.5 sm:py-1.5 text-sm sm:text-xs font-medium ${
               dark ? "text-slate-300 hover:bg-[var(--color-bg)]" : "text-slate-600 hover:bg-slate-100"
             }`}
           >

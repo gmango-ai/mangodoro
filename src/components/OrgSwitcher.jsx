@@ -59,15 +59,15 @@ export default function OrgSwitcher({ variant = "header" }) {
     setDefaultTeam(defaultTeamId === teamId ? null : teamId);
   }
 
-  const chipCls = `flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full transition-colors ${
+  const chipCls = `flex items-center gap-1.5 min-h-11 sm:min-h-0 pl-1 pr-2 py-1 rounded-full transition-colors ${
     dark ? "hover:bg-[var(--color-surface-raised)]" : "hover:bg-slate-100"
   }`;
 
-  const menuCls = `absolute left-0 top-full mt-1.5 min-w-[240px] rounded-xl border shadow-lg overflow-hidden z-50 ${
+  const menuCls = `absolute left-0 top-full mt-1.5 min-w-[240px] max-w-[calc(100vw-1rem)] max-h-[80vh] overflow-y-auto rounded-xl border shadow-lg z-50 ${
     dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
   }`;
 
-  const itemBase = "w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors";
+  const itemBase = "w-full flex items-center gap-2 px-3 py-3 sm:py-2 text-sm transition-colors";
 
   return (
     <div ref={ref} className={`relative ${variant === "header" ? "shrink-0" : ""}`}>
@@ -125,13 +125,13 @@ export default function OrgSwitcher({ variant = "header" }) {
                     }
                   }}
                   title={isDefault ? "Remove as default" : "Set as default"}
-                  className={`p-1 rounded transition-colors cursor-pointer ${
+                  className={`p-2 sm:p-1 rounded transition-colors cursor-pointer ${
                     isDefault
                       ? "text-[var(--color-accent)]"
                       : dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"
                   }`}
                 >
-                  <Star className={`w-3.5 h-3.5 ${isDefault ? "fill-current" : ""}`} />
+                  <Star className={`w-4 h-4 sm:w-3.5 sm:h-3.5 ${isDefault ? "fill-current" : ""}`} />
                 </span>
               </button>
             );
