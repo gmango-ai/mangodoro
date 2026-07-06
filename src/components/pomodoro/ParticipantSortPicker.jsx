@@ -40,7 +40,7 @@ export default function ParticipantSortPicker({ iconOnly = false, className = ""
         title={`Sort by ${active.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md transition-colors ${
+        className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 min-h-[44px] sm:min-h-0 rounded-md transition-colors ${
           dark
             ? "text-slate-400 hover:text-slate-200 hover:bg-[var(--color-surface-raised)]"
             : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
@@ -68,7 +68,7 @@ export default function ParticipantSortPicker({ iconOnly = false, className = ""
                   setMode(s.key);
                   setOpen(false);
                 }}
-                className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-[11px] transition-colors ${
+                className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 min-h-[44px] sm:min-h-0 text-left text-[11px] transition-colors ${
                   selected
                     ? "text-[var(--color-accent)] font-semibold"
                     : dark

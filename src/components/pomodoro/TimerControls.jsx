@@ -14,7 +14,9 @@ import { usePomodoro } from "../../pomodoro/PomodoroContext";
 //   md  → 48/64px circles (rail, floating, popover)
 //   lg  → 56/80px circles (/pomodoro page)
 const SIZES = {
-  sm: { reset: "w-10 h-10", play: "w-12 h-12", resetIcon: "w-4 h-4", playIcon: "w-5 h-5" },
+  // Mobile bumps the tightest (sm) transport circles to thumb-friendly sizes;
+  // sm: reverts to the original desktop dimensions.
+  sm: { reset: "w-11 h-11 sm:w-10 sm:h-10", play: "w-14 h-14 sm:w-12 sm:h-12", resetIcon: "w-4 h-4", playIcon: "w-5 h-5" },
   md: { reset: "w-12 h-12", play: "w-16 h-16", resetIcon: "w-4 h-4", playIcon: "w-6 h-6" },
   lg: { reset: "w-14 h-14", play: "w-20 h-20", resetIcon: "w-5 h-5", playIcon: "w-7 h-7" },
 };

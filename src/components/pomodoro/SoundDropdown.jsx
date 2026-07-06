@@ -72,7 +72,7 @@ export default function SoundDropdown({ label = "Alert Sound" }) {
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-full text-sm font-semibold transition-colors ${
             dark
               ? "border border-[var(--color-border)] bg-[var(--color-surface)] text-slate-100 hover:border-[var(--color-accent)]"
               : "border border-slate-200 bg-white text-slate-700 hover:border-[var(--color-accent)]"
@@ -96,6 +96,30 @@ export default function SoundDropdown({ label = "Alert Sound" }) {
             onSelectBreak={(presetId) => update({ breakEndPreset: presetId })}
             onUpdateSettings={update}
           />
+          <label
+            className={`flex items-center justify-between gap-2 rounded-xl border p-3 text-xs ${
+              dark
+                ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-300"
+                : "bg-white border-slate-200 text-slate-600"
+            }`}
+          >
+            <span>5-second countdown before breaks</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoTransition}
+              onClick={() => setAutoTransition(!autoTransition)}
+              className={`shrink-0 w-11 h-6 sm:w-9 sm:h-5 rounded-full relative transition-colors ${
+                autoTransition ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 sm:w-4 sm:h-4 rounded-full bg-white transition-transform ${
+                  autoTransition ? "translate-x-5 sm:translate-x-4" : ""
+                }`}
+              />
+            </button>
+          </label>
         </div>
       )}
     </div>

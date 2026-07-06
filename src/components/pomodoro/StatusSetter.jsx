@@ -72,7 +72,7 @@ export default function StatusSetter({ currentTaskHint = "" }) {
       <button
         type="button"
         onClick={() => { setDraft(myStatus); setEditing(true); }}
-        className={`w-full flex items-center gap-2 text-left text-[11px] px-3 py-2 rounded-lg border transition-colors ${
+        className={`w-full flex items-center gap-2 text-left text-[11px] px-3 py-2 min-h-[44px] sm:min-h-0 rounded-lg border transition-colors ${
           dark
             ? "border-[var(--color-border)] bg-[var(--color-surface)] text-slate-300 hover:border-[var(--color-accent)]"
             : "bg-white border-slate-200 text-slate-700 hover:border-[var(--color-accent)]"
@@ -103,7 +103,7 @@ export default function StatusSetter({ currentTaskHint = "" }) {
               key={opt.key}
               type="button"
               onClick={() => applyPresence(opt.key)}
-              className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors ${
+              className={`inline-flex items-center gap-1.5 px-2 py-1 min-h-[44px] sm:min-h-0 rounded-md text-[10px] font-semibold transition-colors ${
                 active
                   ? dark ? "bg-slate-700 text-slate-100" : "bg-slate-100 text-slate-800 shadow-sm"
                   : dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
@@ -126,7 +126,7 @@ export default function StatusSetter({ currentTaskHint = "" }) {
           if (e.key === "Enter") save();
           if (e.key === "Escape") cancel();
         }}
-        className={`w-full h-9 px-3 rounded-md border text-xs ${
+        className={`w-full h-11 sm:h-9 px-3 rounded-md border text-xs ${
           dark
             ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500"
             : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400"
@@ -138,7 +138,7 @@ export default function StatusSetter({ currentTaskHint = "" }) {
             type="button"
             onClick={() => setDraft(currentTaskHint)}
             title="Use what you're clocked into"
-            className={`text-[10px] font-semibold px-2 py-1 rounded-md ${
+            className={`inline-flex items-center text-[10px] font-semibold px-2 py-1 min-h-[44px] sm:min-h-0 rounded-md ${
               dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
             }`}
           >
@@ -149,7 +149,7 @@ export default function StatusSetter({ currentTaskHint = "" }) {
         <button
           type="button"
           onClick={cancel}
-          className={`text-[11px] font-semibold px-3 py-1.5 rounded-md ${
+          className={`inline-flex items-center justify-center min-h-[44px] sm:min-h-0 text-[11px] font-semibold px-3 py-1.5 rounded-md ${
             dark ? "text-slate-400 hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:bg-slate-100"
           }`}
         >
@@ -158,7 +158,7 @@ export default function StatusSetter({ currentTaskHint = "" }) {
         <button
           type="button"
           onClick={save}
-          className="text-[11px] font-semibold px-3 py-1.5 rounded-md text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)]"
+          className="inline-flex items-center justify-center min-h-[44px] sm:min-h-0 text-[11px] font-semibold px-3 py-1.5 rounded-md text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)]"
         >
           Save
         </button>
