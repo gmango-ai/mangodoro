@@ -2356,8 +2356,9 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const [videoFit, setVideoFit] = useState(() => (loadPref(PREF.fit, "cover") === "contain" ? "contain" : "cover"));
   const toggleFit = () => setVideoFit((f) => (f === "cover" ? "contain" : "cover"));
   // Auto-rotate my self-view to the device (portrait-locked app, but iOS rotates
-  // the camera capture). Opt-in — enabling it prompts for motion access.
-  const [autoRotate, setAutoRotate] = useState(() => loadPref(PREF.autoRotate, "0") === "1");
+  // the camera capture). On by default on touch — the hook requests motion
+  // access on the first touch; the toggle lets you turn it off.
+  const [autoRotate, setAutoRotate] = useState(() => loadPref(PREF.autoRotate, IS_COARSE_POINTER ? "1" : "0") === "1");
   const selfRotate = useDeviceRotation(autoRotate);
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
