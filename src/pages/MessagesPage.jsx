@@ -128,9 +128,9 @@ function EmojiPopover({ anchor, onPick, onClose, dark }) {
     const M = 8;
     let W, H;
     if (full) {
-      // The full picker's own fixed size.
+      // The full picker's default size, capped to the viewport.
       W = Math.min(300, window.innerWidth - 2 * M);
-      H = 380;
+      H = Math.min(380, Math.max(0, window.innerHeight - 2 * M));
     } else {
       // Width from the ACTUAL number of quick reactions (each button ~40px on
       // touch), capped to the viewport so it never runs off-screen — it wraps
@@ -144,7 +144,9 @@ function EmojiPopover({ anchor, onPick, onClose, dark }) {
     left = Math.max(M, left);
     let top = r.top - H - 6;
     if (top < M) top = r.bottom + 6;
-    setPos({ top, left, W });
+    top = Math.min(top, window.innerHeight - H - M);
+    top = Math.max(M, top);
+    setPos({ top, left, W, H });
   }, [anchor, full]);
 
   useEffect(() => {
@@ -163,7 +165,7 @@ function EmojiPopover({ anchor, onPick, onClose, dark }) {
       className={`rounded-2xl border shadow-xl overflow-hidden ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
     >
       {full ? (
-        <FullEmojiPicker dark={dark} width={pos.W} onPick={(g) => onPick(g)} />
+        <FullEmojiPicker dark={dark} width={pos.W} height={pos.H} onPick={(g) => onPick(g)} />
       ) : (
         <div style={{ maxWidth: pos.W }} className="flex flex-wrap items-center gap-0.5 px-1.5 py-1">
           {QUICK_REACTIONS.map((g) => (
