@@ -36,9 +36,17 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandle
         CAPPluginMethod(name: "requestNotificationPermission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getNotificationPermission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPendingNotificationURL", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startOrientation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopOrientation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addListener", returnType: CAPPluginReturnCallback),
         CAPPluginMethod(name: "removeAllListeners", returnType: CAPPluginReturnPromise)
     ]
+
+    /// Observes physical device orientation so the web layer can counter-rotate
+    /// the in-call self-view. UIDevice reports the real orientation even though
+    /// the app UI is locked to portrait, and — unlike web DeviceMotion, which
+    /// WKWebView doesn't deliver — needs no permission.
+    private var orientationObserver: NSObjectProtocol?
 
     /// Latest ActivityKit push-to-start token (hex). Lets the server CREATE a
     /// Live Activity remotely (iOS 17.2+) when a timer starts on another
@@ -317,6 +325,52 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandle
         Self.clearActivityCredentials()
         stopAll()
         call.resolve()
+    }
+
+    // MARK: - Device orientation (for in-call video auto-rotate)
+
+    @objc func startOrientation(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { call.resolve(); return }
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+            if self.orientationObserver == nil {
+                self.orientationObserver = NotificationCenter.default.addObserver(
+                    forName: UIDevice.orientationDidChangeNotification,
+                    object: nil, queue: .main
+                ) { [weak self] _ in
+                    self?.emitOrientation()
+                }
+            }
+            self.emitOrientation() // push the current orientation right away
+            call.resolve()
+        }
+    }
+
+    @objc func stopOrientation(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { call.resolve(); return }
+            if let obs = self.orientationObserver {
+                NotificationCenter.default.removeObserver(obs)
+                self.orientationObserver = nil
+            }
+            UIDevice.current.endGeneratingDeviceOrientationNotifications()
+            call.resolve()
+        }
+    }
+
+    /// Rotation (deg) the web layer should apply to the self-view <video> so it
+    /// reads upright: the counter-rotation of the physical device turn. faceUp/
+    /// faceDown/unknown keep the last value (return without emitting).
+    private func emitOrientation() {
+        let angle: Int
+        switch UIDevice.current.orientation {
+        case .portrait: angle = 0
+        case .portraitUpsideDown: angle = 180
+        case .landscapeLeft: angle = 90
+        case .landscapeRight: angle = 270
+        default: return
+        }
+        notifyListeners("deviceOrientation", data: ["angle": angle])
     }
 
     /// Subscribes to `activity.pushTokenUpdates`. The async sequence yields
