@@ -37,6 +37,8 @@ function MessageRow({
   editDraft, onEditDraftChange, onStartEdit, onCancelEdit, onSaveEdit, onDelete,
 }) {
   const editAreaRef = useRef(null);
+  // Touch: tap a message to reveal its edit/delete (desktop uses hover).
+  const [selected, setSelected] = useState(false);
 
   useEffect(() => {
     if (isEditing && editAreaRef.current) {
@@ -58,7 +60,10 @@ function MessageRow({
   };
 
   return (
-    <div className={`group relative flex gap-2 ${compact ? "" : "mt-3"}`}>
+    <div
+      onClick={() => setSelected((v) => !v)}
+      className={`group relative flex gap-2 ${compact ? "" : "mt-3"}`}
+    >
       <div className="w-7 shrink-0">
         {!compact && (
           <button type="button" className="rounded-full" onClick={(e) => openProfile?.(message.user_id, e.currentTarget.getBoundingClientRect())} title="View profile">
@@ -134,7 +139,8 @@ function MessageRow({
           the bubble without reflowing the row. Hidden in read-only (kiosk). */}
       {isOwn && !isEditing && !readOnly && (
         <div
-          className={`absolute -top-2 right-1 flex sm:hidden group-hover:flex items-center gap-0.5 rounded-md border shadow-sm ${
+          onClick={(e) => e.stopPropagation()}
+          className={`absolute -top-2 right-1 ${selected ? "flex" : "hidden"} sm:hidden sm:group-hover:flex items-center gap-0.5 rounded-md border shadow-sm ${
             dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
           }`}
         >

@@ -436,6 +436,9 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
   const [showSettings, setShowSettings] = useState(false);
   const [emoji, setEmoji] = useState(null);   // { messageId, anchor }
   const [lightbox, setLightbox] = useState(null);
+  // Touch: which message's action toolbar is revealed (tap a message to show
+  // its react/edit/delete; tap again or elsewhere to hide). Desktop uses hover.
+  const [selectedMsg, setSelectedMsg] = useState(null);
   const scrollRef = useRef(null);
   const presenceRef = useRef(null);
 
@@ -620,7 +623,10 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
                   <div className={`flex-1 h-px ${dark ? "bg-white/10" : "bg-slate-200"}`} />
                 </div>
               )}
-              <div className={`group relative flex gap-3 px-4 ${grouped ? "mt-0.5" : "mt-3"} py-0.5 ${dark ? "hover:bg-white/[0.03]" : "hover:bg-slate-50"}`}>
+              <div
+                onClick={() => setSelectedMsg((cur) => (cur === m.id ? null : m.id))}
+                className={`group relative flex gap-3 px-4 ${grouped ? "mt-0.5" : "mt-3"} py-0.5 ${selectedMsg === m.id ? (dark ? "bg-white/[0.03]" : "bg-slate-50") : dark ? "hover:bg-white/[0.03]" : "hover:bg-slate-50"}`}
+              >
                 <div className="w-9 shrink-0">
                   {!grouped
                     ? <UserAvatar url={author?.avatar_url || ""} name={author?.name || "Member"} size={36} />
@@ -652,9 +658,13 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
                   )}
                 </div>
 
-                {/* action toolbar — always visible on touch, hover-reveal on desktop */}
+                {/* action toolbar — tap-to-reveal on touch (only the selected
+                    message), hover-reveal on desktop. */}
                 {editing !== m.id && (
-                  <div className={`absolute -top-3 right-3 flex items-center rounded-lg border shadow-sm transition-opacity opacity-100 md:opacity-0 md:group-hover:opacity-100 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className={`absolute -top-3 right-3 flex items-center rounded-lg border shadow-sm transition-opacity ${selectedMsg === m.id ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"} md:opacity-0 md:pointer-events-auto md:group-hover:opacity-100 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
+                  >
                     <button type="button" onClick={(e) => setEmoji({ messageId: m.id, anchor: e.currentTarget })} aria-label="React"
                       className={`p-2.5 sm:p-1.5 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}><SmilePlus className="w-5 h-5 sm:w-4 sm:h-4" /></button>
                     {mine && <button type="button" onClick={() => { setEditing(m.id); setEditDraft(m.body); }} aria-label="Edit"
