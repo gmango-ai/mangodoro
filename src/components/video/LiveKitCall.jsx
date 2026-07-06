@@ -1252,6 +1252,7 @@ function CallControlBar({
   mirror, onToggleMirror,
   fit, onToggleFit,
   selfFloat, onToggleSelfFloat,
+  autoRotateEnabled, onToggleAutoRotate,
   micMuted, onToggleMic,
   deafened, onToggleDeafen,
   peopleOpen, onTogglePeople,
@@ -1310,6 +1311,7 @@ function CallControlBar({
               <SettingRow icon={FlipHorizontal2} label="Mirror my video" active={mirror} onClick={onToggleMirror} />
               <SettingRow icon={fit === "contain" ? Shrink : Expand} label="Fit video (show full frame)" active={fit === "contain"} onClick={onToggleFit} />
               <SettingRow icon={PictureInPicture2} label="Float my video" active={selfFloat} onClick={onToggleSelfFloat} />
+              <SettingRow icon={RotateCw} label="Auto-rotate my video" active={autoRotateEnabled} onClick={onToggleAutoRotate} />
             </DeviceSettingsMenu>
           )}
           <TrackToggle source={Track.Source.ScreenShare} />
@@ -2338,7 +2340,9 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // non-mirrored self-view upright for free, and makes the layout landscape.
   // Only the mirrored self-view needs an extra 180° in landscape (a mirror
   // reverses rotation sense). A manual rotate button stacks on top for fixups.
-  const deviceAngle = useDeviceRotation(IS_COARSE_POINTER);
+  // Auto is a toggle (default on); manual is always available.
+  const [autoRotateEnabled, setAutoRotateEnabled] = useState(() => loadPref(PREF.autoRotate, "1") === "1");
+  const deviceAngle = useDeviceRotation(IS_COARSE_POINTER && autoRotateEnabled);
   const [manualRotate, setManualRotate] = useState(0);
   const landscape = deviceAngle === 90 || deviceAngle === 270;
   const uiRotated = IS_COARSE_POINTER && maximized && landscape;
@@ -2358,6 +2362,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   useEffect(() => savePref(PREF.mirror, mirror ? "1" : "0"), [mirror]);
   useEffect(() => savePref(PREF.selfFloat, selfFloat ? "1" : "0"), [selfFloat]);
   useEffect(() => savePref(PREF.fit, videoFit), [videoFit]);
+  useEffect(() => savePref(PREF.autoRotate, autoRotateEnabled ? "1" : "0"), [autoRotateEnabled]);
   const selfView = useMemo(() => ({ mirror, float: selfFloat, fit: videoFit, selfRotate, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat, videoFit, selfRotate]);
 
   // Push-to-talk key handling. micMuted lives in the parent; we drive it via the
@@ -2508,6 +2513,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onToggleFit={toggleFit}
               selfFloat={selfFloat}
               onToggleSelfFloat={() => setSelfFloat((v) => !v)}
+              autoRotateEnabled={autoRotateEnabled}
+              onToggleAutoRotate={() => setAutoRotateEnabled((v) => !v)}
               micMuted={micMuted}
               onToggleMic={onToggleMic}
               deafened={deafened}
