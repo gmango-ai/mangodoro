@@ -2425,7 +2425,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
       style={uiRotated ? {
         position: "absolute", top: "50%", left: "50%",
         width: "100dvh", height: "100dvw",
-        transform: `translate(-50%, -50%) rotate(${(360 - deviceAngle) % 360}deg)`,
+        transform: `translate(-50%, -50%) rotate(${deviceAngle}deg)`,
         transformOrigin: "center center",
       } : undefined}
       onPointerMove={reveal}
