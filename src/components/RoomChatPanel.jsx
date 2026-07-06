@@ -35,10 +35,9 @@ function formatTime(iso) {
 function MessageRow({
   message, compact, dark, isOwn, isEditing, renderBody, openProfile, readOnly,
   editDraft, onEditDraftChange, onStartEdit, onCancelEdit, onSaveEdit, onDelete,
+  selected, onToggleSelected,
 }) {
   const editAreaRef = useRef(null);
-  // Touch: tap a message to reveal its edit/delete (desktop uses hover).
-  const [selected, setSelected] = useState(false);
 
   useEffect(() => {
     if (isEditing && editAreaRef.current) {
@@ -61,7 +60,7 @@ function MessageRow({
 
   return (
     <div
-      onClick={() => setSelected((v) => !v)}
+      onClick={onToggleSelected}
       className={`group relative flex gap-2 ${compact ? "" : "mt-3"}`}
     >
       <div className="w-7 shrink-0">
@@ -250,6 +249,7 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
+  const [selectedMsg, setSelectedMsg] = useState(null);
   const scrollerRef = useRef(null);
 
   // @mentions: an autocomplete over teammates; selected user_ids accumulate in
@@ -485,6 +485,8 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
                 isOwn={m.user_id === userId}
                 readOnly={readOnly}
                 isEditing={editingId === m.id}
+                selected={selectedMsg === m.id}
+                onToggleSelected={() => setSelectedMsg((cur) => (cur === m.id ? null : m.id))}
                 editDraft={editDraft}
                 onEditDraftChange={setEditDraft}
                 onStartEdit={() => startEdit(m)}
