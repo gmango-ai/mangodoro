@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Car, Lock, Mic, MicOff, PhoneOff, Users, X } from "lucide-react";
+import { Car, Lock, Mic, MicOff, PhoneOff, Users, Video, VideoOff, X } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useSyncSession } from "../context/SyncSessionContext";
@@ -23,11 +23,26 @@ export default function DriveModePage() {
   const { session, settings } = useApp();
   const { activeTeamSessions, visibleRooms, lockedRooms, teamMembers } = useTeam();
   const { syncSession, joinSession, leaveSession } = useSyncSession();
-  const { call, startCall, endCall } = useVideoCall();
+  const { call, startCall, endCall, setStageEl, setHideChrome } = useVideoCall();
 
   const [callState, setCallState] = useState(driveCallState);
   useEffect(() => subscribeDriveCall(setCallState), []);
   useWakeLock(true);
+
+  // Opt-in video: stage the live call into the drive screen (chromeless — the
+  // giant drive controls stay). Less safe than audio-only, but safer than
+  // bailing to the full call UI while driving. Off by default.
+  const [showVideo, setShowVideo] = useState(false);
+  const videoStageRef = useRef(null);
+  const active = showVideo && !!call;
+  useEffect(() => {
+    if (active && videoStageRef.current) {
+      setStageEl(videoStageRef.current);
+      setHideChrome(true);
+      return () => { setStageEl(null); setHideChrome(false); };
+    }
+    return undefined;
+  }, [active, setStageEl, setHideChrome]);
 
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
@@ -111,8 +126,23 @@ export default function DriveModePage() {
         <Car className="w-7 h-7 text-emerald-400 shrink-0" aria-hidden />
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold leading-tight">Drive mode</h1>
-          <p className="text-xs text-slate-400">Audio only. Keep your eyes on the road.</p>
+          <p className="text-xs text-slate-400">
+            {showVideo ? "Video on. Keep your eyes on the road." : "Audio only. Keep your eyes on the road."}
+          </p>
         </div>
+        {call && (
+          <button
+            type="button"
+            onClick={() => setShowVideo((v) => !v)}
+            aria-pressed={showVideo}
+            aria-label={showVideo ? "Hide video" : "Show video"}
+            className={`flex items-center justify-center w-14 h-14 rounded-2xl border active:opacity-80 ${
+              showVideo ? "bg-emerald-600 border-emerald-500" : "bg-slate-900 border-slate-700"
+            }`}
+          >
+            {showVideo ? <Video className="w-7 h-7" /> : <VideoOff className="w-7 h-7" />}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => navigate("/office")}
@@ -142,39 +172,49 @@ export default function DriveModePage() {
             </p>
           </div>
 
-          <div className="flex-1 flex items-center justify-center min-h-0" aria-live="polite">
-            {callState.speakerName ? (
-              <p className="text-5xl font-bold text-center leading-tight break-words max-w-full">
-                <span className="inline-block w-4 h-4 rounded-full bg-emerald-400 animate-pulse align-middle mr-3" aria-hidden />
-                {callState.speakerName}
-              </p>
-            ) : (
-              <p className="text-3xl font-semibold text-slate-600">
-                {callState.connected ? "Nobody speaking" : " "}
-              </p>
-            )}
-          </div>
+          {showVideo ? (
+            /* The persistent call video is staged into this box (chromeless);
+               drive keeps its own giant mic/leave below. */
+            <div ref={videoStageRef} className="relative flex-1 min-h-0 rounded-3xl overflow-hidden bg-slate-950" />
+          ) : (
+            <div className="flex-1 flex items-center justify-center min-h-0" aria-live="polite">
+              {callState.speakerName ? (
+                <p className="text-5xl font-bold text-center leading-tight break-words max-w-full">
+                  <span className="inline-block w-4 h-4 rounded-full bg-emerald-400 animate-pulse align-middle mr-3" aria-hidden />
+                  {callState.speakerName}
+                </p>
+              ) : (
+                <p className="text-3xl font-semibold text-slate-600">
+                  {callState.connected ? "Nobody speaking" : " "}
+                </p>
+              )}
+            </div>
+          )}
 
           <button
             type="button"
             onClick={driveToggleMic}
             aria-pressed={callState.micMuted}
             aria-label={callState.micMuted ? "Unmute microphone" : "Mute microphone"}
-            className={`w-full rounded-[2.5rem] flex flex-col items-center justify-center gap-3 h-[38vh] transition-colors ${
+            className={`w-full rounded-[2.5rem] flex flex-col items-center justify-center gap-3 transition-colors ${
+              showVideo ? "h-32" : "h-[38vh]"
+            } ${
               callState.micMuted
                 ? "bg-red-600 active:bg-red-500"
                 : "bg-emerald-600 active:bg-emerald-500"
             }`}
           >
             {callState.micMuted
-              ? <MicOff className="w-16 h-16" aria-hidden />
-              : <Mic className="w-16 h-16" aria-hidden />}
-            <span className="text-4xl font-extrabold tracking-wide">
+              ? <MicOff className={showVideo ? "w-10 h-10" : "w-16 h-16"} aria-hidden />
+              : <Mic className={showVideo ? "w-10 h-10" : "w-16 h-16"} aria-hidden />}
+            <span className={showVideo ? "text-2xl font-extrabold tracking-wide" : "text-4xl font-extrabold tracking-wide"}>
               {callState.micMuted ? "MUTED" : "MIC ON"}
             </span>
-            <span className="text-lg text-white/80">
-              {callState.micMuted ? "Tap to talk" : "Tap to mute"}
-            </span>
+            {!showVideo && (
+              <span className="text-lg text-white/80">
+                {callState.micMuted ? "Tap to talk" : "Tap to mute"}
+              </span>
+            )}
           </button>
 
           <button
