@@ -1735,11 +1735,9 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   // Counter-rotate my own camera to the physical device orientation (the app is
   // portrait-locked but iOS rotates the capture). Only the local camera; remote
   // tiles arrive upright. rotate + object-cover so it still fills after turning.
-  const rawRot = isLocalCam ? selfRotate : 0;
-  // Mirror (scaleX -1) reverses the sense of rotation, so negate the angle when
-  // the self-view is mirrored — otherwise a turned phone rotates the "wrong"
-  // way (the 90°-off-with-mirror bug). 0 and 180 are unaffected.
-  const rot = flip ? (360 - rawRot) % 360 : rawRot;
+  // selfRotate already folds in the mirror + UI-rotation handling (computed in
+  // ConferenceLayout), so apply it verbatim to the local camera only.
+  const rot = isLocalCam ? selfRotate : 0;
   const rotCls = rot === 180 ? "[&_video]:rotate-180" : rot === 90 ? "[&_video]:rotate-90" : rot === 270 ? "[&_video]:-rotate-90" : "";
   // Camera off → cover LiveKit's generic gray silhouette with a clean initials
   // avatar (a soft per-person gradient), which reads far more modern.
@@ -2334,13 +2332,22 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // portrait phone). Per-device pref, applied to every tile's <video>.
   const [videoFit, setVideoFit] = useState(() => (loadPref(PREF.fit, "cover") === "contain" ? "contain" : "cover"));
   const toggleFit = () => setVideoFit((f) => (f === "cover" ? "contain" : "cover"));
-  // Self-view rotation. Auto (device orientation) runs on touch, but it's
-  // unreliable in the iOS WKWebView; a MANUAL rotate button (0/90/180/270)
-  // guarantees you can fix an upside-down/sideways face. Manual, when set,
-  // overrides auto; 0 = follow auto.
-  const autoRotate = useDeviceRotation(IS_COARSE_POINTER);
+  // ── Device-orientation handling ──────────────────────────────────────────
+  // Rotate the WHOLE fullscreen call UI to counter the device turn: because
+  // your eyes turned with the phone, that leaves remote video AND the
+  // non-mirrored self-view upright for free, and makes the layout landscape.
+  // Only the mirrored self-view needs an extra 180° in landscape (a mirror
+  // reverses rotation sense). A manual rotate button stacks on top for fixups.
+  const deviceAngle = useDeviceRotation(IS_COARSE_POINTER);
   const [manualRotate, setManualRotate] = useState(0);
-  const selfRotate = manualRotate || autoRotate;
+  const landscape = deviceAngle === 90 || deviceAngle === 270;
+  const uiRotated = IS_COARSE_POINTER && maximized && landscape;
+  // Final rotation applied to the local self-view <video> (mirror already
+  // accounted for here, so the tile applies it verbatim).
+  const autoSelf = uiRotated
+    ? (mirror ? 180 : 0)
+    : (mirror ? (360 - deviceAngle) % 360 : deviceAngle);
+  const selfRotate = (autoSelf + manualRotate) % 360;
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.spotlightIgnoreSelf, spotlightIgnoreSelf ? "1" : "0"), [spotlightIgnoreSelf]);
@@ -2406,7 +2413,16 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     <HandRaiseContext.Provider value={handRaise}>
     <div
       ref={rootRef}
-      className={`relative flex flex-col w-full h-full ${isFullscreen ? "bg-slate-950" : ""}`}
+      className={`relative flex flex-col ${uiRotated ? "" : "w-full h-full"} ${isFullscreen || uiRotated ? "bg-slate-950" : ""}`}
+      // Landscape fullscreen: swap dimensions and rotate about the centre so
+      // the portrait-locked overlay fills the screen as a landscape call. The
+      // control bar / tiles are children, so they rotate with it.
+      style={uiRotated ? {
+        position: "absolute", top: "50%", left: "50%",
+        width: "100dvh", height: "100dvw",
+        transform: `translate(-50%, -50%) rotate(${deviceAngle}deg)`,
+        transformOrigin: "center center",
+      } : undefined}
       onPointerMove={reveal}
       onPointerDown={reveal}
     >
