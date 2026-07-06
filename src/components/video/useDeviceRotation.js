@@ -27,6 +27,7 @@ export function useDeviceRotation(enabled) {
     let cancelled = false;
     let listening = false;
     let last = 0;
+    setAngle(last);
 
     const onMotion = (e) => {
       const g = e.accelerationIncludingGravity;
