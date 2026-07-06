@@ -2339,7 +2339,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // your eyes turned with the phone, that leaves remote video AND the
   // non-mirrored self-view upright for free, and makes the layout landscape.
   // Only the mirrored self-view needs an extra 180° in landscape (a mirror
-  // reverses rotation sense). A manual rotate button stacks on top for fixups.
+  // reverses rotation sense). A manual rotate button overrides auto for fixups.
   // Auto is a toggle (default on); manual is always available.
   const [autoRotateEnabled, setAutoRotateEnabled] = useState(() => loadPref(PREF.autoRotate, "1") === "1");
   const deviceAngle = useDeviceRotation(IS_COARSE_POINTER && autoRotateEnabled);
@@ -2351,7 +2351,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const autoSelf = uiRotated
     ? (mirror ? 180 : 0)
     : (mirror ? (360 - deviceAngle) % 360 : deviceAngle);
-  const selfRotate = (autoSelf + manualRotate) % 360;
+  const selfRotate = manualRotate || autoSelf;
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.spotlightIgnoreSelf, spotlightIgnoreSelf ? "1" : "0"), [spotlightIgnoreSelf]);
