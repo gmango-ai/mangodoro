@@ -20,7 +20,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, MoreHorizontal } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, ChevronUp, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, RotateCw, MoreHorizontal } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
@@ -35,6 +35,7 @@ import { diagReset, diagRecord, diagReport, diagEnv } from "./livekitDiagnostics
 import { useFullscreen } from "./useFullscreen";
 import { useGlobalPin } from "./useGlobalPin";
 import { useDriveBridge } from "./useDriveBridge";
+import { useDeviceRotation } from "./useDeviceRotation";
 import { playHandRaise } from "../../lib/uiSounds";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
@@ -177,7 +178,7 @@ function bgToOptions(bg, customBg) {
 // Per-device self-view prefs shared from the control bar down to the tiles:
 //   mirror — flip your own camera horizontally (your view only)
 //   float  — render your own tile as a draggable PiP instead of a grid cell
-const SelfViewContext = createContext({ mirror: true, float: true, fit: "cover", setMirror: () => {}, setFloat: () => {} });
+const SelfViewContext = createContext({ mirror: true, float: true, fit: "cover", selfRotate: 0, setMirror: () => {}, setFloat: () => {} });
 
 const RoomEntryHoldContext = createContext({
   entryHoldPending: false,
@@ -1250,6 +1251,7 @@ function CallControlBar({
   ptt, onTogglePtt,
   mirror, onToggleMirror,
   fit, onToggleFit,
+  autoRotate, onToggleAutoRotate,
   selfFloat, onToggleSelfFloat,
   micMuted, onToggleMic,
   deafened, onToggleDeafen,
@@ -1308,6 +1310,9 @@ function CallControlBar({
               <div className="my-1 border-t border-white/10" />
               <SettingRow icon={FlipHorizontal2} label="Mirror my video" active={mirror} onClick={onToggleMirror} />
               <SettingRow icon={fit === "contain" ? Shrink : Expand} label="Fit video (show full frame)" active={fit === "contain"} onClick={onToggleFit} />
+              {IS_COARSE_POINTER && (
+                <SettingRow icon={RotateCw} label="Auto-rotate my video" active={autoRotate} onClick={onToggleAutoRotate} />
+              )}
               <SettingRow icon={PictureInPicture2} label="Float my video" active={selfFloat} onClick={onToggleSelfFloat} />
             </DeviceSettingsMenu>
           )}
@@ -1728,8 +1733,14 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   // Mirror only YOUR OWN camera (the convention — your self-view reads like a
   // mirror), and only the camera, never a screen share. `[&_video]` flips the
   // <video> LiveKit renders inside ParticipantTile.
-  const { mirror, fit } = useContext(SelfViewContext);
-  const flip = mirror && participant?.isLocal && trackRef?.source === Track.Source.Camera;
+  const { mirror, fit, selfRotate } = useContext(SelfViewContext);
+  const isLocalCam = participant?.isLocal && trackRef?.source === Track.Source.Camera;
+  const flip = mirror && isLocalCam;
+  // Counter-rotate my own camera to the physical device orientation (the app is
+  // portrait-locked but iOS rotates the capture). Only the local camera; remote
+  // tiles arrive upright. rotate + object-cover so it still fills after turning.
+  const rot = isLocalCam ? selfRotate : 0;
+  const rotCls = rot === 180 ? "[&_video]:rotate-180" : rot === 90 ? "[&_video]:rotate-90" : rot === 270 ? "[&_video]:-rotate-90" : "";
   // Camera off → cover LiveKit's generic gray silhouette with a clean initials
   // avatar (a soft per-person gradient), which reads far more modern.
   const camOff = trackRef?.source === Track.Source.Camera && (!trackRef?.publication || trackRef.publication.isMuted);
@@ -1759,7 +1770,7 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
           : "In room";
   return (
     <div
-      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""} ${fit === "contain" ? "[&_video]:!object-contain" : ""}`}
+      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""} ${rotCls} ${fit === "contain" ? "[&_video]:!object-contain" : ""}`}
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
 
@@ -2323,6 +2334,10 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // portrait phone). Per-device pref, applied to every tile's <video>.
   const [videoFit, setVideoFit] = useState(() => (loadPref(PREF.fit, "cover") === "contain" ? "contain" : "cover"));
   const toggleFit = () => setVideoFit((f) => (f === "cover" ? "contain" : "cover"));
+  // Auto-rotate my self-view to the device (portrait-locked app, but iOS rotates
+  // the camera capture). Opt-in — enabling it prompts for motion access.
+  const [autoRotate, setAutoRotate] = useState(() => loadPref(PREF.autoRotate, "0") === "1");
+  const selfRotate = useDeviceRotation(autoRotate);
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.spotlightIgnoreSelf, spotlightIgnoreSelf ? "1" : "0"), [spotlightIgnoreSelf]);
@@ -2333,7 +2348,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   useEffect(() => savePref(PREF.mirror, mirror ? "1" : "0"), [mirror]);
   useEffect(() => savePref(PREF.selfFloat, selfFloat ? "1" : "0"), [selfFloat]);
   useEffect(() => savePref(PREF.fit, videoFit), [videoFit]);
-  const selfView = useMemo(() => ({ mirror, float: selfFloat, fit: videoFit, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat, videoFit]);
+  useEffect(() => savePref(PREF.autoRotate, autoRotate ? "1" : "0"), [autoRotate]);
+  const selfView = useMemo(() => ({ mirror, float: selfFloat, fit: videoFit, selfRotate, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat, videoFit, selfRotate]);
 
   // Push-to-talk key handling. micMuted lives in the parent; we drive it via the
   // passed toggle, reading the latest value through a ref so the listeners never
@@ -2419,13 +2435,21 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
         </button>
       )}
       {!hideControls && !chromeless && (
-        <div
-          className={`absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-3 pointer-events-none transition-opacity duration-300 ${
-            controlsShown ? "opacity-100" : "opacity-0"
-          }`}
-        >
+        <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col items-center px-2 pb-3 gap-1.5 pointer-events-none">
+          {/* Fullscreen on mobile: a persistent handle to show/hide the control
+              bar, so it doesn't have to sit over the video the whole time. */}
+          {IS_COARSE_POINTER && (maximized || isFullscreen) && (
+            <button
+              type="button"
+              onClick={() => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); setControlsShown((v) => !v); }}
+              aria-label={controlsShown ? "Hide controls" : "Show controls"}
+              className="pointer-events-auto order-2 w-12 h-8 rounded-full bg-slate-900/70 text-white backdrop-blur-sm flex items-center justify-center active:bg-slate-800"
+            >
+              {controlsShown ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+            </button>
+          )}
           <div
-            className={controlsShown ? "pointer-events-auto" : "pointer-events-none"}
+            className={`transition-opacity duration-300 ${controlsShown ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
             onMouseEnter={onBarEnter}
             onMouseLeave={onBarLeave}
           >
@@ -2451,6 +2475,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onToggleMirror={() => setMirror((v) => !v)}
               fit={videoFit}
               onToggleFit={toggleFit}
+              autoRotate={autoRotate}
+              onToggleAutoRotate={() => setAutoRotate((v) => !v)}
               selfFloat={selfFloat}
               onToggleSelfFloat={() => setSelfFloat((v) => !v)}
               micMuted={micMuted}
