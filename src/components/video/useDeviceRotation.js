@@ -63,7 +63,9 @@ export function useDeviceRotation(enabled) {
       if (refDeg == null) { refDeg = deg; return; }
       let d = deg - refDeg;
       d = ((((d + 180) % 360) + 360) % 360) - 180;
-      const q = (((-Math.round(d / 90) * 90) % 360) + 360) % 360;
+      // Sign matches the iOS native path so the UI rotates the same way on both
+      // (Android was mirrored/backwards with the negated form).
+      const q = (((Math.round(d / 90) * 90) % 360) + 360) % 360;
       if (q === last) return;
       last = q;
       setAngle(q);
