@@ -2346,10 +2346,12 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const [manualRotate, setManualRotate] = useState(0);
   const landscape = deviceAngle === 90 || deviceAngle === 270;
   const uiRotated = IS_COARSE_POINTER && maximized && landscape;
-  // The rotated UI already uprights remote + non-mirrored self, so the ONLY
-  // per-video correction is a mirrored self-view in landscape (a mirror
-  // reverses rotation sense → an extra 180°). Nothing else rotates the video.
-  const autoSelf = uiRotated && mirror ? 180 : 0;
+  // The container rotation lands on the self-view tile too, so counter it
+  // (360 − deviceAngle) to keep the self-view upright and independent of the
+  // UI rotation — that's why the non-mirrored case must NOT visibly rotate.
+  // A mirror reverses rotation sense, so mirrored landscape needs +180 on top
+  // (net 180 vs the container). Portrait / not-fullscreen: no video rotation.
+  const autoSelf = uiRotated ? (360 - deviceAngle + (mirror ? 180 : 0)) % 360 : 0;
   const selfRotate = manualRotate || autoSelf;
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
