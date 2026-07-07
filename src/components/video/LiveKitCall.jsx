@@ -2346,11 +2346,10 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const [manualRotate, setManualRotate] = useState(0);
   const landscape = deviceAngle === 90 || deviceAngle === 270;
   const uiRotated = IS_COARSE_POINTER && maximized && landscape;
-  // Final rotation applied to the local self-view <video> (mirror already
-  // accounted for here, so the tile applies it verbatim).
-  const autoSelf = uiRotated
-    ? (mirror ? 180 : 0)
-    : (mirror ? (360 - deviceAngle) % 360 : deviceAngle);
+  // The rotated UI already uprights remote + non-mirrored self, so the ONLY
+  // per-video correction is a mirrored self-view in landscape (a mirror
+  // reverses rotation sense → an extra 180°). Nothing else rotates the video.
+  const autoSelf = uiRotated && mirror ? 180 : 0;
   const selfRotate = manualRotate || autoSelf;
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
@@ -2425,7 +2424,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
       style={uiRotated ? {
         position: "absolute", top: "50%", left: "50%",
         width: "100dvh", height: "100dvw",
-        transform: `translate(-50%, -50%) rotate(${(360 - deviceAngle) % 360}deg)`,
+        transform: `translate(-50%, -50%) rotate(${deviceAngle}deg)`,
         transformOrigin: "center center",
       } : undefined}
       onPointerMove={reveal}
