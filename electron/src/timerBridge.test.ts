@@ -24,6 +24,7 @@ function createWindow(id: number) {
       id,
       isDestroyed: () => false,
       send: vi.fn(),
+      on: vi.fn(),
     },
   } as any;
 }

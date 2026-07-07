@@ -438,10 +438,10 @@ function PublishController({ publish, choices, micMuted }) {
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
     };
-    room.on(RoomEvent.Connected, apply);
-    if (room.state === "connected") apply();
-    return () => room.off(RoomEvent.Connected, apply);
-  }, [localParticipant, room, publish, choices, cluster, isMicSource, micMuted, inRoom, entryHoldPending]);
+    room.on(RoomEvent.Connected, applyMic);
+    if (room.state === "connected") applyMic();
+    return () => room.off(RoomEvent.Connected, applyMic);
+  }, [localParticipant, room, publish, micMuted, cluster, isMicSource, inRoom, choices?.audioDeviceId, entryHoldPending]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
@@ -2221,11 +2221,6 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   } else if (mode === "presenter" && focusTrack) {
     stageTiles = baseTiles;
     stageFocusKey = refKey(focusTrack);
-  } else if (baseTiles.length > capFor(w, h, 130, stageAspect)) {
-    const cap = capFor(w, h - AUDIENCE_H, 130, stageAspect);
-    const ordered = rankTiles(baseTiles, featuredSpeakerForStage, speaking);
-    stageTiles = ordered.slice(0, cap);
-    audienceTiles = ordered.slice(cap);
   } else {
     const ordered = rankTiles(baseTiles, rankOpts);
     if (ordered.length > capFor(w, h)) {
@@ -2363,7 +2358,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // reverses rotation sense). A manual rotate button overrides auto for fixups.
   // Auto is a toggle (default on); manual is always available.
   const [autoRotateEnabled, setAutoRotateEnabled] = useState(() => loadPref(PREF.autoRotate, "1") === "1");
-  const autoRotate = useDeviceRotation(IS_COARSE_POINTER && autoRotateEnabled);
+  const deviceAngle = useDeviceRotation(IS_COARSE_POINTER && autoRotateEnabled);
   const [manualRotate, setManualRotate] = useState(0);
   const landscape = deviceAngle === 90 || deviceAngle === 270;
   const uiRotated = IS_COARSE_POINTER && maximized && landscape;

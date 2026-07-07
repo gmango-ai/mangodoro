@@ -775,6 +775,30 @@ const BOTTOM_PANEL_GAP = 8;
 const PAINT_TOOLBAR_STACK_H = 54;
 const TOUCH_INSPECTOR_FALLBACK_H = 54;
 
+// Touch: the 14px corner caret is untappable — full-height chevron grouped
+// beside the tool instead.
+const CARET_CLS = WB_TOUCH
+  ? "w-7 h-11 -ml-1.5 rounded-full flex items-center justify-center"
+  : "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow";
+
+// Hosts a tool flyout. Desktop: anchored above its trigger (absolute inside
+// the tool's relative wrapper). Touch: the toolbar scrolls horizontally and
+// would clip it — portal to <body>, centered above the bar (clearance kept
+// in --wb-toolbar-clear by the toolbar measurer; -44px compensates the
+// child's own bottom-11 anchor).
+function MaybeFlyoutPortal({ children }) {
+  if (!WB_TOUCH) return <>{children}</>;
+  return createPortal(
+    <div
+      className="fixed left-1/2 -translate-x-1/2 z-[80]"
+      style={{ bottom: "calc(var(--bottom-inset, 0px) + var(--wb-toolbar-clear, 64px) - 44px)" }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
 function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
   const divider = <div className={`w-px h-6 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />;
   const labelCls = `text-[10px] font-bold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`;
@@ -3391,8 +3415,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             horizontal={helperLines.horizontal}
           />
         )}
-        <Controls position="bottom-left" />
-        {(!compact || embedded) && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
+        {/* No floating <Controls> — pinch/scroll zoom, and fit-view lives in
+            the top chrome card. */}
+        {/* Hidden on phones (hidden sm:block) — the minimap eats scarce screen
+            on mobile and duplicates the top bar's fit-view. Embedded room
+            tiles keep it (staging enables it there). */}
+        {(!compact || embedded) && showMinimap && <MiniMap pannable zoomable position="bottom-right" className="hidden sm:block" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
 
@@ -3587,6 +3615,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           </ToolButton>
           </div>
           )}
+          </div>
         </Panel>
 
         {/* Node inspector (shape/fill/border/text) hovers above the
@@ -3758,6 +3787,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             below) so it folds to two rows instead of overflowing. */}
       <div className="absolute left-3 top-3 z-40 flex flex-col gap-2 items-start max-w-[calc(100%-24px)] touch-none">
         <div
+          // flex-wrap so the toolbar folds onto a second row on narrow phones
+          // instead of overflowing the canvas (every child is shrink-0). The
+          // outer max-w-[calc(100%-24px)] caps the row width so the wrap fires.
           className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-2xl border shadow-md"
           style={{
             background: dark ? "var(--color-surface)" : "#fff",
@@ -3886,6 +3918,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           >
             <Redo2 className="w-4 h-4" />
           </button>
+          <FitViewButton dark={dark} />
           {/* Collapse / reveal the extra tools. Keeps the bar to one row on a
               small board; when open they wrap to a second row if narrow. */}
           <button

@@ -31,7 +31,7 @@
                             </imageView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="gsV-cN-jJn"/>
-                        <color key="backgroundColor" red="0.050980392156862744" green="0.58039215686274515" blue="0.53333333333333333" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                         <constraints>
                             <constraint firstItem="Spl-as-h00" firstAttribute="centerX" secondItem="snD-IY-ifK" secondAttribute="centerX" id="LL1-ct-ctr"/>
                             <constraint firstItem="Spl-as-h00" firstAttribute="centerY" secondItem="snD-IY-ifK" secondAttribute="centerY" constant="-50" id="LL2-ct-ctr"/>

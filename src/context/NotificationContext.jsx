@@ -116,12 +116,6 @@ export function NotificationProvider({ children }) {
     if (n.id && notificationIdsRef.current.has(n.id)) return;
     if (n.id) notificationIdsRef.current.add(n.id);
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
-    // Audio cue for the arrival. This only runs off a realtime INSERT to me (the
-    // initial fetch doesn't call it), so it's a real "just now" notification.
-    // DM/channel/mention → chat cue; everything else → the notification cue. You
-    // only receive types you've enabled, so this implicitly respects per-type
-    // prefs; the master toggle is per-device (Settings → Notifications).
-    playForNotification(n.type);
     const channels = n.channels || [];
     // Client last-mile: decide banner / sound / push from THIS device's live
     // status + the notification's priority (fresher than the server's emit-time

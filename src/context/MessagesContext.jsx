@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { useTeamOptional } from "./TeamContext";
 import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation, listChannelFolders, createChannelFolder, renameChannelFolder, deleteChannelFolder, reorderChannelFolders, setChannelFolder, placeChannel, setChannelMeta } from "../lib/messages";
+import { randomId } from "../lib/utils";
 
 // Direct / group / channel messaging — in-app layer. One realtime channel on
 // dm_messages (RLS scopes delivery to my conversations + my channels) drives
@@ -203,6 +204,12 @@ export function MessagesProvider({ children }) {
     deleteConversation, hideConversation,
     folders, isTeamAdmin, createFolder, renameFolder, deleteFolder, reorderFolders, assignFolder, placeChannelAt,
     markRead, subscribeMessages, subscribeReactions,
-  };
+  }), [
+    conversations, activeConversations, unread, unreadByOrg, reload,
+    startDm, createGroup, createChannel, browseChannels, joinOpenChannel,
+    deleteConversation, hideConversation,
+    folders, isTeamAdmin, createFolder, renameFolder, deleteFolder, reorderFolders, assignFolder, placeChannelAt,
+    markRead, subscribeMessages, subscribeReactions,
+  ]);
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;
 }

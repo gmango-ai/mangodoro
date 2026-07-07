@@ -14,6 +14,7 @@ import TimerControls from "../components/pomodoro/TimerControls";
 import SessionDots from "../components/pomodoro/SessionDots";
 import QuickActionsPopover from "./QuickActionsPopover";
 import ErrorBoundary from "../components/ErrorBoundary";
+import { restoreElectronAuthSession } from "../electron/authSessionBridge";
 import { usePopoverAutoResize } from "./usePopoverAutoResize";
 
 // Signed-out menubar popover: a compact, no-account local timer (same shared

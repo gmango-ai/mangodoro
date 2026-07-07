@@ -9,6 +9,7 @@ import {
   Copy, Check,
 } from "lucide-react";
 import { getRoomAccessCode } from "../../lib/rooms";
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import KnockRequests from "./KnockRequests";
 import RoomLayout from "./roomLayout/RoomLayout";
 import LayoutBar from "./roomLayout/LayoutBar";
