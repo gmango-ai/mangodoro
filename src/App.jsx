@@ -2,8 +2,9 @@ import { useState, useEffect, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
 import { App as CapApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
+import { StatusBar, Style } from "@capacitor/status-bar";
 import { supabase } from "./supabase";
-import { isMobileApp } from "./lib/platform";
+import { isMobileApp, getPlatform } from "./lib/platform";
 import { requestNotificationPermissions } from "./lib/nativeNotifications";
 import { addNotificationTapListener, consumePendingNotificationRoute } from "./lib/persistentTimer";
 import AuthPage from "./AuthPage";
@@ -95,6 +96,19 @@ function AppLayout({ session }) {
   useEffect(() => {
     applyAccent(settings.accentColor || "teal", darkMode);
   }, [settings.accentColor, darkMode]);
+
+  // Native status bar follows the in-app theme so it's not a gray/dark band
+  // above a light app. Icon style applies on both platforms; the solid
+  // background + no-overlay is Android-only (iOS keeps its safe-area overlay,
+  // which the layout already accounts for via env(safe-area-inset-top)).
+  useEffect(() => {
+    if (!isMobileApp) return;
+    StatusBar.setStyle({ style: darkMode ? Style.Dark : Style.Light }).catch(() => {});
+    if (getPlatform() === "android") {
+      StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
+      StatusBar.setBackgroundColor({ color: darkMode ? "#0f172a" : "#ffffff" }).catch(() => {});
+    }
+  }, [darkMode]);
 
   // Mount the `.dark` class on <html> rather than a wrapper div. Two reasons:
   //   1. CSS variable inheritance — if `.dark { --color-accent: cyan }` is
