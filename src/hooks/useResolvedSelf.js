@@ -24,7 +24,7 @@ const getNum = (k, d) => {
 };
 
 export function useResolvedSelf() {
-  const { session, clockIn, currentTask } = useApp();
+  const { session, clockIn, currentTask, settings } = useApp();
   const { activeTeamId, rooms } = useTeam();
   const { syncSession } = useSyncSession();
   const pomodoro = usePomodoro();
@@ -51,6 +51,7 @@ export function useResolvedSelf() {
       clockIn,
       currentTask,
       room,
+      presenceState: settings?.presenceState,
       pomodoro: pomodoro ? { isRunning: pomodoro.isRunning, mode: pomodoro.mode } : null,
       lastActivityMs: getNum(ACT_KEY, now),
       online: true,
