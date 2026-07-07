@@ -1,17 +1,17 @@
 {
   "images" : [
     {
-      "filename" : "icon-foreground.png",
+      "filename" : "launch.png",
       "idiom" : "universal",
       "scale" : "1x"
     },
     {
-      "filename" : "icon-foreground 1.png",
+      "filename" : "launch@2x.png",
       "idiom" : "universal",
       "scale" : "2x"
     },
     {
-      "filename" : "icon-foreground 2.png",
+      "filename" : "launch@3x.png",
       "idiom" : "universal",
       "scale" : "3x"
     }
