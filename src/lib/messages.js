@@ -16,17 +16,101 @@ export async function createGroupConversation(title, userIds) {
   return { id: data || null, error };
 }
 
-// Admin / org_team lead: create a channel bound to an org_team (Phase 2 RPC).
-export async function createOrgTeamChannel(orgTeamId, title) {
+// Create a channel. visibility 'org_team' (default) locks it to the org_team
+// (admin/lead only, as before); 'org' makes it OPEN — any org member can browse
+// + join, and orgTeamId may be null.
+export async function createOrgTeamChannel(orgTeamId, title, visibility = "org_team") {
   const { data, error } = await supabase.rpc("create_org_team_channel", {
-    p_org_team_id: orgTeamId,
+    p_org_team_id: orgTeamId || null,
     p_title: title || null,
+    p_visibility: visibility === "org" ? "org" : "org_team",
   });
   return { id: data || null, error };
 }
 
+// Open channels the caller can join (in their org, not yet joined).
+export async function listJoinableChannels() {
+  const { data, error } = await supabase.rpc("list_joinable_channels");
+  return { data: data || [], error };
+}
+
+// Join / leave an OPEN channel (materialises / clears your inbox membership).
+export async function joinChannel(conversationId) {
+  const { error } = await supabase.rpc("join_channel", { p_conversation_id: conversationId });
+  return { error };
+}
+
+export async function leaveChannel(conversationId) {
+  const { error } = await supabase.rpc("leave_channel", { p_conversation_id: conversationId });
+  return { error };
+}
+
+// Delete a channel/group for EVERYONE (creator / team admin / org_team lead;
+// room channels are rejected server-side).
+export async function deleteConversation(conversationId) {
+  const { error } = await supabase.rpc("delete_conversation", { p_conversation_id: conversationId });
+  return { error };
+}
+
+// Hide a conversation from just MY inbox (leave / remove-for-me). It reappears
+// on its own when a newer message arrives.
+export async function hideConversation(conversationId) {
+  const { error } = await supabase.rpc("hide_conversation", { p_conversation_id: conversationId });
+  return { error };
+}
+
+// ── Channel folders (shared, team-wide; admin-managed) ──
+export async function listChannelFolders(teamId) {
+  if (!teamId) return [];
+  const { data } = await supabase
+    .from("channel_folders")
+    .select("id, team_id, name, position")
+    .eq("team_id", teamId)
+    .order("position", { ascending: true });
+  return data || [];
+}
+export async function createChannelFolder(teamId, name) {
+  const { data, error } = await supabase.rpc("create_channel_folder", { p_team_id: teamId, p_name: name || "Folder" });
+  return { id: data || null, error };
+}
+export async function renameChannelFolder(folderId, name) {
+  const { error } = await supabase.rpc("rename_channel_folder", { p_folder_id: folderId, p_name: name });
+  return { error };
+}
+export async function deleteChannelFolder(folderId) {
+  const { error } = await supabase.rpc("delete_channel_folder", { p_folder_id: folderId });
+  return { error };
+}
+export async function reorderChannelFolders(folderIds) {
+  const { error } = await supabase.rpc("reorder_channel_folders", { p_folder_ids: folderIds });
+  return { error };
+}
+export async function setChannelFolder(conversationId, folderId) {
+  const { error } = await supabase.rpc("set_channel_folder", { p_conversation_id: conversationId, p_folder_id: folderId || null });
+  return { error };
+}
+
+// Set a channel's folder AND the order of the whole target group at once (drag to
+// a drop point). orderedIds = the target group's channel ids in their new order.
+export async function placeChannel(conversationId, folderId, orderedIds) {
+  const { error } = await supabase.rpc("place_channel", { p_conversation_id: conversationId, p_folder_id: folderId || null, p_ordered_ids: orderedIds || [] });
+  return { error };
+}
+
 const isUnread = (lastMessageAt, lastReadAt) =>
   !!lastMessageAt && (!lastReadAt || new Date(lastMessageAt) > new Date(lastReadAt));
+
+// Whether a row should light the unread badge. Channels you were AUTO-listed
+// into (room + org_team) have no read cursor until you actually open them, so
+// their backfilled/pre-existing history would otherwise read as "unread" the
+// moment they appear. Treat a channel with no read cursor as read — you only get
+// a badge once you've opened it and genuinely-new messages arrive after. DMs and
+// groups keep the plain rule (you were explicitly added to those).
+const rowUnread = (kind, lastMessageAt, lastReadAt, mutedAt, forceNotify) => {
+  if (mutedAt && !forceNotify) return false; // force-notify channels ignore mute
+  if (kind === "channel" && !lastReadAt) return false;
+  return isUnread(lastMessageAt, lastReadAt);
+};
 
 // My conversations + computed org scope, in one round-trip. Falls back to the
 // legacy table reads if the RPC isn't on the (shared) DB yet, so the client is
@@ -50,7 +134,17 @@ export async function listConversations(userId) {
       muted_at: c.muted_at || null,
       topic: c.topic || null,
       post_policy: c.post_policy || "all",
-      unread: isUnread(c.last_message_at, c.last_read_at) && !c.muted_at,
+      created_by: c.created_by || null,
+      room_id: c.room_id || null,
+      folder_id: c.folder_id || null,
+      folder_position: c.folder_position ?? 0,
+      color: c.color || null,
+      archived_at: c.archived_at || null,
+      retention_days: c.retention_days ?? null,
+      allow_images: c.allow_images ?? true,
+      force_notify: c.force_notify ?? false,
+      pinned_all: c.pinned_all ?? false,
+      unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, c.last_read_at, c.muted_at, c.force_notify),
     }));
   }
   return listConversationsLegacy(userId);
@@ -102,7 +196,17 @@ async function listConversationsLegacy(userId) {
       muted_at: mutedAt,
       topic: null,
       post_policy: "all",
-      unread: isUnread(c.last_message_at, lastRead) && !mutedAt,
+      created_by: c.created_by || null,
+      room_id: null,
+      folder_id: null,
+      folder_position: 0,
+      color: null,
+      archived_at: null,
+      retention_days: null,
+      allow_images: true,
+      force_notify: false,
+      pinned_all: false,
+      unread: rowUnread(c.kind || (c.is_group ? "group" : "dm"), c.last_message_at, lastRead, mutedAt),
     };
   });
 }
@@ -242,12 +346,18 @@ export async function setConversationMuted(conversationId, userId, muted, kind =
 }
 
 // ── Channel admin (Phase 9) ──
-export async function setChannelMeta(conversationId, { title, topic, postPolicy }) {
+export async function setChannelMeta(conversationId, { title, topic, postPolicy, color, archived, retentionDays, allowImages, forceNotify, pinnedAll } = {}) {
   const { error } = await supabase.rpc("set_channel_meta", {
     p_conversation_id: conversationId,
     p_title: title ?? null,
     p_topic: topic ?? null,
     p_post_policy: postPolicy ?? null,
+    p_color: color ?? null,
+    p_archived: archived ?? null,
+    p_retention_days: retentionDays ?? null,
+    p_allow_images: allowImages ?? null,
+    p_force_notify: forceNotify ?? null,
+    p_pinned_all: pinnedAll ?? null,
   });
   return { error };
 }

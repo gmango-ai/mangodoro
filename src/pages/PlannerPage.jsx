@@ -1074,6 +1074,60 @@ export default function PlannerPage() {
     ? "bg-[var(--color-surface)] border-slate-600 text-slate-100 placeholder:text-slate-500"
     : "bg-white border-slate-200 text-slate-900";
 
+  // Shared renderer for a project-grouped task list (Today / Earlier /
+  // Backlog / Future). Plain function (not a component) so React keeps
+  // reconciling the same CollapsibleProjectGroup / PlannerTaskRow trees.
+  function renderTaskGroups(tasks, keyPrefix, { showDateBadge = false, dateBadgeStr, dateBadgeFor } = {}) {
+    return (
+      <div className="space-y-3">
+        {groupPlannerTasksByProject(tasks, projects).map((group) => {
+          const gk = `${keyPrefix}:${group.key}`;
+          return (
+            <CollapsibleProjectGroup
+              key={group.key}
+              groupId={gk}
+              heading={group.heading}
+              color={group.color}
+              taskCount={group.tasks.length}
+              dark={dark}
+              collapsed={collapsedGroupKeys.has(gk)}
+              onToggle={toggleProjectGroup}
+            >
+              <ul className="space-y-2.5 sm:space-y-3">
+                {group.tasks.map((t, idx) => (
+                  <PlannerTaskRow
+                    key={t.id}
+                    t={t}
+                    dark={dark}
+                    disabled={saving}
+                    showDateBadge={showDateBadge}
+                    dateBadgeStr={dateBadgeFor ? dateBadgeFor(t) : dateBadgeStr}
+                    projects={projects}
+                    maxPoints={pointsForComplete(t.priority)}
+                    onToggleDone={toggleDone}
+                    onDelete={deleteTask}
+                    onSetFocus={setFocus}
+                    moveDestinations={getMoveDestinations(t, today, tomorrow)}
+                    onMoveToDate={moveTaskToDate}
+                    onPriorityChange={setPriority}
+                    onProgressChange={setProgress}
+                    onNotesChange={saveTaskNotes}
+                    onProjectChange={setTaskProject}
+                    reorder={{
+                      canUp: idx > 0,
+                      canDown: idx < group.tasks.length - 1,
+                      onReorder: (dir) => reorderTask(t, dir),
+                    }}
+                  />
+                ))}
+              </ul>
+            </CollapsibleProjectGroup>
+          );
+        })}
+      </div>
+    );
+  }
+
   // First-load skeleton. Once items have ever populated, subsequent
   // background re-syncs use the inline "Updating planner…" pill below
   // instead of wiping the whole UI.
@@ -1176,51 +1230,7 @@ export default function PlannerPage() {
               {todayTasks.length === 0 && (
                 <p className={`text-sm mb-3 ${dark ? "text-slate-500" : "text-slate-500"}`}>No tasks for today yet.</p>
               )}
-              <div className="space-y-3">
-                {groupPlannerTasksByProject(todayTasks, projects).map((group) => {
-                  const gk = `today:${group.key}`;
-                  return (
-                    <CollapsibleProjectGroup
-                      key={group.key}
-                      groupId={gk}
-                      heading={group.heading}
-                      color={group.color}
-                      taskCount={group.tasks.length}
-                      dark={dark}
-                      collapsed={collapsedGroupKeys.has(gk)}
-                      onToggle={toggleProjectGroup}
-                    >
-                      <ul className="space-y-2.5 sm:space-y-3">
-                        {group.tasks.map((t, idx) => (
-                          <PlannerTaskRow
-                            key={t.id}
-                            t={t}
-                            dark={dark}
-                            disabled={saving}
-                            showDateBadge={false}
-                            projects={projects}
-                            maxPoints={pointsForComplete(t.priority)}
-                            onToggleDone={toggleDone}
-                            onDelete={deleteTask}
-                            onSetFocus={setFocus}
-                            moveDestinations={getMoveDestinations(t, today, tomorrow)}
-                            onMoveToDate={moveTaskToDate}
-                            onPriorityChange={setPriority}
-                            onProgressChange={setProgress}
-                            onNotesChange={saveTaskNotes}
-                            onProjectChange={setTaskProject}
-                            reorder={{
-                              canUp: idx > 0,
-                              canDown: idx < group.tasks.length - 1,
-                              onReorder: (dir) => reorderTask(t, dir),
-                            }}
-                          />
-                        ))}
-                      </ul>
-                    </CollapsibleProjectGroup>
-                  );
-                })}
-              </div>
+              {renderTaskGroups(todayTasks, "today")}
             </div>
 
             {previousByDate.length > 0 && (
@@ -1233,51 +1243,7 @@ export default function PlannerPage() {
                     <p className={`text-[11px] font-medium mb-2.5 ${dark ? "text-slate-500" : "text-slate-500"}`}>
                       {formatDateLabel(dateStr)}
                     </p>
-                    <div className="space-y-3">
-                      {groupPlannerTasksByProject(dayTasks, projects).map((group) => {
-                        const gk = `earlier:${dateStr}:${group.key}`;
-                        return (
-                          <CollapsibleProjectGroup
-                            key={group.key}
-                            groupId={gk}
-                            heading={group.heading}
-                            color={group.color}
-                            taskCount={group.tasks.length}
-                            dark={dark}
-                            collapsed={collapsedGroupKeys.has(gk)}
-                            onToggle={toggleProjectGroup}
-                          >
-                            <ul className="space-y-2.5 sm:space-y-3">
-                              {group.tasks.map((t, idx) => (
-                                <PlannerTaskRow
-                                  key={t.id}
-                                  t={t}
-                                  dark={dark}
-                                  disabled={saving}
-                                  showDateBadge={false}
-                                  projects={projects}
-                                  maxPoints={pointsForComplete(t.priority)}
-                                  onToggleDone={toggleDone}
-                                  onDelete={deleteTask}
-                                  onSetFocus={setFocus}
-                                  moveDestinations={getMoveDestinations(t, today, tomorrow)}
-                                  onMoveToDate={moveTaskToDate}
-                                  onPriorityChange={setPriority}
-                                  onProgressChange={setProgress}
-                                  onNotesChange={saveTaskNotes}
-                                  onProjectChange={setTaskProject}
-                                  reorder={{
-                                    canUp: idx > 0,
-                                    canDown: idx < group.tasks.length - 1,
-                                    onReorder: (dir) => reorderTask(t, dir),
-                                  }}
-                                />
-                              ))}
-                            </ul>
-                          </CollapsibleProjectGroup>
-                        );
-                      })}
-                    </div>
+                    {renderTaskGroups(dayTasks, `earlier:${dateStr}`)}
                   </div>
                 ))}
               </div>
@@ -1507,52 +1473,7 @@ export default function PlannerPage() {
                 rolls here after the day ends.
               </p>
             )}
-            <div className="space-y-3">
-              {groupPlannerTasksByProject(backlogTasks, projects).map((group) => {
-                const gk = `backlog:${group.key}`;
-                return (
-                  <CollapsibleProjectGroup
-                    key={group.key}
-                    groupId={gk}
-                    heading={group.heading}
-                    color={group.color}
-                    taskCount={group.tasks.length}
-                    dark={dark}
-                    collapsed={collapsedGroupKeys.has(gk)}
-                    onToggle={toggleProjectGroup}
-                  >
-                    <ul className="space-y-2.5 sm:space-y-3">
-                      {group.tasks.map((t, idx) => (
-                        <PlannerTaskRow
-                          key={t.id}
-                          t={t}
-                          dark={dark}
-                          disabled={saving}
-                          showDateBadge
-                          dateBadgeStr="Backlog"
-                          projects={projects}
-                          maxPoints={pointsForComplete(t.priority)}
-                          onToggleDone={toggleDone}
-                          onDelete={deleteTask}
-                          onSetFocus={setFocus}
-                          moveDestinations={getMoveDestinations(t, today, tomorrow)}
-                          onMoveToDate={moveTaskToDate}
-                          onPriorityChange={setPriority}
-                          onProgressChange={setProgress}
-                          onNotesChange={saveTaskNotes}
-                          onProjectChange={setTaskProject}
-                          reorder={{
-                            canUp: idx > 0,
-                            canDown: idx < group.tasks.length - 1,
-                            onReorder: (dir) => reorderTask(t, dir),
-                          }}
-                        />
-                      ))}
-                    </ul>
-                  </CollapsibleProjectGroup>
-                );
-              })}
-            </div>
+            {renderTaskGroups(backlogTasks, "backlog", { showDateBadge: true, dateBadgeStr: "Backlog" })}
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <Input
                 placeholder="Capture an idea for later…"
@@ -1602,56 +1523,15 @@ export default function PlannerPage() {
                 Nothing scheduled ahead. Add something for tomorrow or beyond.
               </p>
             )}
-            <div className="space-y-3">
-              {groupPlannerTasksByProject(futureTasks, projects).map((group) => {
-                const gk = `future:${group.key}`;
-                return (
-                  <CollapsibleProjectGroup
-                    key={group.key}
-                    groupId={gk}
-                    heading={group.heading}
-                    color={group.color}
-                    taskCount={group.tasks.length}
-                    dark={dark}
-                    collapsed={collapsedGroupKeys.has(gk)}
-                    onToggle={toggleProjectGroup}
-                  >
-                    <ul className="space-y-2.5 sm:space-y-3">
-                      {group.tasks.map((t, idx) => (
-                        <PlannerTaskRow
-                          key={t.id}
-                          t={t}
-                          dark={dark}
-                          disabled={saving}
-                          showDateBadge
-                          projects={projects}
-                          dateBadgeStr={new Date(t.plannerDate + "T12:00:00").toLocaleDateString("en-US", {
-                            weekday: "short",
-                            month: "short",
-                            day: "numeric",
-                          })}
-                          maxPoints={pointsForComplete(t.priority)}
-                          onToggleDone={toggleDone}
-                          onDelete={deleteTask}
-                          onSetFocus={setFocus}
-                          moveDestinations={getMoveDestinations(t, today, tomorrow)}
-                          onMoveToDate={moveTaskToDate}
-                          onPriorityChange={setPriority}
-                          onProgressChange={setProgress}
-                          onNotesChange={saveTaskNotes}
-                          onProjectChange={setTaskProject}
-                          reorder={{
-                            canUp: idx > 0,
-                            canDown: idx < group.tasks.length - 1,
-                            onReorder: (dir) => reorderTask(t, dir),
-                          }}
-                        />
-                      ))}
-                    </ul>
-                  </CollapsibleProjectGroup>
-                );
-              })}
-            </div>
+            {renderTaskGroups(futureTasks, "future", {
+              showDateBadge: true,
+              dateBadgeFor: (t) =>
+                new Date(t.plannerDate + "T12:00:00").toLocaleDateString("en-US", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                }),
+            })}
 
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <Input

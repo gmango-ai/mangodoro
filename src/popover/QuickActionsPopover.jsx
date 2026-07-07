@@ -13,6 +13,8 @@ import { getSessionCreatePrefs } from "../pomodoro/storage";
 import { applyAccent } from "../lib/accent";
 import { supabase } from "../supabase";
 import PomodoroSurface from "../components/pomodoro/PomodoroSurface";
+import { useVisibilityPausedInterval } from "../hooks/useVisibilityPausedInterval";
+import { usePopoverAutoResize } from "./usePopoverAutoResize";
 
 /**
  * Electron menu-bar popover. Three pages on a tab strip — Pomodoro,
@@ -44,18 +46,7 @@ export default function QuickActionsPopover() {
   }, [settings?.accentColor, dark]);
 
   // Live-resize the BrowserWindow as the active tab's content reflows.
-  useEffect(() => {
-    const bridge = window.__electronPopover;
-    if (!bridge?.resize) return;
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const h = Math.ceil(entries[0].contentRect.height);
-      if (h > 0) bridge.resize(h);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  usePopoverAutoResize(containerRef);
 
   return (
     <div
@@ -750,11 +741,6 @@ function modeLabel(mode) {
   if (mode === "longBreak") return "Long break";
   return "Pomodoro";
 }
-function formatMMSS(secs) {
-  const s = Math.max(0, secs);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
-
 // Mirrors the chip in PomodoroTimer — ticks once a second off
 // syncSession.expires_at; at zero each connected client races to call
 // the server-side sweeper (idempotent) so the room cleans up the moment
@@ -764,10 +750,7 @@ function MeetingCountdownChip({ expiresAt, sessionId, dark }) {
   const sweptRef = useRef(false);
 
   useEffect(() => { sweptRef.current = false; }, [sessionId, expiresAt]);
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  useVisibilityPausedInterval(() => setNow(Date.now()), 1000);
 
   const end = expiresAt ? new Date(expiresAt).getTime() : NaN;
   const remaining = Number.isFinite(end) ? Math.max(0, Math.ceil((end - now) / 1000)) : null;

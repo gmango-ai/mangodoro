@@ -384,8 +384,9 @@ function klaxonRecipe(ctx, vol, pitch) {
   tone(ctx, v, { time: 0.55, freq: 330 * pitch, dur: 0.7, type: "square" });
   return 1300;
 }
-function sirenRecipe(ctx, vol, pitch) {
-  // Sweeping siren — schedule frequency ramps.
+// Shared up-down sawtooth sweep: `sweeps` full lo→hi→lo cycles, one per
+// second, with a linear attack and a tail fade. Returns the total ms.
+function sirenSweep(ctx, vol, pitch, { lo, hi, sweeps, attack }) {
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = "sawtooth";
@@ -393,17 +394,20 @@ function sirenRecipe(ctx, vol, pitch) {
   gain.connect(ctx.destination);
   const now = ctx.currentTime;
   gain.gain.setValueAtTime(0, now);
-  gain.gain.linearRampToValueAtTime(vol, now + 0.05);
-  // Sweep up-down twice.
-  osc.frequency.setValueAtTime(550 * pitch, now);
-  osc.frequency.linearRampToValueAtTime(1100 * pitch, now + 0.5);
-  osc.frequency.linearRampToValueAtTime(550 * pitch, now + 1.0);
-  osc.frequency.linearRampToValueAtTime(1100 * pitch, now + 1.5);
-  osc.frequency.linearRampToValueAtTime(550 * pitch, now + 2.0);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.05);
+  gain.gain.linearRampToValueAtTime(vol, now + attack);
+  osc.frequency.setValueAtTime(lo * pitch, now);
+  for (let i = 0; i < sweeps; i++) {
+    osc.frequency.linearRampToValueAtTime(hi * pitch, now + (i + 0.5));
+    osc.frequency.linearRampToValueAtTime(lo * pitch, now + (i + 1));
+  }
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + sweeps + 0.05);
   osc.start(now);
-  osc.stop(now + 2.1);
-  return 2100;
+  osc.stop(now + sweeps + 0.1);
+  return Math.round((sweeps + 0.1) * 1000);
+}
+function sirenRecipe(ctx, vol, pitch) {
+  // Sweeping siren — up-down twice.
+  return sirenSweep(ctx, vol, pitch, { lo: 550, hi: 1100, sweeps: 2, attack: 0.05 });
 }
 function airHornRecipe(ctx, vol, pitch) {
   // Stacked low square + sawtooth for a buzzy, blat-y horn.
@@ -457,25 +461,7 @@ function hornFanfareRecipe(ctx, vol, pitch) {
 
 function longSirenRecipe(ctx, vol, pitch) {
   // Slow up-down siren — longer than `siren`, four full sweeps over 4s.
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = "sawtooth";
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  const now = ctx.currentTime;
-  gain.gain.setValueAtTime(0, now);
-  gain.gain.linearRampToValueAtTime(vol, now + 0.1);
-  const lo = 440 * pitch;
-  const hi = 1100 * pitch;
-  osc.frequency.setValueAtTime(lo, now);
-  for (let i = 0; i < 4; i++) {
-    osc.frequency.linearRampToValueAtTime(hi, now + (i + 0.5));
-    osc.frequency.linearRampToValueAtTime(lo, now + (i + 1));
-  }
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 4.05);
-  osc.start(now);
-  osc.stop(now + 4.1);
-  return 4100;
+  return sirenSweep(ctx, vol, pitch, { lo: 440, hi: 1100, sweeps: 4, attack: 0.1 });
 }
 
 function fogHornRecipe(ctx, vol, pitch) {

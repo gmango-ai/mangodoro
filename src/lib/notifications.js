@@ -53,7 +53,7 @@ export async function emitMention(args) {
 
 export async function listNotifications(limit = 40) {
   const { data, error } = await supabase
-    .from("notifications")
+    .from("notification_deliveries")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -63,23 +63,23 @@ export async function listNotifications(limit = 40) {
 
 export async function markRead(id) {
   if (!id) return;
-  await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", id).is("read_at", null);
+  await supabase.from("notification_deliveries").update({ read_at: new Date().toISOString(), state: "read" }).eq("id", id).is("read_at", null);
 }
 
 export async function markAllRead() {
-  await supabase.from("notifications").update({ read_at: new Date().toISOString() }).is("read_at", null);
+  await supabase.from("notification_deliveries").update({ read_at: new Date().toISOString(), state: "read" }).is("read_at", null);
 }
 
 // Clear (delete) — RLS scopes both to the caller's own rows.
 export async function clearNotification(id) {
   if (!id) return;
-  await supabase.from("notifications").delete().eq("id", id);
+  await supabase.from("notification_deliveries").delete().eq("id", id);
 }
 
 export async function clearAllNotifications() {
   // `.not("id", "is", null)` matches every own row (delete needs a filter); RLS
   // restricts it to the caller.
-  await supabase.from("notifications").delete().not("id", "is", null);
+  await supabase.from("notification_deliveries").delete().not("id", "is", null);
 }
 
 // ── Follows ("notify me when [X] starts focusing") ──

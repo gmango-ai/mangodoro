@@ -1,7 +1,57 @@
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { isMobileApp, getPlatform } from "./platform";
+import {
+  initDeviceWidgetPush,
+  requestNativeNotificationPermission,
+  getNativeNotificationPermission,
+} from "./persistentTimer";
+import { blobToBase64 } from "./utils";
 import { USER_SOUND_PREFIX, TEAM_SOUND_PREFIX } from "./pomodoroSound";
+
+// ── Native remote ALERT push (the "notify me when the app is closed" path) ──
+// Web Push can't run inside the Capacitor WKWebView, so the native app relies
+// on APNs alert pushes from the native-push edge function instead. Enabling it
+// = grant iOS notification permission + ensure the device's APNs token is
+// registered (device-register → device_push_tokens.push_token, which
+// native-push targets). See ios/App/App/PersistentTimerPlugin.swift.
+
+// True where native alert push is available. iOS only for now (Android would
+// use FCM, not wired). NOT the web PWA — that uses webPush.js.
+export function nativePushSupported() {
+  return isMobileApp && getPlatform() === "ios";
+}
+
+// "granted" | "denied" | "prompt" | "unsupported" — reflects the current iOS
+// notification authorization so the Settings toggle can render its state.
+export async function getNativePushStatus() {
+  if (!nativePushSupported()) return "unsupported";
+  const { status } = await getNativeNotificationPermission();
+  return status || "prompt";
+}
+
+// Request iOS notification authorization and register this device's APNs token
+// so native-push can reach it. Returns { granted, error }. iOS won't re-prompt
+// once decided — a prior "denied" resolves granted:false, and the caller should
+// point the user at iOS Settings.
+export async function enableNativePush(userId) {
+  if (!nativePushSupported()) return { granted: false, error: "Not supported on this device." };
+  try {
+    const { granted } = await requestNativeNotificationPermission();
+    if (granted) {
+      // Make sure the APNs device token is uploaded (idempotent; also runs on
+      // app boot). Without a registered token native-push has nothing to hit.
+      await initDeviceWidgetPush(userId);
+      return { granted: true, error: null };
+    }
+    return {
+      granted: false,
+      error: "Notifications are turned off. Enable them in iOS Settings › Mangodoro › Notifications.",
+    };
+  } catch (e) {
+    return { granted: false, error: e?.message || "Couldn't enable notifications." };
+  }
+}
 
 // All scheduling for the pomodoro alarm shares one ID so a new schedule
 // call replaces any prior one — the user only ever has one pomodoro
@@ -200,15 +250,3 @@ function extensionFromUrl(url) {
   }
 }
 
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      const comma = dataUrl.indexOf(",");
-      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : "");
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}

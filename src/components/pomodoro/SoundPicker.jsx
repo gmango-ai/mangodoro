@@ -41,7 +41,7 @@ export default function SoundPicker({ initialOpen = false }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center justify-center gap-1 w-full py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${
+        className={`flex items-center justify-center gap-1 w-full py-3 sm:py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${
           dark
             ? "text-slate-500 hover:bg-[var(--color-surface-raised)] hover:text-slate-300"
             : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"

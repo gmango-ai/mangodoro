@@ -123,3 +123,72 @@ export async function clearRoomChat(roomId) {
   const { error } = await supabase.rpc("clear_room_chat", { p_room_id: roomId });
   return { error };
 }
+
+// ── Unified room chat (Stage 2) ──────────────────────────────────────
+// A GENERAL room's chat is the SAME thread as its Messages channel. These
+// operate on dm_messages via the room's channel, mapping sender_id → user_id so
+// the panel's message shape is unchanged. Non-general rooms (and any client
+// running before the migration applies) resolve no channel and stay on the
+// legacy chat_messages path above.
+const channelIdCache = new Map(); // roomId -> convId | null (null = legacy)
+
+export async function getRoomChannelId(roomId) {
+  if (!roomId) return null;
+  if (channelIdCache.has(roomId)) return channelIdCache.get(roomId);
+  const { data, error } = await supabase.rpc("get_or_create_room_channel", { p_room_id: roomId });
+  // Errors (non-general room, or the RPC not yet on the DB) → legacy path.
+  const cid = error ? null : (data || null);
+  channelIdCache.set(roomId, cid);
+  return cid;
+}
+
+const mapDm = (r) => ({
+  id: r.id, user_id: r.sender_id, body: r.body,
+  created_at: r.created_at, edited_at: r.edited_at, deleted_at: r.deleted_at,
+});
+
+export async function fetchChannelMessages(conversationId, { before } = {}) {
+  if (!conversationId) return { data: [], error: null };
+  let q = supabase
+    .from("dm_messages")
+    .select("id, sender_id, body, created_at, edited_at, deleted_at")
+    .eq("conversation_id", conversationId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(PAGE_SIZE);
+  if (before) q = q.lt("created_at", before);
+  const { data, error } = await q;
+  if (error) return { data: [], error };
+  const hydrated = await hydrateAuthors((data || []).slice().reverse().map(mapDm));
+  return { data: hydrated, error: null };
+}
+
+export async function sendChannelMessage(conversationId, senderId, body) {
+  const trimmed = (body || "").trim();
+  if (!trimmed) return { error: { message: "Message is empty" } };
+  if (trimmed.length > 8000) return { error: { message: "Message too long" } };
+  const { data, error } = await supabase
+    .from("dm_messages")
+    .insert({ conversation_id: conversationId, sender_id: senderId, body: trimmed })
+    .select("id, sender_id, body, created_at, edited_at, deleted_at")
+    .single();
+  return { data: data ? mapDm(data) : null, error };
+}
+
+export async function editChannelMessage(messageId, body) {
+  const trimmed = (body || "").trim();
+  if (!trimmed) return { error: { message: "Message is empty" } };
+  const { error } = await supabase
+    .from("dm_messages")
+    .update({ body: trimmed, edited_at: new Date().toISOString() })
+    .eq("id", messageId);
+  return { error };
+}
+
+export async function deleteChannelMessage(messageId) {
+  const { error } = await supabase
+    .from("dm_messages")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", messageId);
+  return { error };
+}

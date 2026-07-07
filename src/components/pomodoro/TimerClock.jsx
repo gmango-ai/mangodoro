@@ -30,10 +30,14 @@ const STATE_LABELS = {
 // that on cold load when the sync session row hadn't arrived yet,
 // surfacing as "NaN:NaN" briefly. Clamped to 0 so the clock reads
 // "00:00" until real data lands.
+// Numerals scale DOWN on narrow screens so mm:ss can't overflow its grid
+// column and collide with the reset/play controls beside it (Android phones
+// at ~360–410px). They return to their full size at the breakpoints, so
+// desktop/tablet are unchanged.
 const SIZES = {
-  sm: { time: "text-5xl", label: "text-[11px] mt-1" },
-  md: { time: "text-6xl", label: "text-xs mt-1" },
-  lg: { time: "text-7xl sm:text-8xl", label: "text-sm mt-1.5" },
+  sm: { time: "text-4xl min-[400px]:text-5xl", label: "text-[11px] mt-1" },
+  md: { time: "text-5xl min-[400px]:text-6xl", label: "text-xs mt-1" },
+  lg: { time: "text-5xl min-[430px]:text-6xl min-[560px]:text-7xl sm:text-8xl", label: "text-sm mt-1.5" },
 };
 
 export default function TimerClock({ size = "md", slot = "all" }) {

@@ -90,7 +90,7 @@ function StickyPicker({ value, onPick, onLive }) {
 // matching the edge toolbar. Positioned above the node by React Flow's
 // <NodeToolbar> at the call site. Only the controls a given node type
 // supports are shown.
-export default function Inspector({ node, patchNodeData, setLocked, onReorder, setOpacity }) {
+export default function Inspector({ node, patchNodeData, setLocked, onReorder, setOpacity, wrapBar = false }) {
   const [open, setOpen] = useState(null);
   if (!node) return null;
 
@@ -121,7 +121,7 @@ export default function Inspector({ node, patchNodeData, setLocked, onReorder, s
 
   return (
     <div onPointerDown={stop} onClick={stop}>
-      <Pill>
+      <Pill className={wrapBar ? "w-max" : ""}>
         {isShape && (
           <Dropdown
             openKey="shape"

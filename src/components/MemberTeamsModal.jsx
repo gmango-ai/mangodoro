@@ -3,6 +3,7 @@ import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { X, Briefcase, Star } from "lucide-react";
 import UserAvatar from "./UserAvatar";
+import Modal from "./Modal";
 import { addOrgTeamMember, removeOrgTeamMember, setOrgTeamMemberRole } from "../lib/orgTeam";
 
 // Per-member view of team membership: lists every org_team and lets
@@ -76,10 +77,7 @@ export default function MemberTeamsModal({
   }`;
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4"
-      onClick={onClose}
-    >
+    <Modal onClose={onClose}>
       <div className={cardCls} onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
@@ -173,6 +171,6 @@ export default function MemberTeamsModal({
           <Button variant="outline" onClick={onClose}>Done</Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

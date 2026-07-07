@@ -1,13 +1,18 @@
-import { useState } from "react";
-import { ClipboardList, Search, PenLine, X as XIcon } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ClipboardList, Plus, Check, PenLine, X as XIcon } from "lucide-react";
 import {
   DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors,
   useDraggable, useDroppable,
 } from "@dnd-kit/core";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
+import { useTeam } from "../../context/TeamContext";
+import { useApp } from "../../context/AppContext";
 import { Button } from "@/components/ui/button";
 import { unlinkWhiteboardFromSession } from "../../lib/syncSession";
+import {
+  listPersonalTasks, addPersonalTask, setPersonalTaskDone, removePersonalTask,
+} from "../../lib/personalTasks";
 import { useWidgetOrder } from "../../hooks/useWidgetOrder";
 import WhiteboardPicker from "./WhiteboardPicker";
 import PomodoroWidget from "./PomodoroWidget";
@@ -129,14 +134,23 @@ function SortableSlot({ id, children }) {
 // room attaches for shared work.)
 function WhiteboardWidget({ dark }) {
   const { syncSession } = useSyncSession();
+  const { rooms, isAdmin, myOrgTeamLeadIds } = useTeam();
+  const { session } = useApp();
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const inSession = !!syncSession;
   const linkedId = inSession ? (syncSession.whiteboard_id || null) : null;
   // Anyone in the room may attach/swap the shared whiteboard (a shared surface,
-  // like opening a shared doc) — the server now gates on session participation,
-  // not leadership.
-  const canLead = inSession;
+  // like opening a shared doc) — the server gates on session participation, not
+  // leadership. EXCEPT when a manager has locked the board for this room: then
+  // only managers can change it (server enforces; UI hides the controls).
+  const room = syncSession?.room_id ? rooms?.find((r) => r.id === syncSession.room_id) : null;
+  const locked = room?.whiteboard_locked === true;
+  const gatingTeamIds = (room?.room_teams || []).map((rt) => rt.org_team_id);
+  const canManageRoom = isAdmin
+    || (!!room && room.created_by === session?.user?.id)
+    || gatingTeamIds.some((id) => myOrgTeamLeadIds?.has(id));
+  const canLead = inSession && (!locked || canManageRoom);
 
   async function unlink() {
     if (!syncSession?.id) return;
@@ -161,6 +175,12 @@ function WhiteboardWidget({ dark }) {
           <PenLine className="w-3.5 h-3.5 mr-2" />
           Attach a whiteboard
         </Button>
+      )}
+
+      {inSession && !linkedId && !canLead && locked && (
+        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
+          A room manager has locked the whiteboard — only they can attach one here.
+        </p>
       )}
 
 
@@ -192,33 +212,144 @@ function WhiteboardWidget({ dark }) {
   );
 }
 
+// Simple personal task tracker. A private per-user checklist (scoped to the
+// active team) — add a line, check it off, delete it. Backed by personal_tasks
+// with own-rows-only RLS. Degrades to an empty list if the table isn't there
+// yet (migration pending) rather than throwing.
 function TasksWidget({ dark }) {
+  const { activeTeamId } = useTeam();
+  const [tasks, setTasks] = useState([]);
+  const [text, setText] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const reload = useCallback(async () => {
+    const { data } = await listPersonalTasks(activeTeamId);
+    setTasks(data);
+    setLoaded(true);
+  }, [activeTeamId]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const add = async () => {
+    const t = text.trim();
+    if (!t || saving) return;
+    setSaving(true);
+    const { data, error } = await addPersonalTask({ title: t, teamId: activeTeamId });
+    setSaving(false);
+    if (!error && data) { setTasks((ts) => [data, ...ts]); setText(""); }
+  };
+
+  const toggle = async (task) => {
+    const done = !task.done;
+    setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, done } : x)));
+    const { error } = await setPersonalTaskDone(task.id, done);
+    if (error) setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, done: !done } : x)));
+  };
+
+  const remove = async (task) => {
+    const prev = tasks;
+    setTasks((ts) => ts.filter((x) => x.id !== task.id));
+    const { error } = await removePersonalTask(task.id);
+    if (error) setTasks(prev);
+  };
+
+  const open = tasks.filter((t) => !t.done);
+  const done = tasks.filter((t) => t.done);
+
+  const rowBtn = dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600";
+
   return (
-    <WidgetSection id="tasks" icon={ClipboardList} title="Tasks" dark={dark} defaultCollapsed>
+    <WidgetSection id="tasks" icon={ClipboardList} title="Tasks" dark={dark}>
       <div className="space-y-2">
-        <div className={`relative ${
-          dark ? "text-slate-500" : "text-slate-400"
-        }`}>
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" />
+        {/* Add a task */}
+        <div className="flex items-center gap-1.5">
           <input
             type="text"
-            disabled
-            placeholder="Search ClickUp tasks…"
-            className={`w-full pl-8 pr-2 py-1.5 rounded-md border text-xs cursor-not-allowed ${
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+            maxLength={200}
+            placeholder="Add a task…"
+            className={`flex-1 min-w-0 px-2 py-1.5 rounded-md border text-xs outline-none focus:ring-1 focus:ring-[var(--color-accent)] ${
               dark
-                ? "bg-[var(--color-surface)] border-[var(--color-border)] placeholder:text-slate-500"
-                : "bg-white border-slate-200 placeholder:text-slate-400"
+                ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100 placeholder:text-slate-500"
+                : "bg-white border-slate-200 text-slate-700 placeholder:text-slate-400"
             }`}
           />
+          <button
+            type="button"
+            onClick={add}
+            disabled={!text.trim() || saving}
+            aria-label="Add task"
+            className="shrink-0 p-1.5 rounded-md text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-40"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
         </div>
-        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-          ClickUp integration lands next — link a task to your active session.
-        </p>
-        <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full inline-block ${
-          dark ? "bg-[var(--color-surface)] text-slate-500" : "bg-white text-slate-400 border border-slate-200"
-        }`}>
-          Coming soon
-        </span>
+
+        {/* Open tasks */}
+        {open.length > 0 && (
+          <ul className="space-y-0.5">
+            {open.map((task) => (
+              <li key={task.id} className="group flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggle(task)}
+                  aria-label="Mark done"
+                  className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
+                    dark ? "border-[var(--color-border)] hover:border-[var(--color-accent)]" : "border-slate-300 hover:border-[var(--color-accent)]"
+                  }`}
+                />
+                <span className={`flex-1 min-w-0 truncate text-xs ${dark ? "text-slate-200" : "text-slate-700"}`} title={task.title}>
+                  {task.title}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => remove(task)}
+                  aria-label="Delete task"
+                  className={`shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${rowBtn}`}
+                >
+                  <XIcon className="w-3.5 h-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Done tasks — struck through, dimmed, uncheck to bring back. */}
+        {done.length > 0 && (
+          <ul className="space-y-0.5 pt-0.5">
+            {done.map((task) => (
+              <li key={task.id} className="group flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggle(task)}
+                  aria-label="Mark not done"
+                  className="shrink-0 w-4 h-4 rounded border flex items-center justify-center bg-[var(--color-accent)] border-[var(--color-accent)] text-white"
+                >
+                  <Check className="w-3 h-3" />
+                </button>
+                <span className={`flex-1 min-w-0 truncate text-xs line-through ${dark ? "text-slate-500" : "text-slate-400"}`} title={task.title}>
+                  {task.title}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => remove(task)}
+                  aria-label="Delete task"
+                  className={`shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${rowBtn}`}
+                >
+                  <XIcon className="w-3.5 h-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {loaded && tasks.length === 0 && (
+          <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
+            No tasks yet — jot down what you want to get through.
+          </p>
+        )}
       </div>
     </WidgetSection>
   );

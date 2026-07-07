@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Send, Pencil, Trash2, Check, X, Clock } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Send, Pencil, Trash2, Check, X, Clock, Settings2 } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useApp } from "../context/AppContext";
 import { useTeamOptional } from "../context/TeamContext";
+import { useMessages } from "../context/MessagesContext";
 import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
+import { Thread, ChannelSettings } from "../pages/MessagesPage";
 import { emitMention } from "../lib/notifications";
 import { getProfiles } from "../lib/profiles";
 import { availability, isOutOfOfficeAny } from "../lib/timezone";
@@ -32,6 +35,7 @@ function formatTime(iso) {
 function MessageRow({
   message, compact, dark, isOwn, isEditing, renderBody, openProfile, readOnly,
   editDraft, onEditDraftChange, onStartEdit, onCancelEdit, onSaveEdit, onDelete,
+  selected, onToggleSelected,
 }) {
   const editAreaRef = useRef(null);
 
@@ -55,7 +59,10 @@ function MessageRow({
   };
 
   return (
-    <div className={`group relative flex gap-2 ${compact ? "" : "mt-3"}`}>
+    <div
+      onClick={onToggleSelected}
+      className={`group relative flex gap-2 ${compact ? "" : "mt-3"}`}
+    >
       <div className="w-7 shrink-0">
         {!compact && (
           <button type="button" className="rounded-full" onClick={(e) => openProfile?.(message.user_id, e.currentTarget.getBoundingClientRect())} title="View profile">
@@ -102,14 +109,14 @@ function MessageRow({
                 type="button"
                 onClick={onSaveEdit}
                 disabled={!editDraft.trim()}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-accent)] text-white disabled:opacity-40"
+                className="inline-flex items-center gap-1 px-2 py-0.5 min-h-[44px] sm:min-h-0 rounded bg-[var(--color-accent)] text-white disabled:opacity-40"
               >
                 <Check className="w-3 h-3" /> Save
               </button>
               <button
                 type="button"
                 onClick={onCancelEdit}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${
+                className={`inline-flex items-center gap-1 px-2 py-0.5 min-h-[44px] sm:min-h-0 rounded ${
                   dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
                 }`}
               >
@@ -131,7 +138,8 @@ function MessageRow({
           the bubble without reflowing the row. Hidden in read-only (kiosk). */}
       {isOwn && !isEditing && !readOnly && (
         <div
-          className={`absolute -top-2 right-1 hidden group-hover:flex items-center gap-0.5 rounded-md border shadow-sm ${
+          onClick={(e) => e.stopPropagation()}
+          className={`absolute -top-2 right-1 ${selected ? "flex" : "hidden"} sm:hidden sm:group-hover:flex items-center gap-0.5 rounded-md border shadow-sm ${
             dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
           }`}
         >
@@ -139,17 +147,17 @@ function MessageRow({
             type="button"
             onClick={onStartEdit}
             title="Edit"
-            className={`p-1 ${dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-700"}`}
+            className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 p-1 ${dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-700"}`}
           >
-            <Pencil className="w-3 h-3" />
+            <Pencil className="w-4 h-4 sm:w-3 sm:h-3" />
           </button>
           <button
             type="button"
             onClick={onDelete}
             title="Delete"
-            className={`p-1 ${dark ? "text-slate-400 hover:text-red-400" : "text-slate-500 hover:text-red-600"}`}
+            className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 p-1 ${dark ? "text-slate-400 hover:text-red-400" : "text-slate-500 hover:text-red-600"}`}
           >
-            <Trash2 className="w-3 h-3" />
+            <Trash2 className="w-4 h-4 sm:w-3 sm:h-3" />
           </button>
         </div>
       )}
@@ -157,7 +165,83 @@ function MessageRow({
   );
 }
 
-export default function RoomChatPanel({ roomId, userId, fillHeight = false, readOnly = false }) {
+// A general room's chat IS its Messages channel, so — when we're interactive
+// (not the read-only kiosk) and that channel is available — render the exact same
+// Thread UI the Messages page uses: image uploads, reactions, @mention rendering,
+// the lot. It uses a slim header (just the channel-settings gear + topic) since
+// the room tile already has its own "Chat" title bar. Everything else (non-general
+// rooms, kiosk/read-only, or before the channel loads) keeps the legacy panel.
+export default function RoomChatPanel(props) {
+  const { conversations = [] } = useMessages();
+  const conv = props.readOnly ? null : conversations.find((c) => c.room_id === props.roomId);
+  if (conv && props.userId) return <RoomThreadPanel conv={conv} userId={props.userId} fillHeight={props.fillHeight} chromeless={props.chromeless} />;
+  return <LegacyRoomChatPanel {...props} />;
+}
+
+// `chromeless` (used inside a RoomLayout tile) drops the in-panel header entirely
+// — the tile header already carries the title + the settings gear (ChatHeaderActions).
+// Otherwise (e.g. the room-action popover's Chat tab) a slim header keeps the gear.
+function RoomThreadPanel({ conv, userId, fillHeight = false, chromeless = false }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
+  const { teamMembers = [], isAdmin, myOrgTeamLeadIds = new Set() } = useTeamOptional() || {};
+  const { markRead, subscribeMessages, subscribeReactions, reload } = useMessages();
+  const memberById = useMemo(() => new Map(teamMembers.map((m) => [m.user_id, m])), [teamMembers]);
+  const others = useMemo(() => teamMembers.filter((m) => m.user_id !== userId), [teamMembers, userId]);
+  return (
+    <div className={`min-h-0 ${fillHeight ? "h-full" : "h-80"}`}>
+      <Thread
+        conversation={conv} name={conv.title} memberById={memberById} candidates={others}
+        userId={userId} isAdmin={isAdmin} myOrgTeamLeadIds={myOrgTeamLeadIds}
+        hideHeader={chromeless} slimHeader={!chromeless} markRead={markRead}
+        subscribeMessages={subscribeMessages} subscribeReactions={subscribeReactions}
+        onChannelMetaSaved={reload} dark={dark}
+      />
+    </div>
+  );
+}
+
+// The chat panel's settings gear, rendered into the room tile's header (next to
+// maximize/close). Admins only; opens the channel settings in a popover.
+export function ChatHeaderActions({ roomId }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
+  const { conversations = [], reload } = useMessages();
+  const { teamMembers = [], isAdmin, myOrgTeamLeadIds = new Set() } = useTeamOptional() || {};
+  const conv = conversations.find((c) => c.room_id === roomId) || null;
+  const canManage = !!conv && (isAdmin || myOrgTeamLeadIds.has(conv.org_team_id));
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
+  const memberById = useMemo(() => new Map(teamMembers.map((m) => [m.user_id, m])), [teamMembers]);
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    const W = 320, M = 8;
+    const left = Math.max(M, Math.min(r.right - W, window.innerWidth - W - M));
+    setPos({ top: r.bottom + 6, left, W });
+  }, [open]);
+  if (!conv || !canManage) return null;
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={() => setOpen((o) => !o)} title="Channel settings" aria-label="Channel settings"
+        className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 p-1 rounded-md transition-colors ${dark ? "text-slate-400 hover:text-slate-100 hover:bg-white/10" : "text-slate-500 hover:text-slate-800 hover:bg-black/5"}`}>
+        <Settings2 className="w-5 h-5 sm:w-3.5 sm:h-3.5" />
+      </button>
+      {open && pos && createPortal(
+        <div className="fixed inset-0 z-[60]" onMouseDown={() => setOpen(false)}>
+          <div onMouseDown={(e) => e.stopPropagation()} style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.W, maxWidth: "92vw" }}
+            className={`rounded-2xl overflow-hidden border shadow-2xl ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+            <ChannelSettings conversation={conv} memberById={memberById} dark={dark} onClose={() => setOpen(false)} onSaved={() => reload?.()} />
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = false }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { messages, loading, send, edit, remove } = useRoomChat(roomId, userId);
@@ -165,6 +249,7 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false, read
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
+  const [selectedMsg, setSelectedMsg] = useState(null);
   const scrollerRef = useRef(null);
 
   // @mentions: an autocomplete over teammates; selected user_ids accumulate in
@@ -400,6 +485,8 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false, read
                 isOwn={m.user_id === userId}
                 readOnly={readOnly}
                 isEditing={editingId === m.id}
+                selected={selectedMsg === m.id}
+                onToggleSelected={() => setSelectedMsg((cur) => (cur === m.id ? null : m.id))}
                 editDraft={editDraft}
                 onEditDraftChange={setEditDraft}
                 onStartEdit={() => startEdit(m)}
@@ -434,7 +521,7 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false, read
                 key={m.user_id}
                 type="button"
                 onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-sm ${i === (mention.index ?? 0) ? (dark ? "bg-white/10" : "bg-slate-100") : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}
+                className={`w-full flex items-center gap-2 px-2.5 py-1.5 min-h-[44px] sm:min-h-0 text-left text-sm ${i === (mention.index ?? 0) ? (dark ? "bg-white/10" : "bg-slate-100") : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}
               >
                 <UserAvatar url={m.avatar_url} name={m.name} size={20} />
                 <span className="truncate">{m.name || "Member"}</span>
@@ -460,9 +547,9 @@ export default function RoomChatPanel({ roomId, userId, fillHeight = false, read
           onClick={handleSend}
           disabled={!draft.trim() || sending}
           aria-label="Send"
-          className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[var(--color-accent)] text-white disabled:opacity-40 disabled:cursor-not-allowed"
+          className="shrink-0 inline-flex items-center justify-center w-11 h-11 sm:w-9 sm:h-9 rounded-lg bg-[var(--color-accent)] text-white disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <Send className="w-4 h-4" />
+          <Send className="w-5 h-5 sm:w-4 sm:h-4" />
         </button>
       </div>
       )}

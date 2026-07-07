@@ -10,6 +10,8 @@ import { createSyncSession, joinSyncSession } from "../lib/syncSession";
 import { getSessionCreatePrefs } from "../pomodoro/storage";
 import { getShareableBaseUrl } from "../lib/platform";
 import UserAvatar from "./UserAvatar";
+import Modal from "./Modal";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 
 function modeLabel(m) {
   return m === "shortBreak" ? "Short break" : m === "longBreak" ? "Long break" : "Focus";
@@ -31,8 +33,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [createdSession, setCreatedSession] = useState(null);
-  const [copied, setCopied] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
+  const [copied, copy] = useCopyToClipboard(2000);
   const [nameDraft, setNameDraft] = useState(displayName || "");
   const [visibility, setVisibility] = useState(activeTeamId ? "team" : "invite_only");
 
@@ -114,20 +115,10 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
     if (data?.session) onSessionJoined(data.session);
   }
 
-  async function handleCopy() {
-    await navigator.clipboard.writeText(createdSession.join_code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
+  const handleCopy = () => copy(createdSession.join_code, "code");
+  const handleCopyLink = () =>
+    copy(`${getShareableBaseUrl()}/pomodoro/join/${createdSession.join_code}`, "link");
 
-  async function handleCopyLink() {
-    const url = `${getShareableBaseUrl()}/pomodoro/join/${createdSession.join_code}`;
-    await navigator.clipboard.writeText(url);
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
-  }
-
-  const overlayCls = "fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4";
   const modalCls = `relative w-full max-w-sm rounded-2xl border p-5 sm:p-6 max-h-[calc(100dvh-1.5rem)] overflow-y-auto ${
     dark
       ? "shadow-2xl shadow-black/40 bg-[var(--color-surface)] border-[var(--color-border)]"
@@ -139,7 +130,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`;
 
   return (
-    <div className={overlayCls} onClick={onClose}>
+    <Modal onClose={onClose}>
       <div className={modalCls} onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onClose}
@@ -269,7 +260,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
             }`}>
               {createdSession.join_code}
               <button onClick={handleCopy} className="p-1.5 rounded-lg hover:bg-slate-700/50 transition-colors">
-                <Copy className={`w-5 h-5 ${copied ? "text-emerald-400" : dark ? "text-slate-500" : "text-slate-400"}`} />
+                <Copy className={`w-5 h-5 ${copied === "code" ? "text-emerald-400" : dark ? "text-slate-500" : "text-slate-400"}`} />
               </button>
             </div>
             <button
@@ -282,10 +273,10 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
               }`}
             >
               <LinkIcon className="w-4 h-4" />
-              {linkCopied ? "Link copied!" : "Copy invite link"}
+              {copied === "link" ? "Link copied!" : "Copy invite link"}
             </button>
             <p className={`text-[11px] text-center ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              {copied
+              {copied === "code"
                 ? "Code copied!"
                 : `You control the timer · Visibility: ${createdSession.visibility === "team" ? "team-visible" : "invite-only"}`}
             </p>
@@ -314,7 +305,7 @@ export default function SyncSessionModal({ open, onClose, userId, displayName, o
           </form>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 

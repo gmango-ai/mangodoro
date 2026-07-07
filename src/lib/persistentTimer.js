@@ -193,7 +193,9 @@ function cssVarHex(name) {
   }
 }
 
-export async function startPersistentTimer({ endsAtMs, mode, isSynced, durationSeconds }) {
+// Shared start/update path — identical except for which native op runs
+// (`start` creates the surface, `update` refreshes it in place).
+async function runPersistentTimer(op, { endsAtMs, mode, isSynced, durationSeconds }) {
   if (!endsAtMs || endsAtMs <= Date.now()) return;
   const label = modeLabel(mode);
   const accentColorHex = currentAccentHex();
@@ -202,7 +204,7 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced, durationS
   try {
     if (platform === "ios") {
       await ensurePushTokenListener();
-      const result = await IOSLiveActivity.start({
+      const result = await IOSLiveActivity[op]({
         endsAtMs,
         mode,
         label,
@@ -228,69 +230,28 @@ export async function startPersistentTimer({ endsAtMs, mode, isSynced, durationS
         })
       );
     } else if (platform === "android") {
-      await AndroidPersistentTimer.start({
+      await AndroidPersistentTimer[op]({
         endsAtMs,
         mode,
         label,
         isSynced: !!isSynced,
       });
     } else if (isElectron) {
-      window.__electronTimer?.start({ endsAtMs, mode, label, isSynced: !!isSynced });
+      window.__electronTimer?.[op]({ endsAtMs, mode, label, isSynced: !!isSynced });
     }
   } catch (e) {
-    console.warn("[persistentTimer] start failed", platform, e);
+    console.warn(`[persistentTimer] ${op} failed`, platform, e);
   }
+}
+
+export async function startPersistentTimer(args) {
+  await runPersistentTimer("start", args);
 }
 
 // Used when the phase changes mid-run. Cheaper than stop+start because
 // the surface stays visible without flicker.
-export async function updatePersistentTimer({ endsAtMs, mode, isSynced, durationSeconds }) {
-  if (!endsAtMs || endsAtMs <= Date.now()) return;
-  const label = modeLabel(mode);
-  const accentColorHex = currentAccentHex();
-  const breakColorHex = currentBreakHex();
-  const platform = getPlatform();
-  try {
-    if (platform === "ios") {
-      await ensurePushTokenListener();
-      const result = await IOSLiveActivity.update({
-        endsAtMs,
-        mode,
-        label,
-        isSynced: !!isSynced,
-        isRunning: true,
-        accentColorHex,
-        breakColorHex,
-        phaseDurationSeconds: durationSeconds,
-        supabaseUrl: SUPABASE_URL,
-        supabaseAnonKey: SUPABASE_ANON_KEY,
-      });
-      captureActivityId(result);
-      await syncActivityState(
-        buildActivityState({
-          endsAtMs,
-          mode,
-          label,
-          isSynced,
-          isRunning: true,
-          accentColorHex,
-          breakColorHex,
-          phaseDurationSeconds: durationSeconds,
-        })
-      );
-    } else if (platform === "android") {
-      await AndroidPersistentTimer.update({
-        endsAtMs,
-        mode,
-        label,
-        isSynced: !!isSynced,
-      });
-    } else if (isElectron) {
-      window.__electronTimer?.update({ endsAtMs, mode, label, isSynced: !!isSynced });
-    }
-  } catch (e) {
-    console.warn("[persistentTimer] update failed", platform, e);
-  }
+export async function updatePersistentTimer(args) {
+  await runPersistentTimer("update", args);
 }
 
 // Freezes the on-screen countdown to a static MM:SS without ending the
@@ -442,6 +403,59 @@ export async function initDeviceWidgetPush(userId) {
     await registerDevice();
   } catch (e) {
     console.warn("[persistentTimer] initDeviceWidgetPush failed", e);
+  }
+}
+
+// Listen for native alert-notification taps (iOS). The push handler in
+// PersistentTimerPlugin fires "notificationTapped" with the route the APNs
+// alert (native-push edge fn) carried. `cb` receives that route string.
+// Returns the listener handle (has .remove()), or null off iOS. Uses the
+// already-registered plugin — do NOT registerPlugin("LiveActivity") again.
+export async function addNotificationTapListener(cb) {
+  if (getPlatform() !== "ios") return null;
+  try {
+    return await IOSLiveActivity.addListener("notificationTapped", ({ url }) => {
+      if (url) cb(url);
+    });
+  } catch (e) {
+    console.warn("[persistentTimer] notificationTapped listener failed", e);
+    return null;
+  }
+}
+
+// Drain a route from a notification tapped before the listener attached (cold
+// launch straight from the notification). Returns the route string or null.
+export async function consumePendingNotificationRoute() {
+  if (getPlatform() !== "ios") return null;
+  try {
+    const { url } = await IOSLiveActivity.getPendingNotificationURL();
+    return url || null;
+  } catch {
+    return null;
+  }
+}
+
+// Prompt for iOS notification authorization (alert+sound+badge) so native-push
+// ALERT pushes actually display. Returns { granted }. iOS-only.
+export async function requestNativeNotificationPermission() {
+  if (getPlatform() !== "ios") return { granted: false };
+  try {
+    return await IOSLiveActivity.requestNotificationPermission();
+  } catch (e) {
+    console.warn("[persistentTimer] requestNotificationPermission failed", e);
+    return { granted: false };
+  }
+}
+
+// Read current iOS notification authorization. Returns { status:
+// "granted" | "denied" | "prompt" } (or "unsupported" off iOS).
+export async function getNativeNotificationPermission() {
+  if (getPlatform() !== "ios") return { status: "unsupported" };
+  try {
+    return await IOSLiveActivity.getNotificationPermission();
+  } catch (e) {
+    console.warn("[persistentTimer] getNotificationPermission failed", e);
+    return { status: "prompt" };
   }
 }
 

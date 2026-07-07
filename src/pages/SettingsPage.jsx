@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { openWhatsNew } from "../components/WhatsNew";
 import { openHelpCenter } from "../components/tour/HelpCenter";
+import { uiSoundsEnabled, setUiSoundsEnabled, playNotify, playMessage, playHandRaise } from "../lib/uiSounds";
 import { appVersion, latestEntryId } from "../lib/changelog";
 import { ACCENTS } from "../lib/accent";
 import AvatarUploader from "../components/AvatarUploader";
@@ -24,10 +25,12 @@ import SoundLibrary from "../components/SoundLibrary";
 import TimeSelect from "../components/TimeSelect";
 import { toDisplayTime } from "../lib/utils";
 import { loadPomodoroSoundSettings, savePomodoroSoundSettings, USER_SOUND_PREFIX } from "../lib/pomodoroSound";
-import { clearCachedNotificationSound } from "../lib/nativeNotifications";
+import { clearCachedNotificationSound, nativePushSupported, getNativePushStatus, enableNativePush } from "../lib/nativeNotifications";
 import { NOTIFICATION_TYPES, listPreferences, setPreferenceEnabled } from "../lib/notifications";
 import { REMINDERS, REMINDER_INTERVALS, reminderConfig } from "../lib/reminders";
 import { TIMEZONES, browserTimezone, localTimeLabel } from "../lib/timezone";
+import { readStatusOnCycle, writeStatusOnCycle } from "../lib/statusCyclePref";
+import { enableWebPush, disableWebPush, isWebPushEnabled, webPushSupported } from "../lib/webPush";
 
 // Settings as a real page. Left rail of sections, right pane renders
 // the active section. Sections persist on field commit (blur/change)
@@ -726,6 +729,7 @@ function PomodoroSection({ dark }) {
   const [keyDraft, setKeyDraft] = useState(deepseekKey || "");
   const [savingMsg, setSavingMsg] = useState("");
   const [error, setError] = useState("");
+  const [statusOnCycle, setStatusOnCycle] = useState(readStatusOnCycle());
 
   useEffect(() => { setLanding(defaultLandingPage || "pomodoro"); }, [defaultLandingPage]);
   useEffect(() => { setKeyDraft(deepseekKey || ""); }, [deepseekKey]);
@@ -783,6 +787,21 @@ function PomodoroSection({ dark }) {
             <SelectItem value="after_focus">After each focus block</SelectItem>
             <SelectItem value="before_focus">Before the next focus</SelectItem>
             <SelectItem value="both">Both</SelectItem>
+          </SelectContent>
+        </Select>
+      </SectionCard>
+
+      <SectionCard
+        title="Status at Pomodoro end"
+        hint="When a focus block or break ends, clear your manual status (back to auto) or get a quick prompt to update it."
+        dark={dark}
+      >
+        <Select value={statusOnCycle} onValueChange={(v) => { setStatusOnCycle(v); writeStatusOnCycle(v); flashSaved(); }}>
+          <SelectTrigger className="h-10 w-56"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="off">Off</SelectItem>
+            <SelectItem value="clear">Clear my status</SelectItem>
+            <SelectItem value="ask">Ask me</SelectItem>
           </SelectContent>
         </Select>
       </SectionCard>
@@ -1474,6 +1493,14 @@ function NotificationsSection({ dark }) {
   const [time, setTime] = useState(reminderTime || "");
   const [error, setError] = useState("");
   const [savingMsg, setSavingMsg] = useState("");
+  // Sound effects — per-device (localStorage), so it can differ across devices.
+  const [soundOn, setSoundOn] = useState(() => uiSoundsEnabled());
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setUiSoundsEnabled(next);
+    if (next) playNotify(); // confirm it's audible when turning on
+  };
   const [permTick, setPermTick] = useState(0);
   void permTick;
 
@@ -1485,6 +1512,61 @@ function NotificationsSection({ dark }) {
     const next = !typeEnabled(type);
     setTypePrefs((p) => ({ ...p, [type]: next }));
     await setPreferenceEnabled(userId, type, next);
+  };
+
+  // Push when the app is closed. Two transports depending on platform:
+  //   • native iOS app → APNs alert push (Web Push can't run in the WKWebView)
+  //   • web / installed PWA → browser Web Push
+  const isNativePush = nativePushSupported();
+  const pushSupported = webPushSupported();
+
+  // Native (iOS) alert-push permission.
+  const [nativePushStatus, setNativePushStatus] = useState("prompt");
+  const [nativeBusy, setNativeBusy] = useState(false);
+  useEffect(() => {
+    if (isNativePush) getNativePushStatus().then(setNativePushStatus);
+  }, [isNativePush]);
+  const nativeOn = nativePushStatus === "granted";
+  const nativeDenied = nativePushStatus === "denied";
+  const enableNative = async () => {
+    if (nativeOn || nativeBusy) return;
+    if (nativeDenied) {
+      setError("Notifications are off for Mangodoro. Turn them on in iOS Settings › Mangodoro › Notifications.");
+      return;
+    }
+    setNativeBusy(true);
+    try {
+      const { granted, error: err } = await enableNativePush(userId);
+      setNativePushStatus(granted ? "granted" : "denied");
+      if (granted) flashSaved();
+      else if (err) setError(err);
+    } catch (e) {
+      setError(e?.message || "Couldn't enable notifications.");
+    } finally {
+      setNativeBusy(false);
+    }
+  };
+
+  // Browser web-push (notifications delivered even when the app is closed).
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => { isWebPushEnabled().then(setPushOn); }, []);
+  const togglePush = async () => {
+    setPushBusy(true);
+    try {
+      if (pushOn) {
+        await disableWebPush(userId);
+        setPushOn(false);
+      } else {
+        const { error: err } = await enableWebPush(userId);
+        if (err) setError(err);
+        else { setPushOn(true); flashSaved(); }
+      }
+    } catch (e) {
+      setError(e?.message || "Couldn't change push setting.");
+    } finally {
+      setPushBusy(false);
+    }
   };
 
   useEffect(() => { setTime(reminderTime || ""); }, [reminderTime]);
@@ -1602,6 +1684,46 @@ function NotificationsSection({ dark }) {
         )}
       </SectionCard>
 
+      {isNativePush ? (
+        <SectionCard
+          title="Push when the app is closed"
+          hint={
+            nativeDenied
+              ? "Notifications are off for Mangodoro. Turn them on in iOS Settings › Mangodoro › Notifications."
+              : "Get mentions, knocks, and reminders on this device even when the app is closed."
+          }
+          dark={dark}
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={nativeOn}
+            disabled={nativeBusy || nativeOn}
+            onClick={enableNative}
+            className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${nativeOn ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"} ${nativeBusy ? "opacity-50" : ""}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${nativeOn ? "translate-x-4" : ""}`} />
+          </button>
+        </SectionCard>
+      ) : pushSupported ? (
+        <SectionCard
+          title="Push when the app is closed"
+          hint="Also get notifications on this device when Mangodoro isn't open in a tab (uses the browser's push service)."
+          dark={dark}
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={pushOn}
+            disabled={pushBusy}
+            onClick={togglePush}
+            className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${pushOn ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"} ${pushBusy ? "opacity-50" : ""}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${pushOn ? "translate-x-4" : ""}`} />
+          </button>
+        </SectionCard>
+      ) : null}
+
       <SectionCard
         title="What to notify me about"
         hint="Per-type switches. Awareness pings reach your team by default; turn off any you don't want."
@@ -1668,6 +1790,46 @@ function NotificationsSection({ dark }) {
               </button>
             )}
           </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Sound effects"
+        hint="Play a short sound for notifications, new chat messages, and raised hands in a call. Applies to this device only."
+        dark={dark}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={soundOn}
+              onClick={toggleSound}
+              className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${soundOn ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${soundOn ? "translate-x-4" : ""}`} />
+            </button>
+            <span className={`text-sm font-semibold ${dark ? "text-slate-200" : "text-slate-700"}`}>Play sound effects</span>
+          </div>
+          {soundOn && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>Preview:</span>
+              {[
+                { label: "Notification", fn: playNotify },
+                { label: "Message", fn: playMessage },
+                { label: "Raised hand", fn: playHandRaise },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => p.fn()}
+                  className={`text-xs font-medium px-2.5 py-1 rounded-full border ${dark ? "border-[var(--color-border)] text-slate-300 hover:bg-white/5" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </SectionCard>
 

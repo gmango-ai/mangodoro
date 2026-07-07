@@ -1,7 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
-import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll } from "../lib/notifications";
+import { listNotifications, markRead as apiMarkRead, markAllRead as apiMarkAllRead, clearNotification as apiClearOne, clearAllNotifications as apiClearAll, typeMeta } from "../lib/notifications";
+import { useResolvedSelf } from "../hooks/useResolvedSelf";
+import { deliveryAction } from "../lib/notificationDelivery";
+import { notificationSurfaces } from "../lib/notificationSurfaces";
+import { NOTIFICATION_LEADER_LOCK, useNotificationLeader } from "../hooks/useNotificationLeader";
+import { playForNotification } from "../lib/uiSounds";
 
 // Notification layer — in-app delivery.
 //
@@ -29,9 +34,64 @@ function withinQuietHours(start, end) {
   return a <= b ? cur >= a && cur < b : cur >= a || cur < b; // overnight window
 }
 
+function osNotificationClaimKey(n) {
+  return n?.id ? `mango-notif-os-shown:${n.id}` : null;
+}
+
+function claimOsNotification(n) {
+  const key = osNotificationClaimKey(n);
+  if (!key || typeof localStorage === "undefined") return true;
+  try {
+    if (localStorage.getItem(key)) return false;
+    localStorage.setItem(key, String(Date.now()));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function showOsNotification(n) {
+  if (!claimOsNotification(n)) return;
+  try { new Notification(n.title, { body: n.body || "", icon: "/icon-192.png", tag: n.type }); } catch { /* */ }
+}
+
+function handoffLockName(n) {
+  return `mango-notif-os-handoff:${n?.id || `${n?.type || "unknown"}:${n?.title || ""}:${n?.body || ""}`}`;
+}
+
+async function showOsNotificationDuringLeaderHandoff(n, isLeaderRef) {
+  if (typeof navigator === "undefined" || !navigator.locks?.query || !navigator.locks?.request) return;
+  try {
+    if (isLeaderRef.current) {
+      showOsNotification(n);
+      return;
+    }
+    const { held = [] } = await navigator.locks.query();
+    if (isLeaderRef.current) {
+      showOsNotification(n);
+      return;
+    }
+    if (held.some((lock) => lock.name === NOTIFICATION_LEADER_LOCK)) return;
+    await navigator.locks.request(handoffLockName(n), { mode: "exclusive", ifAvailable: true }, (lock) => {
+      if (lock) showOsNotification(n);
+    });
+  } catch {
+    // The normal leader path already failed closed; keep the handoff fallback best-effort.
+  }
+}
+
 export function NotificationProvider({ children }) {
   const { session, settings } = useApp();
   const userId = session?.user?.id;
+
+  // Live resolved availability, for the client-side (last-mile) delivery policy.
+  const { resolved } = useResolvedSelf();
+  const availabilityRef = useRef("available");
+  availabilityRef.current = resolved?.availability || "available";
+
+  // Multi-tab consolidation: one tab per browser holds this lock and is the sole
+  // OS-notification owner, so N open tabs don't fire N banners for one event.
+  const isLeaderRef = useNotificationLeader();
 
   const [items, setItems] = useState([]);
   const [toasts, setToasts] = useState([]);
@@ -41,42 +101,81 @@ export function NotificationProvider({ children }) {
 
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const notificationIdsRef = useRef(new Set());
+  // Pending toast auto-dismiss timers — cleared on provider unmount.
+  const toastTimersRef = useRef(new Set());
+  useEffect(() => () => {
+    for (const t of toastTimersRef.current) clearTimeout(t);
+    toastTimersRef.current.clear();
+  }, []);
 
   const dismissToast = useCallback((id) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   const handleIncoming = useCallback((n) => {
     if (!n) return;
+    if (n.id && notificationIdsRef.current.has(n.id)) return;
+    if (n.id) notificationIdsRef.current.add(n.id);
     setItems((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev].slice(0, 60)));
     const channels = n.channels || [];
-    if (channels.includes("inapp")) {
+    // Client last-mile: decide banner / sound / push from THIS device's live
+    // status + the notification's priority (fresher than the server's emit-time
+    // routing). High/urgent always break through; low/normal are muted while you
+    // focus but still shown.
+    const action = deliveryAction(n.priority || "normal", availabilityRef.current);
+    const wantsDesktop = (typeMeta(n.type)?.channels || channels).includes("desktop");
+    // Split the surfaces across tabs so multiple open tabs don't duplicate:
+    //   • toast + sound → only the tab you're LOOKING at (visible);
+    //   • OS banner     → only the elected leader tab (one per browser).
+    // The bell/inbox stay per-tab. Type-aware arrival sound (chat vs
+    // notification) plays only when the focus policy allows it; OS notification
+    // surfaces even when the tab is focused (per preference), alongside the toast.
+    const isLeader = isLeaderRef.current;
+    const permissionGranted = typeof Notification !== "undefined" && Notification.permission === "granted";
+    const quietHours = withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd);
+    const surfaces = notificationSurfaces({
+      channels,
+      action,
+      wantsDesktop,
+      isLeader,
+      isVisible: typeof document !== "undefined" && document.visibilityState === "visible",
+      permissionGranted,
+      quietHours,
+    });
+    if (surfaces.toast) {
       const id = _toastSeq++;
       setToasts((t) => [...t, { id, n }].slice(-4));
-      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
+      const timer = setTimeout(() => {
+        toastTimersRef.current.delete(timer);
+        setToasts((t) => t.filter((x) => x.id !== id));
+      }, 6000);
+      toastTimersRef.current.add(timer);
+      if (surfaces.sound) playForNotification(n.type);
     }
-    if (
-      channels.includes("desktop") &&
-      typeof Notification !== "undefined" &&
-      Notification.permission === "granted" &&
-      typeof document !== "undefined" && document.hidden &&
-      !withinQuietHours(settingsRef.current?.notifQuietStart, settingsRef.current?.notifQuietEnd)
-    ) {
-      try { new Notification(n.title, { body: n.body || "", icon: "/icon-192.png", tag: n.type }); } catch { /* */ }
+    if (surfaces.os) {
+      showOsNotification(n);
+    } else if (!isLeader && !!action?.push && wantsDesktop && permissionGranted && !quietHours) {
+      showOsNotificationDuringLeaderHandoff(n, isLeaderRef);
     }
   }, []);
 
   // Initial fetch + realtime subscription per user.
   useEffect(() => {
-    if (!userId) { setItems([]); setToasts([]); return undefined; }
+    if (!userId) { notificationIdsRef.current = new Set(); setItems([]); setToasts([]); return undefined; }
+    notificationIdsRef.current = new Set();
     let cancelled = false;
     listNotifications(40).then((rows) => {
       if (cancelled) return;
-      setItems(rows);
+      notificationIdsRef.current = new Set([...notificationIdsRef.current, ...rows.map((n) => n.id)]);
+      setItems((prev) => {
+        const fetchedIds = new Set(rows.map((n) => n.id));
+        return [...prev.filter((n) => !fetchedIds.has(n.id)), ...rows].slice(0, 60);
+      });
     });
     const channel = supabase
-      .channel(`notifications:${userId}`)
+      .channel(`notification_deliveries:${userId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_user_id=eq.${userId}` },
+        { event: "INSERT", schema: "public", table: "notification_deliveries", filter: `recipient_user_id=eq.${userId}` },
         (payload) => handleIncoming(payload.new)
       )
       .subscribe();
@@ -107,6 +206,9 @@ export function NotificationProvider({ children }) {
     await apiClearAll();
   }, []);
 
-  const value = { items, unread, toasts, dismissToast, markRead, markAllRead, clearOne, clearAll };
+  const value = useMemo(
+    () => ({ items, unread, toasts, dismissToast, markRead, markAllRead, clearOne, clearAll }),
+    [items, unread, toasts, dismissToast, markRead, markAllRead, clearOne, clearAll],
+  );
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }

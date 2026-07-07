@@ -33,6 +33,20 @@ from the audit and should be re-confirmed at edit time (the files move fast).
 
 ## Phase 0 — High-impact, low-risk quick wins
 
+> Status (2026-07-04): 0.1 DONE (went straight to the incremental patch —
+> the user_settings handler no longer refetches at all). 0.2 DONE where
+> possible (SyncSessionContext was already session-filtered; TeamContext
+> can't filter server-side — no team key on sync_session_participants —
+> so it got hidden-tab skip + guards instead; a true filter needs a DB
+> migration). 0.3 DONE (payload patching, 60s poll kept as reconciler).
+> 0.4 PARTIAL (getProfilesBasic added; listNotifications NOT narrowed —
+> NotificationBell reads payload.room_id/route from list items; OrgChart
+> needs a job_title variant). 0.5 DONE where correct (TeamContext 30s
+> poll + ProfileCard/devicePanels/QuickActionsPopover ticks pause when
+> hidden via useVisibilityPausedInterval; IdlePresence had no interval;
+> HealthReminders/AppContext reminder ticks must keep running hidden —
+> they emit OS notifications).
+
 ### 0.1 Stop the team-member refetch storm  ⭐ biggest single win
 - **Where:** `src/context/TeamContext.jsx:183-190` ✓ (the `user_settings` UPDATE
   listener) → calls `loadMembers()` (`get_team_member_profiles` RPC, line 152 ✓).

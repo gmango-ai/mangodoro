@@ -60,6 +60,12 @@ export class PomodoroEngine {
     this._snapshot = null;
     this._publicApi = null;
     this._leaderLifecycleActive = false;
+    // Fingerprint of the inputs the native persistent-timer / notification
+    // side-effects depend on (endsAt + phase, and paused time, NOT the running
+    // per-second countdown), so
+    // we only cross the JS↔native bridge when they actually change — see
+    // _runDerivedSideEffects.
+    this._lastNativeSideEffectFp = null;
     this._teamIdInitialized = false;
     this._cleanups = [];
     this._tabLeader = null;
@@ -977,6 +983,9 @@ export class PomodoroEngine {
     this._setupTimerTick();
     this._setupLockscreenReconcile();
     this._setupSyncTickPoll();
+    // Force the first derived pass to (re)establish the native activity /
+    // notification regardless of any stale fingerprint from a prior leadership.
+    this._lastNativeSideEffectFp = null;
     this._runDerivedSideEffects();
     this._notify({ leaderSideEffects: false });
   }
@@ -1239,42 +1248,64 @@ export class PomodoroEngine {
     const { syncSession, userCustomSounds, teamSounds } = this._deps;
     const isSynced = !!syncSession;
 
-    if (isMobileApp) {
-      if (!isRunning) {
-        cancelPomodoroNotification();
-      } else {
-        const endsAt =
-          this._refs.endsAtMsRef.current || Date.now() + secondsLeft * 1000;
-        const settings = loadPomodoroSoundSettings();
-        const presetId =
-          mode === "work" ? settings.workEndPreset : settings.breakEndPreset;
-        schedulePomodoroNotification({
-          endsAtMs: endsAt,
-          mode,
-          isSynced,
-          presetId,
-          userSounds: userCustomSounds,
-          teamSounds,
-        });
-      }
-    }
+    // The native side-effects below (iOS ActivityKit Live Activity + an
+    // activity-register edge-function fetch + a LocalNotifications.schedule)
+    // are all driven by the ABSOLUTE deadline (endsAt) + phase — the native
+    // side counts down on its own. So they only need to fire when those
+    // meaningful inputs change (start / phase change / pause / resume), NOT on
+    // every 1s `secondsLeft` tick. Without this guard a running timer fired
+    // ~one ActivityKit start + one fetch + one bridge schedule PER SECOND
+    // (~1,140 over 19 min), which OOM-killed the iOS WebView while the phone
+    // sat idle with a timer running.
+    const phaseMode = pendingMode || mode;
+    const durationSeconds = this._state.durations?.[phaseMode];
+    const endsAt = isRunning
+      ? (this._refs.endsAtMsRef.current || Date.now() + secondsLeft * 1000)
+      : null;
+    const pausedSecondsLeft = isRunning ? 0 : secondsLeft;
+    const fp = [
+      isRunning ? 1 : 0,
+      phaseMode,
+      endsAt ? Math.round(endsAt / 1000) : 0,
+      isSynced ? 1 : 0,
+      durationSeconds || 0,
+      pausedSecondsLeft,
+    ].join("|");
 
-    if (hasPersistentTimerSurface) {
-      const phaseMode = pendingMode || mode;
-      // The Airy widget ring needs the full phase length to know how full it
-      // is (work/shortBreak/longBreak each differ, and durations are custom).
-      const durationSeconds = this._state.durations?.[phaseMode];
-      if (isRunning) {
-        const endsAt =
-          this._refs.endsAtMsRef.current || Date.now() + secondsLeft * 1000;
-        startPersistentTimer({ endsAtMs: endsAt, mode: phaseMode, isSynced, durationSeconds });
-      } else {
-        pausePersistentTimer({
-          pausedSecondsLeft: secondsLeft,
-          mode: phaseMode,
-          isSynced,
-          durationSeconds,
-        });
+    if ((isMobileApp || hasPersistentTimerSurface) && fp !== this._lastNativeSideEffectFp) {
+      this._lastNativeSideEffectFp = fp;
+
+      if (isMobileApp) {
+        if (!isRunning) {
+          cancelPomodoroNotification();
+        } else {
+          const settings = loadPomodoroSoundSettings();
+          const presetId =
+            mode === "work" ? settings.workEndPreset : settings.breakEndPreset;
+          schedulePomodoroNotification({
+            endsAtMs: endsAt,
+            mode,
+            isSynced,
+            presetId,
+            userSounds: userCustomSounds,
+            teamSounds,
+          });
+        }
+      }
+
+      if (hasPersistentTimerSurface) {
+        // The Airy widget ring needs the full phase length to know how full it
+        // is (work/shortBreak/longBreak each differ, and durations are custom).
+        if (isRunning) {
+          startPersistentTimer({ endsAtMs: endsAt, mode: phaseMode, isSynced, durationSeconds });
+        } else {
+          pausePersistentTimer({
+            pausedSecondsLeft,
+            mode: phaseMode,
+            isSynced,
+            durationSeconds,
+          });
+        }
       }
     }
 
