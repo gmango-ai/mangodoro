@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, Lock, Bell, Loader2 } from "lucide-react";
 import { supabase } from "../../supabase";
 import { requestRoomEntry } from "../../lib/rooms";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import WidgetsSidebar from "./WidgetsSidebar";
 import RoomView from "./RoomView";
 import HallwayView from "./HallwayView";
@@ -68,6 +69,7 @@ export default function OfficeShell({
   onlineCount, canEdit, busy, onJoin, onStart, onEnterRoom, onEditOffice,
   onEditRoom, canEditRoom,
 }) {
+  useBodyScrollLock();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -277,7 +279,7 @@ export default function OfficeShell({
   // Dynamic Island phones, which pushed the room's bottom "add panels" dock off
   // screen. env() is 0 on desktop.
   return (
-    <div className={`flex h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))] w-full ${
+    <div className={`relative flex h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
       {/* Desktop widgets sidebar.
@@ -293,14 +295,15 @@ export default function OfficeShell({
         {sidebarOpen && sidebar}
       </div>
 
-      {/* Mobile drawer */}
+      {/* Mobile drawer — absolute (not fixed) so it only covers the room area
+          between the top nav and bottom nav, not the whole viewport. */}
       {mobileSidebarOpen && (
         <div
-          className="md:hidden fixed inset-0 z-[150] bg-black/50"
+          className="md:hidden absolute inset-0 z-[150] bg-black/50"
           onClick={() => setMobileSidebarOpen(false)}
         >
           <div
-            className="absolute inset-y-0 left-0 w-72 max-w-[80vw] h-full"
+            className="absolute inset-y-0 left-0 w-72 max-w-[80vw] h-full overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {sidebar}
@@ -309,23 +312,27 @@ export default function OfficeShell({
       )}
 
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Mobile header (sidebar drawer toggle + room name) */}
-        <div className={`md:hidden flex items-center gap-2 px-3 py-2 border-b ${
-          dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-        }`}>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setMobileSidebarOpen(true)}
-            className="h-8 w-8"
-            aria-label="Open widgets"
-          >
-            <Menu className="w-4 h-4" />
-          </Button>
-          <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
-            {selectedRoom?.name || "Hallway"}
-          </p>
-        </div>
+        {/* Mobile header (widgets drawer toggle + room name) — only for the
+            lock gate, which has no header of its own. When RoomView shows, its
+            own header carries the widgets toggle + room name (no duplicate). */}
+        {roomLocked && (
+          <div className={`md:hidden flex items-center gap-2 px-3 py-2 border-b ${
+            dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+          }`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="h-10 w-10 sm:h-8 sm:w-8"
+              aria-label="Open widgets"
+            >
+              <Menu className="w-5 h-5 sm:w-4 sm:h-4" />
+            </Button>
+            <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
+              {selectedRoom?.name || "Hallway"}
+            </p>
+          </div>
+        )}
 
         {roomLocked ? (
           <RoomLockGate
@@ -347,7 +354,15 @@ export default function OfficeShell({
             onJoin={() => onJoin?.(selectedRoom)}
             onStart={() => onStart?.(selectedRoom)}
             sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            mobileSidebarOpen={mobileSidebarOpen}
+            // Desktop toggles the inline rail; mobile toggles the drawer overlay.
+            onToggleSidebar={() => {
+              if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
+                setSidebarOpen(!sidebarOpen);
+              } else {
+                setMobileSidebarOpen((open) => !open);
+              }
+            }}
             onOpenRoomSwitcher={() => setOverlayOpen(true)}
             onLeaveRoom={handleLeaveRoom}
             onEditRoom={onEditRoom}

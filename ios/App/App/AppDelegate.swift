@@ -18,12 +18,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// registration has already completed.
     static var deviceTokenHex: String?
 
+    /// Route from an alert notification the user tapped BEFORE the JS listener
+    /// was attached (e.g. a cold launch from the notification). Set by
+    /// LiveActivityPlugin's push handler and drained by
+    /// LiveActivityPlugin.getPendingNotificationURL() on boot so the deep-link
+    /// isn't lost.
+    static var pendingTappedURL: String?
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Register for remote notifications so the server can send SILENT
-        // (content-available) background pushes that refresh the home-screen
-        // widget when the shared pomodoro state changes on another device.
-        // Silent pushes need registration but NOT user authorization — we ask
-        // for no alert/badge/sound permission.
+        // Register for remote notifications so the server can reach this device.
+        // This one token serves both SILENT (content-available) background
+        // pushes that refresh the home-screen widget AND user-facing ALERT
+        // pushes (native-push edge function). Registration alone needs no user
+        // authorization — but alerts only DISPLAY once the user grants
+        // notification permission (requested from JS via the Settings toggle →
+        // LiveActivityPlugin.requestNotificationPermission). Foreground display
+        // + tap handling for those alerts is done by LiveActivityPlugin, which
+        // registers as Capacitor's pushNotificationHandler (so we don't fight
+        // the LocalNotifications plugin over the UNUserNotificationCenter
+        // delegate — Capacitor owns it and routes remote pushes to us).
         application.registerForRemoteNotifications()
         return true
     }

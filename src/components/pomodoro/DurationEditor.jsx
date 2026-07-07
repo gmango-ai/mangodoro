@@ -33,7 +33,7 @@ export default function DurationEditor({ onClose }) {
               key={m}
               type="button"
               onClick={() => setDraft(String(m))}
-              className={`text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors ${
+              className={`inline-flex items-center justify-center min-w-[40px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors ${
                 dark ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-slate-700" : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-200"
               }`}
             >
@@ -55,7 +55,7 @@ export default function DurationEditor({ onClose }) {
             if (e.key === "Enter") { applyCustomDuration(draft, false); onClose?.(); }
             if (e.key === "Escape") onClose?.();
           }}
-          className={`flex-1 h-8 px-2 rounded-md border text-sm font-mono ${
+          className={`flex-1 h-11 sm:h-8 px-2 rounded-md border text-sm font-mono ${
             dark
               ? "bg-[var(--color-surface)] border-[var(--color-border)] text-slate-100"
               : "bg-white border-slate-200 text-slate-800"
@@ -66,7 +66,7 @@ export default function DurationEditor({ onClose }) {
           type="button"
           onClick={() => { applyCustomDuration(draft, false); onClose?.(); }}
           title="Apply to this cycle"
-          className={`h-8 px-3 rounded-md text-xs font-bold text-white ${startBtnCls}`}
+          className={`h-11 sm:h-8 px-3 rounded-md text-xs font-bold text-white ${startBtnCls}`}
         >
           <Check className="w-3.5 h-3.5 inline" />
         </button>
@@ -74,7 +74,7 @@ export default function DurationEditor({ onClose }) {
       <button
         type="button"
         onClick={() => { applyCustomDuration(draft, true); onClose?.(); }}
-        className={`w-full text-[10px] font-semibold py-1 rounded transition-colors ${
+        className={`w-full text-[10px] font-semibold py-3 sm:py-1 rounded transition-colors ${
           dark ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-slate-700/50" : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-200/60"
         }`}
       >

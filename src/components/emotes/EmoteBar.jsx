@@ -1,9 +1,7 @@
-import { lazy, Suspense, useState } from "react";
+import { useState } from "react";
 import { Plus } from "lucide-react";
 import { EMOTES, PRESET_GLYPHS } from "./presets";
-
-// The full emoji picker is heavy — code-split so it only loads on demand.
-const EmojiPicker = lazy(() => import("emoji-picker-react"));
+import FullEmojiPicker from "./FullEmojiPicker";
 
 // The grow + amber glow on the button currently being charge-held.
 function chargeStyleFor(charge, glyph) {
@@ -89,27 +87,17 @@ export default function EmoteBar({
       {pickerOpen && (
         <>
           <div className="fixed inset-0 z-10" onPointerDown={() => setPickerOpen(false)} />
-          <Suspense fallback={null}>
-            <div
-              className="absolute z-20 rounded-xl overflow-hidden"
-              style={{
-                boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
-                ...(column
-                  ? { right: "100%", marginRight: 8, bottom: 0 }
-                  : { left: "50%", transform: "translateX(-50%)", bottom: "100%", marginBottom: 8 }),
-              }}
-            >
-              <EmojiPicker
-                onEmojiClick={(d) => { onPick?.(d.emoji); setPickerOpen(false); }}
-                theme={dark ? "dark" : "light"}
-                width={300}
-                height={380}
-                lazyLoadEmojis
-                skinTonesDisabled
-                previewConfig={{ showPreview: false }}
-              />
-            </div>
-          </Suspense>
+          <div
+            className="absolute z-20 rounded-xl overflow-hidden"
+            style={{
+              boxShadow: "0 16px 36px -12px rgba(0,0,0,.5)",
+              ...(column
+                ? { right: "100%", marginRight: 8, bottom: 0 }
+                : { left: "50%", transform: "translateX(-50%)", bottom: "100%", marginBottom: 8 }),
+            }}
+          >
+            <FullEmojiPicker dark={dark} onPick={(g) => { onPick?.(g); setPickerOpen(false); }} />
+          </div>
         </>
       )}
     </div>

@@ -25,7 +25,7 @@ export default function AlarmStopBanner() {
       <button
         type="button"
         onClick={() => stopCompletionSound()}
-        className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 transition-colors ${
+        className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 min-h-[44px] sm:min-h-0 transition-colors ${
           dark
             ? "bg-amber-500/20 hover:bg-amber-500/30 text-amber-100"
             : "bg-amber-200/80 hover:bg-amber-300 text-amber-950"

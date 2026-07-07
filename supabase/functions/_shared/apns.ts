@@ -187,6 +187,74 @@ export async function sendLiveActivityStartPush(
   };
 }
 
+export type SendAlertPushArgs = {
+  pushToken: string;
+  title: string;
+  body: string;
+  // Custom keys merged at the TOP level of the payload (read from `userInfo`
+  // by the UNUserNotificationCenter delegate for tap deep-linking) — e.g.
+  // { url, type, kind: "alert" }.
+  data?: Record<string, unknown>;
+  apnsEnv?: "production" | "sandbox";
+  sound?: string | null; // "default" (the OS chime) unless overridden; null = silent
+  badge?: number;
+  // Groups related notifications in Notification Center (usually the type).
+  threadId?: string;
+  // apns-collapse-id: a later push with the same id replaces the earlier one
+  // on the lockscreen (max 64 bytes). Useful to coalesce updates of one thing.
+  collapseId?: string;
+  expirationSeconds?: number;
+};
+
+// User-facing ALERT push to the APP — a banner + sound on the lockscreen /
+// Notification Center, so notifications land even when the app is closed. The
+// native counterpart to the browser web-push. Distinct from sendBackgroundPush
+// (silent, content-available). Topic is the plain bundle id, apns-push-type
+// "alert", high priority. NOTE: iOS drops this silently unless the user has
+// granted notification authorization (UNUserNotificationCenter.requestAuthorization).
+export async function sendAlertPush(
+  args: SendAlertPushArgs,
+): Promise<SendLiveActivityPushResult> {
+  const bundleId = env("APNS_BUNDLE_ID");
+  const defaultEnv = env("APNS_ENV", "production");
+  const apnsEnv = args.apnsEnv ?? (defaultEnv as "production" | "sandbox");
+  const host = apnsEnv === "sandbox" ? "api.sandbox.push.apple.com" : "api.push.apple.com";
+  const url = `https://${host}/3/device/${args.pushToken}`;
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const aps: Record<string, unknown> = {
+    alert: { title: args.title, body: args.body },
+  };
+  // Explicit null → deliberately silent; undefined → default chime.
+  if (args.sound !== null) aps.sound = args.sound ?? "default";
+  if (args.badge !== undefined) aps.badge = args.badge;
+  if (args.threadId) aps["thread-id"] = args.threadId;
+  const body = { aps, ...(args.data ?? {}) };
+
+  const headers: Record<string, string> = {
+    "authorization": `bearer ${await getBearer()}`,
+    "apns-topic": bundleId,
+    "apns-push-type": "alert",
+    "apns-priority": "10",
+    "apns-expiration": String(nowSec + (args.expirationSeconds ?? 86400)),
+    "content-type": "application/json",
+  };
+  if (args.collapseId) headers["apns-collapse-id"] = args.collapseId.slice(0, 64);
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  const text = await resp.text();
+  return {
+    ok: resp.ok,
+    status: resp.status,
+    apnsId: resp.headers.get("apns-id"),
+    body: text,
+  };
+}
+
 export type SendBackgroundPushArgs = {
   pushToken: string;
   // Custom data merged at the top level of the payload (read from `userInfo`

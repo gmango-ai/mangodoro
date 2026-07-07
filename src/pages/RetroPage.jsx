@@ -28,6 +28,7 @@ import {
   setRetroLive,
 } from "../lib/retro";
 import { getShareableBaseUrl } from "../lib/platform";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { supabase } from "../supabase";
 
 const LANE_ICON = {
@@ -91,7 +92,7 @@ export default function RetroPage() {
 
 
   // Invite copy feedback.
-  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteCopied, copyInvite] = useCopyToClipboard(2000);
 
   // Stash latest switchTeam + teams in refs so the load effect can use
   // them without depending on them. Previously the effect re-ran every
@@ -271,9 +272,7 @@ export default function RetroPage() {
   async function copyInviteLink() {
     if (!retro?.invite_code) return;
     const url = `${getShareableBaseUrl()}/retros/join/${retro.invite_code}`;
-    try { await navigator.clipboard.writeText(url); } catch { /* ignore */ }
-    setInviteCopied(true);
-    setTimeout(() => setInviteCopied(false), 2000);
+    await copyInvite(url);
   }
 
   const cardCls = `rounded-2xl border p-4 ${

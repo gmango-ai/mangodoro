@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Target, ChevronDown, ChevronRight, CalendarClock } from "lucide-react";
 import MarkdownText from "./MarkdownText";
@@ -18,30 +18,35 @@ function loadCollapsed() {
   try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "[]")); } catch { return new Set(); }
 }
 
+const tierRank = { company: 0, department: 1, user: 2 };
+const tierLabel = { company: "Company", department: "Teams", user: "Personal" };
+
 export default function GoalsList({ goals, retros, dark, compact = false }) {
   const allItems = goals ?? retros ?? [];
   const [collapsed, setCollapsed] = useState(loadCollapsed);
-  if (!allItems.length) return null;
-  const barBg = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
 
   // "This week" goals get their own dedicated section at the top (rolls over
   // automatically — see useWeekGoals); everything else groups by owner below.
-  const weekItems = allItems.filter((g) => g.week === "this");
-  const items = allItems.filter((g) => g.week !== "this");
-
   // Group by a STABLE owner key (tier:ownerId), not the display name — two
   // owners can share a name. Preserve first-seen order; capture color + tier.
-  const groups = [];
-  const byKey = new Map();
-  for (const g of items) {
-    const tier = g.tier || "user";
-    const gkey = `${tier}:${g.ownerId ?? g.label ?? "?"}`;
-    if (!byKey.has(gkey)) { const grp = { gkey, label: g.label || "Goals", color: g.color || null, tier, items: [] }; byKey.set(gkey, grp); groups.push(grp); }
-    byKey.get(gkey).items.push(g);
-  }
-  const tierRank = { company: 0, department: 1, user: 2 };
-  const tierLabel = { company: "Company", department: "Teams", user: "Personal" };
-  groups.sort((a, b) => (tierRank[a.tier] ?? 3) - (tierRank[b.tier] ?? 3));
+  const { weekItems, groups } = useMemo(() => {
+    const all = goals ?? retros ?? [];
+    const weekItems = all.filter((g) => g.week === "this");
+    const items = all.filter((g) => g.week !== "this");
+    const groups = [];
+    const byKey = new Map();
+    for (const g of items) {
+      const tier = g.tier || "user";
+      const gkey = `${tier}:${g.ownerId ?? g.label ?? "?"}`;
+      if (!byKey.has(gkey)) { const grp = { gkey, label: g.label || "Goals", color: g.color || null, tier, items: [] }; byKey.set(gkey, grp); groups.push(grp); }
+      byKey.get(gkey).items.push(g);
+    }
+    groups.sort((a, b) => (tierRank[a.tier] ?? 3) - (tierRank[b.tier] ?? 3));
+    return { weekItems, groups };
+  }, [goals, retros]);
+
+  if (!allItems.length) return null;
+  const barBg = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
 
   const toggle = (label) => {
     setCollapsed((prev) => {

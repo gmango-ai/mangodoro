@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { X, Play, LogIn, Eye, Users, Briefcase, MessageSquare, Lock, Hash, MessagesSquare } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import RoomChatPanel from "./RoomChatPanel";
+import Modal from "./Modal";
 
 const KIND_ICON = {
   department: Briefcase,
@@ -43,10 +44,7 @@ export default function RoomActionPopover({
     .filter(Boolean);
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4"
-      onClick={onClose}
-    >
+    <Modal onClose={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className={`relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
@@ -219,6 +217,6 @@ export default function RoomActionPopover({
           </>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

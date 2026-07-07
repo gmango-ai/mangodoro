@@ -35,6 +35,7 @@ function formatTime(iso) {
 function MessageRow({
   message, compact, dark, isOwn, isEditing, renderBody, openProfile, readOnly,
   editDraft, onEditDraftChange, onStartEdit, onCancelEdit, onSaveEdit, onDelete,
+  selected, onToggleSelected,
 }) {
   const editAreaRef = useRef(null);
 
@@ -58,7 +59,10 @@ function MessageRow({
   };
 
   return (
-    <div className={`group relative flex gap-2 ${compact ? "" : "mt-3"}`}>
+    <div
+      onClick={onToggleSelected}
+      className={`group relative flex gap-2 ${compact ? "" : "mt-3"}`}
+    >
       <div className="w-7 shrink-0">
         {!compact && (
           <button type="button" className="rounded-full" onClick={(e) => openProfile?.(message.user_id, e.currentTarget.getBoundingClientRect())} title="View profile">
@@ -105,14 +109,14 @@ function MessageRow({
                 type="button"
                 onClick={onSaveEdit}
                 disabled={!editDraft.trim()}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--color-accent)] text-white disabled:opacity-40"
+                className="inline-flex items-center gap-1 px-2 py-0.5 min-h-[44px] sm:min-h-0 rounded bg-[var(--color-accent)] text-white disabled:opacity-40"
               >
                 <Check className="w-3 h-3" /> Save
               </button>
               <button
                 type="button"
                 onClick={onCancelEdit}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${
+                className={`inline-flex items-center gap-1 px-2 py-0.5 min-h-[44px] sm:min-h-0 rounded ${
                   dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
                 }`}
               >
@@ -134,7 +138,8 @@ function MessageRow({
           the bubble without reflowing the row. Hidden in read-only (kiosk). */}
       {isOwn && !isEditing && !readOnly && (
         <div
-          className={`absolute -top-2 right-1 hidden group-hover:flex items-center gap-0.5 rounded-md border shadow-sm ${
+          onClick={(e) => e.stopPropagation()}
+          className={`absolute -top-2 right-1 ${selected ? "flex" : "hidden"} sm:hidden sm:group-hover:flex items-center gap-0.5 rounded-md border shadow-sm ${
             dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
           }`}
         >
@@ -142,17 +147,17 @@ function MessageRow({
             type="button"
             onClick={onStartEdit}
             title="Edit"
-            className={`p-1 ${dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-700"}`}
+            className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 p-1 ${dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-700"}`}
           >
-            <Pencil className="w-3 h-3" />
+            <Pencil className="w-4 h-4 sm:w-3 sm:h-3" />
           </button>
           <button
             type="button"
             onClick={onDelete}
             title="Delete"
-            className={`p-1 ${dark ? "text-slate-400 hover:text-red-400" : "text-slate-500 hover:text-red-600"}`}
+            className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 p-1 ${dark ? "text-slate-400 hover:text-red-400" : "text-slate-500 hover:text-red-600"}`}
           >
-            <Trash2 className="w-3 h-3" />
+            <Trash2 className="w-4 h-4 sm:w-3 sm:h-3" />
           </button>
         </div>
       )}
@@ -220,8 +225,8 @@ export function ChatHeaderActions({ roomId }) {
   return (
     <>
       <button ref={btnRef} type="button" onClick={() => setOpen((o) => !o)} title="Channel settings" aria-label="Channel settings"
-        className={`p-1 rounded-md transition-colors ${dark ? "text-slate-400 hover:text-slate-100 hover:bg-white/10" : "text-slate-500 hover:text-slate-800 hover:bg-black/5"}`}>
-        <Settings2 className="w-3.5 h-3.5" />
+        className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 p-1 rounded-md transition-colors ${dark ? "text-slate-400 hover:text-slate-100 hover:bg-white/10" : "text-slate-500 hover:text-slate-800 hover:bg-black/5"}`}>
+        <Settings2 className="w-5 h-5 sm:w-3.5 sm:h-3.5" />
       </button>
       {open && pos && createPortal(
         <div className="fixed inset-0 z-[60]" onMouseDown={() => setOpen(false)}>
@@ -244,6 +249,7 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
+  const [selectedMsg, setSelectedMsg] = useState(null);
   const scrollerRef = useRef(null);
 
   // @mentions: an autocomplete over teammates; selected user_ids accumulate in
@@ -479,6 +485,8 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
                 isOwn={m.user_id === userId}
                 readOnly={readOnly}
                 isEditing={editingId === m.id}
+                selected={selectedMsg === m.id}
+                onToggleSelected={() => setSelectedMsg((cur) => (cur === m.id ? null : m.id))}
                 editDraft={editDraft}
                 onEditDraftChange={setEditDraft}
                 onStartEdit={() => startEdit(m)}
@@ -513,7 +521,7 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
                 key={m.user_id}
                 type="button"
                 onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-sm ${i === (mention.index ?? 0) ? (dark ? "bg-white/10" : "bg-slate-100") : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}
+                className={`w-full flex items-center gap-2 px-2.5 py-1.5 min-h-[44px] sm:min-h-0 text-left text-sm ${i === (mention.index ?? 0) ? (dark ? "bg-white/10" : "bg-slate-100") : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}
               >
                 <UserAvatar url={m.avatar_url} name={m.name} size={20} />
                 <span className="truncate">{m.name || "Member"}</span>
@@ -539,9 +547,9 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
           onClick={handleSend}
           disabled={!draft.trim() || sending}
           aria-label="Send"
-          className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[var(--color-accent)] text-white disabled:opacity-40 disabled:cursor-not-allowed"
+          className="shrink-0 inline-flex items-center justify-center w-11 h-11 sm:w-9 sm:h-9 rounded-lg bg-[var(--color-accent)] text-white disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <Send className="w-4 h-4" />
+          <Send className="w-5 h-5 sm:w-4 sm:h-4" />
         </button>
       </div>
       )}

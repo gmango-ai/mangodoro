@@ -74,7 +74,7 @@ export default function SyncPanel({
             type="button"
             onClick={() => navigator.clipboard?.writeText(syncSession.join_code)}
             title="Copy code"
-            className={`p-1 rounded transition-colors ${
+            className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 p-1 rounded transition-colors ${
               dark ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-100"
             }`}
           >
@@ -87,7 +87,7 @@ export default function SyncPanel({
               navigator.clipboard?.writeText(url);
             }}
             title="Copy invite link"
-            className={`p-1 rounded transition-colors ${
+            className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 p-1 rounded transition-colors ${
               dark ? "text-slate-400 hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:text-[var(--color-accent)] hover:bg-slate-100"
             }`}
           >
@@ -99,7 +99,7 @@ export default function SyncPanel({
             type="button"
             onClick={leaveSession}
             title={isLeader ? "Leave — leadership transfers automatically" : "Leave session"}
-            className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
+            className={`inline-flex items-center text-[10px] font-semibold px-2 py-1 min-h-[44px] sm:min-h-0 rounded-md transition-colors ${
               dark ? "text-slate-400 hover:bg-[var(--color-surface-raised)]" : "text-slate-500 hover:bg-slate-100"
             }`}
           >
@@ -110,7 +110,7 @@ export default function SyncPanel({
               type="button"
               onClick={endSession}
               title="End session for everyone"
-              className={`text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${
+              className={`inline-flex items-center text-[10px] font-semibold px-2 py-1 min-h-[44px] sm:min-h-0 rounded-md transition-colors ${
                 dark ? "text-red-400 hover:bg-red-500/15" : "text-red-500 hover:bg-red-50"
               }`}
             >
@@ -129,7 +129,7 @@ export default function SyncPanel({
               const next = syncSession.visibility === "team" ? "invite_only" : "team";
               await setSyncVisibility(syncSession.id, next);
             }}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md font-semibold transition-colors ${
+            className={`flex items-center gap-1 px-2 py-1 min-h-[44px] sm:min-h-0 rounded-md font-semibold transition-colors ${
               syncSession.visibility === "team"
                 ? "bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
                 : dark ? "bg-[var(--color-surface-raised)] text-slate-400" : "bg-slate-100 text-slate-500"
@@ -173,7 +173,7 @@ export default function SyncPanel({
           type="button"
           onClick={() => { setTakeControlError(""); setPendingTakeControl(true); }}
           disabled={controlsLocked && !pendingTakeControl}
-          className="w-full text-[11px] font-semibold px-2 py-1.5 rounded-md transition-colors bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
+          className="w-full text-[11px] font-semibold px-2 py-3 sm:py-1.5 rounded-md transition-colors bg-[var(--color-accent-light)] text-[var(--color-accent)] hover:bg-[var(--color-accent-light-hover)]"
         >
           Take the lead
         </button>

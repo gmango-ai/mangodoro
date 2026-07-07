@@ -8,6 +8,7 @@ import { listActiveTeamSessions } from "../lib/syncSession";
 import { listRooms } from "../lib/rooms";
 import { listOrgTeams, listMyOrgTeams, listOrgTeamMembershipsForOrg } from "../lib/orgTeam";
 import { setMemberHR as setMemberHRRpc } from "../lib/hr";
+import { useVisibilityPausedInterval } from "../hooks/useVisibilityPausedInterval";
 import {
   listTeamSounds, addTeamSound as addTeamSoundRpc,
   renameTeamSound as renameTeamSoundRpc, removeTeamSound as removeTeamSoundRpc,
@@ -160,8 +161,8 @@ export function TeamProvider({ session, children }) {
   useEffect(() => { loadMembers(); }, [loadMembers]);
 
   // Realtime: refresh the member list whenever someone joins or leaves
-  // the active team. Also refresh on user_settings updates so name /
-  // avatar / status changes propagate without a reload.
+  // the active team. user_settings updates (name / avatar / status) are
+  // patched in place from the payload instead.
   // Guard against the team switching after the channel was subscribed:
   // a late event firing from the old channel would otherwise call into
   // the (newly-rebuilt) loadMembers with the *new* team, applying the
@@ -181,11 +182,33 @@ export function TeamProvider({ session, children }) {
         },
       )
       .on(
+        // Unfiltered — user_settings has no team key to filter on. Patch
+        // the one changed member in place rather than re-running the full
+        // get_team_member_profiles RPC on every org-wide settings update
+        // (presence flips, clock ticks — many per minute on a busy team).
+        // Membership add/remove is covered by the filtered team_members
+        // listener above. Defaults mirror the RPC's coalesces.
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "user_settings" },
-        () => {
+        (payload) => {
           if (activeTeamIdRef.current !== teamIdAtSub) return;
-          loadMembers();
+          const row = payload.new;
+          if (!row?.user_id) return;
+          setTeamMembers((prev) => {
+            const i = prev.findIndex((m) => m.user_id === row.user_id);
+            if (i === -1) return prev; // not in this team — ignore
+            const next = [...prev];
+            next[i] = {
+              ...next[i],
+              name: row.name || "Team member",
+              avatar_url: row.avatar_url || "",
+              status: row.status || "",
+              presence_state: row.presence_state || "active",
+              status_updated_at: row.status_updated_at ?? null,
+              sticky_color: row.sticky_color || "#fde68a",
+            };
+            return next;
+          });
         },
       )
       .subscribe();
@@ -250,26 +273,27 @@ export function TeamProvider({ session, children }) {
     return () => { supabase.removeChannel(channel); };
   }, [activeTeamId, loadTeamSoundsForActive]);
 
-  async function addTeamSound(file, name) {
-    if (!activeTeamId || !userId) return { error: { message: "Not signed in" } };
-    const res = await addTeamSoundRpc({ teamId: activeTeamId, file, userId, name });
+  const addTeamSound = useCallback(async (file, name) => {
+    const teamId = activeTeamIdRef.current;
+    if (!teamId || !userId) return { error: { message: "Not signed in" } };
+    const res = await addTeamSoundRpc({ teamId, file, userId, name });
     if (!res.error && res.data) setTeamSounds((prev) => [...prev, res.data]);
     return res;
-  }
+  }, [userId]);
 
-  async function renameTeamSound(soundId, name) {
+  const renameTeamSound = useCallback(async (soundId, name) => {
     const res = await renameTeamSoundRpc(soundId, name);
     if (!res.error && res.data) {
       setTeamSounds((prev) => prev.map((s) => s.id === res.data.id ? res.data : s));
     }
     return res;
-  }
+  }, []);
 
-  async function removeTeamSound(sound) {
+  const removeTeamSound = useCallback(async (sound) => {
     const res = await removeTeamSoundRpc(sound);
     if (!res.error) setTeamSounds((prev) => prev.filter((s) => s.id !== sound.id));
     return res;
-  }
+  }, []);
 
   // Permission helpers — the page UI consults these rather than checking
   // role + flag inline at every render. RLS still enforces; this is for UX.
@@ -279,11 +303,11 @@ export function TeamProvider({ session, children }) {
   const isAdminForFlag = activeTeamForFlag?.role === "admin";
   const teamSoundsAdminOnly = activeTeamForFlag?.sounds_admin_only !== false; // default true
   const canUploadTeamSound = !!activeTeamForFlag && (isAdminForFlag || !teamSoundsAdminOnly);
-  function canManageTeamSound(sound) {
+  const canManageTeamSound = useCallback((sound) => {
     if (!sound) return false;
     if (isAdminForFlag) return true;
     return sound.created_by === userId;
-  }
+  }, [isAdminForFlag, userId]);
 
   // Realtime: refresh rooms when any change to this team's rooms lands.
   useEffect(() => {
@@ -327,34 +351,62 @@ export function TeamProvider({ session, children }) {
       setOrgTeamMemberCounts(new Map());
       return;
     }
-    const [{ data: list }, { data: mine }, { data: allMemberships }] = await Promise.all([
-      listOrgTeams(teamId),
-      userId ? listMyOrgTeams(teamId, userId) : Promise.resolve({ data: [] }),
-      listOrgTeamMembershipsForOrg(teamId),
+    // Per-slice error handling: one failed fetch must not reject the whole
+    // Promise.all (or clear the other slices) and leave the org UI stuck.
+    // A slice that errors keeps its previous state; the rest still apply.
+    const settle = (p, label) => p.then(
+      (res) => {
+        if (res?.error) console.warn(`loadOrgTeamsForActive ${label}:`, res.error.message);
+        return res;
+      },
+      (e) => {
+        console.warn(`loadOrgTeamsForActive ${label}:`, e?.message || e);
+        return { data: null, error: e };
+      },
+    );
+    const [listRes, mineRes, membershipsRes] = await Promise.all([
+      settle(listOrgTeams(teamId), "teams"),
+      userId ? settle(listMyOrgTeams(teamId, userId), "mine") : Promise.resolve({ data: [] }),
+      settle(listOrgTeamMembershipsForOrg(teamId), "memberships"),
     ]);
     // Bail if the user switched orgs while these were in flight — applying
     // them now would bleed the previous org's teams into the new one.
     if (activeTeamIdRef.current !== teamId) return;
-    setOrgTeams(list || []);
-    setMyOrgTeamIds(new Set((mine || []).map((r) => r.org_team_id)));
-    setMyOrgTeamLeadIds(new Set((mine || []).filter((r) => r.role === "lead").map((r) => r.org_team_id)));
+    const list = listRes.error ? null : (listRes.data || []);
+    const mine = mineRes.error ? null : (mineRes.data || []);
+    const allMemberships = membershipsRes.error ? null : (membershipsRes.data || []);
+    if (list) setOrgTeams(list);
+    if (mine) {
+      setMyOrgTeamIds(new Set(mine.map((r) => r.org_team_id)));
+      setMyOrgTeamLeadIds(new Set(mine.filter((r) => r.role === "lead").map((r) => r.org_team_id)));
+    }
 
     // Build the userId → teams map from a single allMemberships query
-    // joined against the team list we just fetched.
-    const teamById = new Map((list || []).map((t) => [t.id, t]));
-    const next = new Map();
-    const counts = new Map();
-    for (const m of allMemberships || []) {
-      const team = teamById.get(m.org_team_id);
-      if (!team) continue; // team archived; skip
-      const arr = next.get(m.user_id) || [];
-      arr.push({ id: team.id, name: team.name, color: team.color, role: m.role });
-      next.set(m.user_id, arr);
-      counts.set(team.id, (counts.get(team.id) || 0) + 1);
+    // joined against the team list we just fetched. Needs both slices.
+    if (list && allMemberships) {
+      const teamById = new Map(list.map((t) => [t.id, t]));
+      const next = new Map();
+      const counts = new Map();
+      for (const m of allMemberships) {
+        const team = teamById.get(m.org_team_id);
+        if (!team) continue; // team archived; skip
+        const arr = next.get(m.user_id) || [];
+        arr.push({ id: team.id, name: team.name, color: team.color, role: m.role });
+        next.set(m.user_id, arr);
+        counts.set(team.id, (counts.get(team.id) || 0) + 1);
+      }
+      setTeamsByUserId(next);
+      setOrgTeamMemberCounts(counts);
     }
-    setTeamsByUserId(next);
-    setOrgTeamMemberCounts(counts);
   }, [activeTeamId, userId]);
+
+  useEffect(() => {
+    setOrgTeams([]);
+    setMyOrgTeamIds(new Set());
+    setMyOrgTeamLeadIds(new Set());
+    setTeamsByUserId(new Map());
+    setOrgTeamMemberCounts(new Map());
+  }, [activeTeamId]);
 
   useEffect(() => { loadOrgTeamsForActive(); }, [loadOrgTeamsForActive]);
 
@@ -387,15 +439,20 @@ export function TeamProvider({ session, children }) {
   // Realtime: refresh when team sessions change.
   useEffect(() => {
     if (!activeTeamId) return;
+    const teamIdAtSub = activeTeamId;
 
     // Participant rows now also change on every heartbeat (~20s per
-    // connected user, org-wide on this unfiltered subscription), so
-    // coalesce that handler into a short trailing debounce — a burst of
-    // heartbeats collapses into one reload. Session start/stop/end
-    // (sync_sessions, team-filtered, low volume) stays immediate so
-    // join/leave still feels snappy.
+    // connected user, org-wide on this unfiltered subscription — the
+    // table has no team key to filter on server-side), so coalesce that
+    // handler into a short trailing debounce — a burst of heartbeats
+    // collapses into one reload — and skip it while the tab is hidden
+    // (the visibility-paused poll below catches up on return). Session
+    // start/stop/end (sync_sessions, team-filtered, low volume) stays
+    // immediate so join/leave still feels snappy.
     let partDebounce = null;
     const reloadOnParticipantChange = () => {
+      if (activeTeamIdRef.current !== teamIdAtSub) return;
+      if (document.hidden) return;
       if (partDebounce) clearTimeout(partDebounce);
       partDebounce = setTimeout(loadActiveTeamSessions, 1500);
     };
@@ -405,7 +462,10 @@ export function TeamProvider({ session, children }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "sync_sessions", filter: `team_id=eq.${activeTeamId}` },
-        loadActiveTeamSessions,
+        () => {
+          if (activeTeamIdRef.current !== teamIdAtSub) return;
+          loadActiveTeamSessions();
+        },
       )
       .on(
         "postgres_changes",
@@ -413,18 +473,19 @@ export function TeamProvider({ session, children }) {
         reloadOnParticipantChange,
       )
       .subscribe();
-    // Lightweight polling fallback every 30s; also re-evaluates read-time
-    // liveness so an abandoned room drops off the hallway on its own.
-    const pollId = setInterval(loadActiveTeamSessions, 30000);
     return () => {
-      clearInterval(pollId);
       if (partDebounce) clearTimeout(partDebounce);
       supabase.removeChannel(channel);
     };
   }, [activeTeamId, loadActiveTeamSessions]);
 
+  // Lightweight polling fallback every 30s; also re-evaluates read-time
+  // liveness so an abandoned room drops off the hallway on its own.
+  // Pauses while the tab is hidden, firing once on return to visible.
+  useVisibilityPausedInterval(loadActiveTeamSessions, 30000, { enabled: !!activeTeamId });
+
   // ── Team CRUD ──────────────────────────────────────────────
-  async function createTeam(name) {
+  const createTeam = useCallback(async (name) => {
     const { data, error } = await supabase
       .from("teams")
       .insert({ name, created_by: userId })
@@ -441,9 +502,9 @@ export function TeamProvider({ session, children }) {
     setActiveTeamId(data.id);
     localStorage.setItem("ql_active_team", data.id);
     return { data };
-  }
+  }, [userId, loadTeams]);
 
-  async function joinTeam(inviteCode) {
+  const joinTeam = useCallback(async (inviteCode) => {
     const { data, error } = await supabase.rpc("join_team_by_code", {
       code: inviteCode.trim().toLowerCase(),
     });
@@ -454,23 +515,23 @@ export function TeamProvider({ session, children }) {
       localStorage.setItem("ql_active_team", data);
     }
     return { data };
-  }
+  }, [loadTeams]);
 
-  async function leaveTeam(teamId) {
+  const leaveTeam = useCallback(async (teamId) => {
     await supabase
       .from("team_members")
       .delete()
       .eq("team_id", teamId)
       .eq("user_id", userId);
     await loadTeams();
-  }
+  }, [userId, loadTeams]);
 
-  function switchTeam(teamId) {
+  const switchTeam = useCallback((teamId) => {
     setActiveTeamId(teamId);
     localStorage.setItem("ql_active_team", teamId || "");
-  }
+  }, []);
 
-  function setDefaultTeam(teamId) {
+  const setDefaultTeam = useCallback((teamId) => {
     if (teamId) {
       localStorage.setItem("ql_default_team", teamId);
       setDefaultTeamIdState(teamId);
@@ -478,32 +539,32 @@ export function TeamProvider({ session, children }) {
       localStorage.removeItem("ql_default_team");
       setDefaultTeamIdState(null);
     }
-  }
+  }, []);
 
   // ── Admin functions ────────────────────────────────────────
-  async function removeMember(teamId, memberId) {
+  const removeMember = useCallback(async (teamId, memberId) => {
     await supabase
       .from("team_members")
       .delete()
       .eq("team_id", teamId)
       .eq("user_id", memberId);
     await loadMembers();
-  }
+  }, [loadMembers]);
 
-  async function changeMemberRole(teamId, memberId, newRole) {
+  const changeMemberRole = useCallback(async (teamId, memberId, newRole) => {
     await supabase
       .from("team_members")
       .update({ role: newRole })
       .eq("team_id", teamId)
       .eq("user_id", memberId);
     await loadMembers();
-  }
+  }, [loadMembers]);
 
   // ── Ownership (owner-only) ────────────────────────────────────
   // grant_team_owner promotes a member to co-owner; revoke_team_owner
   // demotes back to admin (last-owner guard server-side);
   // transfer_team_ownership swaps in one atomic step.
-  async function grantTeamOwner(teamId, memberId) {
+  const grantTeamOwner = useCallback(async (teamId, memberId) => {
     const { error } = await supabase.rpc("grant_team_owner", {
       p_team_id: teamId,
       p_user_id: memberId,
@@ -513,8 +574,8 @@ export function TeamProvider({ session, children }) {
       await loadTeams();
     }
     return { error };
-  }
-  async function revokeTeamOwner(teamId, memberId) {
+  }, [loadMembers, loadTeams]);
+  const revokeTeamOwner = useCallback(async (teamId, memberId) => {
     const { error } = await supabase.rpc("revoke_team_owner", {
       p_team_id: teamId,
       p_user_id: memberId,
@@ -524,8 +585,8 @@ export function TeamProvider({ session, children }) {
       await loadTeams();
     }
     return { error };
-  }
-  async function transferTeamOwnership(teamId, newOwnerId) {
+  }, [loadMembers, loadTeams]);
+  const transferTeamOwnership = useCallback(async (teamId, newOwnerId) => {
     const { error } = await supabase.rpc("transfer_team_ownership", {
       p_team_id: teamId,
       p_new_owner_id: newOwnerId,
@@ -535,17 +596,17 @@ export function TeamProvider({ session, children }) {
       await loadTeams();
     }
     return { error };
-  }
+  }, [loadMembers, loadTeams]);
 
   // Admin: update a member's HR fields (salary vs hourly, rate, target).
-  async function updateMemberHR(teamId, memberId, patch) {
+  const updateMemberHR = useCallback(async (teamId, memberId, patch) => {
     const { error } = await setMemberHRRpc(teamId, memberId, patch);
     if (!error) await loadMembers();
     return { error };
-  }
+  }, [loadMembers]);
 
   // Patch team metadata (name, icon_url, color, office_vibe). Admin-only by RLS.
-  async function updateTeam(teamId, patch) {
+  const updateTeam = useCallback(async (teamId, patch) => {
     const allowed = {};
     if (patch.name !== undefined) allowed.name = patch.name;
     if (patch.icon_url !== undefined) allowed.icon_url = patch.icon_url;
@@ -562,9 +623,9 @@ export function TeamProvider({ session, children }) {
       .single();
     if (!error) await loadTeams();
     return { data, error };
-  }
+  }, [loadTeams]);
 
-  async function regenerateInviteCode(teamId) {
+  const regenerateInviteCode = useCallback(async (teamId) => {
     const newCode = [...crypto.getRandomValues(new Uint8Array(6))]
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
@@ -574,13 +635,13 @@ export function TeamProvider({ session, children }) {
       .eq("id", teamId);
     if (!error) await loadTeams();
     return { error };
-  }
+  }, [loadTeams]);
 
-  async function deleteTeam(teamId) {
+  const deleteTeam = useCallback(async (teamId) => {
     const { error } = await supabase.from("teams").delete().eq("id", teamId);
     if (!error) await loadTeams();
     return { error };
-  }
+  }, [loadTeams]);
 
   // ── Timesheet fetching ─────────────────────────────────────
   // useCallback (stable identity): the admin timesheet page lists this in a
@@ -646,7 +707,7 @@ export function TeamProvider({ session, children }) {
   }, []);
 
   // ── Team export: CSV ───────────────────────────────────────
-  async function exportTeamCSV(teamId, monthStr) {
+  const exportTeamCSV = useCallback(async (teamId, monthStr) => {
     const memberData = await fetchMemberEntries(teamId, monthStr);
     const team = teams.find((t) => t.id === teamId);
     const csv = (val) => { const s = String(val ?? ""); return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -676,10 +737,10 @@ export function TeamProvider({ session, children }) {
       new Blob([rows.join("\n")], { type: "text/csv" }),
       `${(team?.name || "team").toLowerCase().replace(/\s+/g, "_")}_${monthStr}.csv`,
     );
-  }
+  }, [fetchMemberEntries, teams]);
 
   // ── Team export: XLSX (multi-sheet) ────────────────────────
-  async function exportTeamXLSX(teamId, monthStr) {
+  const exportTeamXLSX = useCallback(async (teamId, monthStr) => {
     const memberData = await fetchMemberEntries(teamId, monthStr);
     const team = teams.find((t) => t.id === teamId);
     const { default: ExcelJS } = await import("exceljs");
@@ -788,7 +849,7 @@ export function TeamProvider({ session, children }) {
       new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
       `${(team?.name || "team").toLowerCase().replace(/\s+/g, "_")}_${monthStr}.xlsx`,
     );
-  }
+  }, [fetchMemberEntries, teams]);
 
   // ── Active team helpers ────────────────────────────────────
   const activeTeam = teams.find((t) => t.id === activeTeamId) || null;
@@ -843,23 +904,40 @@ export function TeamProvider({ session, children }) {
     return s;
   }, [rooms, myOrgTeamIds]);
 
+  // Stable value identity: consumers of useTeam() only re-render when
+  // something they read actually changed, not on every provider render.
+  // Every referenced binding is either state, a memo, or a useCallback —
+  // all listed in the deps below.
+  const value = useMemo(() => ({
+    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, isOwner,
+    defaultTeamId, setDefaultTeam,
+    loadTeams, loadMembers, switchTeam,
+    createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
+    removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
+    grantTeamOwner, revokeTeamOwner, transferTeamOwnership,
+    fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
+    activeTeamSessions, loadActiveTeamSessions,
+    rooms, visibleRooms, lockedRooms, restrictedRoomIds, loadRoomsForActiveTeam,
+    teamSounds, loadTeamSoundsForActive, addTeamSound, renameTeamSound, removeTeamSound,
+    teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
+    orgTeams, myOrgTeamIds, myOrgTeamLeadIds, teamsByUserId, orgTeamMemberCounts, loadOrgTeamsForActive,
+  }), [
+    teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, isOwner,
+    defaultTeamId, setDefaultTeam,
+    loadTeams, loadMembers, switchTeam,
+    createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
+    removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
+    grantTeamOwner, revokeTeamOwner, transferTeamOwnership,
+    fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
+    activeTeamSessions, loadActiveTeamSessions,
+    rooms, visibleRooms, lockedRooms, restrictedRoomIds, loadRoomsForActiveTeam,
+    teamSounds, loadTeamSoundsForActive, addTeamSound, renameTeamSound, removeTeamSound,
+    teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
+    orgTeams, myOrgTeamIds, myOrgTeamLeadIds, teamsByUserId, orgTeamMemberCounts, loadOrgTeamsForActive,
+  ]);
+
   return (
-    <TeamContext.Provider
-      value={{
-        teams, activeTeam, activeTeamId, teamMembers, teamLoading, isAdmin, isOwner,
-        defaultTeamId, setDefaultTeam,
-        loadTeams, loadMembers, switchTeam,
-        createTeam, joinTeam, leaveTeam, deleteTeam, updateTeam,
-        removeMember, changeMemberRole, regenerateInviteCode, updateMemberHR,
-        grantTeamOwner, revokeTeamOwner, transferTeamOwnership,
-        fetchMemberEntries, exportTeamCSV, exportTeamXLSX,
-        activeTeamSessions, loadActiveTeamSessions,
-        rooms, visibleRooms, lockedRooms, restrictedRoomIds, loadRoomsForActiveTeam,
-        teamSounds, loadTeamSoundsForActive, addTeamSound, renameTeamSound, removeTeamSound,
-        teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
-        orgTeams, myOrgTeamIds, myOrgTeamLeadIds, teamsByUserId, orgTeamMemberCounts, loadOrgTeamsForActive,
-      }}
-    >
+    <TeamContext.Provider value={value}>
       {children}
     </TeamContext.Provider>
   );

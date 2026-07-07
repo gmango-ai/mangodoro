@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
 import UserAvatar from "./UserAvatar";
@@ -88,11 +89,14 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
   const tintStyle = { background: `color-mix(in srgb, ${accent} 10%, var(--color-surface))` };
 
   // Sort occupants so the leader shows first in the stack.
-  const occupants = (activeSession?.occupants || []).slice().sort((a, b) => {
-    const al = a.user_id === activeSession?.leader_id ? -1 : 0;
-    const bl = b.user_id === activeSession?.leader_id ? -1 : 0;
-    return al - bl;
-  });
+  const occupants = useMemo(() => {
+    const leaderId = activeSession?.leader_id;
+    return (activeSession?.occupants || []).slice().sort((a, b) => {
+      const al = a.user_id === leaderId ? -1 : 0;
+      const bl = b.user_id === leaderId ? -1 : 0;
+      return al - bl;
+    });
+  }, [activeSession?.occupants, activeSession?.leader_id]);
 
   // Private rooms get a DYNAMIC lock: open (unlocked) while empty, locked once
   // someone is inside. Other kinds keep their static kind icon.

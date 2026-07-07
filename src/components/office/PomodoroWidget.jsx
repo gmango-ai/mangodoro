@@ -2,6 +2,7 @@ import { Clock, Play, Pause, RotateCcw, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { openPomodoroSurface } from "../../lib/pomodoroSurface";
+import { formatClock } from "../../lib/utils";
 import WidgetSection from "./WidgetSection";
 
 // Compact pomodoro controls for the WidgetsSidebar.
@@ -21,8 +22,7 @@ export default function PomodoroWidget({ dark }) {
   } = usePomodoro();
 
   const onBreak = mode !== "work";
-  const mins = String(Math.floor(Math.max(0, secondsLeft) / 60)).padStart(2, "0");
-  const secs = String(Math.max(0, secondsLeft) % 60).padStart(2, "0");
+  const clock = formatClock(secondsLeft, { padMinutes: true });
   const modeLabel = mode === "work"
     ? "Work"
     : mode === "longBreak" ? "Long break" : "Short break";
@@ -33,11 +33,11 @@ export default function PomodoroWidget({ dark }) {
       onClick={openPomodoroSurface}
       aria-label="Open full pomodoro"
       title="Open full pomodoro"
-      className={`p-0.5 rounded-md transition-colors ${
+      className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 p-0.5 rounded-md transition-colors ${
         dark ? "hover:bg-[var(--color-surface)] hover:text-slate-200" : "hover:bg-white hover:text-slate-700"
       }`}
     >
-      <Maximize2 className="w-3 h-3" />
+      <Maximize2 className="w-5 h-5 sm:w-3 sm:h-3" />
     </button>
   );
 
@@ -54,7 +54,7 @@ export default function PomodoroWidget({ dark }) {
             className="text-3xl font-display font-bold tabular-nums tracking-tight"
             style={{ color: onBreak ? "var(--color-break)" : "var(--color-accent)" }}
           >
-            {mins}:{secs}
+            {clock}
           </div>
           <div className="flex items-center justify-between mt-0.5">
             <span className={`text-[10px] uppercase tracking-wider font-bold ${
@@ -74,7 +74,7 @@ export default function PomodoroWidget({ dark }) {
               onClick={toggleRun}
               size="sm"
               variant={isRunning ? "outline" : "default"}
-              className="flex-1"
+              className="flex-1 h-11 sm:h-8"
             >
               {isRunning ? (
                 <><Pause className="w-3.5 h-3.5 mr-1.5" /> Pause</>
@@ -88,6 +88,7 @@ export default function PomodoroWidget({ dark }) {
               variant="outline"
               title="Reset timer"
               aria-label="Reset timer"
+              className="h-11 w-11 sm:h-8 sm:w-auto"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </Button>

@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { useApp } from "./AppContext";
 import { useTeamOptional } from "./TeamContext";
 import { listConversations, getOrCreateDm, createGroupConversation, createOrgTeamChannel, markConversationRead, listJoinableChannels, joinChannel, deleteConversation as apiDeleteConversation, hideConversation as apiHideConversation, listChannelFolders, createChannelFolder, renameChannelFolder, deleteChannelFolder, reorderChannelFolders, setChannelFolder, placeChannel, setChannelMeta } from "../lib/messages";
+import { randomId } from "../lib/utils";
 
 // Direct / group / channel messaging — in-app layer. One realtime channel on
 // dm_messages (RLS scopes delivery to my conversations + my channels) drives
@@ -84,7 +85,10 @@ export function MessagesProvider({ children }) {
     if (!userId) { setConversations([]); return undefined; }
     reload();
     const channel = supabase
-      .channel(`dm:${userId}:${Math.random().toString(36).slice(2)}`)
+      // Per-mount unique suffix: StrictMode remounts subscribe again while the
+      // old channel (same topic) is still tearing down. Cleanup below removes
+      // the channel, so names never accumulate.
+      .channel(`dm:${userId}:${randomId(6)}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "dm_messages" }, (payload) => {
         for (const fn of msgListeners.current) { try { fn(payload.new); } catch { /* */ } }
         if (reloadTimer.current) clearTimeout(reloadTimer.current);
@@ -194,12 +198,18 @@ export function MessagesProvider({ children }) {
     return () => reactionListeners.current.delete(fn);
   }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     conversations, activeConversations, unread, unreadByOrg, reload,
     startDm, createGroup, createChannel, browseChannels, joinOpenChannel,
     deleteConversation, hideConversation,
     folders, isTeamAdmin, createFolder, renameFolder, deleteFolder, reorderFolders, assignFolder, placeChannelAt,
     markRead, subscribeMessages, subscribeReactions,
-  };
+  }), [
+    conversations, activeConversations, unread, unreadByOrg, reload,
+    startDm, createGroup, createChannel, browseChannels, joinOpenChannel,
+    deleteConversation, hideConversation,
+    folders, isTeamAdmin, createFolder, renameFolder, deleteFolder, reorderFolders, assignFolder, placeChannelAt,
+    markRead, subscribeMessages, subscribeReactions,
+  ]);
   return <MessagesContext.Provider value={value}>{children}</MessagesContext.Provider>;
 }

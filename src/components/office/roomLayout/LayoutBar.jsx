@@ -22,15 +22,25 @@ export default function LayoutBar({
   const pillCls = `inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
     dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
   }`;
-  const menuCls = `absolute right-0 top-9 z-40 w-52 p-1 rounded-xl border shadow-lg ${
+  // The Add button stays on mobile (bigger touch target), while the quick
+  // toggles + arrange collapse away.
+  const addBtnCls = `inline-flex items-center justify-center gap-1.5 px-3 sm:px-2.5 h-10 sm:h-7 rounded-full text-[13px] sm:text-[11px] font-semibold transition-colors ${
+    dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
+  }`;
+  const menuCls = `absolute right-0 top-11 sm:top-9 z-40 w-64 sm:w-52 p-1.5 sm:p-1 rounded-xl border shadow-lg ${
     dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
   }`;
-  const itemCls = `w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-medium inline-flex items-center gap-2 transition-colors ${
-    dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+  // Roomier rows on touch (44px targets) than on desktop.
+  const itemCls = `w-full text-left px-3 sm:px-2.5 py-2.5 sm:py-1.5 rounded-lg text-[14px] sm:text-[12px] font-medium inline-flex items-center gap-2.5 sm:gap-2 transition-colors ${
+    dark ? "text-slate-300 hover:bg-white/10 active:bg-white/10" : "text-slate-600 hover:bg-slate-100 active:bg-slate-100"
   }`;
+  const itemIconCls = "w-5 h-5 sm:w-3.5 sm:h-3.5 shrink-0";
 
   return (
     <div className="flex items-center gap-1.5">
+      {/* Quick panel toggles are desktop-only (hidden on mobile);
+          the mobile room header keeps just the Add button unless arranging. */}
+      <div className="hidden sm:flex items-center gap-1.5">
       {/* Quick view buttons — pinned panels, one click to drop one in or pull
           it back out, no Arrange mode needed. Filled = shown. */}
       {(panels || []).map(({ id, title, Icon }) => {
@@ -92,19 +102,19 @@ export default function LayoutBar({
       {(panels || []).length > 0 && (
         <span className={`w-px h-4 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
       )}
-
+      </div>
       <button
         type="button"
         onClick={onToggleArrange}
         title={arranging ? "Done arranging" : "Rearrange panels"}
         aria-pressed={arranging}
-        className={`inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
+        className={`${arranging ? "inline-flex" : "hidden sm:inline-flex"} items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
           arranging ? "text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
         }`}
         style={arranging ? { background: accent } : {}}
       >
         <Move className="w-3.5 h-3.5" />
-        <span className="hidden lg:inline">{arranging ? "Done" : "Arrange"}</span>
+        <span className={arranging ? "inline" : "hidden lg:inline"}>{arranging ? "Done" : "Arrange"}</span>
       </button>
 
       <div className="relative">
@@ -115,9 +125,9 @@ export default function LayoutBar({
             title="Add to the view"
             aria-haspopup="menu"
             aria-expanded={open}
-            className={pillCls}
+            className={addBtnCls}
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-5 h-5 sm:w-3.5 sm:h-3.5" />
             <span className="hidden lg:inline">Add</span>
           </button>
         ) : (
@@ -156,9 +166,9 @@ export default function LayoutBar({
                         onClick={() => onTogglePanel?.(id)}
                         className={itemCls}
                       >
-                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        <Icon className={itemIconCls} />
                         <span className="flex-1">{title}</span>
-                        {on && <Check className="w-3.5 h-3.5 text-[var(--color-accent)]" />}
+                        {on && <Check className="w-5 h-5 sm:w-3.5 sm:h-3.5 text-[var(--color-accent)]" />}
                       </button>
                     );
                   })}
@@ -169,9 +179,9 @@ export default function LayoutBar({
                       onClick={() => { onAddWeb(); setOpen(false); }}
                       className={itemCls}
                     >
-                      <Globe className="w-3.5 h-3.5 shrink-0" />
+                      <Globe className={itemIconCls} />
                       <span className="flex-1">Web view</span>
-                      <Plus className="w-3 h-3 opacity-60" />
+                      <Plus className="w-4 h-4 sm:w-3 sm:h-3 opacity-60" />
                     </button>
                   )}
                   <div className={`my-1 h-px ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
@@ -181,7 +191,7 @@ export default function LayoutBar({
                     onClick={() => { onReset?.(); setOpen(false); }}
                     className={itemCls}
                   >
-                    <RotateCcw className="w-3.5 h-3.5" /> Reset layout
+                    <RotateCcw className={itemIconCls} /> Reset layout
                   </button>
                 </>
               ) : (

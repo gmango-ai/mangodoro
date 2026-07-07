@@ -30,6 +30,13 @@ export function VideoCallProvider({ children }) {
   // without prop-drilling through VideoCall → LiveKitCall → the bar.
   const [poppedOut, setPoppedOut] = useState(false);
   const [canPopOut, setCanPopOut] = useState(false);
+  // Mobile "fullscreen": PersistentVideoCall re-parents the call host to a
+  // fixed inset-0 overlay. CSS-only, so it works where the Fullscreen API
+  // doesn't (iPhone WKWebView).
+  const [maximized, setMaximized] = useState(false);
+  // Drive mode stages the call video but supplies its OWN giant controls, so it
+  // asks the persistent call to render chromeless (no LiveKit control bar).
+  const [hideChrome, setHideChrome] = useState(false);
   const popoutApiRef = useRef({ open: null, close: null });
   const registerPopout = useCallback((api) => { popoutApiRef.current = api || { open: null, close: null }; }, []);
   const popOut = useCallback(() => { popoutApiRef.current.open?.(); }, []);
@@ -75,6 +82,8 @@ export function VideoCallProvider({ children }) {
     setCall(null);
     setStageElRaw(null);
     setPoppedOut(false);
+    setMaximized(false);
+    setHideChrome(false);
   }, []);
 
   // Patch the live call without re-creating it — used to flip a spectator
@@ -92,9 +101,10 @@ export function VideoCallProvider({ children }) {
     () => ({
       call, stageEl, startCall, endCall, updateCall, setStageEl,
       poppedOut, setPoppedOut, canPopOut, setCanPopOut, popOut, popIn, registerPopout,
+      maximized, setMaximized, hideChrome, setHideChrome,
     }),
     [call, stageEl, startCall, endCall, updateCall, setStageEl,
-      poppedOut, canPopOut, popOut, popIn, registerPopout],
+      poppedOut, canPopOut, popOut, popIn, registerPopout, maximized, hideChrome],
   );
 
   return (

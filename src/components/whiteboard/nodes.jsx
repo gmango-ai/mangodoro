@@ -1,4 +1,4 @@
-import { lazy, Suspense, memo, createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
+import { memo, createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
 import { nodeAbsPos, sortParentsFirst } from "./frame";
 import { Target, ChevronDown, Building2, User, Star, X, Plus, CalendarClock, Check } from "lucide-react";
@@ -8,6 +8,7 @@ import { useApp } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
 import { setGoal, clearGoalNode, GOAL_TIMEFRAMES, timeframeToParams } from "../../lib/goals";
 import { fontStack } from "../../lib/whiteboardFonts";
+import FullEmojiPicker from "../emotes/FullEmojiPicker";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -69,7 +70,6 @@ function taskListComponents(value, onChange) {
 
 // Full emoji picker for sticky reactions — lazy so its chunk only loads
 // when someone opens it.
-const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
 // Preferred sticky colour (per device) — new stickies (toolbar + frame
 // double-click) use it; changing a sticky's colour updates it.
@@ -355,11 +355,17 @@ export const QuickConnectContext = createContext(null);
 //              drag to choose the new shape.
 // They replace the tiny edge dots on shapes (same t/r/b/l ids, so all the
 // connection logic — onConnectStart/End, ghost, routing — is unchanged).
+// Coarse pointer (touch): fingers need a bigger target, and the arrows sit
+// farther out to clear the fingertip. Desktop keeps the compact 20px dots.
+const NODE_TOUCH =
+  typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+const ARROW_SZ = NODE_TOUCH ? 32 : 20;
+const ARROW_OFF = NODE_TOUCH ? -40 : -24;
 const QUICK_ARROWS = [
-  ["t", "▲", Position.Top, { top: -24, left: "50%", transform: "translateX(-50%)" }],
-  ["r", "▶", Position.Right, { right: -24, top: "50%", transform: "translateY(-50%)" }],
-  ["b", "▼", Position.Bottom, { bottom: -24, left: "50%", transform: "translateX(-50%)" }],
-  ["l", "◀", Position.Left, { left: -24, top: "50%", transform: "translateY(-50%)" }],
+  ["t", "▲", Position.Top, { top: ARROW_OFF, left: "50%", transform: "translateX(-50%)" }],
+  ["r", "▶", Position.Right, { right: ARROW_OFF, top: "50%", transform: "translateY(-50%)" }],
+  ["b", "▼", Position.Bottom, { bottom: ARROW_OFF, left: "50%", transform: "translateX(-50%)" }],
+  ["l", "◀", Position.Left, { left: ARROW_OFF, top: "50%", transform: "translateY(-50%)" }],
 ];
 function QuickConnectArrows({ id, color }) {
   const api = useContext(QuickConnectContext);
@@ -380,9 +386,9 @@ function QuickConnectArrows({ id, color }) {
           onMouseLeave={() => onHover?.(false)}
           onClick={(e) => { e.stopPropagation(); connect?.(id, side); }}
           style={{
-            width: 20, height: 20,
+            width: ARROW_SZ, height: ARROW_SZ,
             display: "flex", alignItems: "center", justifyContent: "center",
-            borderRadius: 9999, fontSize: 9, lineHeight: 1, color: "#fff",
+            borderRadius: 9999, fontSize: NODE_TOUCH ? 13 : 9, lineHeight: 1, color: "#fff",
             background: color, border: "1.5px solid #fff",
             boxShadow: "0 1px 3px rgba(0,0,0,.3)", cursor: "crosshair", zIndex: 8, ...pos,
           }}
@@ -390,7 +396,7 @@ function QuickConnectArrows({ id, color }) {
           {/* Pre-picked shape (via number keys) previews here; else a direction
               arrow. pointer-events off so the Handle beneath owns the gesture. */}
           {pickedShape ? (
-            <svg width={12} height={9} viewBox="0 0 12 9" style={{ display: "block", pointerEvents: "none" }}>
+            <svg width={NODE_TOUCH ? 18 : 12} height={NODE_TOUCH ? 14 : 9} viewBox="0 0 12 9" style={{ display: "block", pointerEvents: "none" }}>
               <ShapeSvg shape={pickedShape} w={12} h={9} fill="none" stroke="#fff" sw={1.2} />
             </svg>
           ) : (
@@ -407,7 +413,7 @@ function FourHandles() {
   // dots only appear/intercept on node hover or selection — the body stays
   // grabbable for moving. zIndex keeps them above the resizer edge lines.
   const base = {
-    width: 12, height: 12, background: "#0ea5e9",
+    width: NODE_TOUCH ? 20 : 12, height: NODE_TOUCH ? 20 : 12, background: "#0ea5e9",
     border: "2px solid #fff", borderRadius: 9999,
     zIndex: 12,
   };
@@ -513,20 +519,7 @@ function NodeReactions({ id, data, selected, style }) {
         <>
           <div className="nodrag" onPointerDown={(e) => { stop(e); setEmojiOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
           <div className="nodrag nowheel" onPointerDown={stop} style={{ zIndex: 60, borderRadius: 12, overflow: "hidden", boxShadow: "0 16px 36px -16px rgba(0,0,0,.5)" }}>
-            <Suspense fallback={null}>
-              <EmojiPicker
-                onEmojiClick={(d) => { react(d.emoji); setEmojiOpen(false); }}
-                theme={dark ? "dark" : "light"}
-                emojiStyle="native"
-                width={300}
-                height={360}
-                lazyLoadEmojis
-                autoFocusSearch={false}
-                skinTonesDisabled
-                previewConfig={{ showPreview: false }}
-                searchPlaceholder="Search emoji"
-              />
-            </Suspense>
+            <FullEmojiPicker dark={dark} height={360} onPick={(g) => { react(g); setEmojiOpen(false); }} />
           </div>
         </>
       )}

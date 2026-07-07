@@ -3,6 +3,8 @@ import { Tablet, Plus, Trash2, RefreshCw, Copy, Check, DoorOpen, Clock } from "l
 import { supabase } from "../supabase";
 import { useTheme } from "../context/ThemeContext";
 import { listOrgDevices, provisionDevice, reissueDeviceCode, revokeDevice, adminSetDeviceRoom, adminSetDeviceMovable, adminSetDeviceSchedule } from "../lib/orgDevices";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { formatAgo } from "../lib/utils";
 import ConfirmRow from "./ConfirmRow";
 
 const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -60,16 +62,6 @@ function ScheduleEditor({ device, dark, onSave, onCancel }) {
   );
 }
 
-function relTime(iso) {
-  if (!iso) return "never";
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const h = Math.round(mins / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
 function pinnedRoomOptionLabel(pinnedRooms, roomId) {
   const pinned = pinnedRooms.find((r) => r.id === roomId);
   return pinned ? `${pinned.name} (archived)` : "—";
@@ -77,16 +69,13 @@ function pinnedRoomOptionLabel(pinnedRooms, roomId) {
 
 // Pairing code shown once after create / re-issue. Big, copyable, with expiry.
 function PairingCard({ pairing, dark, onDone }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(pairing.code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* */ }
-  };
+  const [copied, copy] = useCopyToClipboard();
   return (
     <div className={`rounded-xl border p-4 text-center ${dark ? "border-[var(--color-accent-border)] bg-[var(--color-accent-light)]" : "border-[var(--color-accent-border)] bg-[var(--color-accent-light)]"}`}>
       <p className="text-xs text-[var(--color-muted)] mb-1">
         Pairing code{pairing.name ? ` for “${pairing.name}”` : ""} — enter it on the device at <span className="font-mono">/device</span>
       </p>
-      <button type="button" onClick={copy} title="Copy" className="inline-flex items-center gap-2 text-3xl font-bold tracking-[0.2em] text-[var(--color-accent)]">
+      <button type="button" onClick={() => copy(pairing.code)} title="Copy" className="inline-flex items-center gap-2 text-3xl font-bold tracking-[0.2em] text-[var(--color-accent)]">
         {pairing.code}
         {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4 opacity-60" />}
       </button>
@@ -293,7 +282,7 @@ export default function OrgDevicesPanel({ orgId }) {
                       >
                         <Clock className="w-3 h-3" /> {scheduleLabel(d)}
                       </button>
-                      <span className="text-[11px] text-[var(--color-muted)]">seen {relTime(d.last_seen_at)}</span>
+                      <span className="text-[11px] text-[var(--color-muted)]">seen {d.last_seen_at ? formatAgo(d.last_seen_at) : "never"}</span>
                     </div>
                   </div>
                   <button type="button" onClick={() => reissue(d.id, d.name)} title="New pairing code" className="p-1.5 rounded-md text-[var(--color-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-light)]">

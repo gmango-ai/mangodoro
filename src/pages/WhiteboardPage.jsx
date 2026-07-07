@@ -5,7 +5,6 @@ import {
   ReactFlow,
   ReactFlowProvider,
   Background,
-  Controls,
   Panel,
   MiniMap,
   useNodesState,
@@ -24,6 +23,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import {
   ArrowLeft,
+  Maximize,
   Target,
   Pencil,
   Archive,
@@ -129,6 +129,8 @@ import {
   BrushCursor,
 } from "../components/whiteboard/CollabCursors";
 import Inspector from "../components/whiteboard/Inspector";
+import { DropUpContext } from "../components/whiteboard/toolbarUI";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 import PaintLayer from "../components/whiteboard/PaintLayer";
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
@@ -179,6 +181,34 @@ const OPPOSITE_TARGET = { t: "b", r: "l", b: "t", l: "r" };
 
 // Toolbar icon button — themed tints per tool kind. `active` gives a filled
 // look for toggle tools (e.g. the laser pointer mode).
+// Lives in the top chrome card next to undo/redo (the editor sits inside a
+// ReactFlowProvider, so useReactFlow works up here too).
+function FitViewButton({ dark }) {
+  const rf = useReactFlow();
+  return (
+    <button
+      type="button"
+      onClick={() => rf.fitView({ padding: 0.2, duration: 300 })}
+      title="Fit view"
+      aria-label="Fit view"
+      className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+        dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+      }`}
+    >
+      <Maximize className="w-4 h-4" />
+    </button>
+  );
+}
+
+// Group separator in the bottom toolbar. Shown on every size (it keeps the
+// scrolling rail readable by chunking related tools) with a little breathing
+// room on either side.
+function ToolbarDivider({ dark }) {
+  return (
+    <div className={`w-px h-6 self-center shrink-0 mx-1 sm:mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
+  );
+}
+
 function ToolButton({ title, onClick, tone = "neutral", dark, active, children }) {
   const tones = {
     neutral: dark
@@ -202,7 +232,7 @@ function ToolButton({ title, onClick, tone = "neutral", dark, active, children }
       aria-label={title}
       aria-pressed={active || undefined}
       onClick={onClick}
-      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${active ? activeCls : tones[tone]}`}
+      className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors ${active ? activeCls : tones[tone]}`}
     >
       {children}
     </button>
@@ -266,7 +296,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
   };
 
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       {/* One click drops the last-used shape (no dropdown) so you can chain a
           flowchart fast; drag to place it exactly; the caret opens the full
           catalogue + remembers it. */}
@@ -276,7 +306,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
         onPointerDown={startDrag(current)}
         onPointerMove={moveDrag}
         onPointerUp={endDrag(() => onPick(current))}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
           dark
             ? "text-sky-400 hover:bg-sky-500/15"
             : "text-sky-600 hover:bg-sky-50"
@@ -290,7 +320,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
         aria-label="Choose shape"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
+        className={`${CARET_CLS} ${
           dark
             ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
             : "bg-white text-slate-500 border border-slate-200"
@@ -300,9 +330,10 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
       </button>
       {open && (
         <>
+          <MaybeFlyoutPortal>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
-            className={`absolute left-10 top-0 z-20 p-2 rounded-2xl border shadow-lg grid grid-cols-5 gap-1 ${
+            className={`absolute bottom-11 left-1/2 -translate-x-1/2 z-20 p-2 rounded-2xl border shadow-lg grid grid-cols-5 gap-1 ${
               dark
                 ? "bg-[var(--color-surface)] border-[var(--color-border)]"
                 : "bg-white border-slate-200"
@@ -329,6 +360,7 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
               </button>
             ))}
           </div>
+          </MaybeFlyoutPortal>
         </>
       )}
       {ghost && createPortal(
@@ -346,6 +378,75 @@ function ShapesMenu({ dark, onPick, onDropAt }) {
         </div>,
         document.body
       )}
+    </div>
+  );
+}
+
+// Corner caret shared by the rail tools — toggles the options flyout.
+function ToolChevron({ label, open, setOpen, dark }) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={() => setOpen((v) => !v)}
+      aria-expanded={open}
+      className={`${CARET_CLS} ${
+        WB_TOUCH
+          ? open
+            ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
+            : dark ? "text-slate-400" : "text-slate-500"
+          : dark
+            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
+            : "bg-white text-slate-500 border border-slate-200"
+      }`}
+    >
+      <ChevronDown className={WB_TOUCH ? "w-4 h-4" : "w-2.5 h-2.5"} />
+    </button>
+  );
+}
+
+// Light-styled options flyout (backdrop + panel) shared by the rail tools.
+function ToolPopover({ dark, onClose, children }) {
+  return (
+    <MaybeFlyoutPortal>
+      <div className="fixed inset-0 z-10" onClick={onClose} />
+      <div
+        className={`absolute bottom-11 left-1/2 -translate-x-1/2 z-20 p-2.5 rounded-2xl border shadow-lg ${
+          dark
+            ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+            : "bg-white border-slate-200"
+        }`}
+        style={{ width: 188 }}
+      >
+        {children}
+      </div>
+    </MaybeFlyoutPortal>
+  );
+}
+
+// 6-across swatch grid shared by the sticky / pen / laser flyouts.
+function PaletteGrid({ colors, selected, onPick }) {
+  return (
+    <div className="grid grid-cols-6 gap-1">
+      {colors.map((hex) => (
+        <button
+          key={hex}
+          type="button"
+          title={hex}
+          onClick={() => onPick(hex)}
+          className="w-6 h-6 rounded-md transition-transform hover:scale-110"
+          style={{
+            background: hex,
+            outline:
+              selected.toLowerCase() === hex.toLowerCase()
+                ? "2px solid #f97316"
+                : "none",
+            outlineOffset: 1,
+            boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -399,7 +500,7 @@ function StickyTool({ dark, onAdd, onDropAt }) {
   };
 
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       <button
         type="button"
         title="Add sticky note — or drag to place"
@@ -407,7 +508,7 @@ function StickyTool({ dark, onAdd, onDropAt }) {
         onPointerDown={onBtnPointerDown}
         onPointerMove={onBtnPointerMove}
         onPointerUp={onBtnPointerUp}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors touch-none cursor-grab active:cursor-grabbing ${
           dark ? "hover:bg-white/10" : "hover:bg-slate-100"
         }`}
       >
@@ -421,30 +522,13 @@ function StickyTool({ dark, onAdd, onDropAt }) {
           }}
         />
       </button>
-      <button
-        type="button"
-        title="Choose sticky color"
-        aria-label="Choose sticky color"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
-          dark
-            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
-            : "bg-white text-slate-500 border border-slate-200"
-        }`}
-      >
-        <ChevronDown className="w-2.5 h-2.5" />
-      </button>
+      <ToolChevron label="Choose sticky color" open={open} setOpen={setOpen} dark={dark} />
       {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+        <ToolPopover dark={dark} onClose={() => setOpen(false)}>
           <div
-            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
-              dark
-                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
-                : "bg-white border-slate-200"
+            className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${
+              dark ? "text-slate-500" : "text-slate-400"
             }`}
-            style={{ width: 188 }}
           >
             <div
               className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${
@@ -494,7 +578,7 @@ function StickyTool({ dark, onAdd, onDropAt }) {
               Custom color
             </label>
           </div>
-        </>
+        </ToolPopover>
       )}
       {ghost && createPortal(
         <div
@@ -519,37 +603,25 @@ function StickyTool({ dark, onAdd, onDropAt }) {
 function TextTool({ onAdd, prefs, setPrefs, dark }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       <button
         type="button"
         title="Add text"
         aria-label="Add text"
         onClick={() => onAdd()}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors ${
           dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
         }`}
       >
         <Type className="w-4 h-4" />
       </button>
-      <button
-        type="button"
-        title="New-text defaults"
-        aria-label="New-text defaults"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
-          dark
-            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
-            : "bg-white text-slate-500 border border-slate-200"
-        }`}
-      >
-        <ChevronDown className="w-2.5 h-2.5" />
-      </button>
+      <ToolChevron label="New-text defaults" open={open} setOpen={setOpen} dark={dark} />
       {open && (
         <>
+          <MaybeFlyoutPortal>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
-            className="absolute left-10 top-0 z-20 rounded-xl shadow-2xl overflow-hidden"
+            className="absolute bottom-11 left-1/2 -translate-x-1/2 z-20 rounded-xl shadow-2xl overflow-hidden"
             style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.1)" }}
           >
             <div className="px-2.5 pt-2 text-[10px] font-bold uppercase tracking-wide text-white/40">
@@ -561,6 +633,7 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
               forDefaults
             />
           </div>
+          </MaybeFlyoutPortal>
         </>
       )}
     </div>
@@ -573,14 +646,14 @@ function TextTool({ onAdd, prefs, setPrefs, dark }) {
 function PenTool({ dark, active, style, setStyle, onToggle }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       <button
         type="button"
         title={active ? "Pen (on) — Esc to exit" : "Pen — draw freehand"}
         aria-label="Pen"
         aria-pressed={active}
         onClick={onToggle}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors ${
           active
             ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
             : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
@@ -588,79 +661,44 @@ function PenTool({ dark, active, style, setStyle, onToggle }) {
       >
         <Pencil className="w-4 h-4" />
       </button>
-      <button
-        type="button"
-        title="Pen options"
-        aria-label="Pen options"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow ${
-          dark
-            ? "bg-[var(--color-surface)] text-slate-300 border border-[var(--color-border)]"
-            : "bg-white text-slate-500 border border-slate-200"
-        }`}
-      >
-        <ChevronDown className="w-2.5 h-2.5" />
-      </button>
+      <ToolChevron label="Pen options" open={open} setOpen={setOpen} dark={dark} />
       {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
-              dark
-                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
-                : "bg-white border-slate-200"
-            }`}
-            style={{ width: 188 }}
-          >
-            <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              Pen colour
-            </div>
-            <div className="grid grid-cols-6 gap-1">
-              {PEN_COLORS.map((hex) => (
-                <button
-                  key={hex}
-                  type="button"
-                  title={hex}
-                  onClick={() => setStyle((s) => ({ ...s, color: hex }))}
-                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
-                  style={{
-                    background: hex,
-                    outline: style.color.toLowerCase() === hex.toLowerCase() ? "2px solid #f97316" : "none",
-                    outlineOffset: 1,
-                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
-                  }}
-                />
-              ))}
-            </div>
-            <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
-              <input
-                type="color"
-                value={/^#[0-9a-fA-F]{6}$/.test(style.color) ? style.color : "#0f172a"}
-                onChange={(e) => setStyle((s) => ({ ...s, color: e.target.value }))}
-                style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
-              />
-              Custom colour
-            </label>
-            <div className={`text-[10px] font-bold uppercase tracking-wide mt-2.5 mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              Width
-            </div>
-            <div className="flex gap-1">
-              {PEN_WIDTHS.map(([label, w]) => (
-                <button
-                  key={w}
-                  type="button"
-                  onClick={() => setStyle((s) => ({ ...s, width: w }))}
-                  className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
-                    style.width === w
-                      ? dark ? "bg-white/15 text-white" : "bg-slate-200 text-slate-700"
-                      : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
-                  }`}
-                >{label}</button>
-              ))}
-            </div>
+        <ToolPopover dark={dark} onClose={() => setOpen(false)}>
+          <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Pen colour
           </div>
-        </>
+          <PaletteGrid
+            colors={PEN_COLORS}
+            selected={style.color}
+            onPick={(hex) => setStyle((s) => ({ ...s, color: hex }))}
+          />
+          <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(style.color) ? style.color : "#0f172a"}
+              onChange={(e) => setStyle((s) => ({ ...s, color: e.target.value }))}
+              style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+            />
+            Custom colour
+          </label>
+          <div className={`text-[10px] font-bold uppercase tracking-wide mt-2.5 mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Width
+          </div>
+          <div className="flex gap-1">
+            {PEN_WIDTHS.map(([label, w]) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => setStyle((s) => ({ ...s, width: w }))}
+                className={`h-7 flex-1 rounded-md text-[11px] font-semibold transition-colors ${
+                  style.width === w
+                    ? dark ? "bg-white/15 text-white" : "bg-slate-200 text-slate-700"
+                    : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >{label}</button>
+            ))}
+          </div>
+        </ToolPopover>
       )}
     </div>
   );
@@ -672,14 +710,14 @@ function LaserTool({ dark, active, color, setColor, onToggle }) {
   const [open, setOpen] = useState(false);
   const cur = color || "#ef4444";
   return (
-    <div className="relative">
+    <div className={TOOL_GROUP_CLS}>
       <button
         type="button"
         title={active ? "Laser (on) — drag to draw a fading line, ⌘/Ctrl-drag to pan, Esc to exit" : "Laser pointer — point things out & underline"}
         aria-label="Laser pointer"
         aria-pressed={active}
         onClick={onToggle}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+        className={`${TOOL_BTN_SIZE} shrink-0 rounded-full flex items-center justify-center transition-colors ${
           active
             ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
             : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
@@ -693,47 +731,27 @@ function LaserTool({ dark, active, color, setColor, onToggle }) {
         aria-label="Laser colour"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full shadow border-2"
+        className={WB_TOUCH ? "w-7 h-11 -ml-1.5 rounded-xl border-2" : "absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full shadow border-2"}
         style={{ background: cur, borderColor: dark ? "var(--color-surface)" : "#fff" }}
       />
       {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            className={`absolute left-10 top-0 z-20 p-2.5 rounded-2xl border shadow-lg ${
-              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-            }`}
-            style={{ width: 188 }}
-          >
-            <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>Laser colour</div>
-            <div className="grid grid-cols-6 gap-1">
-              {PEN_COLORS.filter((c) => c !== "#ffffff").map((hex) => (
-                <button
-                  key={hex}
-                  type="button"
-                  title={hex}
-                  onClick={() => setColor(hex)}
-                  className="w-6 h-6 rounded-md transition-transform hover:scale-110"
-                  style={{
-                    background: hex,
-                    outline: cur.toLowerCase() === hex.toLowerCase() ? "2px solid #f97316" : "none",
-                    outlineOffset: 1,
-                    boxShadow: "inset 0 0 0 1px rgba(0,0,0,.12)",
-                  }}
-                />
-              ))}
-            </div>
-            <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
-              <input
-                type="color"
-                value={/^#[0-9a-fA-F]{6}$/.test(cur) ? cur : "#ef4444"}
-                onChange={(e) => setColor(e.target.value)}
-                style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
-              />
-              Custom colour
-            </label>
-          </div>
-        </>
+        <ToolPopover dark={dark} onClose={() => setOpen(false)}>
+          <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>Laser colour</div>
+          <PaletteGrid
+            colors={PEN_COLORS.filter((c) => c !== "#ffffff")}
+            selected={cur}
+            onPick={setColor}
+          />
+          <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(cur) ? cur : "#ef4444"}
+              onChange={(e) => setColor(e.target.value)}
+              style={{ width: 24, height: 24, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+            />
+            Custom colour
+          </label>
+        </ToolPopover>
       )}
     </div>
   );
@@ -747,7 +765,41 @@ const PAINT_QUICK_COLORS = [
 
 // Floating toolbar shown while the brush is active — brush/eraser, colour, size
 // and opacity in one place (room to grow: brush types, smoothing, etc.).
-function PaintToolbar({ dark, style, setStyle }) {
+// 44px tool targets on touch (Apple HIG); compact 32px with a mouse.
+const WB_TOUCH =
+  typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+const TOOL_BTN_SIZE = WB_TOUCH ? "w-11 h-11" : "w-8 h-8";
+// Tool + its options caret read as one grouped row on touch.
+const TOOL_GROUP_CLS = WB_TOUCH ? "relative flex items-center" : "relative";
+const BOTTOM_PANEL_GAP = 8;
+const PAINT_TOOLBAR_STACK_H = 54;
+const TOUCH_INSPECTOR_FALLBACK_H = 54;
+
+// Touch: the 14px corner caret is untappable — full-height chevron grouped
+// beside the tool instead.
+const CARET_CLS = WB_TOUCH
+  ? "w-7 h-11 -ml-1.5 rounded-full flex items-center justify-center"
+  : "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow";
+
+// Hosts a tool flyout. Desktop: anchored above its trigger (absolute inside
+// the tool's relative wrapper). Touch: the toolbar scrolls horizontally and
+// would clip it — portal to <body>, centered above the bar (clearance kept
+// in --wb-toolbar-clear by the toolbar measurer; -44px compensates the
+// child's own bottom-11 anchor).
+function MaybeFlyoutPortal({ children }) {
+  if (!WB_TOUCH) return <>{children}</>;
+  return createPortal(
+    <div
+      className="fixed left-1/2 -translate-x-1/2 z-[80]"
+      style={{ bottom: "calc(var(--bottom-inset, 0px) + var(--wb-toolbar-clear, 64px) - 44px)" }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
   const divider = <div className={`w-px h-6 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />;
   const labelCls = `text-[10px] font-bold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`;
   const numCls = `text-[11px] tabular-nums ${dark ? "text-slate-300" : "text-slate-600"}`;
@@ -768,11 +820,11 @@ function PaintToolbar({ dark, style, setStyle }) {
   );
   return (
     <Panel
-      position="bottom-center"
-      // Bottom-centre, clear of the nav; the emote bar lifts above it while
-      // painting (see EmoteOverlay barOffset) so the two never collide.
-      style={{ bottom: 12 }}
-      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg max-w-[94vw] overflow-x-auto ${
+      position="bottom-left"
+      // Stacked ABOVE the main (bottom-left) toolbar; the offset tracks the
+      // toolbar's measured height so a wrapped (two-row) toolbar still clears.
+      style={{ bottom: bottomOffset }}
+      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg max-w-[calc(100%-16px)] overflow-x-auto ${
         dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
       }`}
     >
@@ -1020,6 +1072,32 @@ function freshId(prefix) {
   // 36ms time + counter is plenty to avoid id collisions inside one
   // tab without dragging in a uuid dep just for this.
   return `${prefix}-${Date.now().toString(36)}-${_idSeq++}`;
+}
+
+// Shared by cloneNodes / alt-drag clone: expand the picked ids to any framed
+// children, drop zones, and mint fresh ids for the copies.
+function collectCloneSources(all, ids) {
+  const set = new Set(ids);
+  for (const n of all) if (n.parentId && set.has(n.parentId)) set.add(n.id); // frame children ride along
+  const src = all.filter((n) => set.has(n.id) && n.type !== "zone");
+  const idMap = new Map(src.map((n) => [n.id, freshId(n.type || "dup")]));
+  return { src, idMap };
+}
+
+// Duplicate the edges fully inside a cloned selection onto the fresh ids.
+function duplicateInternalEdges(eds, idMap) {
+  const inside = eds.filter((e) => idMap.has(e.source) && idMap.has(e.target));
+  if (!inside.length) return eds;
+  return eds.concat(
+    inside.map((e) => ({
+      ...e,
+      id: freshId("e"),
+      selected: false,
+      source: idMap.get(e.source),
+      target: idMap.get(e.target),
+      data: e.data ? { ...e.data } : e.data, // anchors are node-relative; route re-bases off the new ends
+    }))
+  );
 }
 
 // In-app clipboard for copy / cut / paste. localStorage so it survives
@@ -1276,6 +1354,157 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   }, [showMinimap]);
   const [saveTplOpen, setSaveTplOpen] = useState(false); // "Save as template" dialog
 
+  // Measured height of the bottom toolbar (it can wrap to two rows on narrow
+  // phones) — the paint toolbar and the emote bar stack above it by this.
+  const toolbarRO = useRef(null);
+  const [toolbarH, setToolbarH] = useState(44);
+  const toolbarRef = useCallback((el) => {
+    toolbarRO.current?.disconnect();
+    toolbarRO.current = null;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const h = el.offsetHeight || 44;
+      setToolbarH(h);
+      // Portaled flyouts + the mobile inspector read this to clear the bar.
+      document.documentElement.style.setProperty("--wb-toolbar-clear", `${15 + h + 8}px`);
+    });
+    ro.observe(el);
+    toolbarRO.current = ro;
+  }, []);
+  const touchInspectorRO = useRef(null);
+  const [touchInspectorH, setTouchInspectorH] = useState(TOUCH_INSPECTOR_FALLBACK_H);
+  const touchInspectorRef = useCallback((el) => {
+    touchInspectorRO.current?.disconnect();
+    touchInspectorRO.current = null;
+    if (!el) return;
+    const update = () => setTouchInspectorH(el.offsetHeight || TOUCH_INSPECTOR_FALLBACK_H);
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    touchInspectorRO.current = ro;
+  }, []);
+
+  // Long-press (350ms) then drag = marquee select on touch. RF's drag-marquee
+  // is desktop-only here (on touch it opened under the first finger of every
+  // pinch), so this owns the gesture: kill the pan d3 opened, draw the rect,
+  // select intersecting nodes on release.
+  const marqueeRef = useRef(null);
+  const suppressPaneClickRef = useRef(0);
+  const [marqueeRect, setMarqueeRect] = useState(null);
+  const marqueePointerDown = (e) => {
+    if (!WB_TOUCH || e.pointerType !== "touch" || tool !== "select") return;
+    const st = marqueeRef.current;
+    if (st) {
+      // Second finger — it's a pinch, not a marquee.
+      if (!st.active) { clearTimeout(st.timer); marqueeRef.current = null; }
+      return;
+    }
+    if (!(e.target instanceof Element)) return;
+    const nodeEl = e.target.closest(".react-flow__node");
+    if (nodeEl) {
+      // Select on POINTERDOWN: Safari treats the first tap on nodes with
+      // hover-revealed handles as hover only and eats the click, which made
+      // selection take two taps.
+      const id = nodeEl.getAttribute("data-id");
+      if (id) {
+        setNodes((nds) => {
+          const t = nds.find((n) => n.id === id);
+          if (!t || t.selected || t.type === "zone") return nds;
+          return nds.map((n) => (n.id === id ? { ...n, selected: true } : n.selected ? { ...n, selected: false } : n));
+        });
+      }
+      return; // a node press is never a marquee
+    }
+    if (!e.target.closest(".react-flow__pane")) return;
+    const container = e.currentTarget;
+    const { clientX: x0, clientY: y0, pointerId: id } = e;
+    const timer = setTimeout(() => {
+      const cur = marqueeRef.current;
+      if (!cur || cur.id !== id) return;
+      if (toolRef.current !== "select") {
+        marqueeRef.current = null;
+        return;
+      }
+      cur.active = true;
+      navigator.vibrate?.(10);
+      // End the pan gesture d3-zoom opened on this touch so the canvas
+      // doesn't drift under the marquee.
+      const pane = container.querySelector(".react-flow__pane");
+      try {
+        const touch = new Touch({ identifier: id, target: pane, clientX: x0, clientY: y0 });
+        pane?.dispatchEvent(new TouchEvent("touchcancel", { bubbles: true, changedTouches: [touch] }));
+      } catch { /* Touch() unsupported — worst case the canvas pans slightly */ }
+      setMarqueeRect({ x0, y0, x1: x0, y1: y0 });
+    }, 350);
+    marqueeRef.current = { id, x0, y0, x1: x0, y1: y0, active: false, timer };
+  };
+  const marqueePointerMove = (e) => {
+    const st = marqueeRef.current;
+    if (!st || e.pointerId !== st.id) return;
+    if (!st.active) {
+      // Moved before the hold elapsed — it's a pan; stand down.
+      if (Math.hypot(e.clientX - st.x0, e.clientY - st.y0) > 12) {
+        clearTimeout(st.timer);
+        marqueeRef.current = null;
+      }
+      return;
+    }
+    e.stopPropagation();
+    st.x1 = e.clientX;
+    st.y1 = e.clientY;
+    setMarqueeRect({ x0: st.x0, y0: st.y0, x1: st.x1, y1: st.y1 });
+  };
+  const marqueePointerUp = (e) => {
+    const st = marqueeRef.current;
+    if (!st || e.pointerId !== st.id) return;
+    marqueeRef.current = null;
+    if (!st.active) { clearTimeout(st.timer); return; }
+    e.stopPropagation();
+    // The pane fires a click after release, which would clear the fresh
+    // selection — swallow it (see onClickCapture below).
+    suppressPaneClickRef.current = Date.now() + 500;
+    setMarqueeRect(null);
+    const minX = Math.min(st.x0, st.x1), maxX = Math.max(st.x0, st.x1);
+    const minY = Math.min(st.y0, st.y1), maxY = Math.max(st.y0, st.y1);
+    if (maxX - minX < 6 && maxY - minY < 6) return; // stationary hold — no-op
+    const a = rf.screenToFlowPosition({ x: minX, y: minY });
+    const b = rf.screenToFlowPosition({ x: maxX, y: maxY });
+    const sel = new Set();
+    for (const n of rf.getNodes()) {
+      if (n.type === "zone") continue;
+      const inode = rf.getInternalNode(n.id);
+      const pos = inode?.internals?.positionAbsolute || n.position;
+      const w = n.measured?.width ?? n.width ?? 0;
+      const h = n.measured?.height ?? n.height ?? 0;
+      if (pos.x < b.x && pos.x + w > a.x && pos.y < b.y && pos.y + h > a.y) sel.add(n.id);
+    }
+    if (sel.size) {
+      setNodes((nds) => nds.map((n) => (n.selected === sel.has(n.id) ? n : { ...n, selected: sel.has(n.id) })));
+    }
+  };
+  // Draw modes: one finger draws, two fingers navigate. Once d3-zoom accepts
+  // a touchstart (needed for pinch) it pans on ANY one-finger drag, stealing
+  // strokes — so single-touch events are stopped in capture before its pane
+  // listeners see them. Two-finger events pass through (pinch-zoom/pan), and
+  // the pen/brush/laser handlers use POINTER events, which are unaffected.
+  const blockSingleTouchInDraw = (e) => {
+    if (!WB_TOUCH) return;
+    if (tool !== "pen" && tool !== "brush" && tool !== "laser") return;
+    if (e.touches.length === 1) e.stopPropagation();
+  };
+  const onEditorClickCapture = (e) => {
+    if (Date.now() < suppressPaneClickRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  };
+
+  // The editor is a fixed-viewport surface — lock body scrolling while it's
+  // mounted (shared with Messages/Office) so iOS rubber-banding can't reveal
+  // the page padding below the canvas or shove content under the tab bar.
+  useBodyScrollLock(!embedded);
+
   // Default style seeded into new text nodes (persisted per device). A ref keeps
   // the latest for the stable double-click-create handler.
   const [textStyle, setTextStyleRaw] = useState(loadTextStyle);
@@ -1417,6 +1646,32 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // Last pointer position in FLOW coords — so paste lands under the cursor.
   const lastPtRef = useRef(null);
   const lastClientRef = useRef(null); // last cursor position in SCREEN coords
+  // The single pointer that owns the current pen/laser/brush stroke. A second
+  // finger landing mid-stroke means navigation (pinch) — abort the stroke so
+  // it doesn't zigzag between the two fingers.
+  const strokePidRef = useRef(null);
+  const cancelActiveStroke = useCallback(() => {
+    strokePidRef.current = null;
+    if (laserDrawingRef.current) {
+      laserDrawingRef.current = false;
+      setLaserPressing(false);
+      const lp = lastPtRef.current;
+      if (lp) pushCursor(lp.x, lp.y, false, false, laserColorRef.current);
+    }
+    if (paintStrokeIdRef.current) {
+      const id = paintStrokeIdRef.current;
+      pushPaint({ id, brush: paintBrushRef.current, pts: paintBatchRef.current, end: true });
+      paintBatchRef.current = [];
+      paintRef.current?.apply({ id, brush: paintBrushRef.current, pts: [], end: true }, true);
+      paintStrokeIdRef.current = null;
+    }
+    if (drawingRef.current) {
+      drawingRef.current = null;
+      if (drawRafRef.current) { cancelAnimationFrame(drawRafRef.current); drawRafRef.current = 0; }
+      setDrawPath(null);
+    }
+  }, [pushCursor, pushPaint]);
+
   const onWbPointerMove = useCallback(
     (e) => {
       lastClientRef.current = { x: e.clientX, y: e.clientY };
@@ -1426,8 +1681,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         // Laser dot (mine + peers') shows only while pressing, so broadcast the
         // laser flag tied to the press, not just the mode.
         pushCursor(p.x, p.y, laserDrawingRef.current, laserDrawingRef.current, laserColorRef.current);
+        // Only the stroke-owning pointer extends it — a stray second finger
+        // must not feed points in.
+        const owns = strokePidRef.current === null || strokePidRef.current === e.pointerId;
         // Laser ink: append while the button is held (the trail fades itself).
-        if (laserDrawingRef.current) {
+        if (owns && laserDrawingRef.current) {
           const arr = laserInkRef.current;
           const last = arr[arr.length - 1];
           if (!last || Math.abs(p.x - last.x) + Math.abs(p.y - last.y) > 1) {
@@ -1435,13 +1693,13 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           }
         }
         // Raster brush: rasterise locally each move; batch the broadcast.
-        if (paintStrokeIdRef.current) {
+        if (owns && paintStrokeIdRef.current) {
           paintRef.current?.apply({ id: paintStrokeIdRef.current, brush: paintBrushRef.current, pts: [[p.x, p.y]] }, true);
           paintBatchRef.current.push([p.x, p.y]);
           const now = Date.now();
           if (now - paintLastFlushRef.current > 70) { paintLastFlushRef.current = now; flushPaint(); }
         }
-        const dr = drawingRef.current;
+        const dr = owns ? drawingRef.current : null;
         if (dr) {
           const last = dr.points[dr.points.length - 1];
           // Drop near-duplicate samples so the path stays light.
@@ -1474,6 +1732,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       // In laser / brush mode, ⌘/Ctrl+drag pans (handled by ReactFlow), so the
       // left-drag stays free for the laser ink / brush — don't capture it.
       if ((mode === "laser" || mode === "brush") && (e.ctrlKey || e.metaKey)) return;
+      if (strokePidRef.current != null) {
+        // Second finger mid-stroke → the user is pinching to navigate.
+        cancelActiveStroke();
+        return;
+      }
       let p;
       try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
       if (mode === "pen") {
@@ -1500,10 +1763,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         paintLastFlushRef.current = Date.now();
         paintRef.current?.apply({ id, brush, pts: [[p.x, p.y]] }, true);
       }
+      strokePidRef.current = e.pointerId;
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
       e.preventDefault();
     },
-    [rf, pushCursor]
+    [rf, pushCursor, cancelActiveStroke]
   );
 
   // Pen up: commit the stroke as a draw node (bbox-relative points). Tiny taps
@@ -1542,6 +1806,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   const onWbPointerUp = useCallback(
     (e) => {
+      // Only the stroke-owning pointer ends it.
+      if (strokePidRef.current != null && e.pointerId !== strokePidRef.current) return;
+      strokePidRef.current = null;
       if (laserDrawingRef.current) {
         laserDrawingRef.current = false;
         setLaserPressing(false);
@@ -2527,12 +2794,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // node and ⌘/Ctrl-D on the selection. Offset is grid-aligned so clones stay
   // tidy.
   const cloneNodes = useCallback((ids, dx = 32, dy = 32) => {
-    const all = rf.getNodes();
-    const set = new Set(ids);
-    for (const n of all) if (n.parentId && set.has(n.parentId)) set.add(n.id); // frame children ride along
-    const src = all.filter((n) => set.has(n.id) && n.type !== "zone");
+    const { src, idMap } = collectCloneSources(rf.getNodes(), ids);
     if (!src.length) return;
-    const idMap = new Map(src.map((n) => [n.id, freshId(n.type || "dup")]));
     const clones = src.map((n) => {
       const childOfCloned = n.parentId && idMap.has(n.parentId);
       const next = { ...n, id: idMap.get(n.id), data: { ...n.data }, selected: true };
@@ -2547,20 +2810,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     setNodes((nds) =>
       nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(clones)
     );
-    setEdges((eds) => {
-      const inside = eds.filter((e) => idMap.has(e.source) && idMap.has(e.target));
-      if (!inside.length) return eds;
-      return eds.concat(
-        inside.map((e) => ({
-          ...e,
-          id: freshId("e"),
-          selected: false,
-          source: idMap.get(e.source),
-          target: idMap.get(e.target),
-          data: e.data ? { ...e.data } : e.data, // anchors are node-relative; route re-bases off the new ends
-        }))
-      );
-    });
+    setEdges((eds) => duplicateInternalEdges(eds, idMap));
   }, [rf, setNodes, setEdges]);
   // Ref so the keydown handler (subscribed once) can call the latest clone fn.
   const cloneRef = useRef(null);
@@ -2628,11 +2878,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     const ids = node.selected
       ? all.filter((n) => n.selected && n.type !== "zone").map((n) => n.id)
       : [node.id];
-    const set = new Set(ids);
-    for (const n of all) if (n.parentId && set.has(n.parentId)) set.add(n.id); // frame children ride along
-    const src = all.filter((n) => set.has(n.id) && n.type !== "zone");
+    const { src, idMap } = collectCloneSources(all, ids);
     if (!src.length) return;
-    const idMap = new Map(src.map((n) => [n.id, freshId(n.type || "dup")]));
     const clones = src.map((n) => {
       const next = { ...n, id: idMap.get(n.id), data: { ...n.data }, selected: false, dragging: false };
       if (n.parentId && idMap.has(n.parentId)) next.parentId = idMap.get(n.parentId);
@@ -2754,8 +3001,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       e.preventDefault();
       e.stopPropagation();
       cloneNodes([node.id]);
+      return;
     }
-  }, [cloneNodes]);
+    // Touch: guarantee one tap = selected. RF's own tap selection has been
+    // flaky on mobile (took a second tap); force it from the click.
+    if (WB_TOUCH && node.type !== "zone" && !node.selected) {
+      setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, selected: true } : n.selected ? { ...n, selected: false } : n)));
+    }
+  }, [cloneNodes, setNodes]);
 
   // ── selection inspector ──
   const selectedNode = useMemo(
@@ -2780,6 +3033,20 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     () => nodes.filter((n) => n.selected && n.type !== "zone" && !n.parentId).length,
     [nodes]
   );
+  const touchInspectorVisible = !!(selectedNode && singleSelection && WB_TOUCH);
+  const bottomStackOffset = 15 + toolbarH + BOTTOM_PANEL_GAP;
+  const brushStackH = tool === "brush" ? PAINT_TOOLBAR_STACK_H : 0;
+  const touchInspectorBottom = bottomStackOffset + brushStackH;
+  const touchInspectorStackH = touchInspectorVisible ? touchInspectorH + BOTTOM_PANEL_GAP : 0;
+  const emoteBarOffset = toolbarH + 11 + brushStackH + touchInspectorStackH;
+  useEffect(() => {
+    if (!touchInspectorVisible) return;
+    // Portaled inspector dropdowns read this to open just above the bar.
+    document.documentElement.style.setProperty(
+      "--wb-inspector-clear",
+      `${touchInspectorBottom + touchInspectorH + 8}px`,
+    );
+  }, [touchInspectorVisible, touchInspectorBottom, touchInspectorH]);
 
   // Align / distribute the selected top-level nodes by their bounding boxes.
   const arrange = useCallback(
@@ -2988,7 +3255,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // ── early returns ──
   const frameCls = embedded
     ? "w-full h-full p-4 space-y-3"
-    : "px-4 pt-6 pb-6 max-w-[1400px] mx-auto space-y-3";
+    // Phones: edge-to-edge — the editor is viewport-height, so any page
+    // padding overflows below the canvas as a dead band / pushes content
+    // under the tab bar. The card look starts at sm.
+    : "max-w-[1400px] mx-auto sm:px-4 sm:pt-6 sm:pb-6 sm:space-y-3";
   if (loading) {
     return (
       <main className={frameCls}>
@@ -3043,11 +3313,30 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           : "h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))]"
       }`}
       onPointerMove={onWbPointerMove}
-      onPointerDownCapture={onWbPointerDownCapture}
+      onPointerDownCapture={(e) => { marqueePointerDown(e); onWbPointerDownCapture(e); }}
+      onPointerMoveCapture={marqueePointerMove}
+      onPointerUpCapture={marqueePointerUp}
+      onPointerCancelCapture={marqueePointerUp}
+      onTouchStartCapture={blockSingleTouchInDraw}
+      onTouchMoveCapture={blockSingleTouchInDraw}
+      onClickCapture={onEditorClickCapture}
       onPointerUp={onWbPointerUp}
       onPointerCancel={onWbPointerUp}
     >
       <EdgeMarkerDefs />
+      {marqueeRect && (
+        <div
+          className="fixed z-[60] pointer-events-none rounded-sm"
+          style={{
+            left: Math.min(marqueeRect.x0, marqueeRect.x1),
+            top: Math.min(marqueeRect.y0, marqueeRect.y1),
+            width: Math.abs(marqueeRect.x1 - marqueeRect.x0),
+            height: Math.abs(marqueeRect.y1 - marqueeRect.y0),
+            border: "1.5px dashed var(--color-accent)",
+            background: "color-mix(in srgb, var(--color-accent) 10%, transparent)",
+          }}
+        />
+      )}
       {/* The embedded (room) board now shows the full title-bar toolbar
           (export / capture / save-template / reactions), at parity with the
           full page — so the old standalone top-right PNG button is gone. */}
@@ -3081,20 +3370,28 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         nodesDraggable={tool === "select"}
         nodesConnectable={tool === "select"}
         elementsSelectable={tool === "select"}
-        selectionOnDrag={tool === "select"}
+        // Touch: one-finger drag PANS and pinch stays a clean zoom; area
+        // select is long-press-then-drag (the custom marquee above). Desktop
+        // keeps RF's left-drag marquee.
+        selectionOnDrag={WB_TOUCH ? false : tool === "select"}
         selectionMode={SelectionMode.Partial}
         // Shift adds to selection, freeing ⌘/Ctrl for the click-to-clone quick action.
         multiSelectionKeyCode="Shift"
         // Zoom way out for big boards (default floor is 0.5); a bit more in too.
         minZoom={0.1}
         maxZoom={3}
-        // Left-drag is reserved (marquee in select, draw in pen/laser-ink), so
-        // panning is always middle/right-drag — plus the activation key below.
-        panOnDrag={[1, 2]}
+        // Desktop: left-drag is reserved (marquee in select, draw in pen), so
+        // panning is middle/right-drag — plus the activation key below. Touch:
+        // in select mode one-finger drag pans; every other tool keeps the
+        // finger for its own gesture (pen/laser/brush strokes).
+        panOnDrag={WB_TOUCH && tool === "select" ? true : [1, 2]}
         // Trackpad: two-finger scroll pans, pinch zooms (ctrl/⌘+scroll too);
         // hold Space to drag-pan. Left-drag still marquee-selects.
         panOnScroll
         zoomOnScroll={false}
+        // Touch draw modes: single-finger touches never reach d3 (see the
+        // onTouchStartCapture block on the container), so one finger draws
+        // while two-finger gestures still pinch-zoom/pan the canvas.
         zoomOnPinch
         // Hold to pan with a left-drag: Space everywhere; in laser/brush mode
         // also ⌘/Ctrl so you can move the canvas while the left button draws.
@@ -3118,8 +3415,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             horizontal={helperLines.horizontal}
           />
         )}
-        <Controls position="bottom-left" />
-        {(!compact || embedded) && showMinimap && <MiniMap pannable zoomable position="bottom-right" />}
+        {/* No floating <Controls> — pinch/scroll zoom, and fit-view lives in
+            the top chrome card. */}
+        {/* Hidden on phones (hidden sm:block) — the minimap eats scarce screen
+            on mobile and duplicates the top bar's fit-view. Embedded room
+            tiles keep it (staging enables it there). */}
+        {(!compact || embedded) && showMinimap && <MiniMap pannable zoomable position="bottom-right" className="hidden sm:block" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} dark={dark} />
 
@@ -3149,7 +3450,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         )}
 
         {/* Paint toolbar — brush/eraser, colour, size, opacity (brush mode). */}
-        {tool === "brush" && <PaintToolbar dark={dark} style={brushStyle} setStyle={setBrushStyle} />}
+        {tool === "brush" && <PaintToolbar dark={dark} style={brushStyle} setStyle={setBrushStyle} bottomOffset={bottomStackOffset} />}
 
         {/* Align / distribute toolbar — only with 2+ top-level nodes selected. */}
         {multiCount >= 2 && (
@@ -3193,14 +3494,20 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           </Panel>
         )}
 
-        <Panel
-          position="center-left"
-          className={`flex flex-col items-center gap-1 p-1 rounded-2xl border shadow-sm ${
-            dark
-              ? "bg-[var(--color-surface)] border-[var(--color-border)]"
-              : "bg-white border-slate-200"
-          }`}
-        >
+        {/* Bottom-left so collapsing the toolbar keeps it anchored to the left
+            edge instead of drifting to centre. Capped to the FLOW CONTAINER
+            width (100% — a React Flow Panel is positioned within it), so an
+            embedded room panel scrolls the rail instead of clipping it; w-max
+            sizes to content up to that cap. */}
+        <Panel position="bottom-left" className="w-max max-w-[calc(100%-16px)]">
+          <div
+            ref={toolbarRef}
+            className={`wb-scroll-x flex flex-row flex-nowrap items-center gap-1 sm:gap-0.5 p-1.5 sm:p-1 rounded-2xl border shadow-sm w-max max-w-full overflow-x-auto ${
+              dark
+                ? "bg-[var(--color-surface)] border-[var(--color-border)]"
+                : "bg-white border-slate-200"
+            }`}
+          >
           {/* Collapse the toolbar (press Q for the quick-tool palette). */}
           <button
             type="button"
@@ -3208,14 +3515,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             title={toolbarOpen ? "Hide toolbar · press Q for quick tools" : "Show toolbar"}
             aria-label={toolbarOpen ? "Hide toolbar" : "Show toolbar"}
             aria-pressed={toolbarOpen}
-            className={`w-8 h-7 rounded-lg inline-flex items-center justify-center transition-colors ${
+            className={`${TOOL_BTN_SIZE} shrink-0 rounded-xl inline-flex items-center justify-center transition-colors ${
               dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
             }`}
           >
             {toolbarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
           </button>
+          {toolbarOpen && <ToolbarDivider dark={dark} />}
           {toolbarOpen && (
-          <div className={compact ? "grid grid-cols-2 gap-0.5 place-items-center" : "flex flex-col items-center gap-0.5"}>
+          <div className="flex flex-row flex-nowrap items-center gap-1 sm:gap-0.5">
           <StickyTool
             dark={dark}
             onAdd={(hex) =>
@@ -3231,13 +3539,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             setPrefs={setTextStyle}
             onAdd={() => addNodeAtCenter("text", textStyleRef.current)}
           />
-          {!compact && (
-            <div
-              className={`h-px w-5 my-0.5 ${
-                dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-              }`}
-            />
-          )}
+          <ToolbarDivider dark={dark} />
           <ShapesMenu
             dark={dark}
             onPick={(shape) => addNodeAtCenter("shape", { shape })}
@@ -3278,13 +3580,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
               if (f) addImageNode(f);
             }}
           />
-          {!compact && (
-            <div
-              className={`h-px w-5 my-0.5 ${
-                dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-              }`}
-            />
-          )}
+          <ToolbarDivider dark={dark} />
           <PenTool
             dark={dark}
             active={tool === "pen"}
@@ -3308,13 +3604,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             setColor={setLaserColor}
             onToggle={() => setTool((t) => (t === "laser" ? "select" : "laser"))}
           />
-          {!compact && (
-            <div
-              className={`h-px w-5 my-0.5 ${
-                dark ? "bg-[var(--color-border)]" : "bg-slate-200"
-              }`}
-            />
-          )}
+          <ToolbarDivider dark={dark} />
           <ToolButton
             title="Delete selected"
             tone="red"
@@ -3325,12 +3615,13 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           </ToolButton>
           </div>
           )}
+          </div>
         </Panel>
 
         {/* Node inspector (shape/fill/border/text) hovers above the
               selected node, like the edge toolbar. Edges use their own
               floating contextual toolbar (rendered on the edge itself). */}
-        {selectedNode && singleSelection && (
+        {selectedNode && singleSelection && !WB_TOUCH && (
           <NodeToolbar
             nodeId={selectedNode.id}
             isVisible
@@ -3346,6 +3637,32 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           >
             <Inspector node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
           </NodeToolbar>
+        )}
+
+        {/* Touch: the hovering NodeToolbar is fiddly on a phone — a static
+            bar above the main toolbar instead, with taller targets and
+            flyouts opening upward. */}
+        {touchInspectorVisible && (
+          <Panel position="bottom-left" className="w-max max-w-[calc(100%-16px)] z-40" style={{ bottom: touchInspectorBottom }}>
+            <div ref={touchInspectorRef} className="flex items-center gap-1.5 max-w-full">
+              {/* The pill scrolls (capped to the flow container so a room panel
+                  doesn't clip it); the trash stays pinned outside it. */}
+              <div className="wb-scroll-x overflow-x-auto rounded-xl max-w-[calc(100%-56px)] [&_button]:min-h-11 [&_.lucide]:w-5 [&_.lucide]:h-5">
+                <DropUpContext.Provider value={true}>
+                  <Inspector wrapBar node={selectedNode} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
+                </DropUpContext.Provider>
+              </div>
+              <button
+                type="button"
+                onClick={deleteSelected}
+                aria-label="Delete selected"
+                className="w-12 h-12 shrink-0 rounded-xl flex items-center justify-center text-red-400 shadow-2xl active:bg-white/10"
+                style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.08)" }}
+              >
+                <Trash2 className="w-6 h-6" />
+              </button>
+            </div>
+          </Panel>
         )}
 
         {/* Comment thread popover, anchored to the right of the open node. */}
@@ -3371,8 +3688,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
       {/* Shape-number legend — shown while dragging a connector or hovering a
           quick-connect arrow, so people know which number makes which shape.
-          The current pick is highlighted. */}
-      {(connecting || hoveringArrow) && (
+          The current pick is highlighted. Desktop only — it's a keyboard hint
+          (1–9), useless without a keyboard. */}
+      {!WB_TOUCH && (connecting || hoveringArrow) && (
         <div
           className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-40 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border shadow-lg pointer-events-none ${
             dark ? "bg-[var(--color-surface)]/95 border-[var(--color-border)]" : "bg-white/95 border-slate-200"
@@ -3463,11 +3781,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       {/* Photoshop-style brush ring while painting (replaces the crosshair). */}
       <BrushCursor active={tool === "brush"} size={brushStyle.size} color={brushStyle.color} erase={brushStyle.erase} />
 
-      {/* Breadcrumb / board chrome — a floating card pinned top-left,
-            like the timer. Holds back-nav, title, template badge, save
-            state, the reactions-bar toggle, and archive. */}
-      <div className="absolute left-3 top-3 z-40 flex flex-col gap-2 items-start max-w-[calc(100%-24px)]">
+      {/* Breadcrumb / board chrome — a floating card pinned top-left. Holds
+            back-nav, title, template badge, save state, the reactions-bar
+            toggle, and archive. The inner row flex-wraps on narrow phones (see
+            below) so it folds to two rows instead of overflowing. */}
+      <div className="absolute left-3 top-3 z-40 flex flex-col gap-2 items-start max-w-[calc(100%-24px)] touch-none">
         <div
+          // flex-wrap so the toolbar folds onto a second row on narrow phones
+          // instead of overflowing the canvas (every child is shrink-0). The
+          // outer max-w-[calc(100%-24px)] caps the row width so the wrap fires.
           className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-2xl border shadow-md"
           style={{
             background: dark ? "var(--color-surface)" : "#fff",
@@ -3488,7 +3810,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
                 <ArrowLeft className="w-4 h-4" />
               </Link>
               <div
-                className={`w-px h-4 ${
+                className={`hidden sm:block w-px h-4 ${
                   dark ? "bg-[var(--color-border)]" : "bg-slate-200"
                 }`}
               />
@@ -3564,7 +3886,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             </span>
           )}
           <div
-            className={`w-px h-4 ${
+            className={`hidden sm:block w-px h-4 ${
               dark ? "bg-[var(--color-border)]" : "bg-slate-200"
             }`}
           />
@@ -3596,6 +3918,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           >
             <Redo2 className="w-4 h-4" />
           </button>
+          <FitViewButton dark={dark} />
           {/* Collapse / reveal the extra tools. Keeps the bar to one row on a
               small board; when open they wrap to a second row if narrow. */}
           <button
@@ -3615,7 +3938,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           {toolsOpen && (
             <>
               <div
-                className={`w-px h-4 ${
+                className={`hidden sm:block w-px h-4 ${
                   dark ? "bg-[var(--color-border)]" : "bg-slate-200"
                 }`}
               />
@@ -3766,7 +4089,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             pass through except on the chip itself. */}
       {template?.hasGoal && !compact && (
         <div
-          className="absolute left-1/2 -translate-x-1/2 top-3 z-30 flex items-stretch max-w-[calc(100%-32px)]"
+          className="absolute left-1/2 -translate-x-1/2 top-3 z-30 flex items-stretch max-w-[calc(100%-32px)] touch-none"
           style={{ pointerEvents: "none" }}
         >
           <div
@@ -3850,8 +4173,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       <EmoteOverlay
         channelKey={`whiteboard:${board.id}`}
         barPosition={emoteBarOn ? "bottom-center" : "hidden"}
-        // Lift the emote bar above the paint toolbar while it's showing.
-        barOffset={tool === "brush" ? 80 : 0}
+        // Sit just above whatever's stacked at bottom-center: the measured
+        // toolbar (panel margin 15 + height + gap), plus any paint/inspector
+        // bars stacked above it.
+        barOffset={emoteBarOffset}
       />
     </main>
   );

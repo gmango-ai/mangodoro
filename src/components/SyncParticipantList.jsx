@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
 import { Crown, ShieldCheck, Trash2, Pencil, X, Clock, ChevronDown, ChevronRight } from "lucide-react";
@@ -85,7 +85,7 @@ function Avatar({ participant, size = 36, dark, isLeader }) {
       style={{ width: px, height: px }}
     >
       {url ? (
-        <img src={url} alt="" className="w-full h-full object-cover" />
+        <img src={url} alt="" loading="lazy" className="w-full h-full object-cover" />
       ) : (
         <span
           className={`flex items-center justify-center w-full h-full font-bold ${
@@ -145,18 +145,17 @@ export default function SyncParticipantList({
   // Reset confirmation when switching between participants.
   useEffect(() => { setConfirming(null); }, [selectedId]);
 
+  // Stable display order (you → leader → rest by the chosen sort).
+  const ordered = useMemo(
+    () => sortParticipants(participants, { mode: sortMode, userId: currentUserId, leaderId }),
+    [participants, sortMode, currentUserId, leaderId]
+  );
+
   if (!participants?.length) return null;
 
   const viewerIsLeader = currentUserId && currentUserId === leaderId;
   const allowMakeLeader = true;
   const selected = participants.find((p) => p.user_id === selectedId) || null;
-
-  // Stable display order (you → leader → rest by the chosen sort).
-  const ordered = sortParticipants(participants, {
-    mode: sortMode,
-    userId: currentUserId,
-    leaderId,
-  });
 
   function toggleSelect(userId) {
     setSelectedId((cur) => (cur === userId ? null : userId));

@@ -1,4 +1,10 @@
+import { createContext, useContext } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
+
+// Flyout direction for Dropdowns. Bottom-anchored bars (the mobile node
+// inspector) provide `true` so panels open upward instead of off-screen.
+export const DropUpContext = createContext(false);
 
 // Shared FigJam-style contextual-toolbar primitives. Both the edge toolbar
 // (edges.jsx) and the node toolbar (Inspector.jsx) build from these so the
@@ -11,10 +17,10 @@ export const PALETTE = [
 ];
 
 // The dark rounded shell every contextual toolbar sits in.
-export function Pill({ children }) {
+export function Pill({ children, className = "" }) {
   return (
     <div
-      className="flex items-center gap-0.5 px-1.5 py-1 rounded-xl shadow-2xl"
+      className={`flex items-center gap-0.5 px-1.5 py-1 rounded-xl shadow-2xl ${className}`}
       style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.08)" }}
     >
       {children}
@@ -29,6 +35,7 @@ export function ToolDivider() {
 // An icon button that toggles a popover panel. `openKey` identifies this
 // dropdown within the toolbar's single `open` state, so only one is open.
 export function Dropdown({ openKey, open, setOpen, icon, title, width, children }) {
+  const up = useContext(DropUpContext);
   return (
     <div className="relative">
       <button
@@ -41,14 +48,35 @@ export function Dropdown({ openKey, open, setOpen, icon, title, width, children 
         {icon}
         <ChevronDown className="w-3 h-3 opacity-60" />
       </button>
-      {open === openKey && (
+      {open === openKey && (up ? (
+        // Bottom bar mode: the bar scrolls horizontally and would clip an
+        // absolute panel — portal it above the bar (clearance published in
+        // --wb-inspector-clear), with a backdrop so a stray tap closes it.
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[85]" onClick={() => setOpen(null)} />
+            <div
+              className="fixed left-1/2 -translate-x-1/2 z-[90] rounded-lg shadow-2xl p-1"
+              style={{
+                minWidth: width || 96,
+                background: "#1f2937",
+                border: "1px solid rgba(255,255,255,.1)",
+                bottom: "calc(var(--bottom-inset, 0px) + var(--wb-inspector-clear, 190px))",
+              }}
+            >
+              {children}
+            </div>
+          </>,
+          document.body,
+        )
+      ) : (
         <div
           className="absolute top-8 left-0 z-30 rounded-lg shadow-2xl p-1"
           style={{ minWidth: width || 96, background: "#1f2937", border: "1px solid rgba(255,255,255,.1)" }}
         >
           {children}
         </div>
-      )}
+      ))}
     </div>
   );
 }

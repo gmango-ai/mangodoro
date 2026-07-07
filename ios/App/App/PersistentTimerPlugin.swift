@@ -3,6 +3,7 @@ import Capacitor
 import CryptoKit
 import UIKit
 import WidgetKit
+import UserNotifications
 #if canImport(ActivityKit)
 import ActivityKit
 #endif
@@ -20,7 +21,7 @@ import ActivityKit
 /// enough for in-app plugins in Capacitor 8; MangodoroBridgeViewController
 /// explicitly registers an instance of this class on capacitorDidLoad.
 @objc(LiveActivityPlugin)
-public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
+public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerProtocol {
     public let identifier = "LiveActivityPlugin"
     public let jsName = "LiveActivity"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -32,9 +33,20 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "consumePendingToggle", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getDeviceToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getWidgetRegistration", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestNotificationPermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getNotificationPermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getPendingNotificationURL", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startOrientation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopOrientation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addListener", returnType: CAPPluginReturnCallback),
         CAPPluginMethod(name: "removeAllListeners", returnType: CAPPluginReturnPromise)
     ]
+
+    /// Observes physical device orientation so the web layer can counter-rotate
+    /// the in-call self-view. UIDevice reports the real orientation even though
+    /// the app UI is locked to portrait, and — unlike web DeviceMotion, which
+    /// WKWebView doesn't deliver — needs no permission.
+    private var orientationObserver: NSObjectProtocol?
 
     /// Latest ActivityKit push-to-start token (hex). Lets the server CREATE a
     /// Live Activity remotely (iOS 17.2+) when a timer starts on another
@@ -106,6 +118,14 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 "deviceId": Self.deviceIdentifier
             ])
         }
+
+        // Register as Capacitor's REMOTE-push handler so our ALERT pushes
+        // (native-push edge function) present in the foreground and forward taps
+        // to JS for deep-linking. Capacitor keeps the UNUserNotificationCenter
+        // delegate and routes remote pushes here — the LocalNotifications plugin
+        // keeps handling local pomodoro notifications untouched (no delegate
+        // fight). See willPresent/didReceive below.
+        bridge?.notificationRouter.pushNotificationHandler = self
 
         // Watch for activities the server push-to-starts (created without a
         // local start() call) so we register their push token for later
@@ -305,6 +325,52 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         Self.clearActivityCredentials()
         stopAll()
         call.resolve()
+    }
+
+    // MARK: - Device orientation (for in-call video auto-rotate)
+
+    @objc func startOrientation(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { call.resolve(); return }
+            if self.orientationObserver == nil {
+                UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+                self.orientationObserver = NotificationCenter.default.addObserver(
+                    forName: UIDevice.orientationDidChangeNotification,
+                    object: nil, queue: .main
+                ) { [weak self] _ in
+                    self?.emitOrientation()
+                }
+            }
+            self.emitOrientation() // push the current orientation right away
+            call.resolve()
+        }
+    }
+
+    @objc func stopOrientation(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { call.resolve(); return }
+            if let obs = self.orientationObserver {
+                NotificationCenter.default.removeObserver(obs)
+                self.orientationObserver = nil
+                UIDevice.current.endGeneratingDeviceOrientationNotifications()
+            }
+            call.resolve()
+        }
+    }
+
+    /// Rotation (deg) the web layer should apply to the self-view <video> so it
+    /// reads upright: the counter-rotation of the physical device turn. faceUp/
+    /// faceDown/unknown keep the last value (return without emitting).
+    private func emitOrientation() {
+        let angle: Int
+        switch UIDevice.current.orientation {
+        case .portrait: angle = 0
+        case .portraitUpsideDown: angle = 180
+        case .landscapeLeft: angle = 90
+        case .landscapeRight: angle = 270
+        default: return
+        }
+        notifyListeners("deviceOrientation", data: ["angle": angle])
     }
 
     /// Subscribes to `activity.pushTokenUpdates`. The async sequence yields
@@ -511,6 +577,77 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             "secretHash": Self.sha256Hex(secret),
             "apnsEnv": Self.apnsEnvironment
         ])
+    }
+
+    /// Prompt for notification authorization (alert + sound + badge) so ALERT
+    /// pushes from the native-push edge function actually DISPLAY. Also (re)runs
+    /// remote registration so the device token exists. Resolves { granted }.
+    /// Called from the Settings "Push when the app is closed" toggle.
+    @objc func requestNotificationPermission(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            DispatchQueue.main.async {
+                if granted {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+                call.resolve(["granted": granted])
+            }
+        }
+    }
+
+    /// Read the current notification authorization so the toggle can reflect it.
+    /// Resolves { status: "granted" | "denied" | "prompt" }.
+    @objc func getNotificationPermission(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let status: String
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                status = "granted"
+            case .denied:
+                status = "denied"
+            case .notDetermined:
+                status = "prompt"
+            @unknown default:
+                status = "prompt"
+            }
+            DispatchQueue.main.async {
+                call.resolve(["status": status])
+            }
+        }
+    }
+
+    /// Drain a route from a notification tapped before JS attached its listener
+    /// (cold launch from the notification). Resolves { url } (empty if none) and
+    /// clears it so it fires once.
+    @objc func getPendingNotificationURL(_ call: CAPPluginCall) {
+        let url = AppDelegate.pendingTappedURL ?? ""
+        AppDelegate.pendingTappedURL = nil
+        call.resolve(["url": url])
+    }
+
+    // MARK: - NotificationHandlerProtocol (remote ALERT pushes)
+    // Only REMOTE pushes reach these — Capacitor's NotificationRouter checks the
+    // trigger type and routes local notifications to the LocalNotifications
+    // plugin instead. Silent background pushes (content-available, our widget
+    // refresh) don't invoke willPresent, so anything here is a user-facing alert.
+
+    /// Show our alert pushes as a banner + sound even while the app is open.
+    public func willPresent(notification: UNNotification) -> UNNotificationPresentationOptions {
+        if #available(iOS 14.0, *) {
+            return [.banner, .sound, .list]
+        }
+        return [.alert, .sound]
+    }
+
+    /// User tapped an alert. Forward its `url` to JS to deep-link, and stash it
+    /// for getPendingNotificationURL() in case JS isn't listening yet (cold
+    /// launch straight from the notification).
+    public func didReceive(response: UNNotificationResponse) {
+        let userInfo = response.notification.request.content.userInfo
+        guard let url = userInfo["url"] as? String, !url.isEmpty else { return }
+        AppDelegate.pendingTappedURL = url
+        DispatchQueue.main.async { [weak self] in
+            self?.notifyListeners("notificationTapped", data: ["url": url])
+        }
     }
 
     /// Applies a state snapshot pushed from the server (silent background

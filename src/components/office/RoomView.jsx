@@ -9,6 +9,7 @@ import {
   Copy, Check,
 } from "lucide-react";
 import { getRoomAccessCode } from "../../lib/rooms";
+import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import KnockRequests from "./KnockRequests";
 import RoomLayout from "./roomLayout/RoomLayout";
 import LayoutBar from "./roomLayout/LayoutBar";
@@ -57,7 +58,7 @@ function RoomSessionAction({ room, activeSession, busy, onJoin, onStart, current
 
 export default function RoomView({
   room, activeSession, orgTeams, busy, onJoin, onStart,
-  sidebarOpen, onToggleSidebar, onOpenRoomSwitcher, onLeaveRoom,
+  sidebarOpen, mobileSidebarOpen = false, onToggleSidebar, onOpenRoomSwitcher, onLeaveRoom,
   onEditRoom, canEditRoom,
 }) {
   const { theme } = useTheme();
@@ -74,7 +75,7 @@ export default function RoomView({
   // room_secrets returns nothing to anyone else), so it can be grabbed and
   // shared straight from the header.
   const [accessCode, setAccessCode] = useState("");
-  const [codeCopied, setCodeCopied] = useState(false);
+  const [codeCopied, copyCode] = useCopyToClipboard();
   const isCodeRoom = room?.entry_policy === "code";
   useEffect(() => {
     if (!isCodeRoom || !canEditRoom || !room?.id) { setAccessCode(""); return; }
@@ -84,11 +85,7 @@ export default function RoomView({
   }, [room?.id, isCodeRoom, canEditRoom]);
   async function copyAccessCode() {
     if (!accessCode) return;
-    try {
-      await navigator.clipboard.writeText(accessCode);
-      setCodeCopied(true);
-      setTimeout(() => setCodeCopied(false), 1500);
-    } catch { /* clipboard unavailable */ }
+    await copyCode(accessCode);
   }
 
   if (!room) return null;
@@ -194,7 +191,8 @@ export default function RoomView({
     .map((rt) => (orgTeams || []).find((t) => t.id === rt.org_team_id))
     .filter(Boolean);
 
-  const SidebarIcon = sidebarOpen ? PanelLeftClose : PanelLeftOpen;
+  const DesktopSidebarIcon = sidebarOpen ? PanelLeftClose : PanelLeftOpen;
+  const MobileSidebarIcon = mobileSidebarOpen ? PanelLeftClose : PanelLeftOpen;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -204,32 +202,43 @@ export default function RoomView({
         }`}
         style={{ background: `linear-gradient(180deg, ${accent}12, transparent)` }}
       >
-        {/* Split into two groups that stack into two rows when the bar
-            is narrow and collapse back to one row when it's wide. We key
-            off a *container* query (the header's own width) rather than a
-            viewport breakpoint because the room view loses ~288px to the
-            inline widgets sidebar when it's open — so the same viewport
-            can be one row (sidebar closed) or two (sidebar open). The
-            single row only fits once the header is ~576px+ wide, which is
-            roughly a 925px viewport with the sidebar open. */}
+        {/* Stack the controls below the identity until the header container is
+            wide enough for both clusters to share one row without clipping. */}
         <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:gap-3">
-          {/* Identity row — room name, switcher, leave. Grows to fill
-              the bar in one-row mode; the first of two rows when narrow. */}
-          <div className="flex items-center gap-3 min-w-0 @xl:flex-1">
+          {/* Identity — room name, switcher. Grows to fill and truncates. */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            {/* Widgets toggle — opens the pomodoro / room / world-clock / goals
+                sidebar (a full overlay on mobile). Sits left of the room title;
+                shown on every size (larger touch target on mobile). */}
             {onToggleSidebar && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onToggleSidebar}
-                title={sidebarOpen ? "Hide widgets" : "Show widgets"}
-                aria-label={sidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
-                aria-pressed={sidebarOpen}
-                className={`hidden md:inline-flex h-8 w-8 shrink-0 ${
-                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <SidebarIcon className="w-4 h-4" />
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onToggleSidebar}
+                  title={mobileSidebarOpen ? "Hide widgets" : "Show widgets"}
+                  aria-label={mobileSidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
+                  aria-pressed={mobileSidebarOpen}
+                  className={`inline-flex md:hidden h-10 w-10 shrink-0 ${
+                    dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <MobileSidebarIcon className="w-5 h-5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onToggleSidebar}
+                  title={sidebarOpen ? "Hide widgets" : "Show widgets"}
+                  aria-label={sidebarOpen ? "Hide widgets sidebar" : "Show widgets sidebar"}
+                  aria-pressed={sidebarOpen}
+                  className={`hidden md:inline-flex h-8 w-8 shrink-0 ${
+                    dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <DesktopSidebarIcon className="w-4 h-4" />
+                </Button>
+              </>
             )}
 
             {/* Room identity — clickable. Opens the office overlay so
@@ -294,47 +303,6 @@ export default function RoomView({
               </button>
             )}
 
-            {/* Room settings — opens the same RoomSettingsModal used on
-                the team page (name, color, team gating, meeting duration,
-                delete). Only shown to users who can actually edit this
-                room; the RPCs enforce permission server-side regardless. */}
-            {canEditRoom && onEditRoom && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onEditRoom(room)}
-                title="Room settings"
-                aria-label="Room settings"
-                className={`h-8 w-8 shrink-0 ${
-                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <Settings className="w-4 h-4" />
-              </Button>
-            )}
-
-            {/* Leave room — navigates to the hallway, which trips the
-                auto-leave effect in OfficeShell (same path as the
-                overlay's "Leave to hallway"). Kept right next to the
-                name so leaving is a one-click action, not buried in the
-                switcher overlay. */}
-            {onLeaveRoom && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onLeaveRoom}
-                title="Leave room"
-                aria-label="Leave room"
-                className={`h-8 w-8 shrink-0 ${
-                  dark
-                    ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
-                    : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
-                }`}
-              >
-                <LogOut className="w-4 h-4" />
-              </Button>
-            )}
-
             {gatingTeams.length > 0 && (
               <div className="hidden xl:flex flex-wrap items-center gap-1.5">
                 {gatingTeams.map((t) => (
@@ -351,9 +319,10 @@ export default function RoomView({
             )}
           </div>
 
-          {/* Controls row — session status + layout tools. Drops to a
-              second row when the bar is too narrow for one row. */}
-          <div className="flex items-center gap-2 @xl:gap-3 justify-between @xl:justify-end shrink-0">
+          {/* Controls row — session status + add-view + settings/leave.
+              Hugs the right on both mobile (second row) and desktop. Drops to
+              a second row when the bar is too narrow for one row. */}
+          <div className="flex items-center gap-2 @xl:gap-3 justify-end shrink-0">
             <RoomSessionAction
               room={room}
               activeSession={activeSession}
@@ -363,6 +332,8 @@ export default function RoomView({
               currentSyncSession={currentSyncSession}
             />
 
+            {/* Add-view lives here (just before settings); the quick panel
+                toggles + arrange collapse away on mobile, leaving only Add. */}
             <LayoutBar
               addMenu
               onReset={reset}
@@ -376,6 +347,39 @@ export default function RoomView({
               onTogglePanel={togglePanel}
               onAddWeb={() => addWeb("")}
             />
+
+            {/* Settings + Leave — pinned to the far right. Larger touch
+                targets on mobile. */}
+            {canEditRoom && onEditRoom && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onEditRoom(room)}
+                title="Room settings"
+                aria-label="Room settings"
+                className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
+                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Settings className="w-5 h-5 sm:w-4 sm:h-4" />
+              </Button>
+            )}
+            {onLeaveRoom && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onLeaveRoom}
+                title="Leave room"
+                aria-label="Leave room"
+                className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
+                  dark
+                    ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
+                    : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+                }`}
+              >
+                <LogOut className="w-5 h-5 sm:w-4 sm:h-4" />
+              </Button>
+            )}
           </div>
         </div>
       </header>

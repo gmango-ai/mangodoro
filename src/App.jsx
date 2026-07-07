@@ -2,9 +2,11 @@ import { useState, useEffect, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate, Navigate } from "react-router-dom";
 import { App as CapApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
+import { StatusBar, Style } from "@capacitor/status-bar";
 import { supabase } from "./supabase";
-import { isMobileApp } from "./lib/platform";
+import { isMobileApp, getPlatform } from "./lib/platform";
 import { requestNotificationPermissions } from "./lib/nativeNotifications";
+import { addNotificationTapListener, consumePendingNotificationRoute } from "./lib/persistentTimer";
 import AuthPage from "./AuthPage";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -28,6 +30,7 @@ import ClockOutModal from "./components/ClockOutModal";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import WhatsNew from "./components/WhatsNew";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
+import DriveModeSuggest from "./components/DriveModeSuggest";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
 import PomodoroSurface from "./components/pomodoro/PomodoroSurface";
@@ -62,17 +65,19 @@ const JoinRetroPage = lazy(() => import("./pages/JoinRetroPage"));
 const LocalTimerPage = lazy(() => import("./pages/LocalTimerPage"));
 const DevicePairPage = lazy(() => import("./pages/DevicePairPage"));
 const DeviceKioskPage = lazy(() => import("./pages/DeviceKioskPage"));
+const DriveModePage = lazy(() => import("./pages/DriveModePage"));
 import { applyAccent } from "./lib/accent";
 
 // Shared placeholder shown while a lazy route chunk downloads. Dependency-
-// free CSS spinner so it doesn't itself pull anything into the eager bundle.
+// free skeleton page (theme-aware via the dark: variant) so the swap reads
+// as content arriving, not a blank pause.
+const SK = "animate-pulse bg-slate-200/70 dark:bg-[var(--color-surface-raised)]";
 const ROUTE_FALLBACK = (
-  <div className="flex items-center justify-center py-24">
-    <div
-      className="w-6 h-6 rounded-full border-2 border-[var(--color-accent)] border-t-transparent animate-spin"
-      role="status"
-      aria-label="Loading"
-    />
+  <div className="px-4 pt-6 max-w-[1400px] mx-auto space-y-4" role="status" aria-label="Loading">
+    <div className={`h-7 w-44 rounded-lg ${SK}`} />
+    <div className={`h-28 rounded-2xl ${SK}`} />
+    <div className={`h-28 rounded-2xl ${SK}`} />
+    <div className={`h-64 rounded-2xl ${SK}`} />
   </div>
 );
 
@@ -91,6 +96,19 @@ function AppLayout({ session }) {
   useEffect(() => {
     applyAccent(settings.accentColor || "teal", darkMode);
   }, [settings.accentColor, darkMode]);
+
+  // Native status bar follows the in-app theme so it's not a gray/dark band
+  // above a light app. Icon style applies on both platforms; the solid
+  // background + no-overlay is Android-only (iOS keeps its safe-area overlay,
+  // which the layout already accounts for via env(safe-area-inset-top)).
+  useEffect(() => {
+    if (!isMobileApp) return;
+    StatusBar.setStyle({ style: darkMode ? Style.Dark : Style.Light }).catch(() => {});
+    if (getPlatform() === "android") {
+      StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
+      StatusBar.setBackgroundColor({ color: darkMode ? "#0f172a" : "#ffffff" }).catch(() => {});
+    }
+  }, [darkMode]);
 
   // Mount the `.dark` class on <html> rather than a wrapper div. Two reasons:
   //   1. CSS variable inheritance — if `.dark { --color-accent: cyan }` is
@@ -135,6 +153,40 @@ function AppLayout({ session }) {
     return () => {
       window.removeEventListener("mangodoro:nav", onNav);
       window.removeEventListener("mangodoro:route", onNav);
+    };
+  }, [navigate]);
+
+  // Native alert-notification taps → deep-link. The iOS push handler
+  // (PersistentTimerPlugin, fed by the native-push edge fn) reports the route
+  // the alert carried; also drains a route captured before the listener existed
+  // (cold launch straight from the notification). No-op off iOS.
+  useEffect(() => {
+    let disposed = false;
+    let handle;
+    let lastHandledRoute = null;
+    let dedupeTimer;
+    const navigateToNotificationRoute = (url) => {
+      if (disposed || typeof url !== "string" || !url.startsWith("/") || url === lastHandledRoute) return;
+      lastHandledRoute = url;
+      clearTimeout(dedupeTimer);
+      dedupeTimer = setTimeout(() => {
+        if (lastHandledRoute === url) lastHandledRoute = null;
+      }, 1000);
+      navigate(url);
+    };
+    (async () => {
+      handle = await addNotificationTapListener(navigateToNotificationRoute);
+      if (disposed) {
+        handle?.remove?.();
+        return;
+      }
+      const pending = await consumePendingNotificationRoute();
+      navigateToNotificationRoute(pending);
+    })();
+    return () => {
+      disposed = true;
+      clearTimeout(dedupeTimer);
+      handle?.remove?.();
     };
   }, [navigate]);
 
@@ -362,6 +414,7 @@ function AppLayout({ session }) {
               element={<PomodoroPage session={session} onOpenSync={() => setShowSyncModal(true)} />}
             />
             <Route path="/office" element={<OfficePage />} />
+            <Route path="/drive" element={<DriveModePage />} />
             <Route path="/office/r/:roomId" element={<OfficePage />} />
             <Route path="/settings" element={<SettingsPage />} />
             {/* /account merged into /settings → Profile section. */}
@@ -373,6 +426,9 @@ function AppLayout({ session }) {
               call survives page navigation. Renders as a PiP when no
               page has provided a stageEl via VideoCallContext. */}
           <PersistentVideoCall />
+          {/* Car-Bluetooth detector — offers the /drive takeover when a car's
+              hands-free audio device appears. */}
+          <DriveModeSuggest />
         </div>
       </div>
     </div>

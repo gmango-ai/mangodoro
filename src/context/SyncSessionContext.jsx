@@ -61,6 +61,11 @@ export function SyncSessionProvider({ session, children }) {
   const [syncSession, setSyncSession] = useState(null);
   const [syncParticipants, setSyncParticipants] = useState([]);
   const [presenceMap, setPresenceMap] = useState({});
+  // Latest display name without retriggering the presence-channel effect
+  // below — a rename mid-session must not tear down and re-subscribe the
+  // channel + heartbeat (which flaps presence for the whole room).
+  const displayNameRef = useRef(settings?.name);
+  displayNameRef.current = settings?.name;
 
   const clearLocalSession = useCallback(() => {
     setSyncSession(null);
@@ -91,6 +96,7 @@ export function SyncSessionProvider({ session, children }) {
   const rehydrateSyncSessionFromStorage = useCallback(async () => {
     if (rehydrateInFlightRef.current) return;
     rehydrateInFlightRef.current = true;
+    let retryScheduled = false;
     try {
       const adoptSession = async (row) => {
         rehydrateRetriedRef.current = false;
@@ -153,9 +159,13 @@ export function SyncSessionProvider({ session, children }) {
         }
         // Stored hint missed. Could be: session ended, OR cold-load RLS
         // race (token not warm yet). Retry once after a beat before
-        // committing to the "no session" path.
+        // committing to the "no session" path. The in-flight latch stays
+        // held across the wait — a visibility flap or broadcast landing
+        // inside the 600ms window must not start a parallel run (each
+        // would fire its own find_my_active_sync_session).
         if (!error && !rehydrateRetriedRef.current) {
           rehydrateRetriedRef.current = true;
+          retryScheduled = true;
           setTimeout(() => {
             rehydrateInFlightRef.current = false;
             rehydrateSyncSessionFromStorage();
@@ -170,7 +180,7 @@ export function SyncSessionProvider({ session, children }) {
       if (found) return;
       clearLocallyOnly();
     } finally {
-      rehydrateInFlightRef.current = false;
+      if (!retryScheduled) rehydrateInFlightRef.current = false;
     }
   }, []);
 
@@ -256,7 +266,7 @@ export function SyncSessionProvider({ session, children }) {
       if (meMissing && syncSession.join_code && myRow == null) {
         await supabase.rpc("join_sync_session", {
           p_join_code: syncSession.join_code,
-          p_display_name: settings?.name || "",
+          p_display_name: displayNameRef.current || "",
         });
         const { data: p2 } = await fetchSyncParticipants(sessionId);
         setSyncParticipants(p2 || []);
@@ -347,7 +357,7 @@ export function SyncSessionProvider({ session, children }) {
       clearInterval(heartbeatId);
       supabase.removeChannel(channel);
     };
-  }, [syncSession?.id, syncSession?.join_code, session?.user?.id, settings?.name, clearLocalSession]);
+  }, [syncSession?.id, syncSession?.join_code, session?.user?.id, clearLocalSession]);
 
   const leaveSession = useCallback(async () => {
     if (syncSession) {

@@ -9,7 +9,10 @@ import { readFileSync, mkdirSync } from "node:fs";
 const SVG_PATH = "public/logo.svg";
 const OUT_DIR = "assets";
 
-const BRAND_TEAL = "#0d9488";
+const BRAND_ORANGE = "#EF8148";
+// Diagonal brand gradient sampled from the master logo (top-left → bottom-right).
+const GRAD_TL = "#EC785A";
+const GRAD_BR = "#F6A40A";
 const LIGHT_BG = "#ffffff";
 const DARK_BG = "#0f172a";
 const WHITE = "#ffffff";
@@ -31,17 +34,24 @@ async function renderLogo(color, size) {
     .toBuffer();
 }
 
-async function composite({ canvasSize, bgColor, logoColor, logoScale, outPath }) {
+// A diagonal linear-gradient background rasterised at `size`.
+async function gradientBg(size, c1, c2) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">`
+    + `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">`
+    + `<stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/>`
+    + `</linearGradient></defs><rect width="${size}" height="${size}" fill="url(#g)"/></svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+async function composite({ canvasSize, bgColor, bgGradient, logoColor, logoScale, outPath }) {
   const logoSize = Math.round(canvasSize * logoScale);
   const logoBuf = await renderLogo(logoColor, logoSize);
-  await sharp({
-    create: {
-      width: canvasSize,
-      height: canvasSize,
-      channels: 4,
-      background: bgColor,
-    },
-  })
+  const base = bgGradient
+    ? sharp(await gradientBg(canvasSize, bgGradient[0], bgGradient[1]))
+    : sharp({
+        create: { width: canvasSize, height: canvasSize, channels: 4, background: bgColor },
+      });
+  await base
     .composite([{
       input: logoBuf,
       top: Math.round((canvasSize - logoSize) / 2),
@@ -56,11 +66,11 @@ mkdirSync(OUT_DIR, { recursive: true });
 
 console.log("Generating app assets from public/logo.svg…");
 
-// iOS / primary Android icon: white logo on solid teal. 0.6 fill ratio
-// gives iOS-style margins without looking small.
+// iOS / primary Android icon: white logo on the brand gradient. 0.6 fill
+// ratio gives iOS-style margins without looking small.
 await composite({
   canvasSize: 1024,
-  bgColor: BRAND_TEAL,
+  bgGradient: [GRAD_TL, GRAD_BR],
   logoColor: WHITE,
   logoScale: 0.6,
   outPath: `${OUT_DIR}/icon-only.png`,
@@ -79,8 +89,8 @@ await composite({
 });
 await composite({
   canvasSize: 1024,
-  bgColor: BRAND_TEAL,
-  logoColor: BRAND_TEAL, // logo invisible — background only
+  bgGradient: [GRAD_TL, GRAD_BR],
+  logoColor: WHITE, // logo invisible at this scale — background only
   logoScale: 0.01,
   outPath: `${OUT_DIR}/icon-background.png`,
 });
@@ -92,7 +102,7 @@ await composite({
 await composite({
   canvasSize: 2732,
   bgColor: LIGHT_BG,
-  logoColor: BRAND_TEAL,
+  logoColor: BRAND_ORANGE,
   logoScale: 0.22,
   outPath: `${OUT_DIR}/splash.png`,
 });
