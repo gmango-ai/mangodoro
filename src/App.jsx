@@ -109,7 +109,7 @@ function AppLayout({ session }) {
   // which the layout already accounts for via env(safe-area-inset-top)).
   useEffect(() => {
     if (!isMobileApp) return;
-    StatusBar.setStyle({ style: darkMode ? Style.Dark : Style.Light }).catch(() => {});
+    StatusBar.setStyle({ style: darkMode ? Style.Light : Style.Dark }).catch(() => {});
     if (getPlatform() === "android") {
       StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
       StatusBar.setBackgroundColor({ color: darkMode ? "#0f172a" : "#ffffff" }).catch(() => {});
