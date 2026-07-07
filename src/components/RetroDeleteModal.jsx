@@ -2,6 +2,7 @@ import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { X, AlertTriangle, Trash2 } from "lucide-react";
 import { formatRetroWeek } from "../lib/retro";
+import Modal from "./Modal";
 
 // Hard-delete confirmation. The action is destructive and cascades to
 // retro_cards + retro_guests, but we trust admins to read the message
@@ -17,10 +18,8 @@ export default function RetroDeleteModal({ open, onClose, retro, busy, onConfirm
   const retroName = retro.org_team_name || retro.department || "Team";
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4"
-      onClick={onClose}
-    >
+    // No backdrop/Escape dismissal mid-delete — matches the disabled Cancel.
+    <Modal onClose={busy ? undefined : onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className={`relative w-full max-w-md rounded-2xl border p-5 sm:p-6 ${
@@ -29,7 +28,8 @@ export default function RetroDeleteModal({ open, onClose, retro, busy, onConfirm
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={busy ? undefined : onClose}
+          disabled={busy}
           className={`absolute top-3 right-3 p-1.5 rounded-lg ${
             dark ? "hover:bg-[var(--color-surface-raised)] text-slate-400" : "hover:bg-slate-100 text-slate-500"
           }`}
@@ -80,6 +80,6 @@ export default function RetroDeleteModal({ open, onClose, retro, busy, onConfirm
           </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

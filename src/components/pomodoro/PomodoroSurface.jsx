@@ -19,6 +19,7 @@ import PendingActionBanner from "./PendingActionBanner";
 import AlarmStopBanner from "./AlarmStopBanner";
 import MeetingCountdown from "./MeetingCountdown";
 import GoalsList from "../GoalsList";
+import StatusChip from "../StatusChip";
 import { useWeekGoals } from "../../hooks/useWeekGoals";
 import { useTimerTitleAndBadge } from "./useTimerTitleAndBadge";
 import {
@@ -207,7 +208,11 @@ export default function PomodoroSurface({
       // z-[160] keeps this floating panel above the persistent video
       // call (z-150 in PersistentVideoCall) so the PiP/stage no longer
       // bleeds over the timer, while staying below ESC-able modals (180+).
-      return `fixed bottom-[calc(0.75rem+var(--bottom-inset))] right-3 left-3 sm:left-auto sm:bottom-6 sm:right-6 z-[160] sm:w-[26rem] max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
+      // Mobile: drop DOWN from just under the top bar (that's where the row-2
+      // pomodoro button lives), top-aligned + full width. Desktop (xl+): keep it
+      // bottom-right, anchored near the edge pull-tab FAB. Height is capped to
+      // the visible area either way so it can't run off-screen (scrolls instead).
+      return `fixed top-[calc(var(--nav-h)+var(--top-inset)+0.5rem)] right-3 left-3 xl:top-auto xl:left-auto xl:bottom-6 xl:right-6 z-[160] xl:w-[26rem] max-h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset)-1rem)] xl:max-h-[calc(100dvh-var(--top-inset)-3rem)] overflow-y-auto rounded-3xl border p-5 shadow-2xl transition-all ${
         !open && !(controlsLocked && !pipMountEl && !pendingDismissed) ? "hidden" : ""
       } ${
         dark
@@ -285,13 +290,13 @@ export default function PomodoroSurface({
                   type="button"
                   onClick={openPictureInPicture}
                   title="Pop out"
-                  className={`w-8 h-8 rounded-full inline-flex items-center justify-center transition-colors ${
+                  className={`w-11 h-11 sm:w-8 sm:h-8 rounded-full inline-flex items-center justify-center transition-colors ${
                     dark
                       ? "border border-[var(--color-border)] bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100"
                       : "border border-slate-200 bg-white text-slate-500 hover:text-slate-800"
                   }`}
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <ExternalLink className="w-5 h-5 sm:w-3.5 sm:h-3.5" />
                 </button>
               )}
               {cfg.showClose && (
@@ -299,13 +304,13 @@ export default function PomodoroSurface({
                   type="button"
                   onClick={handleClose}
                   title="Close"
-                  className={`w-8 h-8 rounded-full inline-flex items-center justify-center transition-colors ${
+                  className={`w-11 h-11 sm:w-8 sm:h-8 rounded-full inline-flex items-center justify-center transition-colors ${
                     dark
                       ? "border border-[var(--color-border)] bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100"
                       : "border border-slate-200 bg-white text-slate-500 hover:text-slate-800"
                   }`}
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-5 h-5 sm:w-3.5 sm:h-3.5" />
                 </button>
               )}
             </div>
@@ -315,6 +320,13 @@ export default function PomodoroSurface({
         <div className="space-y-4">
           {/* Mode picker — pill tabs */}
           <ModePicker />
+
+          {/* Unified status — glanceable resolved status right on the timer
+              surface, click to set an override. Ties the status system to the
+              pomodoro clock so "what I'm doing" travels with your focus. */}
+          <div className="flex justify-center">
+            <StatusChip />
+          </div>
 
           {/* Pending action confirm */}
           {controlsLocked && <PendingActionBanner />}
@@ -355,7 +367,7 @@ export default function PomodoroSurface({
                 type="button"
                 onClick={() => setExtrasOpen((o) => !o)}
                 aria-expanded={extrasOpen}
-                className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center justify-center gap-1.5 py-3 sm:py-2 rounded-lg text-xs font-medium transition-colors ${
                   dark
                     ? "text-slate-400 hover:text-slate-200 hover:bg-[var(--color-surface-raised)]"
                     : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"

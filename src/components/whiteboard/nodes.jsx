@@ -1,4 +1,4 @@
-import { lazy, Suspense, memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
 import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
 import { nodeAbsPos, sortParentsFirst } from "./frame";
 import { Target, ChevronDown, Building2, User, Star, X, Plus, CalendarClock, Check } from "lucide-react";
@@ -8,6 +8,7 @@ import { useApp } from "../../context/AppContext";
 import { useTheme } from "../../context/ThemeContext";
 import { setGoal, clearGoalNode, GOAL_TIMEFRAMES, timeframeToParams } from "../../lib/goals";
 import { fontStack } from "../../lib/whiteboardFonts";
+import FullEmojiPicker from "../emotes/FullEmojiPicker";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -69,7 +70,6 @@ function taskListComponents(value, onChange) {
 
 // Full emoji picker for sticky reactions — lazy so its chunk only loads
 // when someone opens it.
-const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
 // Preferred sticky colour (per device) — new stickies (toolbar + frame
 // double-click) use it; changing a sticky's colour updates it.
@@ -79,6 +79,17 @@ export function preferredStickyColor() {
 }
 export function setPreferredStickyColor(c) {
   try { localStorage.setItem(STICKY_COLOR_KEY, c); } catch { /* */ }
+}
+
+// Preferred flowchart shape (per device) — the toolbar's shape button drops it
+// with ONE click (no dropdown); the caret opens the full catalogue and updates
+// it. Lets you lay down a chain of the same shape fast.
+const SHAPE_KEY = "ql_wb_shape";
+export function preferredShape() {
+  try { return localStorage.getItem(SHAPE_KEY) || "process"; } catch { return "process"; }
+}
+export function setPreferredShape(k) {
+  try { localStorage.setItem(SHAPE_KEY, k); } catch { /* */ }
 }
 
 let _sid = 1;
@@ -331,12 +342,78 @@ function useNodeDataPatcher(id) {
 // the DRAG DIRECTION (so the arrow points where you dragged). The prior
 // design stacked an invisible target handle over each source handle,
 // which made drags start on the target and reversed the arrow.
+// Provided by WhiteboardPage: quickConnect(fromNodeId, side) drops a connected
+// shape on that side. Powers the shape's directional "create connected node"
+// arrows. Null when unavailable (e.g. the read-only kiosk).
+export const QuickConnectContext = createContext(null);
+
+// Directional arrows around a shape (shown on hover/select). They are real
+// React Flow connection Handles, so ONE affordance does both gestures:
+//   • CLICK  → drops a connected, parent-matching shape on that side.
+//   • DRAG   → pull a connector out; drop on empty canvas (new node where you
+//              release) or onto an existing node (connect them). Press 1–9 mid-
+//              drag to choose the new shape.
+// They replace the tiny edge dots on shapes (same t/r/b/l ids, so all the
+// connection logic — onConnectStart/End, ghost, routing — is unchanged).
+// Coarse pointer (touch): fingers need a bigger target, and the arrows sit
+// farther out to clear the fingertip. Desktop keeps the compact 20px dots.
+const NODE_TOUCH =
+  typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+const ARROW_SZ = NODE_TOUCH ? 32 : 20;
+const ARROW_OFF = NODE_TOUCH ? -40 : -24;
+const QUICK_ARROWS = [
+  ["t", "▲", Position.Top, { top: ARROW_OFF, left: "50%", transform: "translateX(-50%)" }],
+  ["r", "▶", Position.Right, { right: ARROW_OFF, top: "50%", transform: "translateY(-50%)" }],
+  ["b", "▼", Position.Bottom, { bottom: ARROW_OFF, left: "50%", transform: "translateX(-50%)" }],
+  ["l", "◀", Position.Left, { left: ARROW_OFF, top: "50%", transform: "translateY(-50%)" }],
+];
+function QuickConnectArrows({ id, color }) {
+  const api = useContext(QuickConnectContext);
+  const onHover = api?.onHover;
+  const connect = api?.connect;
+  const pickedShape = api?.pickedShape;
+  return (
+    <>
+      {QUICK_ARROWS.map(([side, glyph, position, pos]) => (
+        <Handle
+          key={side}
+          type="source"
+          position={position}
+          id={side}
+          className="wb-quick-arrow nodrag nopan"
+          title="Click to add a connected shape, or drag to place it · press 1–9 to pick its shape"
+          onMouseEnter={() => onHover?.(true)}
+          onMouseLeave={() => onHover?.(false)}
+          onClick={(e) => { e.stopPropagation(); connect?.(id, side); }}
+          style={{
+            width: ARROW_SZ, height: ARROW_SZ,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            borderRadius: 9999, fontSize: NODE_TOUCH ? 13 : 9, lineHeight: 1, color: "#fff",
+            background: color, border: "1.5px solid #fff",
+            boxShadow: "0 1px 3px rgba(0,0,0,.3)", cursor: "crosshair", zIndex: 8, ...pos,
+          }}
+        >
+          {/* Pre-picked shape (via number keys) previews here; else a direction
+              arrow. pointer-events off so the Handle beneath owns the gesture. */}
+          {pickedShape ? (
+            <svg width={NODE_TOUCH ? 18 : 12} height={NODE_TOUCH ? 14 : 9} viewBox="0 0 12 9" style={{ display: "block", pointerEvents: "none" }}>
+              <ShapeSvg shape={pickedShape} w={12} h={9} fill="none" stroke="#fff" sw={1.2} />
+            </svg>
+          ) : (
+            <span style={{ pointerEvents: "none" }}>{glyph}</span>
+          )}
+        </Handle>
+      ))}
+    </>
+  );
+}
+
 function FourHandles() {
   // Visibility + pointer-events are driven by CSS (.wb-conn-handle) so the
   // dots only appear/intercept on node hover or selection — the body stays
   // grabbable for moving. zIndex keeps them above the resizer edge lines.
   const base = {
-    width: 12, height: 12, background: "#0ea5e9",
+    width: NODE_TOUCH ? 20 : 12, height: NODE_TOUCH ? 20 : 12, background: "#0ea5e9",
     border: "2px solid #fff", borderRadius: 9999,
     zIndex: 12,
   };
@@ -442,20 +519,7 @@ function NodeReactions({ id, data, selected, style }) {
         <>
           <div className="nodrag" onPointerDown={(e) => { stop(e); setEmojiOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
           <div className="nodrag nowheel" onPointerDown={stop} style={{ zIndex: 60, borderRadius: 12, overflow: "hidden", boxShadow: "0 16px 36px -16px rgba(0,0,0,.5)" }}>
-            <Suspense fallback={null}>
-              <EmojiPicker
-                onEmojiClick={(d) => { react(d.emoji); setEmojiOpen(false); }}
-                theme={dark ? "dark" : "light"}
-                emojiStyle="native"
-                width={300}
-                height={360}
-                lazyLoadEmojis
-                autoFocusSearch={false}
-                skinTonesDisabled
-                previewConfig={{ showPreview: false }}
-                searchPlaceholder="Search emoji"
-              />
-            </Suspense>
+            <FullEmojiPicker dark={dark} height={360} onPick={(g) => { react(g); setEmojiOpen(false); }} />
           </div>
         </>
       )}
@@ -597,28 +661,86 @@ function WidthHandle({ id, rootRef }) {
   );
 }
 
+// Bottom drag strip that PINS a text node's height (data.h) — the box then has a
+// fixed height and clips overflow (with a reveal control). Mirrors WidthHandle;
+// double-click releases the height back to auto-hug. Pair with WidthHandle to
+// shape the box in both dimensions.
+function HeightHandle({ id, rootRef }) {
+  const { setNodes, getViewport } = useReactFlow();
+  const onPointerDown = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = rootRef.current?.offsetHeight || 100;
+    const zoom = getViewport().zoom || 1;
+    const move = (ev) => {
+      const h = Math.max(40, Math.round(startH + (ev.clientY - startY) / zoom));
+      setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, h } } : n)));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const release = (e) => {
+    e.stopPropagation();
+    setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, h: undefined } } : n)));
+  };
+  return (
+    <div
+      className="nodrag nowheel"
+      onPointerDown={onPointerDown}
+      onDoubleClick={release}
+      title="Drag to set height · double-click to auto-fit"
+      style={{
+        position: "absolute", left: 6, right: 6, bottom: -5, height: 8,
+        cursor: "ns-resize", borderRadius: 4, background: SELECT, opacity: 0.55, zIndex: 6,
+      }}
+    />
+  );
+}
+
 export const TextNode = memo(function TextNode({ id, data, selected }) {
   const setText = useNodeTextUpdater(id);
+  const { setNodes } = useReactFlow();
   const rootRef = useRef(null);
+  const contentRef = useRef(null);
+  const [overflowing, setOverflowing] = useState(false);
   // Optional background turns a text node into a label / chip / callout. When a
   // fill is set the default text colour auto-contrasts against it (like sticky
   // and shape do); radius + padding round the chip.
   const fill = data?.fill || null;
   const radius = data?.radius ?? 8;
   const textColor = data?.textColor || (fill ? readableText(fill) : "var(--color-text)");
-  // Width modes: a text node hugs its content by DEFAULT (grows horizontally as
-  // you type). Drag the right handle to pin a width (data.w) — text then wraps to
-  // that width and the HEIGHT auto-fits, because we never set an explicit node
-  // height (React Flow measures the wrapped content). Double-click the handle to
-  // release the width back to auto-hug.
-  const fixed = typeof data?.w === "number" && data.w > 0;
+  // Box modes: a text node hugs its content by DEFAULT (grows as you type). Drag
+  // the RIGHT handle to pin a width (data.w) — text wraps to it, height auto-fits.
+  // Drag the BOTTOM handle to pin a height (data.h) — the box is then fixed and
+  // clips overflow, with a "show all" reveal. Double-click a handle to release.
+  const fixedW = typeof data?.w === "number" && data.w > 0;
+  const fixedH = typeof data?.h === "number" && data.h > 0;
+
+  // Detect clipped overflow so we can flag it + offer a reveal.
+  useEffect(() => {
+    if (!fixedH) { setOverflowing(false); return; }
+    const el = contentRef.current;
+    if (!el) return;
+    setOverflowing(el.scrollHeight - el.clientHeight > 2);
+  }, [fixedH, data?.h, data?.w, data?.text, data?.fontSize]);
+
+  const revealAll = (e) => {
+    e.stopPropagation();
+    setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, h: undefined } } : n)));
+  };
+
   return (
     <div
       ref={rootRef}
       style={{
         position: "relative",
-        width: fixed ? data.w : undefined,
-        minWidth: fixed ? undefined : 180,
+        width: fixedW ? data.w : undefined,
+        minWidth: fixedW ? undefined : 180,
         padding: fill ? (TEXT_PAD[data?.pad] || TEXT_PAD.md) : "8px 12px",
         background: fill || (selected ? SELECT_FILL : "transparent"),
         borderRadius: radius,
@@ -626,18 +748,56 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
         color: textColor,
       }}
     >
-      <FourHandles visible={false} />
-      <EditableText
-        value={data?.text}
-        onChange={setText}
-        placeholder="Type some text…"
-        nodeId={id}
-        selected={selected}
-        markdown
-        wrap={fixed}
-        style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
-      />
+      {/* Text is a label, not a flowchart box — no connection handles (you draw
+          edges between shapes, not from text). */}
+      <div
+        ref={contentRef}
+        style={fixedH ? { height: data.h, overflow: "hidden" } : undefined}
+      >
+        <EditableText
+          value={data?.text}
+          onChange={setText}
+          placeholder="Type some text…"
+          nodeId={id}
+          selected={selected}
+          markdown
+          wrap={fixedW || fixedH}
+          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
+        />
+      </div>
+      {/* Clipped-overflow affordance: a "…" while idle, a "show all" (releases
+          the pinned height so it auto-fits) when selected. */}
+      {fixedH && overflowing && (
+        selected ? (
+          <button
+            type="button"
+            className="nodrag"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={revealAll}
+            title="Show all text (auto-fit height)"
+            style={{
+              position: "absolute", right: 4, bottom: 3, zIndex: 7,
+              fontSize: 10, fontWeight: 700, lineHeight: 1,
+              padding: "2px 6px", borderRadius: 9999,
+              background: SELECT, color: "#fff", border: "none", cursor: "pointer",
+            }}
+          >
+            … show all
+          </button>
+        ) : (
+          <span
+            aria-hidden
+            style={{
+              position: "absolute", right: 6, bottom: 2, zIndex: 7,
+              fontWeight: 800, opacity: 0.55, pointerEvents: "none", color: textColor,
+            }}
+          >
+            …
+          </span>
+        )
+      )}
       {selected && !data?.locked && <WidthHandle id={id} rootRef={rootRef} />}
+      {selected && !data?.locked && <HeightHandle id={id} rootRef={rootRef} />}
     </div>
   );
 });
@@ -793,7 +953,8 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
       >
         <ShapeSvg shape={shape} w={size.w} h={size.h} fill={fill} stroke={stroke} sw={sw} dash={dash} cap={cap} />
       </svg>
-      <FourHandles />
+      {/* Arrow handles ARE the connect points now (click = add, drag = place). */}
+      <QuickConnectArrows id={id} color={stroke} />
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: vAlignFlex(data?.vAlign), justifyContent: "center", padding: "10px 14px" }}>
         <div ref={growRef} style={{ width: "100%", minWidth: 0 }}>
           <EditableText

@@ -32,7 +32,7 @@ export default function SyncCodeRow() {
             type="button"
             onClick={() => navigator.clipboard?.writeText(syncSession.join_code)}
             title="Copy code"
-            className="inline-flex items-center gap-2 text-lg font-mono font-bold tracking-wider text-[var(--color-accent)]"
+            className="inline-flex items-center gap-2 min-h-[44px] sm:min-h-0 text-lg font-mono font-bold tracking-wider text-[var(--color-accent)]"
           >
             {syncSession.join_code}
             <Copy className={`w-3.5 h-3.5 opacity-60 ${dark ? "text-slate-400" : "text-slate-500"}`} />
@@ -43,7 +43,7 @@ export default function SyncCodeRow() {
         type="button"
         onClick={() => navigator.clipboard?.writeText(shareUrl)}
         title="Copy invite link"
-        className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold transition-colors shrink-0 ${
+        className={`inline-flex items-center gap-1.5 px-4 py-3 sm:py-2 rounded-full text-sm font-semibold transition-colors shrink-0 ${
           isController
             ? "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] shadow-sm"
             : dark

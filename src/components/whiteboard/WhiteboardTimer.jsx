@@ -209,8 +209,8 @@ export default function WhiteboardTimer({ boardId, dark }) {
 
       <TimerIcon className="w-4 h-4" style={{ color: finished ? "#ef4444" : "var(--color-accent)" }} />
       <span
-        className="font-bold tabular-nums text-[17px] tracking-tight"
-        style={{ color: finished ? "#ef4444" : dark ? "#f1f5f9" : "#0f172a", minWidth: 46, textAlign: "center" }}
+        className="font-bold tabular-nums text-[15px] sm:text-[17px] tracking-tight"
+        style={{ color: finished ? "#ef4444" : dark ? "#f1f5f9" : "#0f172a", minWidth: 42, textAlign: "center" }}
       >
         {fmt(remaining)}
       </span>

@@ -3,15 +3,9 @@ import { Briefcase, Coffee } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useClockedIn } from "../../hooks/useClockedIn";
+import { formatSince } from "../../lib/utils";
 import UserAvatar from "../UserAvatar";
 import Popover from "../goals/Popover";
-
-function elapsedSince(iso) {
-  if (!iso) return "";
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (diff <= 0) return "just now";
-  return diff >= 60 ? `${Math.floor(diff / 60)}h ${diff % 60}m` : `${diff}m`;
-}
 
 // Compact "who's working now" pill for the top bar — a count that opens a
 // roster of clocked-in teammates (task + elapsed). Hidden when nobody's working.
@@ -67,7 +61,7 @@ export default function WorkingNowBar({ dark }) {
                   {r.on_break ? (
                     <span className="inline-flex items-center gap-1 text-orange-400"><Coffee className="w-2.5 h-2.5" /> on lunch</span>
                   ) : (
-                    <>{r.task?.trim() ? r.task : "working"} · {elapsedSince(r.clocked_in_at)}</>
+                    <>{r.task?.trim() ? r.task : "working"} · {formatSince(r.clocked_in_at)}</>
                   )}
                 </span>
               </span>

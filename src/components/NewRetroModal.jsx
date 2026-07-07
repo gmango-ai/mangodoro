@@ -6,6 +6,7 @@ import { X, Briefcase, Sparkles, Users } from "lucide-react";
 import { getOrCreateCurrentRetro } from "../lib/retro";
 import { createOrgTeam } from "../lib/orgTeam";
 import { useApp } from "../context/AppContext";
+import Modal from "./Modal";
 
 // Modal for explicitly starting a retro. The user picks an org_team
 // (chip selector) or types a new team name on the fly. Admins who
@@ -91,10 +92,7 @@ export default function NewRetroModal({
   }`;
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4"
-      onClick={onClose}
-    >
+    <Modal onClose={onClose}>
       <form className={cardCls} onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <button
           type="button"
@@ -220,6 +218,6 @@ export default function NewRetroModal({
           </Button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

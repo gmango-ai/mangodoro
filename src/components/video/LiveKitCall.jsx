@@ -20,10 +20,11 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, ChevronUp, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, RotateCw, MoreHorizontal } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
+import { useVideoCall } from "../../context/VideoCallContext";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
@@ -33,6 +34,9 @@ import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttemp
 import { diagReset, diagRecord, diagReport, diagEnv } from "./livekitDiagnostics";
 import { useFullscreen } from "./useFullscreen";
 import { useGlobalPin } from "./useGlobalPin";
+import { useDriveBridge } from "./useDriveBridge";
+import { useDeviceRotation } from "./useDeviceRotation";
+import { playHandRaise } from "../../lib/uiSounds";
 import { pickBestMicrophone } from "./bestMic";
 import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
@@ -175,7 +179,42 @@ function bgToOptions(bg, customBg) {
 // Per-device self-view prefs shared from the control bar down to the tiles:
 //   mirror — flip your own camera horizontally (your view only)
 //   float  — render your own tile as a draggable PiP instead of a grid cell
-const SelfViewContext = createContext({ mirror: true, float: true, setMirror: () => {}, setFloat: () => {} });
+const SelfViewContext = createContext({ mirror: true, float: true, fit: "cover", selfRotate: 0, setMirror: () => {}, setFloat: () => {} });
+
+const RoomEntryHoldContext = createContext({
+  entryHoldPending: false,
+  beginEntryHold: () => {},
+});
+
+function RoomEntryHoldProvider({ children }) {
+  const { cluster } = useRoomCluster();
+  const [entryHoldPending, setEntryHoldPending] = useState(false);
+
+  useEffect(() => {
+    if (cluster) setEntryHoldPending(false);
+  }, [cluster]);
+
+  useEffect(() => {
+    if (!entryHoldPending) return undefined;
+    // Do not leave the call muted forever if the signal request never lands.
+    const t = setTimeout(() => setEntryHoldPending(false), 5000);
+    return () => clearTimeout(t);
+  }, [entryHoldPending]);
+
+  const value = useMemo(
+    () => ({
+      entryHoldPending,
+      beginEntryHold: () => setEntryHoldPending(true),
+    }),
+    [entryHoldPending],
+  );
+
+  return <RoomEntryHoldContext.Provider value={value}>{children}</RoomEntryHoldContext.Provider>;
+}
+
+function useRoomEntryHold() {
+  return useContext(RoomEntryHoldContext);
+}
 
 // "Pin for everyone" control, shared from the call down to each tile + the
 // People panel so the affordance shows wherever it's useful. `canPin` is gated
@@ -273,10 +312,27 @@ function useHandRaiseValue() {
   const myId = localParticipant?.identity;
   const myRaised = !!myId && raised.some((r) => r.identity === myId);
 
+  // Play a cue when SOMEONE ELSE raises their hand (not you, and not for hands
+  // already up when you joined). Tracks the previous set of raised remote ids
+  // and fires once when a new one appears.
+  const handCueJoinedAtRef = useRef(Date.now());
+  const prevRaisedRef = useRef(null);
+  useEffect(() => {
+    if (!myId) return;
+    const remoteRaised = raised.filter((r) => r.identity && r.identity !== myId);
+    const remote = new Set(remoteRaised.map((r) => r.identity));
+    const prev = prevRaisedRef.current;
+    for (const r of remoteRaised) {
+      if ((!prev || !prev.has(r.identity)) && r.ts > handCueJoinedAtRef.current) { playHandRaise(); break; }
+    }
+    prevRaisedRef.current = remote;
+  }, [raised, myId]);
+
   const toggle = useCallback(() => {
     if (!localParticipant || room?.state !== "connected") return;
     const raisedNow = !!localParticipant.attributes?.[ATTR_HAND];
     localParticipant.setAttributes({ [ATTR_HAND]: raisedNow ? "" : String(Date.now()) }).catch(() => {});
+    if (!raisedNow) playHandRaise(); // confirmation cue when YOU raise (Zoom-style)
     setTick((n) => n + 1); // optimistic — don't wait for the echo
   }, [localParticipant, room]);
 
@@ -291,9 +347,17 @@ function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
   const { cluster, isMicSource, existingCluster, mergeTarget, startRoom, joinRoom } = useRoomCluster();
+  const { entryHoldPending } = useRoomEntryHold();
   const bestMicAppliedRef = useRef(false);
   const enteredRef = useRef(false);
   const inRoom = !!choices?.inRoom;
+  // Sticky "we've actually been in a cluster this call". `inRoom` is a STATIC
+  // pre-join intent that stays true after you leave the room's audio (leaveRoom
+  // clears the cluster attribute, not choices) — so on its own it wrongly keeps
+  // the mic + call audio held off forever. Once clustered, leaving must restore
+  // both; this ref is what distinguishes "still entering" from "entered & left".
+  const clusteredRef = useRef(false);
+  if (cluster) clusteredRef.current = true;
 
   // "I'm in this room" pre-join: on entry, join the room's audio cluster as a
   // muted follower (or found it if you're first) BEFORE the mic comes up, so
@@ -363,10 +427,13 @@ function PublishController({ publish, choices, micMuted }) {
     if (!localParticipant || !room) return undefined;
     const applyMic = () => {
       // Your mic is live only when YOU haven't muted it AND (solo, or you're the
-      // room's mic source). While entering "in this room" but not yet clustered,
+      // room's mic source). While ENTERING "in this room" but not yet clustered,
       // hold the mic off so it can't squeal before the follower/mic-source role
-      // resolves.
-      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !inRoom);
+      // resolves — but NOT after you've been in a cluster and left (clusteredRef),
+      // where "in this room" lingers. Manual re-entry sets entryHoldPending for
+      // the same pre-cluster safety window.
+      const holdForEntry = entryHoldPending || (inRoom && !clusteredRef.current);
+      const wantAudio = publish && !micMuted && (cluster ? isMicSource : !holdForEntry);
       localParticipant
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
@@ -374,7 +441,7 @@ function PublishController({ publish, choices, micMuted }) {
     room.on(RoomEvent.Connected, applyMic);
     if (room.state === "connected") applyMic();
     return () => room.off(RoomEvent.Connected, applyMic);
-  }, [localParticipant, room, publish, micMuted, cluster, isMicSource, inRoom, choices?.audioDeviceId]);
+  }, [localParticipant, room, publish, micMuted, cluster, isMicSource, inRoom, choices?.audioDeviceId, entryHoldPending]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
@@ -542,9 +609,15 @@ function AutoMicController({ enabled }) {
 // room would double up and echo. Solo participants render normally.
 function ClusterAudioRenderer({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
+  const { entryHoldPending } = useRoomEntryHold();
   // holdForEntry: while joining "in this room" but before the cluster attribute
-  // has landed, stay silent so our speakers can't feed a co-located mic.
-  if ((cluster && !isAudioSink) || (holdForEntry && !cluster)) return null;
+  // has landed, stay silent so our speakers can't feed a co-located mic. Only
+  // hold WHILE still entering — once we've been in a cluster, leaving it must
+  // restore the call audio. Manual re-entry re-arms the hold until clustering lands.
+  const enteredRef = useRef(false);
+  if (cluster) enteredRef.current = true;
+  const hold = entryHoldPending || (holdForEntry && !enteredRef.current);
+  if ((cluster && !isAudioSink) || (hold && !cluster)) return null;
   return <RoomAudioRenderer />;
 }
 
@@ -557,7 +630,13 @@ function ClusterAudioRenderer({ holdForEntry = false }) {
 // they don't subscribe either. Re-subscribes the moment they become the sink.
 function FollowerAudioGate({ holdForEntry = false }) {
   const { cluster, isAudioSink } = useRoomCluster();
-  const suppress = (!!cluster && !isAudioSink) || (holdForEntry && !cluster);
+  const { entryHoldPending } = useRoomEntryHold();
+  // Release the entry hold once we've actually clustered (see ClusterAudioRenderer)
+  // so leaving the room re-subscribes us; manual re-entry re-arms it.
+  const enteredRef = useRef(false);
+  if (cluster) enteredRef.current = true;
+  const hold = entryHoldPending || (holdForEntry && !enteredRef.current);
+  const suppress = (!!cluster && !isAudioSink) || (hold && !cluster);
   const audioTracks = useTracks(
     [Track.Source.Microphone, Track.Source.ScreenShareAudio],
     { onlySubscribed: false },
@@ -843,6 +922,7 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
     cluster, members, isMicSource, isAudioSink, existingCluster,
     startRoom, joinRoom, takeSpeaker, stepDown, takeSink, releaseSink, leaveRoom,
   } = useRoomCluster();
+  const { beginEntryHold } = useRoomEntryHold();
   const roles = useClusterRoles();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -860,6 +940,11 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
 
   if (!cluster) {
     const joining = !!existingCluster;
+    const enterRoom = () => {
+      beginEntryHold();
+      if (joining) joinRoom(existingCluster);
+      else startRoom();
+    };
     return (
       <button
         type="button"
@@ -870,7 +955,7 @@ function RoomClusterButton({ autoMic, onToggleAutoMic }) {
             : "In a room with teammates? Make this the room speaker so you don't echo each other"
         }
         aria-label={joining ? "Join the room's shared audio" : "Make this the room speaker"}
-        onClick={() => (joining ? joinRoom(existingCluster) : startRoom())}
+        onClick={enterRoom}
       >
         {/* Speaker (not a people icon) so this "share the room's audio" control
             isn't confused with the People / participants button. */}
@@ -1123,6 +1208,46 @@ function LayoutMenu({ mode, onSet, ignoreSelf, onToggleIgnoreSelf }) {
 // The reactions popup (Google-Meet style) is centered on the bar FRAME, not
 // on the off-center smiley button — so it stays put regardless of how many
 // controls flank it.
+// Overflow "More" menu — houses the less-frequent utility actions (pop-out,
+// deafen, fullscreen) so the control bar stays uncluttered. A tap on any item
+// runs it and closes the menu.
+function MoreMenu({ children }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        className="lk-button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More options"
+        title="More"
+      >
+        <MoreHorizontal className="w-5 h-5" />
+      </button>
+      {open && (
+        <div className="call-menu absolute bottom-full mb-2 right-0 z-20 w-[220px]" onClick={() => setOpen(false)}>
+          <div className="call-menu-label">More</div>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CallControlBar({
   publish, tight, emote,
   layoutMode, onSetLayout,
@@ -1132,7 +1257,9 @@ function CallControlBar({
   autoMic, onToggleAutoMic,
   ptt, onTogglePtt,
   mirror, onToggleMirror,
+  fit, onToggleFit,
   selfFloat, onToggleSelfFloat,
+  autoRotateEnabled, onToggleAutoRotate,
   micMuted, onToggleMic,
   deafened, onToggleDeafen,
   peopleOpen, onTogglePeople,
@@ -1140,6 +1267,7 @@ function CallControlBar({
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const { poppedOut, popOut, popIn, canPopOut } = useVideoCall();
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const { myRaised, toggle: toggleHand, count: handCount } = useContext(HandRaiseContext);
   // Mirror the overlay's charge + recents so the shared <EmoteBar> shows the
@@ -1188,7 +1316,9 @@ function CallControlBar({
               <BackgroundEffects value={bg} onChange={onChangeBg} customBg={customBg} onUpload={onUploadBg} />
               <div className="my-1 border-t border-white/10" />
               <SettingRow icon={FlipHorizontal2} label="Mirror my video" active={mirror} onClick={onToggleMirror} />
+              <SettingRow icon={fit === "contain" ? Shrink : Expand} label="Fit video (show full frame)" active={fit === "contain"} onClick={onToggleFit} />
               <SettingRow icon={PictureInPicture2} label="Float my video" active={selfFloat} onClick={onToggleSelfFloat} />
+              <SettingRow icon={RotateCw} label="Auto-rotate my video" active={autoRotateEnabled} onClick={onToggleAutoRotate} />
             </DeviceSettingsMenu>
           )}
           <TrackToggle source={Track.Source.ScreenShare} />
@@ -1196,21 +1326,6 @@ function CallControlBar({
           <RoomClusterButton autoMic={autoMic} onToggleAutoMic={onToggleAutoMic} />
         </>
       )}
-
-      {/* Deafen — silence everything, incoming and outgoing, in one tap. Cuts
-          the call audio you hear and (by forcing your mic muted) what you send.
-          Grouped with the audio controls (right after the mic / room-audio
-          button); shown to spectators too, since it still mutes what you hear. */}
-      <button
-        type="button"
-        className={`lk-button ${deafened ? "lk-button--raised" : ""}`}
-        onClick={onToggleDeafen}
-        aria-pressed={deafened}
-        aria-label={deafened ? "Undeafen (turn audio back on)" : "Deafen (mute all audio in and out)"}
-        title={deafened ? "Undeafen — turn call audio back on" : "Deafen — mute all audio, incoming and outgoing"}
-      >
-        {deafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
-      </button>
 
       {/* Raise hand — available whether or not you publish (a spectator can ask
           to speak). Amber while yours is up. */}
@@ -1256,20 +1371,32 @@ function CallControlBar({
         <Smile className="w-5 h-5" />
       </button>
 
-      {/* True fullscreen — takes over the whole screen, not just the window.
-          Hidden where the browser can't fullscreen an element (e.g. iOS Safari). */}
-      {fullscreenSupported && (
-        <button
-          type="button"
-          className="lk-button"
-          onClick={onToggleFullscreen}
-          aria-pressed={isFullscreen}
-          aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-        >
-          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-        </button>
-      )}
+      {/* Overflow: the less-frequent utilities live here so the bar stays tidy —
+          pop-out (Document PiP, where supported), deafen, and true fullscreen. */}
+      <MoreMenu>
+        {canPopOut && (
+          <SettingRow
+            icon={PictureInPicture2}
+            label={poppedOut ? "Return from pop-out" : "Pop out to a window"}
+            active={poppedOut}
+            onClick={poppedOut ? popIn : popOut}
+          />
+        )}
+        <SettingRow
+          icon={deafened ? HeadphoneOff : Headphones}
+          label={deafened ? "Undeafen" : "Deafen (mute all audio)"}
+          active={deafened}
+          onClick={onToggleDeafen}
+        />
+        {fullscreenSupported && (
+          <SettingRow
+            icon={isFullscreen ? Minimize2 : Maximize2}
+            label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            active={isFullscreen}
+            onClick={onToggleFullscreen}
+          />
+        )}
+      </MoreMenu>
 
       <DisconnectButton>{tight ? <PhoneOff className="w-4 h-4" /> : "Leave"}</DisconnectButton>
     </div>
@@ -1611,14 +1738,31 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   // Mirror only YOUR OWN camera (the convention — your self-view reads like a
   // mirror), and only the camera, never a screen share. `[&_video]` flips the
   // <video> LiveKit renders inside ParticipantTile.
-  const { mirror } = useContext(SelfViewContext);
-  const flip = mirror && participant?.isLocal && trackRef?.source === Track.Source.Camera;
+  const { mirror, fit, selfRotate } = useContext(SelfViewContext);
+  const isLocalCam = participant?.isLocal && trackRef?.source === Track.Source.Camera;
+  const flip = mirror && isLocalCam;
+  // Counter-rotate my own camera to the physical device orientation (the app is
+  // portrait-locked but iOS rotates the capture). Only the local camera; remote
+  // tiles arrive upright. rotate + object-cover so it still fills after turning.
+  // selfRotate already folds in the mirror + UI-rotation handling (computed in
+  // ConferenceLayout), so apply it verbatim to the local camera only.
+  const rot = isLocalCam ? selfRotate : 0;
+  const rotCls = rot === 180 ? "[&_video]:rotate-180" : rot === 90 ? "[&_video]:rotate-90" : rot === 270 ? "[&_video]:-rotate-90" : "";
   // Camera off → cover LiveKit's generic gray silhouette with a clean initials
   // avatar (a soft per-person gradient), which reads far more modern.
   const camOff = trackRef?.source === Track.Source.Camera && (!trackRef?.publication || trackRef.publication.isMuted);
   const micOff = !!participant && participant.isMicrophoneEnabled === false;
   const dispName = participant?.name || participant?.identity || "Guest";
   const initial = (dispName.trim()[0] || "?").toUpperCase();
+  // Camera-off tile shows the person's profile photo, with initials as the
+  // fallback (guest, no photo, or a load error). Identity == user_id.
+  const { teamMembers } = useTeam();
+  const avatarSrc = useMemo(
+    () => (teamMembers || []).find((tm) => tm.user_id === participant?.identity)?.avatar_url || null,
+    [teamMembers, participant?.identity]
+  );
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  useEffect(() => { setAvatarFailed(false); }, [avatarSrc]);
   // Amber for whoever carries the room's audio I/O — the device, the current mic
   // source, or the speakers — muted chip for the rest.
   const active = !!role && (role.isDevice || role.isMicSource || role.isAudioSink);
@@ -1633,7 +1777,7 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
           : "In room";
   return (
     <div
-      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""}`}
+      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""} ${rotCls} ${fit === "contain" ? "[&_video]:!object-contain" : ""}`}
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
 
@@ -1696,14 +1840,15 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
         )}
       </div>
 
-      {/* Camera-off: an initials avatar over LiveKit's default silhouette. */}
+      {/* Camera-off: the person's profile photo over LiveKit's default
+          silhouette, with an initials avatar as the fallback. */}
       {camOff && (
         <div
           className="absolute inset-0 z-[1] flex items-center justify-center"
           style={{ background: "radial-gradient(circle at 50% 36%, #1b2840, #0b1220)" }}
         >
           <div
-            className="rounded-full flex items-center justify-center text-white font-semibold ring-1 ring-white/10 shadow-lg"
+            className="rounded-full flex items-center justify-center overflow-hidden text-white font-semibold ring-1 ring-white/10 shadow-lg"
             style={{
               width: "clamp(44px, 26%, 116px)",
               aspectRatio: "1",
@@ -1711,7 +1856,16 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
               background: avatarGradient(participant?.identity || dispName),
             }}
           >
-            {initial}
+            {avatarSrc && !avatarFailed ? (
+              <img
+                src={avatarSrc}
+                alt=""
+                className="w-full h-full object-cover"
+                onError={() => setAvatarFailed(true)}
+              />
+            ) : (
+              initial
+            )}
           </div>
         </div>
       )}
@@ -2052,6 +2206,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   let stageFocusKeys = null;
   let audienceTiles = [];
   const AUDIENCE_H = 80;
+  const stageAspect = h > w * 1.1 ? 3 / 4 : 16 / 9;
   if (dualSpotlight) {
     // Two equal big tiles — the pinned view + the live speaker. No focus keys →
     // the adaptive stage lays them out as an even 2-cell grid, nothing else.
@@ -2085,6 +2240,11 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
             tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
             focusKey={stageFocusKey}
             focusKeys={stageFocusKeys}
+            // Portrait stage (phone held upright) → taller 3:4 tiles so faces
+            // fill more of the frame vertically; landscape keeps 16:9. Tracks
+            // live via the stage's own width/height, so a device rotation (or
+            // app resize) re-solves automatically.
+            aspect={stageAspect}
           />
         </div>
         {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
@@ -2103,7 +2263,16 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   );
 }
 
-function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, deafened, onToggleDeafen, chromeless }) {
+const IS_COARSE_POINTER =
+  typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+
+function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted, onToggleMic, deafened, onToggleDeafen, chromeless, hideControls }) {
+  // Phone stages are tiny — surface a one-tap CSS maximize (host re-parents to
+  // a viewport overlay, see PersistentVideoCall) instead of the Fullscreen API
+  // item buried in the More menu, which iPhone WKWebView doesn't support.
+  const { maximized, setMaximized } = useVideoCall();
+  // Mirror mic/speaker/connection state to the drive-mode bridge (giant car UI).
+  useDriveBridge({ micMuted, onToggleMic });
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
   const rootRef = useRef(null);
@@ -2176,6 +2345,30 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // Meet convention).
   const [mirror, setMirror] = useState(() => loadPref(PREF.mirror, "1") === "1");
   const [selfFloat, setSelfFloat] = useState(() => loadPref(PREF.selfFloat, "1") === "1");
+  // Video crop: "cover" fills the tile (crops edges) — the default; "contain"
+  // shows the WHOLE camera frame letterboxed (see more of yourself, esp. on a
+  // portrait phone). Per-device pref, applied to every tile's <video>.
+  const [videoFit, setVideoFit] = useState(() => (loadPref(PREF.fit, "cover") === "contain" ? "contain" : "cover"));
+  const toggleFit = () => setVideoFit((f) => (f === "cover" ? "contain" : "cover"));
+  // ── Device-orientation handling ──────────────────────────────────────────
+  // Rotate the WHOLE fullscreen call UI to counter the device turn: because
+  // your eyes turned with the phone, that leaves remote video AND the
+  // non-mirrored self-view upright for free, and makes the layout landscape.
+  // Only the mirrored self-view needs an extra 180° in landscape (a mirror
+  // reverses rotation sense). A manual rotate button overrides auto for fixups.
+  // Auto is a toggle (default on); manual is always available.
+  const [autoRotateEnabled, setAutoRotateEnabled] = useState(() => loadPref(PREF.autoRotate, "1") === "1");
+  const deviceAngle = useDeviceRotation(IS_COARSE_POINTER && autoRotateEnabled);
+  const [manualRotate, setManualRotate] = useState(0);
+  const landscape = deviceAngle === 90 || deviceAngle === 270;
+  const uiRotated = IS_COARSE_POINTER && maximized && landscape;
+  // The container rotation lands on the self-view tile too, so counter it
+  // (360 − deviceAngle) to keep the self-view upright and independent of the
+  // UI rotation — that's why the non-mirrored case must NOT visibly rotate.
+  // A mirror reverses rotation sense, so mirrored landscape needs +180 on top
+  // (net 180 vs the container). Portrait / not-fullscreen: no video rotation.
+  const autoSelf = uiRotated ? (360 - deviceAngle + (mirror ? 180 : 0)) % 360 : 0;
+  const selfRotate = manualRotate || autoSelf;
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.spotlightIgnoreSelf, spotlightIgnoreSelf ? "1" : "0"), [spotlightIgnoreSelf]);
@@ -2185,7 +2378,9 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   useEffect(() => savePref(PREF.ptt, ptt ? "1" : "0"), [ptt]);
   useEffect(() => savePref(PREF.mirror, mirror ? "1" : "0"), [mirror]);
   useEffect(() => savePref(PREF.selfFloat, selfFloat ? "1" : "0"), [selfFloat]);
-  const selfView = useMemo(() => ({ mirror, float: selfFloat, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat]);
+  useEffect(() => savePref(PREF.fit, videoFit), [videoFit]);
+  useEffect(() => savePref(PREF.autoRotate, autoRotateEnabled ? "1" : "0"), [autoRotateEnabled]);
+  const selfView = useMemo(() => ({ mirror, float: selfFloat, fit: videoFit, selfRotate, setMirror, setFloat: setSelfFloat }), [mirror, selfFloat, videoFit, selfRotate]);
 
   // Push-to-talk key handling. micMuted lives in the parent; we drive it via the
   // passed toggle, reading the latest value through a ref so the listeners never
@@ -2240,9 +2435,18 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     <HandRaiseContext.Provider value={handRaise}>
     <div
       ref={rootRef}
-      className={`relative flex flex-col w-full h-full ${isFullscreen ? "bg-slate-950" : ""}`}
-      onPointerMove={compact ? undefined : reveal}
-      onPointerDown={compact ? undefined : reveal}
+      className={`relative flex flex-col ${uiRotated ? "" : "w-full h-full"} ${isFullscreen || uiRotated ? "bg-slate-950" : ""}`}
+      // Landscape fullscreen: swap dimensions and rotate about the centre so
+      // the portrait-locked overlay fills the screen as a landscape call. The
+      // control bar / tiles are children, so they rotate with it.
+      style={uiRotated ? {
+        position: "absolute", top: "50%", left: "50%",
+        width: "100dvh", height: "100dvw",
+        transform: `translate(-50%, -50%) rotate(${deviceAngle}deg)`,
+        transformOrigin: "center center",
+      } : undefined}
+      onPointerMove={reveal}
+      onPointerDown={reveal}
     >
       <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
       <AutoMicController enabled={autoMic} />
@@ -2260,14 +2464,45 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
           />
         </LayoutContextProvider>
       </SelfViewContext.Provider>
-      {!compact && !chromeless && (
-        <div
-          className={`absolute inset-x-0 bottom-0 z-30 flex justify-center px-2 pb-3 pointer-events-none transition-opacity duration-300 ${
-            controlsShown ? "opacity-100" : "opacity-0"
-          }`}
-        >
+      {IS_COARSE_POINTER && !chromeless && !hideControls && (
+        <div className="absolute top-2 right-2 z-40 flex flex-col items-end gap-2">
+          <button
+            type="button"
+            onClick={() => setMaximized(!maximized)}
+            aria-label={maximized ? "Exit fullscreen" : "Fullscreen"}
+            className="flex items-center justify-center w-11 h-11 rounded-xl bg-slate-900/70 text-white backdrop-blur-sm active:bg-slate-800"
+          >
+            {maximized ? <Shrink className="w-5 h-5" /> : <Expand className="w-5 h-5" />}
+          </button>
+          {/* Rotate MY video 90° per tap (fixes an upside-down/sideways face
+              when the phone is turned; the app stays portrait-locked). */}
+          <button
+            type="button"
+            onClick={() => setManualRotate((r) => (r + 90) % 360)}
+            aria-label="Rotate my video"
+            title={`Rotate my video (${manualRotate}°)`}
+            className={`relative flex items-center justify-center w-11 h-11 rounded-xl backdrop-blur-sm active:opacity-80 ${manualRotate ? "bg-[var(--color-accent)] text-white" : "bg-slate-900/70 text-white"}`}
+          >
+            <RotateCw className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+      {!hideControls && !chromeless && (
+        <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col items-center px-2 pb-3 gap-1.5 pointer-events-none">
+          {/* Fullscreen on mobile: a persistent handle to show/hide the control
+              bar, so it doesn't have to sit over the video the whole time. */}
+          {IS_COARSE_POINTER && (maximized || isFullscreen) && (
+            <button
+              type="button"
+              onClick={() => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); setControlsShown((v) => !v); }}
+              aria-label={controlsShown ? "Hide controls" : "Show controls"}
+              className="pointer-events-auto order-2 w-12 h-8 rounded-full bg-slate-900/70 text-white backdrop-blur-sm flex items-center justify-center active:bg-slate-800"
+            >
+              {controlsShown ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+            </button>
+          )}
           <div
-            className={controlsShown ? "pointer-events-auto" : "pointer-events-none"}
+            className={`transition-opacity duration-300 ${controlsShown ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
             onMouseEnter={onBarEnter}
             onMouseLeave={onBarLeave}
           >
@@ -2291,8 +2526,12 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onTogglePtt={() => setPtt((v) => !v)}
               mirror={mirror}
               onToggleMirror={() => setMirror((v) => !v)}
+              fit={videoFit}
+              onToggleFit={toggleFit}
               selfFloat={selfFloat}
               onToggleSelfFloat={() => setSelfFloat((v) => !v)}
+              autoRotateEnabled={autoRotateEnabled}
+              onToggleAutoRotate={() => setAutoRotateEnabled((v) => !v)}
               micMuted={micMuted}
               onToggleMic={onToggleMic}
               deafened={deafened}
@@ -2311,7 +2550,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   );
 }
 
-export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, chromeless = false, onJoinIn, emote, onJoined, onLeft, onError }) {
+export default function LiveKitCall({ roomId, displayName, compact, publish = true, listen = true, choices, chromeless = false, hideControls = false, onJoinIn, emote, onJoined, onLeft, onError }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [token, setToken] = useState(null);
@@ -2441,26 +2680,28 @@ export default function LiveKitCall({ roomId, displayName, compact, publish = tr
           onError?.(msg);
         }}
       >
-        <PublishController publish={publish} choices={choices} micMuted={micMuted} />
-        {/* Silent connection-health recorder — feeds the disconnect report so a
-            force disconnect can be explained, not just observed. */}
-        <ConnectionDiagnostics roomId={roomId} />
-        <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} deafened={deafened} onToggleDeafen={toggleDeafen} chromeless={chromeless} />
-        {/* Owns in-room cluster management (leader handoff). Mount once. */}
-        <RoomClusterManager />
-        {/* Restore the saved audio-output device on connect. */}
-        <SavedSpeakerApplier />
-        {/* In-room followers receive no audio at all (the room speaker carries
-            it for them); everyone else plays normally. holdForEntry keeps a
-            still-clustering "in this room" joiner silent during the entry window. */}
-        <FollowerAudioGate holdForEntry={publish && !!choices?.inRoom} />
-        {/* Required for participants to be audible — suppressed for in-room
-            followers so the leader's speakers don't echo back through them. Also
-            gated on `listen`: a silent auto-preview spectator plays NOTHING, so
-            walking up to a room can't blast the call through your speakers and
-            (if a live participant is nearby) feed back into the room. Publishers
-            always hear; explicit watchers and join always have listen=true. */}
-        {(publish || listen) && !deafened && <ClusterAudioRenderer holdForEntry={publish && !!choices?.inRoom} />}
+        <RoomEntryHoldProvider>
+          <PublishController publish={publish} choices={choices} micMuted={micMuted} />
+          {/* Silent connection-health recorder — feeds the disconnect report so a
+              force disconnect can be explained, not just observed. */}
+          <ConnectionDiagnostics roomId={roomId} />
+          <ConferenceLayout compact={compact} publish={publish} onJoinIn={onJoinIn} emote={emote} roomId={roomId} micMuted={micMuted} onToggleMic={toggleMic} deafened={deafened} onToggleDeafen={toggleDeafen} chromeless={chromeless} hideControls={hideControls} />
+          {/* Owns in-room cluster management (leader handoff). Mount once. */}
+          <RoomClusterManager />
+          {/* Restore the saved audio-output device on connect. */}
+          <SavedSpeakerApplier />
+          {/* In-room followers receive no audio at all (the room speaker carries
+              it for them); everyone else plays normally. holdForEntry keeps a
+              still-clustering "in this room" joiner silent during the entry window. */}
+          <FollowerAudioGate holdForEntry={publish && !!choices?.inRoom} />
+          {/* Required for participants to be audible — suppressed for in-room
+              followers so the leader's speakers don't echo back through them. Also
+              gated on `listen`: a silent auto-preview spectator plays NOTHING, so
+              walking up to a room can't blast the call through your speakers and
+              (if a live participant is nearby) feed back into the room. Publishers
+              always hear; explicit watchers and join always have listen=true. */}
+          {(publish || listen) && !deafened && <ClusterAudioRenderer holdForEntry={publish && !!choices?.inRoom} />}
+        </RoomEntryHoldProvider>
       </LiveKitRoom>
     </div>
   );

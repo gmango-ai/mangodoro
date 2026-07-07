@@ -72,7 +72,7 @@ export default function SoundDropdown({ label = "Alert Sound" }) {
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-full text-sm font-semibold transition-colors ${
             dark
               ? "border border-[var(--color-border)] bg-[var(--color-surface)] text-slate-100 hover:border-[var(--color-accent)]"
               : "border border-slate-200 bg-white text-slate-700 hover:border-[var(--color-accent)]"

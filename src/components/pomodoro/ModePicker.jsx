@@ -34,7 +34,7 @@ export default function ModePicker() {
             type="button"
             onClick={() => switchMode(m)}
             disabled={disabled}
-            className={`flex-1 px-4 py-2 rounded-full text-sm font-semibold transition-all ${
+            className={`flex-1 px-4 py-3 sm:py-2 rounded-full text-sm font-semibold transition-all ${
               disabled ? "cursor-default opacity-60" : ""
             } ${
               active

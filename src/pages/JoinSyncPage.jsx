@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LogIn, UserPlus, User, ArrowLeft } from "lucide-react";
+import { LogIn, UserPlus, User } from "lucide-react";
+import JoinShell, { useJoinAuthSession, JoinNotice } from "../components/JoinShell";
 import { getSyncSessionPreview, joinSyncSession } from "../lib/syncSession";
 import { notifySessionJoined } from "../sync/joinSession";
 import { signInAsGuest } from "../lib/auth";
@@ -19,16 +20,10 @@ export default function JoinSyncPage() {
 
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState("");
-  const [session, setSession] = useState(undefined);
+  const session = useJoinAuthSession();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => subscription.unsubscribe();
-  }, []);
 
   useEffect(() => {
     if (!code) return;
@@ -80,93 +75,69 @@ export default function JoinSyncPage() {
     setTimeout(() => doJoin(displayName), 200);
   }
 
-  const wrapCls = `min-h-screen w-full flex items-center justify-center px-4 ${
-    dark ? "bg-[var(--color-bg)] text-slate-100" : "bg-slate-50 text-slate-800"
-  }`;
-  const cardCls = `w-full max-w-md rounded-2xl border p-6 ${
-    dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200 shadow-md"
-  }`;
   const labelCls = `text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-slate-400" : "text-slate-500"}`;
 
   if (session === undefined) {
-    return (
-      <div className={wrapCls}><span className="text-xs text-slate-400">Loading…</span></div>
-    );
+    return <JoinShell loading />;
   }
 
   return (
-    <div className={wrapCls}>
-      <div className={cardCls}>
-        <Link to="/" className={`inline-flex items-center gap-1 text-xs mb-4 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to app
-        </Link>
+    <JoinShell>
+      <h1 className="text-xl font-bold mb-1">Join Pomodoro session</h1>
+      <p className={`text-sm mb-4 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+        Code:{" "}
+        <span className="font-mono font-bold tracking-widest text-[var(--color-accent)]">
+          {(code || "").toUpperCase()}
+        </span>
+      </p>
 
-        <h1 className="text-xl font-bold mb-1">Join Pomodoro session</h1>
-        <p className={`text-sm mb-4 ${dark ? "text-slate-400" : "text-slate-500"}`}>
-          Code:{" "}
-          <span className="font-mono font-bold tracking-widest text-[var(--color-accent)]">
-            {(code || "").toUpperCase()}
-          </span>
-        </p>
-
-        {previewError ? (
-          <div className={`text-sm font-medium px-3 py-2 rounded-lg mb-3 ${
-            dark ? "bg-red-500/15 text-red-400" : "bg-red-50 text-red-600"
-          }`}>
-            {previewError}
-          </div>
-        ) : preview ? (
-          <div className={`text-xs mb-4 px-3 py-2 rounded-lg ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"}`}>
-            Hosted by <strong>{preview.leader_name}</strong> · {MODE_LABELS[preview.mode] || preview.mode} ·{" "}
-            {preview.participants}/{preview.max_participants} in session
-          </div>
-        ) : (
-          <div className={`text-xs mb-4 ${dark ? "text-slate-500" : "text-slate-400"}`}>Looking up session…</div>
-        )}
-
-        <div className="mb-3">
-          <label className={labelCls}>Your display name</label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value.slice(0, 60))}
-            placeholder="Required"
-            className={`mt-1 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : ""}`}
-          />
+      {previewError ? (
+        <JoinNotice>{previewError}</JoinNotice>
+      ) : preview ? (
+        <div className={`text-xs mb-4 px-3 py-2 rounded-lg ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-50"}`}>
+          Hosted by <strong>{preview.leader_name}</strong> · {MODE_LABELS[preview.mode] || preview.mode} ·{" "}
+          {preview.participants}/{preview.max_participants} in session
         </div>
+      ) : (
+        <div className={`text-xs mb-4 ${dark ? "text-slate-500" : "text-slate-400"}`}>Looking up session…</div>
+      )}
 
-        {error && (
-          <div className={`text-sm font-medium px-3 py-2 rounded-lg mb-3 ${
-            dark ? "bg-red-500/15 text-red-400" : "bg-red-50 text-red-600"
-          }`}>
-            {error}
-          </div>
-        )}
-
-        {session ? (
-          <Button onClick={() => doJoin(name)} disabled={busy || !name.trim() || !preview} className="w-full">
-            <LogIn className="w-4 h-4 mr-1.5" />
-            {busy ? "Joining…" : "Join session"}
-          </Button>
-        ) : (
-          <div className="space-y-2">
-            <Button onClick={handleSignInExisting} className="w-full">
-              <LogIn className="w-4 h-4 mr-1.5" /> Sign in to join
-            </Button>
-            <Button variant="outline" onClick={handleSignInExisting} className="w-full">
-              <UserPlus className="w-4 h-4 mr-1.5" /> Create an account
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={handleGuest}
-              disabled={busy || !name.trim() || !preview}
-              className="w-full"
-            >
-              <User className="w-4 h-4 mr-1.5" />
-              {busy ? "Joining…" : "Continue as guest"}
-            </Button>
-          </div>
-        )}
+      <div className="mb-3">
+        <label className={labelCls}>Your display name</label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value.slice(0, 60))}
+          placeholder="Required"
+          className={`mt-1 ${dark ? "bg-[var(--color-surface-raised)] border-[var(--color-border)] text-slate-100" : ""}`}
+        />
       </div>
-    </div>
+
+      {error && <JoinNotice>{error}</JoinNotice>}
+
+      {session ? (
+        <Button onClick={() => doJoin(name)} disabled={busy || !name.trim() || !preview} className="w-full">
+          <LogIn className="w-4 h-4 mr-1.5" />
+          {busy ? "Joining…" : "Join session"}
+        </Button>
+      ) : (
+        <div className="space-y-2">
+          <Button onClick={handleSignInExisting} className="w-full">
+            <LogIn className="w-4 h-4 mr-1.5" /> Sign in to join
+          </Button>
+          <Button variant="outline" onClick={handleSignInExisting} className="w-full">
+            <UserPlus className="w-4 h-4 mr-1.5" /> Create an account
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={handleGuest}
+            disabled={busy || !name.trim() || !preview}
+            className="w-full"
+          >
+            <User className="w-4 h-4 mr-1.5" />
+            {busy ? "Joining…" : "Continue as guest"}
+          </Button>
+        </div>
+      )}
+    </JoinShell>
   );
 }

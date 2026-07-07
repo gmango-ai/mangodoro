@@ -4,6 +4,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import { useTeam } from "../context/TeamContext";
 import { useVideoCall } from "../context/VideoCallContext";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
+import { formatClock } from "../lib/utils";
 
 // Slim pomodoro pull-tab docked to the right edge. Replaces the old floating FAB:
 // a small clock tab that opens the PomodoroSurface on click, so it never covers
@@ -14,13 +15,6 @@ function modeLabel(m) {
   if (m === "shortBreak") return "Short";
   if (m === "longBreak") return "Long";
   return "Focus";
-}
-
-function formatTime(totalSeconds) {
-  const s = Math.max(0, Math.floor(totalSeconds || 0));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, "0")}`;
 }
 
 function sessionSecondsLeft(session) {
@@ -65,9 +59,9 @@ export default function PomodoroFab({ onToggle }) {
       type="button"
       data-pomodoro-tab=""
       onClick={() => onToggle?.()}
-      title={showTimer ? `${modeLabel(displayMode)} · ${formatTime(safeSeconds)} left — open pomodoro` : "Open pomodoro"}
-      aria-label={showTimer ? `${modeLabel(displayMode)} timer, ${formatTime(safeSeconds)} remaining — open pomodoro` : "Open pomodoro"}
-      className={`fixed right-0 z-[111] inline-flex flex-col items-center justify-center gap-0.5 w-6 rounded-l-lg border border-r-0 shadow-md transition-colors ${bottomCls} ${
+      title={showTimer ? `${modeLabel(displayMode)} · ${formatClock(safeSeconds)} left — open pomodoro` : "Open pomodoro"}
+      aria-label={showTimer ? `${modeLabel(displayMode)} timer, ${formatClock(safeSeconds)} remaining — open pomodoro` : "Open pomodoro"}
+      className={`fixed right-0 z-[111] hidden xl:inline-flex flex-col items-center justify-center gap-0.5 w-6 rounded-l-lg border border-r-0 shadow-md transition-colors ${bottomCls} ${
         showTimer
           ? "h-14 bg-[var(--color-accent)] border-[var(--color-accent)] text-white"
           : `h-12 ${idleCls}`

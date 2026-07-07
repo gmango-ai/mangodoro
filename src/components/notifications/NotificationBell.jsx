@@ -14,12 +14,14 @@ function timeAgo(ts) {
 
 // Bell + unread badge in the nav; opens an inbox dropdown. Clicking an item
 // marks it read and routes via payload.route. Closes on outside click.
-export default function NotificationBell() {
+export default function NotificationBell({ size = "md" }) {
   const { items, unread, markRead, markAllRead, clearOne, clearAll } = useNotifications();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const btnSize = size === "lg" ? "w-11 h-11" : "w-9 h-9";
+  const iconSize = size === "lg" ? "w-6 h-6" : "w-5 h-5";
   const ref = useRef(null);
 
   useEffect(() => {
@@ -46,9 +48,9 @@ export default function NotificationBell() {
         onClick={() => setOpen((o) => !o)}
         title="Notifications"
         aria-label="Notifications"
-        className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-colors ${dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
+        className={`relative ${btnSize} rounded-full flex items-center justify-center transition-colors ${dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"}`}
       >
-        <Bell className="w-5 h-5" />
+        <Bell className={iconSize} />
         {unread > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
             {unread > 9 ? "9+" : unread}
@@ -64,13 +66,13 @@ export default function NotificationBell() {
             <span className={`text-sm font-bold ${dark ? "text-slate-200" : "text-slate-700"}`}>Notifications</span>
             <div className="flex items-center gap-2.5">
               {unread > 0 && (
-                <button type="button" onClick={markAllRead} title="Mark all read" className={`text-xs inline-flex items-center gap-1 ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
-                  <Check className="w-3.5 h-3.5" /> Read
+                <button type="button" onClick={markAllRead} title="Mark all read" className={`text-sm sm:text-xs inline-flex items-center gap-1 px-2 py-2 -my-1 sm:p-0 sm:m-0 rounded-md ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"}`}>
+                  <Check className="w-4 h-4 sm:w-3.5 sm:h-3.5" /> Read
                 </button>
               )}
               {items.length > 0 && (
-                <button type="button" onClick={clearAll} title="Clear all notifications" className={`text-xs inline-flex items-center gap-1 ${dark ? "text-slate-400 hover:text-rose-300" : "text-slate-500 hover:text-rose-600"}`}>
-                  <Trash2 className="w-3.5 h-3.5" /> Clear all
+                <button type="button" onClick={clearAll} title="Clear all notifications" className={`text-sm sm:text-xs inline-flex items-center gap-1 px-2 py-2 -my-1 sm:p-0 sm:m-0 rounded-md ${dark ? "text-slate-400 hover:text-rose-300" : "text-slate-500 hover:text-rose-600"}`}>
+                  <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" /> Clear all
                 </button>
               )}
             </div>
@@ -87,12 +89,12 @@ export default function NotificationBell() {
                 <button
                   type="button"
                   onClick={() => onItem(n)}
-                  className={`w-full text-left px-3 py-2.5 pr-9 flex gap-2.5 items-start transition-colors ${dark ? "hover:bg-white/5" : "hover:bg-slate-50"}`}
+                  className={`w-full text-left px-3 py-3 sm:py-2.5 pr-11 sm:pr-9 flex gap-2.5 items-start transition-colors ${dark ? "hover:bg-white/5" : "hover:bg-slate-50"}`}
                 >
                   <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${n.read_at ? "bg-transparent" : "bg-sky-500"}`} />
                   <span className="flex-1 min-w-0">
-                    <span className={`block text-[13px] font-semibold leading-snug ${dark ? "text-slate-200" : "text-slate-700"}`}>{n.title}</span>
-                    {n.body && <span className={`block text-[12px] leading-snug ${dark ? "text-slate-400" : "text-slate-500"}`}>{n.body}</span>}
+                    <span className={`block text-sm sm:text-[13px] font-semibold leading-snug ${dark ? "text-slate-200" : "text-slate-700"}`}>{n.title}</span>
+                    {n.body && <span className={`block text-[13px] sm:text-[12px] leading-snug ${dark ? "text-slate-400" : "text-slate-500"}`}>{n.body}</span>}
                     <span className={`block text-[10px] mt-0.5 ${dark ? "text-slate-600" : "text-slate-400"}`}>{timeAgo(n.created_at)}</span>
                   </span>
                 </button>
@@ -102,9 +104,9 @@ export default function NotificationBell() {
                   onClick={(e) => { e.stopPropagation(); clearOne(n.id); }}
                   title="Clear"
                   aria-label="Clear notification"
-                  className={`absolute top-1.5 right-1.5 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity ${dark ? "text-slate-400 hover:text-rose-300 hover:bg-white/10" : "text-slate-400 hover:text-rose-600 hover:bg-slate-100"}`}
+                  className={`absolute top-1 right-1 sm:top-1.5 sm:right-1.5 w-9 h-9 sm:w-6 sm:h-6 rounded-full flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity ${dark ? "text-slate-400 hover:text-rose-300 hover:bg-white/10" : "text-slate-400 hover:text-rose-600 hover:bg-slate-100"}`}
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                 </button>
               </div>
             ))}
