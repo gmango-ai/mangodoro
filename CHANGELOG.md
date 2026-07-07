@@ -4,6 +4,146 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-06
+
+### New & improved
+
+- Preserve lunch presence in resolver
+- Reconcile rebased staging to verified merge state
+- **iOS launch screen** — new logo, clean up the imageset
+- **Rebrand** — new Mangodoro logo across web, iOS, Android, desktop
+- **Video** — flip auto-rotate sign on Android (web DeviceMotion path)
+- **Android** — theme-matched status bar + fix timer overlap on narrow screens
+- **Video landscape** — counter the container rotation on the self-view
+- **Video landscape** — flip UI direction, video rotates only when mirrored + landscape
+- **Video** — flip the landscape UI rotation direction
+- **Video** — auto-rotate the fullscreen call UI to landscape; mirror-only self flip
+- **Video rotate** — manual button in fullscreen chrome, mirror-aware, auto on by default
+- Auto-rotate video: read orientation natively (web DeviceMotion is dead in WKWebView)
+- Auto-rotate video: add NSMotionUsageDescription + calibrated gravity
+- **Chat** — tap-to-reveal message actions on mobile (not every row)
+- Auto-rotate video: request motion permission from a user gesture (actually works now)
+- **Whiteboard toolbar** — comfortable, grouped spacing for the scrolling rail
+- **Drive mode** — optional video
+- **Video** — auto-rotate self-view + fullscreen control-bar toggle (mobile)
+- **Mobile touch targets** — Messages + pomodoro + room chat surfaces
+- **Whiteboard** — fit the toolbar to the room panel, not the viewport
+- Unify emoji picker across chat, whiteboard, and emote bar
+- **Mobile touch targets** — nav dropdowns (org switcher, status, world clock, notifications)
+- **Room UI** — single-row header, room-scoped widgets drawer, bigger add menu
+- **Video call** — fix stuck-fullscreen-leave, add crop toggle + portrait tiles
+- **Room header** — mobile-friendly layout + unified widgets toggle
+- **Mobile nav** — Messages as a first-class bottom-nav tab
+- **Kill the teal loading flash** — black load surfaces everywhere
+- **Whiteboard mobile round 4** — edit-bar scale/scroll, inline carets, 2-finger pan while drawing
+- **Whiteboard mobile round 3** — taps, flyouts, drawing, scroll pin
+- **Whiteboard mobile round 2** — hold-to-select, 1-tap select, real bar sizes
+- **Messages** — pin a channel to the top for everyone
+- **Messages** — channel management suite — colour, archive, retention, images, force-notify
+- **Messages** — distinct icon for room channels (door) vs regular channels (#)
+- **Messages/Rooms** — chat settings gear in the tile header + fix reaction popover cutoff
+- **Messages/Rooms** — slim settings header in room tile + fix presence channel crash
+- **Messages/Rooms** — room chat uses the shared Thread UI + @mention rendering + open-room
+- **Messages** — org setting to auto-add everyone to open channels
+- **Messages** — apply set_channel_meta open-channel fix; align migration filename
+- **Messages** — show channel folders in the nav quick-view
+- **Messages** — compact (Slack-like) list density toggle
+- **Messages** — announcement channel option on creation
+- **Messages** — drag to reorder folders themselves
+- **Messages** — drag to reorder channels within a folder
+- **Messages** — drag channels in/out of folders
+- **Messages** — apply delete + folders migrations to shared DB; reconcile history
+- **Messages** — shared team-wide channel folders
+- **Messages** — delete / leave conversations & channels (smart)
+- **Messages** — quick-view popover on the nav icon
+- **Messages** — stop auto-listed channels from showing false unread
+- **Whiteboard** — drag-to-place shapes from toolbar + quick-palette shapes & centre X
+- **Whiteboard edges** — fix arrow line-poke + white bordered cap handles on hover
+- **Whiteboard edges** — float caps a small gap off the node, line ends mid-cap
+- **Whiteboard edges** — drop the cap standoff so no line stub pokes past dot/diamond
+- **Whiteboard edges** — seat end-caps outside the node, not half inside
+- **Whiteboard edges** — endpoint handles ARE the end-cap, not a disc over it
+- **Whiteboard edge cap previews** — explicit light stroke so caps aren't black
+- **Whiteboard edges** — visual cap previews in the start/finish pickers
+- **Whiteboard edges** — fix dot/diamond caps + independent start/finish ends
+- **Whiteboard** — restore click quick-add on the arrow handles
+- **Whiteboard** — quick-connect arrows are now real handles (drag + click)
+- **Whiteboard** — draw.io-style drag-to-connect flowchart building
+- **Whiteboard shape tool** — one-click add of the last-used shape
+- **Video call** — camera-off tile shows profile photo with initials fallback
+- **Whiteboard text** — no edge handles, shapeable box, format panel below
+- **Whiteboard** — fix alt-drag clone edges + sticky color/drag behaviour
+- Reconcile migration history with the shared DB (two-agent overlap)
+- **Messaging Stage 2** — unify in-room chat onto the channels backend
+- **Messaging** — open-join channels with optional team-lock (rooms↔channels Stage 1)
+- **UX batch** — whiteboard, rooms, status, task tracker, world clock, profile
+- **Whiteboard mobile** — pan-first gestures, full-width toolbar, no page bounce
+- **Widgets** — align with the orange brand, drop dead assets
+- **Whiteboard mobile toolbar** — finish the in-flight layout cleanup
+- Import native-push + icon rebrand WIP from main tree
+- **Mobile calls** — one-tap fullscreen via CSS maximize
+- **Mobile call fixes** — usable controls on phones, PiP replaced by pill
+- Car-Bluetooth prompt: offer Drive mode when the car connects
+- **Drive mode** — giant audio-first UI for joining meetings on the road
+- Dedupe, bugfix, and perf sweep across app + contexts
+- Wait for service worker activation before push subscribe
+- Avoid hanging web push ready fallback
+- **Notifications** — consolidate across multiple tabs (leader election)
+- Web-push: fail cleanly instead of hanging the toggle
+- **Sound cues** — fix silent playback + cue your own send/raise-hand
+- **Mobile** — top-align the pomodoro popover under the top bar (was cut off)
+- **Mobile** — two-row header (clock/world-clock/pomodoro on row 2), drop FAB on mobile
+- Add sound cues for notifications, chat messages, and raised hands
+- Add video-call pop-out (Document Picture-in-Picture)
+- **Address PR review** — presence retry, override reflection, web-push auth
+- **Notifications** — OS popup always fires, not only when the tab is backgrounded
+- Web-push: browser push notifications when the app is closed
+- **Notification cutover** — client inbox reads notification_deliveries
+- Apply notifications_v2: rename to 20260704140000 (timestamp collision)
+- **Notification rebuild Phase 1a** — shadow events/deliveries schema + priority
+- **Status vocab** — drop "Active", standardize on "Available"
+- Consolidate status onto one source: the resolver is the sole writer
+- **Status at Pomodoro end** — clear or prompt-to-update each cycle
+- Nav row 2 balance + status text: help in row 1, clock-in left, text field surfaced
+- **Nav** — second row on all routes (--app-nav-h) + bridge status to room
+- **Status setter** — click the nav chip to set a manual status override
+- **Nav** — collapsible two-row top bar to de-cram the header
+- **Status system foundation** — resolver + user_presence + surfaces (seam ①)
+
+### Fixes
+
+- (db): resolve migration version collision on 20260704120000
+- Legacy presence feedback loop
+- Manual self-view rotation override
+- Self-view auto-rotate preference
+- Device rotation setup races
+- Legacy room mobile action selection
+- Stale device rotation state
+- Emoji picker viewport clamping
+- Responsive room and video layouts
+- Mobile office controls
+- Full-height page scroll (Messages/Office/whiteboard) + mobile polish
+- Sticky-color crash + two-finger zigzag; skeleton loading screens
+- Whiteboard bottom chrome stacking
+- Notification tap lifecycle handling
+- Org team stale state and delete modal close
+- Desktop notification leader handoff
+- Room whiteboard and chat state gating
+- Notification icon: consolidate to one canonical AppIcon set
+- Slow service worker push enable timeout
+- Presence availability after clearing override
+- Paused timer fingerprint
+- IOS OOM: stop firing native timer side-effects every second
+- Pomodoro popover breakpoint
+- Mobile pomodoro nav state indicators
+- In-room audio rejoin entry hold
+- Leaving a room's audio left your mic AND everyone's audio stuck muted
+- Realtime sound cue races
+- Duplicate sound cues
+- Pop-out (blank window) + move it into the control bar's More menu
+- Notification delivery: always toast, add sound, client-side focus policy
+- Status popover clipping/scroll + avatar/chip color mismatch
+
 ## 2026-07-04
 
 ### New & improved
