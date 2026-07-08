@@ -19,15 +19,28 @@ function defaultTime() {
   d.setHours(d.getHours() + 1, 0, 0, 0);
   return `${String(d.getHours()).padStart(2, "0")}:00`;
 }
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function isoTime(d) {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
 
-export default function ScheduleMeetingModal({ room, teamId, dark, onClose, onCreated }) {
+// `room` = fixed room (office flow). `rooms` + no `room` = calendar flow with a
+// meeting-room picker. `initialStart` (Date) prefills date/time from a calendar slot.
+export default function ScheduleMeetingModal({ room, rooms, teamId, dark, initialStart, onClose, onCreated }) {
   const { session, googleToken, googleTokenExpiry, createCalendarEvent } = useApp();
   const hasGoogle = !!googleToken && Date.now() < googleTokenExpiry;
 
-  const [title, setTitle] = useState(room?.name ? `${room.name} meeting` : "Meeting");
+  // Any room can host a scheduled meeting (teams often meet in general rooms).
+  const roomOptions = room ? [] : (rooms || []);
+  const [roomId, setRoomId] = useState(room?.id || roomOptions[0]?.id || "");
+  const effRoom = room || (rooms || []).find((r) => r.id === roomId) || null;
+
+  const [title, setTitle] = useState(effRoom?.name ? `${effRoom.name} meeting` : "Meeting");
   const [description, setDescription] = useState("");
-  const [date, setDate] = useState(defaultDate);
-  const [time, setTime] = useState(defaultTime);
+  const [date, setDate] = useState(initialStart ? isoDate(initialStart) : defaultDate);
+  const [time, setTime] = useState(initialStart ? isoTime(initialStart) : defaultTime);
   const [duration, setDuration] = useState(30);
   const [autoRecord, setAutoRecord] = useState(false);
   const [addToCalendar, setAddToCalendar] = useState(hasGoogle);
@@ -43,6 +56,7 @@ export default function ScheduleMeetingModal({ room, teamId, dark, onClose, onCr
     e?.preventDefault?.();
     if (busy) return;
     if (!title.trim()) { setError("Give the meeting a title"); return; }
+    if (!effRoom) { setError("Pick a meeting room"); return; }
     const start = new Date(`${date}T${time}`);
     if (Number.isNaN(start.getTime())) { setError("Pick a valid date and time"); return; }
     const end = new Date(start.getTime() + duration * 60 * 1000);
@@ -56,7 +70,7 @@ export default function ScheduleMeetingModal({ room, teamId, dark, onClose, onCr
         description: description.trim() || undefined,
         start,
         end,
-        location: room?.name,
+        location: effRoom?.name,
       });
       // ev is null if the token needed re-consent (a redirect is under way) — in
       // that case skip the DB insert; the user re-submits after reconnecting.
@@ -66,7 +80,7 @@ export default function ScheduleMeetingModal({ room, teamId, dark, onClose, onCr
     }
 
     const { error: insErr } = await createScheduledMeeting({
-      room_id: room.id,
+      room_id: effRoom.id,
       team_id: teamId,
       created_by: session.user.id,
       title: title.trim(),
@@ -99,6 +113,18 @@ export default function ScheduleMeetingModal({ room, teamId, dark, onClose, onCr
         </div>
 
         <form onSubmit={submit} className="space-y-3">
+          {!room && (
+            <div>
+              <label className={labelCls}>Room</label>
+              {roomOptions.length ? (
+                <select value={roomId} onChange={(e) => setRoomId(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${field}`}>
+                  {roomOptions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              ) : (
+                <p className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>No rooms yet — create one in the office first.</p>
+              )}
+            </div>
+          )}
           <div>
             <label className={labelCls}>Title</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${field}`} />

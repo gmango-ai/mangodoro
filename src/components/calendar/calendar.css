@@ -17,6 +17,15 @@
   opacity: 0.6;
 }
 
+/* Time-tracked actuals: muted + italic to read as "already happened". */
+.cal-wrap .cal-actual {
+  opacity: 0.72;
+}
+.cal-wrap .cal-actual .fc-event-title,
+.cal-wrap .cal-actual .fc-event-time {
+  font-style: italic;
+}
+
 /* Dark theme — override FullCalendar's CSS variables. */
 .cal-dark .fc {
   --fc-page-bg-color: transparent;

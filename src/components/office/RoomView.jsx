@@ -350,21 +350,19 @@ export default function RoomView({
               onAddWeb={() => addWeb("")}
             />
 
-            {/* Schedule a meeting into this room (meeting rooms only). */}
-            {room.kind === "meeting" && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setScheduleOpen(true)}
-                title="Schedule a meeting"
-                aria-label="Schedule a meeting"
-                className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
-                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <CalendarPlus className="w-5 h-5 sm:w-4 sm:h-4" />
-              </Button>
-            )}
+            {/* Schedule a meeting into this room (any room can host one). */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setScheduleOpen(true)}
+              title="Schedule a meeting"
+              aria-label="Schedule a meeting"
+              className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
+                dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <CalendarPlus className="w-5 h-5 sm:w-4 sm:h-4" />
+            </Button>
 
             {/* Settings + Leave — pinned to the far right. Larger touch
                 targets on mobile. */}
