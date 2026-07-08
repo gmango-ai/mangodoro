@@ -29,7 +29,13 @@ export default function PresenceSync() {
   // your availability. Gated on settings being loaded (timezone present).
   useEffect(() => {
     if (!userId || !settings?.timezone) return; // wait for settings to load
-    if (settings.workStart || settings.workEnd) return; // already set
+    // "Set" means ANY representation: the flat start/end, the per-day work_schedule
+    // (what Settings actually writes), or explicit work days. Checking only the
+    // flat fields nagged users who set a per-day schedule forever.
+    const hasHours = settings.workStart || settings.workEnd
+      || (settings.workSchedule && typeof settings.workSchedule === "object" && Object.keys(settings.workSchedule).length)
+      || (Array.isArray(settings.workDays) && settings.workDays.length);
+    if (hasHours) return; // already set
     const week = Math.floor(Date.now() / (7 * 86400000));
     const k = `whnudge:${userId}:${week}`;
     try { if (localStorage.getItem(k)) return; } catch { return; }
