@@ -6,7 +6,7 @@ import { supabase } from "../supabase";
 // (row -> FullCalendar event input). The page loads enabled layers for the
 // visible range on `datesSet` and concatenates the mapped events.
 
-export const LAYERS = ["meetings", "tasks", "deadlines", "goals", "availability", "actuals"];
+export const LAYERS = ["meetings", "tasks", "deadlines", "goals", "availability", "actuals", "google"];
 export const LAYER_LABEL = {
   meetings: "Meetings",
   tasks: "Planner tasks",
@@ -14,6 +14,7 @@ export const LAYER_LABEL = {
   goals: "Goals",
   availability: "Work hours & OOO",
   actuals: "Time tracked",
+  google: "Google Calendar",
 };
 
 const COLOR = {
@@ -24,6 +25,7 @@ const COLOR = {
   goal: "#f59e0b",
   ooo: "rgba(100,116,139,0.18)",
   actual: "#94a3b8",
+  google: "#4285F4",
 };
 
 // Lenient 'HH:MM' / 'H:MM am' parser for the free-text entries.start/end_time.
@@ -60,7 +62,7 @@ export async function fetchMeetingsInRange(teamId, startISO, endISO) {
   if (!teamId) return { data: [] };
   return supabase
     .from("scheduled_meetings")
-    .select("id, room_id, title, description, starts_at, ends_at, created_by")
+    .select("id, room_id, title, description, starts_at, ends_at, created_by, google_event_id, google_html_link, auto_record, attendee_ids, attendee_emails")
     .eq("team_id", teamId)
     .gte("starts_at", startISO)
     .lte("starts_at", endISO)
@@ -106,7 +108,7 @@ export async function fetchMyAvailability(userId) {
   if (!userId) return { data: null };
   return supabase
     .from("user_settings")
-    .select("work_start, work_end, work_days, ooo_start, ooo_end, ooo_note, ooo_ranges")
+    .select("work_start, work_end, work_days, work_schedule, ooo_start, ooo_end, ooo_note, ooo_ranges")
     .eq("user_id", userId)
     .maybeSingle();
 }
@@ -121,7 +123,7 @@ export function meetingToEvent(m) {
     backgroundColor: COLOR.meeting,
     borderColor: COLOR.meeting,
     editable: true,
-    extendedProps: { type: "meeting", sourceId: m.id, roomId: m.room_id, googleEventId: m.google_event_id },
+    extendedProps: { type: "meeting", sourceId: m.id, roomId: m.room_id, googleEventId: m.google_event_id, row: m },
   };
 }
 
@@ -133,7 +135,7 @@ export function plannerTaskToEvent(t) {
     borderColor: COLOR.task,
     editable: true,
     classNames: t.done ? ["cal-task-done"] : [],
-    extendedProps: { type: "task", sourceId: t.id, done: t.done },
+    extendedProps: { type: "task", sourceId: t.id, done: t.done, row: t },
   };
   if (t.start_time && t.duration_min) {
     const start = `${t.planner_date}T${String(t.start_time).slice(0, 5)}`;
@@ -153,7 +155,7 @@ export function taskDueToEvent(t) {
     borderColor: COLOR.due,
     textColor: COLOR.due,
     editable: true,
-    extendedProps: { type: "task_due", sourceId: t.id },
+    extendedProps: { type: "task_due", sourceId: t.id, row: t },
   };
 }
 
@@ -167,7 +169,7 @@ export function personalDueToEvent(t) {
     borderColor: COLOR.due,
     textColor: COLOR.due,
     editable: true,
-    extendedProps: { type: "ptask_due", sourceId: t.id },
+    extendedProps: { type: "ptask_due", sourceId: t.id, row: t },
   };
 }
 
@@ -193,7 +195,7 @@ export function entryToEvent(e) {
     classNames: ["cal-actual"],
     backgroundColor: COLOR.actual,
     borderColor: COLOR.actual,
-    extendedProps: { type: "actual", sourceId: e.id },
+    extendedProps: { type: "actual", sourceId: e.id, row: e },
   };
   const s = parseHM(e.start);
   const en = parseHM(e.end_time);
@@ -218,7 +220,7 @@ export function goalToEvent(g) {
     borderColor: COLOR.goal,
     textColor: COLOR.goal,
     editable: false,
-    extendedProps: { type: "goal", sourceId: g.id },
+    extendedProps: { type: "goal", sourceId: g.id, row: g },
   };
 }
 
@@ -245,23 +247,74 @@ export function availabilityToEvents(settings) {
   return out;
 }
 
+// A read-only event pulled from the user's Google Calendar. Working-location
+// entries (home/office) get their own type so the calendar renders them as a
+// location badge rather than a meeting-style chip.
+export function googleEventToEvent(g) {
+  const isLocation = g.eventType === "workingLocation";
+  return {
+    id: `google:${g.id}`,
+    title: isLocation ? (g.locationLabel || g.title) : g.title,
+    start: g.start,
+    end: g.end,
+    allDay: g.allDay,
+    editable: false,
+    classNames: ["cal-google"],
+    extendedProps: {
+      type: isLocation ? "worklocation" : "google",
+      htmlLink: g.htmlLink,
+      locationLabel: g.locationLabel,
+    },
+  };
+}
+
+// Team view: a teammate's OOO as a named all-day chip (so you can see WHO is out).
+export function profileOooToEvents(profile) {
+  if (!profile) return [];
+  const name = profile.display_name || "Teammate";
+  const out = [];
+  const push = (start, end, key) => {
+    if (!start) return;
+    out.push({
+      id: `ooo:${profile.user_id}:${key}`,
+      title: `🏖 ${name}`,
+      start,
+      end: addDaysStr(end || start, 1),
+      allDay: true,
+      backgroundColor: "rgba(100,116,139,0.22)",
+      borderColor: "transparent",
+      textColor: "#64748b",
+      editable: false,
+      extendedProps: { type: "ooo", note: `${name} out of office` },
+    });
+  };
+  if (profile.ooo_start) push(profile.ooo_start, profile.ooo_end, "primary");
+  (Array.isArray(profile.ooo_ranges) ? profile.ooo_ranges : []).forEach((r, i) => push(r.start, r.end, `r${i}`));
+  return out;
+}
+
 // FullCalendar businessHours from work_start/work_end/work_days.
 const DAY_NUM = {
   sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2, wed: 3, wednesday: 3,
   thu: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6,
 };
 export function businessHoursFromSettings(settings) {
-  if (!settings?.work_start || !settings?.work_end) return false;
+  if (!settings) return false;
+  // Prefer the per-day work_schedule (what Settings writes): each day key (0=Sun..6)
+  // → { start, end, loc }. Produce one businessHours entry per configured day.
+  const sched = settings.work_schedule && typeof settings.work_schedule === "object" ? settings.work_schedule : null;
+  if (sched && Object.keys(sched).length) {
+    const arr = Object.entries(sched)
+      .filter(([, v]) => v && v.start && v.end)
+      .map(([d, v]) => ({ daysOfWeek: [Number(d)], startTime: String(v.start).slice(0, 5), endTime: String(v.end).slice(0, 5) }));
+    if (arr.length) return arr;
+  }
+  // Fall back to the flat work_start/work_end + work_days.
+  if (!settings.work_start || !settings.work_end) return false;
   const days = Array.isArray(settings.work_days) && settings.work_days.length
-    ? settings.work_days
-        .map((d) => (typeof d === "number" ? d : DAY_NUM[String(d).toLowerCase()]))
-        .filter((d) => d !== undefined)
+    ? settings.work_days.map((d) => (typeof d === "number" ? d : DAY_NUM[String(d).toLowerCase()])).filter((d) => d !== undefined)
     : [1, 2, 3, 4, 5];
-  return {
-    daysOfWeek: days,
-    startTime: String(settings.work_start).slice(0, 5),
-    endTime: String(settings.work_end).slice(0, 5),
-  };
+  return { daysOfWeek: days, startTime: String(settings.work_start).slice(0, 5), endTime: String(settings.work_end).slice(0, 5) };
 }
 
 // ── writers (drag/resize reschedule + quick create) ────────────────────
@@ -289,4 +342,17 @@ export async function createPlannerTask({ userId, title, plannerDate, startTime,
     start_time: startTime || null,
     duration_min: durationMin || null,
   }).select().single();
+}
+
+export async function updatePlannerTaskFields(id, patch) {
+  return supabase.from("planner_tasks").update(patch).eq("id", id);
+}
+export async function deletePlannerTask(id) {
+  return supabase.from("planner_tasks").delete().eq("id", id);
+}
+export async function updatePersonalTaskFields(id, patch) {
+  return supabase.from("personal_tasks").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+}
+export async function deletePersonalTask(id) {
+  return supabase.from("personal_tasks").delete().eq("id", id);
 }
