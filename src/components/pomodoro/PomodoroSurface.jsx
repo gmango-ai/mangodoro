@@ -239,8 +239,8 @@ export default function PomodoroSurface({
       {/* Participants */}
       <ParticipantCards max={cfg.participantsMax} />
 
-      {/* Week goals — small banner showing the goals set in last week's
-          retro that define this week's focus. Hidden when no goal was set. */}
+      {/* Week goals — small banner showing this week's focus goals (set via
+          whiteboard goal nodes). Hidden when no goal was set. */}
       {cfg.showGoals && weekGoals.length > 0 && (
         <div
           className={`rounded-xl border p-3 ${

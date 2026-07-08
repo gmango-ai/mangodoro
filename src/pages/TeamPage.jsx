@@ -629,7 +629,7 @@ export default function TeamPage() {
             <SectionHeader
               icon={Users2}
               title="Teams"
-              subtitle="SWE, PM, HR — gate rooms, retros, and goals"
+              subtitle="SWE, PM, HR — gate rooms and goals"
               dark={dark}
             />
           )}
@@ -926,22 +926,9 @@ export default function TeamPage() {
           <SectionHeader
             icon={ArrowRight}
             title="Quick links"
-            subtitle="Jump to retros, timesheets, and live sessions"
+            subtitle="Jump to timesheets and live sessions"
             dark={dark}
           />
-          <button
-            onClick={() => navigate("/retros")}
-            className={`w-full ${cardCls} flex items-center justify-between hover:border-[var(--color-accent)] transition-colors cursor-pointer`}
-          >
-            <div className="flex items-center gap-3">
-              <Target className="w-5 h-5 text-[var(--color-accent)]" />
-              <div className="text-left">
-                <p className={headingCls}>Team Retro</p>
-                <p className={subCls}>Review the week and plan next week's goal</p>
-              </div>
-            </div>
-            <ArrowRight className={`w-5 h-5 ${dark ? "text-slate-500" : "text-slate-400"}`} />
-          </button>
           {isAdmin && (
             <button
               onClick={() => navigate("/team/timesheets")}

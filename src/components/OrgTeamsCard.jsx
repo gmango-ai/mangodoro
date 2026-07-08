@@ -78,7 +78,7 @@ export default function OrgTeamsCard({
   }
 
   async function handleArchive(team) {
-    const ok = window.confirm(`Archive "${team.name}"? Members lose access to its rooms and retros.`);
+    const ok = window.confirm(`Archive "${team.name}"? Members lose access to its rooms and whiteboards.`);
     if (!ok) return;
     const { error } = await archiveOrgTeam(team.id);
     if (error) { onError?.(error.message || "Could not archive team."); return; }
@@ -105,7 +105,7 @@ export default function OrgTeamsCard({
       </div>
 
       <p className={`text-[11px] mb-3 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-        SWE, PM, HR, etc. Members of a team see its retros and rooms; non-members don't.
+        SWE, PM, HR, etc. Members of a team see its rooms and whiteboards; non-members don't.
       </p>
 
       {/* Add form */}

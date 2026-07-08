@@ -52,7 +52,7 @@ const SECTIONS = [
 
 const PROJECT_COLORS = ["#14b8a6", "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#ef4444", "#64748b"];
 
-// Pastel palette for retro sticky notes. Stays light enough that body
+// Pastel palette for whiteboard sticky notes. Stays light enough that body
 // text reads in either theme without needing per-color contrast tweaks.
 const STICKY_COLORS = [
   { hex: "#fde68a", label: "Yellow" },
@@ -311,7 +311,7 @@ function ProfileSection({ dark }) {
       <Toast message={error} dark={dark} tone="err" />
       <Toast message={savingMsg} dark={dark} />
 
-      <SectionCard title="Your profile" hint="What teammates see in shared sessions and retros." dark={dark}>
+      <SectionCard title="Your profile" hint="What teammates see in shared sessions." dark={dark}>
         <div className="space-y-4">
           <div>
             <FieldLabel dark={dark}>Display name</FieldLabel>
@@ -683,8 +683,8 @@ function AppearanceSection({ dark }) {
       </SectionCard>
 
       <SectionCard
-        title="Retro sticky-note color"
-        hint="Background tint for the retro cards you write."
+        title="Sticky-note color"
+        hint="Default background tint for sticky notes you add to whiteboards."
         dark={dark}
       >
         <div className="flex flex-wrap gap-2">

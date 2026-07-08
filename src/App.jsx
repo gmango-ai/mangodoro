@@ -52,8 +52,6 @@ import PomodoroPage from "./pages/PomodoroPage";
 const TimeTrackerPage = lazy(() => import("./pages/TimeTrackerPage"));
 const TeamPage = lazy(() => import("./pages/TeamPage"));
 const TeamTimesheetsPage = lazy(() => import("./pages/TeamTimesheetsPage"));
-const RetrosListPage = lazy(() => import("./pages/RetrosListPage"));
-const RetroPage = lazy(() => import("./pages/RetroPage"));
 const WhiteboardsListPage = lazy(() => import("./pages/WhiteboardsListPage"));
 const WhiteboardPage = lazy(() => import("./pages/WhiteboardPage"));
 const OfficePage = lazy(() => import("./pages/OfficePage"));
@@ -63,7 +61,6 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const JoinSyncPage = lazy(() => import("./pages/JoinSyncPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 const JoinTeamPage = lazy(() => import("./pages/JoinTeamPage"));
-const JoinRetroPage = lazy(() => import("./pages/JoinRetroPage"));
 const LocalTimerPage = lazy(() => import("./pages/LocalTimerPage"));
 const DevicePairPage = lazy(() => import("./pages/DevicePairPage"));
 const DeviceKioskPage = lazy(() => import("./pages/DeviceKioskPage"));
@@ -200,9 +197,9 @@ function AppLayout({ session }) {
 
   const onPomodoroPage = location.pathname.startsWith("/pomodoro");
 
-  // When loaded inside another surface (today: the retro iframe embedded
-  // in a room) we hide the global Nav and floating chrome so the
-  // embedded view gets the full viewport. Trigger: ?embed=1 query param.
+  // When loaded inside another surface (an iframe embedded in a room) we hide
+  // the global Nav and floating chrome so the embedded view gets the full
+  // viewport. Trigger: ?embed=1 query param.
   const isEmbed = new URLSearchParams(location.search).get("embed") === "1";
 
   const currentTaskHint = (() => {
@@ -410,10 +407,10 @@ function AppLayout({ session }) {
             <Route path="/messages" element={<MessagesPage />} />
             <Route path="/u/:userId" element={<ProfilePage />} />
             <Route path="/team/timesheets" element={<TeamTimesheetsPage />} />
-            {/* Retros section. /team/retro is the legacy URL — redirect. */}
-            <Route path="/team/retro" element={<Navigate to="/retros" replace />} />
-            <Route path="/retros" element={<RetrosListPage />} />
-            <Route path="/retros/:retroId" element={<RetroPage />} />
+            {/* Retros retired — whiteboards replaced them; keep the legacy URLs
+                redirecting so old links/bookmarks still land somewhere useful. */}
+            <Route path="/team/retro" element={<Navigate to="/whiteboards" replace />} />
+            <Route path="/retros" element={<Navigate to="/whiteboards" replace />} />
             <Route path="/whiteboard" element={<Navigate to="/whiteboards" replace />} />
             <Route path="/whiteboards" element={<WhiteboardsListPage />} />
             <Route path="/whiteboards/:whiteboardId" element={<WhiteboardPage />} />
@@ -595,7 +592,6 @@ export default function App() {
         <Routes>
           <Route path="/pomodoro/join/:code" element={<JoinSyncPage />} />
           <Route path="/team/join/:code" element={<JoinTeamPage />} />
-          <Route path="/retros/join/:code" element={<JoinRetroPage />} />
           {/* No-account local timer. It's also the default landing for
               signed-out visitors (catch-all below), so the web/desktop/Electron
               app opens straight into a usable timer; signing in is opt-in. */}
