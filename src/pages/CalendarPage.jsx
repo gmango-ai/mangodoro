@@ -306,12 +306,37 @@ export default function CalendarPage() {
                 </div>
               );
             })}
-            {enabledLayers.has("google") && scope === "personal" && !googleConnected && (
-              <button type="button" onClick={connectGoogle} className="cal-ocean__today" style={{ width: "100%", marginTop: 10, fontSize: 12 }}>
-                Connect Google to sync
-              </button>
-            )}
           </div>
+
+          {scope === "personal" && (
+            <div className="cal-ocean__card">
+              <div className="cal-ocean__eyebrow">Google Calendar</div>
+              {googleConnected ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 700, color: "var(--o-aqua-600)" }}>
+                      <span style={{ width: 7, height: 7, borderRadius: 999, background: "var(--o-aqua-500)" }} /> Connected
+                    </span>
+                    <button type="button" onClick={reload} className="cal-ocean__today" style={{ marginLeft: "auto", padding: "4px 10px", fontSize: 11 }}>Refresh</button>
+                  </div>
+                  {!enabledLayers.has("google") && (
+                    <button type="button" onClick={() => toggleLayer("google")} className="cal-ocean__today" style={{ width: "100%", marginTop: 8, fontSize: 12 }}>
+                      Show Google events
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p style={{ fontSize: 11.5, color: "var(--o-ink-500)", margin: "0 0 8px", lineHeight: 1.4 }}>
+                    Show your Google events here and keep scheduled meetings in sync.
+                  </p>
+                  <button type="button" onClick={() => { if (!enabledLayers.has("google")) toggleLayer("google"); connectGoogle(); }} className="cal-ocean__new" style={{ width: "100%", justifyContent: "center" }}>
+                    Connect Google Calendar
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </aside>
 
         {/* ── main ── */}
