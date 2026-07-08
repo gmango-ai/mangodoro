@@ -125,6 +125,12 @@
 .cal-ocean__row .due { font-size: 11px; font-weight: 600; color: var(--o-ink-400); flex: none; }
 .cal-ocean__empty { font-size: 12px; color: var(--o-ink-400); padding: 4px 2px; }
 
+/* agenda day groups + same-type runs */
+.cal-ocean__aday + .cal-ocean__aday { margin-top: 8px; }
+.cal-ocean__adayhd { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--o-ink-400); padding: 4px 2px 2px; position: sticky; top: 0; background: var(--o-glass-strong); backdrop-filter: var(--o-blur); }
+.cal-ocean__run + .cal-ocean__run { margin-top: 2px; }
+.cal-ocean__runlabel { font-size: 9.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.8; padding: 2px 8px 0; }
+
 /* mini-month */
 .cal-ocean__mini { }
 .cal-ocean__mini-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -229,6 +235,15 @@
 /* Working location (from Google): muted, dashed, home-ish badge — clearly not a meeting. */
 .cal-chip2--loc { background: transparent !important; border: 1px dashed; opacity: 0.9; font-weight: 600; }
 .cal-chip2--loc .cdot { border-radius: 2px; }
+
+/* Day-context strip (work location, goals, OOO): compact, muted, sits at the top
+   of the day above the meeting/task "meat". */
+.cal-chip2--ctx { background: transparent !important; font-size: 10.5px; font-weight: 700; opacity: 0.85; padding: 1px 4px; gap: 4px; }
+.cal-chip2--ctx svg { width: 11px; height: 11px; opacity: 0.8; flex: none; }
+
+/* Work-hours colored band (week/day background events). */
+.cal-ocean .fc .fc-timegrid-bg-harness .fc-bg-event { opacity: 1; }
+.cal-ocean .fc .fc-bg-event { opacity: 0.55; }
 
 /* ── slide-over event detail ───────────────────────────── */
 .cal-ocean__backdrop { position: absolute; inset: 0; background: rgba(11,42,58,0.18); z-index: 40; animation: cal-fade .18s var(--o-ease-out); }

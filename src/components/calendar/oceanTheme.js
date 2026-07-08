@@ -12,6 +12,7 @@ const T = {
   actual:    { label: "Time tracked", bg: "rgba(169,190,200,0.20)", fg: "#557686", solid: "#A9BEC8" },
   google:    { label: "Google",    bg: "rgba(125,180,248,0.16)", fg: "#1A4FA8", solid: "#7DB4F8" },
   worklocation: { label: "Working location", bg: "rgba(85,118,134,0.10)", fg: "#355d6e", solid: "#7F9AA7" },
+  worklocation_app: { label: "Working location", bg: "rgba(45,127,249,0.08)", fg: "#355d6e", solid: "#7DB4F8" },
 };
 const FALLBACK = { label: "Event", bg: "rgba(85,118,134,0.14)", fg: "#355d6e", solid: "#7F9AA7" };
 

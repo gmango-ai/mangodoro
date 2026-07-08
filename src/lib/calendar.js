@@ -62,7 +62,7 @@ export async function fetchMeetingsInRange(teamId, startISO, endISO) {
   if (!teamId) return { data: [] };
   return supabase
     .from("scheduled_meetings")
-    .select("id, room_id, title, description, starts_at, ends_at, created_by, google_event_id, google_html_link, auto_record, attendee_ids, attendee_emails")
+    .select("id, room_id, title, description, starts_at, ends_at, created_by, google_event_id, google_html_link, auto_record, attendee_ids, attendee_emails, priority")
     .eq("team_id", teamId)
     .gte("starts_at", startISO)
     .lte("starts_at", endISO)
@@ -123,7 +123,7 @@ export function meetingToEvent(m) {
     backgroundColor: COLOR.meeting,
     borderColor: COLOR.meeting,
     editable: true,
-    extendedProps: { type: "meeting", sourceId: m.id, roomId: m.room_id, googleEventId: m.google_event_id, row: m },
+    extendedProps: { type: "meeting", sourceId: m.id, roomId: m.room_id, googleEventId: m.google_event_id, priority: m.priority ?? 1, row: m },
   };
 }
 
@@ -224,20 +224,21 @@ export function goalToEvent(g) {
   };
 }
 
-// OOO ranges → background events (single ooo_start..ooo_end plus any ooo_ranges).
+// OOO ranges → a labeled context chip at the top of the day PLUS a soft
+// background tint over the range.
 export function availabilityToEvents(settings) {
   if (!settings) return [];
   const out = [];
   const push = (start, end, note, key) => {
     if (!start) return;
+    const endEx = addDaysStr(end || start, 1); // inclusive end → FC exclusive
     out.push({
-      id: `ooo:${key}`,
-      start,
-      end: addDaysStr(end || start, 1), // inclusive end → FC exclusive
-      allDay: true,
-      display: "background",
-      backgroundColor: COLOR.ooo,
-      extendedProps: { type: "ooo", note: note || "Out of office" },
+      id: `oobg:${key}`, start, end: endEx, allDay: true, display: "background",
+      backgroundColor: COLOR.ooo, extendedProps: { type: "ooo_bg" },
+    });
+    out.push({
+      id: `ooo:${key}`, start, end: endEx, allDay: true, editable: false,
+      title: note || "Out of office", extendedProps: { type: "ooo", note: note || "Out of office" },
     });
   };
   if (settings.ooo_start) push(settings.ooo_start, settings.ooo_end, settings.ooo_note, "primary");
@@ -290,6 +291,56 @@ export function profileOooToEvents(profile) {
   };
   if (profile.ooo_start) push(profile.ooo_start, profile.ooo_end, "primary");
   (Array.isArray(profile.ooo_ranges) ? profile.ooo_ranges : []).forEach((r, i) => push(r.start, r.end, `r${i}`));
+  return out;
+}
+
+// Day-context: the app's per-day work LOCATION (from work_schedule[weekday].loc)
+// as a compact all-day chip at the top of each working day in the range.
+const LOC_LABEL = { office: "Office", home: "Home", remote: "Remote", out: "Out" };
+export function workLocationEvents(settings, startDate, endDate) {
+  const sched = settings?.work_schedule && typeof settings.work_schedule === "object" ? settings.work_schedule : null;
+  if (!sched) return [];
+  const out = [];
+  const d = new Date(startDate);
+  const end = new Date(endDate);
+  for (; d < end; d.setDate(d.getDate() + 1)) {
+    const day = sched[d.getDay()];
+    if (!day || !day.loc) continue;
+    const ds = toDateStr(d);
+    out.push({
+      id: `wloc:${ds}`,
+      title: LOC_LABEL[day.loc] || day.loc,
+      start: ds,
+      allDay: true,
+      editable: false,
+      extendedProps: { type: "worklocation_app", loc: day.loc },
+    });
+  }
+  return out;
+}
+
+// Week/Day: color-in the working hours as a soft background band per day.
+export function workHoursBackgroundEvents(settings, startDate, endDate) {
+  const sched = settings?.work_schedule && typeof settings.work_schedule === "object" ? settings.work_schedule : null;
+  const flat = (!sched || !Object.keys(sched).length) && settings?.work_start && settings?.work_end;
+  const out = [];
+  const d = new Date(startDate);
+  const end = new Date(endDate);
+  for (; d < end; d.setDate(d.getDate() + 1)) {
+    let s, e;
+    if (sched && sched[d.getDay()]?.start && sched[d.getDay()]?.end) { s = sched[d.getDay()].start; e = sched[d.getDay()].end; }
+    else if (flat) { s = settings.work_start; e = settings.work_end; }
+    else continue;
+    const ds = toDateStr(d);
+    out.push({
+      id: `whrs:${ds}`,
+      start: `${ds}T${String(s).slice(0, 5)}`,
+      end: `${ds}T${String(e).slice(0, 5)}`,
+      display: "background",
+      backgroundColor: "rgba(45,127,249,0.08)",
+      extendedProps: { type: "workhours" },
+    });
+  }
   return out;
 }
 

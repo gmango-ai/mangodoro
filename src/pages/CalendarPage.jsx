@@ -5,7 +5,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import listPlugin from "@fullcalendar/list";
 import interactionPlugin from "@fullcalendar/interaction";
-import { ChevronLeft, ChevronRight, Plus, CalendarClock, CheckSquare, User, Users, Home } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CalendarClock, User, Users, Home, Target, Umbrella } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
@@ -18,7 +18,8 @@ import {
   fetchPersonalDueInRange, fetchMyAvailability,
   meetingToEvent, plannerTaskToEvent, taskDueToEvent, personalDueToEvent,
   milestoneToEvent, goalToEvent, availabilityToEvents, entryToEvent,
-  googleEventToEvent, profileOooToEvents, businessHoursFromSettings,
+  googleEventToEvent, profileOooToEvents,
+  workLocationEvents, workHoursBackgroundEvents,
   updateMeetingTime, updatePlannerSchedule, updateTaskDue, updatePersonalDue,
   updatePlannerTaskFields, createPlannerTask,
 } from "../lib/calendar";
@@ -33,11 +34,20 @@ import "../components/calendar/calendar-ocean.css";
 
 const LS_LAYERS = "cal_layers";
 const LS_SCOPE = "cal_scope";
+const LS_WEEKSTART = "cal_weekstart";
 const PERSONAL_ONLY = new Set(["tasks", "actuals", "google"]);
-// Priority within a day: meetings + due dates surface first; tasks sink (and are
-// the first to fall into "+N more"). Lower rank = shown higher.
-const RANK = { meeting: 1, task_due: 1, ptask_due: 1, milestone: 2, google: 3, worklocation: 4, goal: 5, task: 7, actual: 8, ooo: 9 };
-const UPCOMING_TYPES = new Set(["meeting", "task_due", "ptask_due", "milestone"]);
+// Day reading order (lower = higher). CONTEXT band on top (OOO, goals, work
+// location), then the "meat" — meetings + deadlines by priority — then tasks.
+const RANK = {
+  ooo: 0.0, goal: 0.1, worklocation_app: 0.2, worklocation: 0.25,
+  task_due: 1.0, ptask_due: 1.0, milestone: 1.2, google: 1.4,
+  task: 3.0, actual: 4.0,
+};
+const CTX_TYPES = new Set(["worklocation_app", "worklocation", "ooo", "goal"]);
+const rankFor = (p) => (p?.type === "meeting"
+  ? 1.0 - ((p.priority ?? 1) - 1) * 0.3   // high(2)=0.7 above deadlines · low(0)=1.3 below
+  : RANK[p?.type] ?? 2);
+const AGENDA_SKIP = new Set(["ooo_bg", "workhours"]);
 const stripEmoji = (s) => String(s || "").replace(/^[⏳◆🏖⏱🎯]\s*/, "");
 const eventDayStr = (e) => (e.allDay && typeof e.start === "string" && e.start.length === 10 ? e.start : toDateStr(new Date(e.start)));
 
@@ -63,6 +73,7 @@ export default function CalendarPage() {
   const [avail, setAvail] = useState(null);
   const [teamProfiles, setTeamProfiles] = useState({});
   const [scope, setScope] = useState(() => { try { return localStorage.getItem(LS_SCOPE) || "personal"; } catch { return "personal"; } });
+  const [weekStart, setWeekStart] = useState(() => { try { return localStorage.getItem(LS_WEEKSTART) === "0" ? 0 : 1; } catch { return 1; } });
   const [title, setTitle] = useState("");
   const [viewType, setViewType] = useState("dayGridMonth");
   const [focusDate, setFocusDate] = useState(() => new Date());
@@ -112,7 +123,11 @@ export default function CalendarPage() {
         jobs.push(fetchPersonalDueInRange(userId, startStr, endStr).then(({ data }) => (data || []).forEach((t) => collected.push(personalDueToEvent(t)))));
         if (activeTeamId) jobs.push(listMilestonesInRange(activeTeamId, startStr, endStr).then(({ data }) => (data || []).forEach((m) => collected.push(milestoneToEvent(m)))));
       }
-      if (layers.has("availability") && avail) availabilityToEvents(avail).forEach((e) => collected.push(e));
+      if (layers.has("availability") && avail) {
+        availabilityToEvents(avail).forEach((e) => collected.push(e));
+        workLocationEvents(avail, startDate, endDate).forEach((e) => collected.push(e));
+        workHoursBackgroundEvents(avail, startDate, endDate).forEach((e) => collected.push(e));
+      }
       if (layers.has("actuals")) (entries || []).filter((e) => e.date >= startStr && e.date < endStr).forEach((e) => collected.push(entryToEvent(e)));
       if (layers.has("google") && googleToken) {
         jobs.push(gcalRef.current?.({ timeMin: startDate.toISOString(), timeMax: endDate.toISOString() })
@@ -124,8 +139,8 @@ export default function CalendarPage() {
     }
 
     await Promise.all(jobs);
-    // Stamp a priority rank so meetings/deadlines sort above tasks in each cell.
-    collected.forEach((e) => { if (e.extendedProps) e.extendedProps.orderRank = RANK[e.extendedProps.type] ?? 6; });
+    // Stamp reading-order rank: context band → meetings/deadlines (by priority) → tasks.
+    collected.forEach((e) => { if (e.extendedProps) e.extendedProps.orderRank = rankFor(e.extendedProps); });
     setEvents(collected);
   }, [activeTeamId, userId, avail, entries, teamProfiles, googleToken]);
 
@@ -143,6 +158,7 @@ export default function CalendarPage() {
 
   const api = () => calRef.current?.getApi();
   const changeScope = (id) => { setScope(id); try { localStorage.setItem(LS_SCOPE, id); } catch { /* */ } };
+  const changeWeekStart = (v) => { setWeekStart(v); try { localStorage.setItem(LS_WEEKSTART, String(v)); } catch { /* */ } };
   const toggleLayer = (layer) => setEnabledLayers((prev) => {
     const next = new Set(prev);
     if (next.has(layer)) next.delete(layer); else next.add(layer);
@@ -150,7 +166,6 @@ export default function CalendarPage() {
     return next;
   });
 
-  const businessHours = useMemo(() => (scope === "personal" && enabledLayers.has("availability") ? businessHoursFromSettings(avail) : false), [scope, enabledLayers, avail]);
 
   const onEventChange = useCallback(async (info) => {
     const p = info.event.extendedProps || {};
@@ -180,37 +195,59 @@ export default function CalendarPage() {
   };
   const toggleTaskDone = async (row) => { await updatePlannerTaskFields(row.id, { done: !row.done }); reload(); };
 
-  // ── derived: right-rail lists ──
-  // Upcoming = meetings + due dates + milestones from ~now forward (what the user
-  // cares about most), across days — NOT today's task checklist.
+  // ── right-rail agenda: everything from ~now forward, sorted by time, with
+  // consecutive same-type items clustered (grouped by type around a similar time). ──
   const todayStr = toDateStr(new Date());
-  const upcoming = useMemo(() => {
-    const cutoff = Date.now() - 60 * 60 * 1000; // keep ones started within the last hour
-    return events
-      .filter((e) => UPCOMING_TYPES.has(e.extendedProps?.type))
-      .map((e) => ({ ...e, _s: new Date(e.start) }))
-      .filter((e) => !Number.isNaN(e._s.getTime()) && e._s.getTime() >= cutoff)
-      .sort((a, b) => a._s - b._s)
-      .slice(0, 8);
+  const agenda = useMemo(() => {
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const items = events
+      .filter((e) => e.display !== "background" && !AGENDA_SKIP.has(e.extendedProps?.type))
+      .map((e) => ({ ...e, _s: new Date(e.start), _rank: e.extendedProps?.orderRank ?? 2 }))
+      .filter((e) => !Number.isNaN(e._s.getTime()) && e._s >= startOfToday)
+      .sort((a, b) => a._s - b._s || a._rank - b._rank);
+    const days = [];
+    let curKey = null;
+    for (const it of items) {
+      const k = toDateStr(it._s);
+      if (k !== curKey) { days.push({ key: k, date: new Date(it._s), runs: [] }); curKey = k; }
+      const day = days[days.length - 1];
+      const type = it.extendedProps?.type;
+      const last = day.runs[day.runs.length - 1];
+      if (last && last.type === type) last.items.push(it);
+      else day.runs.push({ type, items: [it] });
+    }
+    return days.slice(0, 10);
   }, [events]);
-  const taskRows = useMemo(() => events.filter((e) => e.extendedProps?.type === "task").slice(0, 10), [events]);
 
-  const upcomingLabel = (e) => {
-    const d = e._s;
-    const isToday = toDateStr(d) === todayStr;
-    const time = e.allDay ? "all-day" : d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    return isToday ? time : `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · ${time}`;
+  const dayHeading = (d) => {
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    const tm = new Date(t); tm.setDate(t.getDate() + 1);
+    if (toDateStr(d) === toDateStr(t)) return "Today";
+    if (toDateStr(d) === toDateStr(tm)) return "Tomorrow";
+    return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   };
 
   const scopes = [{ id: "personal", icon: User, label: "Mine" }, { id: "team", icon: Users, label: "Team" }];
   const visibleLegend = OCEAN_LEGEND.filter((l) => scope === "personal" || !PERSONAL_ONLY.has(l.layer));
 
   const chipContent = (arg) => {
+    if (arg.event.display === "background") return undefined; // OOO/work-hours shading
     const p = arg.event.extendedProps || {};
-    if (p.type === "ooo") return undefined; // background shading
     const meta = oceanType(p.type);
     const title = stripEmoji(arg.event.title);
     const timed = !arg.event.allDay && arg.event.start;
+
+    // Day-context band (compact, muted): work location, goals, OOO.
+    if (CTX_TYPES.has(p.type)) {
+      const isLoc = p.type === "worklocation" || p.type === "worklocation_app";
+      const Icon = isLoc ? Home : p.type === "goal" ? Target : Umbrella;
+      return (
+        <div className="cal-chip2 cal-chip2--ctx" style={{ color: meta.fg }} title={title}>
+          <Icon /><span className="ctitle">{title}</span>
+        </div>
+      );
+    }
+
     const isTask = p.type === "task";
     const isDue = p.type === "task_due" || p.type === "ptask_due";
     const isLoc = p.type === "worklocation";
@@ -219,17 +256,12 @@ export default function CalendarPage() {
     else if (isDue) cls.push("cal-chip2--due");
     else if (isLoc) cls.push("cal-chip2--loc");
     if (p.done) cls.push("done");
-    // Tasks + location are outlined (no fill); meetings/deadlines/etc. are filled tint.
-    const style = (isTask || isLoc)
-      ? { color: meta.fg, borderColor: meta.solid }
-      : { background: meta.bg, color: meta.fg, borderColor: meta.solid };
+    const style = isTask ? { color: meta.fg, borderColor: meta.solid } : { background: meta.bg, color: meta.fg, borderColor: meta.solid };
     return (
       <div className={cls.join(" ")} style={style} title={title}>
-        {isTask ? <span className="cbox" />
-          : isLoc ? <Home className="w-3 h-3" style={{ opacity: 0.75 }} />
-          : <span className="cdot" style={{ background: meta.solid }} />}
+        {isTask ? <span className="cbox" /> : <span className="cdot" style={{ background: meta.solid }} />}
         {timed && !isTask && <span className="ctime">{arg.timeText}</span>}
-        <span className="ctitle">{isLoc ? `Working: ${title}` : title}</span>
+        <span className="ctitle">{title}</span>
       </div>
     );
   };
@@ -251,7 +283,14 @@ export default function CalendarPage() {
           </div>
 
           <div className="cal-ocean__card" style={{ padding: 12 }}>
-            <MiniMonth selected={focusDate} onPick={(d) => { api()?.gotoDate(d); setFocusDate(d); }} />
+            <MiniMonth selected={focusDate} weekStart={weekStart} onPick={(d) => { api()?.gotoDate(d); setFocusDate(d); }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
+              <span style={{ fontSize: 11, color: "var(--o-ink-400)", fontWeight: 700 }}>Week starts</span>
+              <div className="cal-ocean__seg" style={{ marginLeft: "auto" }}>
+                <button type="button" aria-pressed={weekStart === 0} onClick={() => changeWeekStart(0)}>Sun</button>
+                <button type="button" aria-pressed={weekStart === 1} onClick={() => changeWeekStart(1)}>Mon</button>
+              </div>
+            </div>
           </div>
 
           <div className="cal-ocean__card">
@@ -310,9 +349,8 @@ export default function CalendarPage() {
               select={(arg) => setNewSlot({ start: arg.start, end: arg.end, allDay: arg.allDay })}
               eventDrop={onEventChange}
               eventResize={onEventChange}
-              businessHours={businessHours}
               nowIndicator
-              firstDay={1}
+              firstDay={weekStart}
               dayMaxEvents={4}
               slotMinTime="06:00:00"
               slotMaxTime="22:00:00"
@@ -322,41 +360,43 @@ export default function CalendarPage() {
           </div>
         </main>
 
-        {/* ── right rail ── */}
+        {/* ── right rail: unified time-grouped agenda ── */}
         <aside className="cal-ocean__rail cal-ocean__rail--right">
           <div className="cal-ocean__card">
-            <div className="cal-ocean__cardhd"><CalendarClock className="w-[17px] h-[17px]" style={{ color: "var(--o-ocean-600)" }} /><h3>Upcoming</h3></div>
-            {upcoming.length === 0 ? <p className="cal-ocean__empty">No upcoming meetings or deadlines.</p> : upcoming.map((e) => {
-              const meta = oceanType(e.extendedProps?.type);
-              return (
-                <button key={e.id} type="button" className="cal-ocean__row" onClick={() => openDetails(e)}>
-                  <span className="time" style={{ width: 72 }}>{upcomingLabel(e)}</span>
-                  <span className="dot" style={{ background: meta.solid }} />
-                  <span className="txt">{stripEmoji(e.title)}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="cal-ocean__card">
-            <div className="cal-ocean__cardhd">
-              <CheckSquare className="w-[17px] h-[17px]" style={{ color: "var(--o-mango-600)" }} /><h3>Tasks</h3>
-              <span className="count">{taskRows.filter((t) => !t.extendedProps?.done).length} left</span>
-            </div>
-            {taskRows.length === 0 ? <p className="cal-ocean__empty">No planner tasks in view.</p> : taskRows.map((e) => {
-              const row = e.extendedProps?.row || {};
-              const done = !!e.extendedProps?.done;
-              return (
-                <div key={e.id} className="cal-ocean__row" style={{ cursor: "default" }}>
-                  <button type="button" aria-label="Toggle done" onClick={() => toggleTaskDone(row)}
-                    className="cal-ocean__box" style={{ borderColor: done ? "var(--o-aqua-500)" : "var(--o-ink-300)", background: done ? "var(--o-aqua-500)" : "transparent" }}>
-                    {done && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4"><polyline points="20 6 9 17 4 12" /></svg>}
-                  </button>
-                  <span className="txt" style={{ textDecoration: done ? "line-through" : "none", color: done ? "var(--o-ink-400)" : undefined }}>{stripEmoji(e.title)}</span>
-                  {row.due_date && <span className="due">{new Date(row.due_date + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}
-                </div>
-              );
-            })}
+            <div className="cal-ocean__cardhd"><CalendarClock className="w-[17px] h-[17px]" style={{ color: "var(--o-ocean-600)" }} /><h3>Agenda</h3></div>
+            {agenda.length === 0 ? <p className="cal-ocean__empty">Nothing coming up.</p> : agenda.map((day) => (
+              <div key={day.key} className="cal-ocean__aday">
+                <div className="cal-ocean__adayhd">{dayHeading(day.date)}</div>
+                {day.runs.map((run, ri) => {
+                  const meta = oceanType(run.type);
+                  return (
+                    <div key={ri} className="cal-ocean__run">
+                      {run.items.length > 1 && <div className="cal-ocean__runlabel" style={{ color: meta.solid }}>{meta.label}</div>}
+                      {run.items.map((it) => {
+                        const isTask = it.extendedProps?.type === "task";
+                        const done = !!it.extendedProps?.done;
+                        const row = it.extendedProps?.row || {};
+                        return (
+                          <div key={it.id} className="cal-ocean__row">
+                            <span className="time">{it.allDay ? "" : it._s.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+                            {isTask ? (
+                              <button type="button" aria-label="Toggle done" onClick={() => toggleTaskDone(row)}
+                                className="cal-ocean__box" style={{ borderColor: done ? "var(--o-aqua-500)" : "var(--o-ink-300)", background: done ? "var(--o-aqua-500)" : "transparent" }}>
+                                {done && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4"><polyline points="20 6 9 17 4 12" /></svg>}
+                              </button>
+                            ) : <span className="dot" style={{ background: meta.solid }} />}
+                            <button type="button" className="txt" onClick={() => openDetails(it)}
+                              style={{ background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", textDecoration: done ? "line-through" : "none", color: done ? "var(--o-ink-400)" : undefined }}>
+                              {stripEmoji(it.title)}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </aside>
       </div>

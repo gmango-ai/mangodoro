@@ -51,6 +51,7 @@ export default function ScheduleMeetingModal({ room, rooms, teamId, dark, initia
   const [time, setTime] = useState(startInit ? isoTime(startInit) : defaultTime);
   const [duration, setDuration] = useState(durInit);
   const [autoRecord, setAutoRecord] = useState(!!meeting?.auto_record);
+  const [priority, setPriority] = useState(meeting?.priority ?? 1);
   const [addToCalendar, setAddToCalendar] = useState(editing ? !!meeting?.google_event_id : hasGoogle);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -134,6 +135,7 @@ export default function ScheduleMeetingModal({ room, rooms, teamId, dark, initia
       starts_at: start.toISOString(),
       ends_at: end.toISOString(),
       auto_record: autoRecord,
+      priority,
       attendee_ids: [...attendeeIds],
       attendee_emails: emails,
       google_event_id: googleEventId,
@@ -259,6 +261,22 @@ export default function ScheduleMeetingModal({ room, rooms, teamId, dark, initia
           <div>
             <label className={labelCls}>Notes (optional)</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${field}`} />
+          </div>
+
+          <div>
+            <label className={labelCls}>Priority</label>
+            <div className="flex gap-1.5">
+              {[[0, "Low"], [1, "Normal"], [2, "High"]].map(([v, lbl]) => (
+                <button key={v} type="button" onClick={() => setPriority(v)} aria-pressed={priority === v}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                    priority === v
+                      ? "bg-[var(--color-accent)] border-transparent text-white"
+                      : dark ? "border-[var(--color-border)] text-slate-300 hover:bg-white/5" : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
           </div>
 
           <label className={`flex items-center gap-2 text-sm ${dark ? "text-slate-300" : "text-slate-700"}`}>
