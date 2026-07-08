@@ -1219,12 +1219,21 @@ export function AppProvider({ session, children }) {
     };
   }, [entries, hourlyRate, earningsPeriod]);
 
-  // ── Google Sheets ─────────────────────────────────────────────
-  function connectGoogleSheets() {
+  // ── Google (Sheets / Calendar / Docs) ─────────────────────────
+  // One consent covers every Google feature. `prompt: consent` forces the
+  // dialog so already-connected users pick up newly-added scopes on their next
+  // connect (the token is captured from session.provider_token — see the auth
+  // effect above — and persisted to user_settings.google_access_token).
+  function connectGoogle() {
     supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        scopes: "https://www.googleapis.com/auth/spreadsheets",
+        scopes: [
+          "https://www.googleapis.com/auth/spreadsheets",
+          "https://www.googleapis.com/auth/calendar.events",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/drive.file",
+        ].join(" "),
         queryParams: { access_type: "offline", prompt: "consent" },
         redirectTo: window.location.href,
       },
@@ -1373,7 +1382,7 @@ export function AppProvider({ session, children }) {
 
   async function exportToGoogleSheets(monthStr, monthEntries) {
     if (!googleToken || Date.now() > googleTokenExpiry) {
-      connectGoogleSheets();
+      connectGoogle();
       return;
     }
 
@@ -1521,7 +1530,7 @@ export function AppProvider({ session, children }) {
     });
 
     if (!res.ok) {
-      if (res.status === 401) { connectGoogleSheets(); return; }
+      if (res.status === 401) { connectGoogle(); return; }
       if (res.status === 403) { flash("✗ Sheets: enable Google Sheets API in your Google Cloud project"); return; }
       flash("✗ Google Sheets export failed");
       return;
@@ -1551,6 +1560,97 @@ export function AppProvider({ session, children }) {
 
     window.open(created.spreadsheetUrl, "_blank");
     flash("✓ Opened in Google Sheets");
+  }
+
+  // Create a Google Calendar event on the user's primary calendar. Foreground /
+  // client-side (same token pattern as the Sheets export). Returns
+  // { id, htmlLink } or null on failure (and re-prompts consent on 401/403).
+  async function createCalendarEvent({ summary, description, start, end, attendees = [], location }) {
+    if (!googleToken || Date.now() > googleTokenExpiry) {
+      connectGoogle();
+      return null;
+    }
+    const toISO = (d) => (d instanceof Date ? d.toISOString() : new Date(d).toISOString());
+    const body = {
+      summary: summary || "Meeting",
+      ...(description ? { description } : {}),
+      ...(location ? { location } : {}),
+      start: { dateTime: toISO(start) },
+      end: { dateTime: toISO(end) },
+      attendees: (attendees || []).filter(Boolean).map((email) => ({ email })),
+    };
+    let res;
+    try {
+      res = await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all",
+        {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+    } catch {
+      flash("✗ Could not reach Google Calendar");
+      return null;
+    }
+    if (!res.ok) {
+      if (res.status === 401) { connectGoogle(); return null; }
+      // Missing scope surfaces as 403 (not 401) — re-consent to pick up calendar.
+      if (res.status === 403) { connectGoogle(); flash("Reconnect Google to enable Calendar"); return null; }
+      flash("✗ Could not create calendar event");
+      return null;
+    }
+    const created = await res.json();
+    return { id: created.id, htmlLink: created.htmlLink };
+  }
+
+  // Create a Google Doc and write the summary (then transcript) into it.
+  // Foreground / client-side. Returns { documentId, url } or null on failure.
+  async function exportToGoogleDoc({ title, summaryMd, transcriptText }) {
+    if (!googleToken || Date.now() > googleTokenExpiry) {
+      connectGoogle();
+      return null;
+    }
+    let createRes;
+    try {
+      createRes = await fetch("https://docs.googleapis.com/v1/documents", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title || "Meeting summary" }),
+      });
+    } catch {
+      flash("✗ Could not reach Google Docs");
+      return null;
+    }
+    if (!createRes.ok) {
+      if (createRes.status === 401) { connectGoogle(); return null; }
+      if (createRes.status === 403) { connectGoogle(); flash("Reconnect Google to enable Docs"); return null; }
+      flash("✗ Could not create Google Doc");
+      return null;
+    }
+    const doc = await createRes.json();
+    const documentId = doc.documentId;
+    const url = `https://docs.google.com/document/d/${documentId}/edit`;
+
+    // Assemble the whole body once and insert it in a single request. (Multiple
+    // insertText requests all at index 1 would stack in reverse order.)
+    const parts = [];
+    if (summaryMd) parts.push(summaryMd.trim(), "\n\n");
+    if (transcriptText) parts.push("Transcript\n\n", transcriptText.trim(), "\n");
+    const text = parts.join("");
+
+    if (text) {
+      // The create round-trip can straddle the ~1h token life — re-check before
+      // the batchUpdate. If it just expired, hand back the (empty) doc + re-auth.
+      if (Date.now() > googleTokenExpiry) { connectGoogle(); return { documentId, url }; }
+      await fetch(`https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text } }] }),
+      }).catch(() => {}); // best-effort — the doc already exists
+    }
+
+    return { documentId, url };
   }
 
   async function addProjectQuick(name, color = "#14b8a6") {
@@ -1624,8 +1724,11 @@ export function AppProvider({ session, children }) {
     todayMins, grouped,
     // projects
     addProjectQuick,
-    // google sheets
-    googleToken, googleTokenExpiry, connectGoogleSheets, disconnectGoogleSheets, exportToGoogleSheets,
+    // google (sheets / calendar / docs)
+    googleToken, googleTokenExpiry,
+    connectGoogle, disconnectGoogle: disconnectGoogleSheets,
+    connectGoogleSheets: connectGoogle, disconnectGoogleSheets, // back-compat aliases
+    exportToGoogleSheets, createCalendarEvent, exportToGoogleDoc,
     // export/import
     exportAllCSV, exportMonthCSV, exportAllXLSX, exportMonthXLSX,
     importFromLocalStorage, importEntriesFromFile, exportProfile, importProfileFromFile,

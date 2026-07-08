@@ -411,14 +411,27 @@ verify_jwt = true
 [functions.widget-start]
 verify_jwt = false
 
-[functions.mint-jaas-jwt]
-verify_jwt = true
-
 [functions.mint-livekit-token]
 verify_jwt = true
 
 [functions.livekit-moderate]
 verify_jwt = true
+
+# Meeting recordings. start/stop take a user JWT (leader/admin authorized inside).
+[functions.start-egress]
+verify_jwt = true
+
+[functions.stop-egress]
+verify_jwt = true
+
+# egress-webhook is called by LiveKit (no Supabase JWT) — verified by LiveKit's
+# signed request instead. process-recording is internal — guarded by a shared
+# PIPELINE_SECRET header, not a JWT.
+[functions.egress-webhook]
+verify_jwt = false
+
+[functions.process-recording]
+verify_jwt = false
 
 # Org device accounts. provision/revoke are admin-only (user JWT); pair has no
 # JWT because the device has no session until it redeems its code.

@@ -4,6 +4,14 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-07
+
+### New & improved
+
+- **Meetings** — record a room's call with one toggle; it's transcribed and AI-summarized automatically, with a REC indicator everyone sees. Review past summaries + transcripts on the new Meetings page and export any to Google Docs.
+- **Calendar** — schedule meetings into a room (optionally mirrored to Google Calendar) with an "Upcoming meetings" office widget.
+- **Video** — standardized fully on LiveKit; removed the Jitsi/JaaS fallback and code path (retired the Share-music tab-audio feature, which was Jitsi-only)
+
 ## 2026-07-04
 
 ### New & improved

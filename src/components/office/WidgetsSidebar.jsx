@@ -19,6 +19,7 @@ import PomodoroWidget from "./PomodoroWidget";
 import GoalsWidget from "./GoalsWidget";
 import RoomMembersWidget from "./RoomMembersWidget";
 import WorldClockWidget from "./WorldClockWidget";
+import UpcomingMeetingsWidget from "./UpcomingMeetingsWidget";
 import WidgetSection, { DragHandleProvider } from "./WidgetSection";
 
 // App-wide widgets sidebar. Each widget is a WidgetSection so it can
@@ -53,6 +54,7 @@ export default function WidgetsSidebar() {
     pomodoro:     () => <PomodoroWidget dark={dark} />,
     "room-members": () => <RoomMembersWidget dark={dark} />,
     "world-clock": () => <WorldClockWidget dark={dark} />,
+    "upcoming-meetings": () => <UpcomingMeetingsWidget dark={dark} />,
     goals:        () => <GoalsWidget dark={dark} />,
     whiteboard:   () => <WhiteboardWidget dark={dark} />,
     tasks:        () => <TasksWidget dark={dark} />,

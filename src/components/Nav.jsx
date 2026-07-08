@@ -219,6 +219,7 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
                 </NavLink>
                 <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
                 <NavLink to="/whiteboards" className={desktopNavLink}>Whiteboards</NavLink>
+                <NavLink to="/meetings" className={desktopNavLink}>Meetings</NavLink>
                 <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
               </nav>
 
@@ -372,6 +373,9 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
           </NavLink>
           <NavLink to="/whiteboards" className={sidebarNavLink}>
             <span className="w-5 text-center">🪧</span> Whiteboards
+          </NavLink>
+          <NavLink to="/meetings" className={sidebarNavLink}>
+            <span className="w-5 text-center">🎥</span> Meetings
           </NavLink>
           <NavLink to="/team" className={sidebarNavLink}>
             <Users className="w-5 h-5" /> Org

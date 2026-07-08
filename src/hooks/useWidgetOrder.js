@@ -11,6 +11,7 @@ const ORDER_KEY = "ql_widget_order";
 export const DEFAULT_WIDGET_ORDER = [
   "pomodoro",
   "room-members",
+  "upcoming-meetings",
   "world-clock",
   "goals",
   "whiteboard",

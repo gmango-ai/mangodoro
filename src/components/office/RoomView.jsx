@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import {
   Hash, Briefcase, MessageSquare, Lock, Globe,
   LogIn, LogOut, Play, PanelLeftOpen, PanelLeftClose, ChevronDown, Settings,
-  Copy, Check,
+  Copy, Check, CalendarPlus,
 } from "lucide-react";
 import { getRoomAccessCode } from "../../lib/rooms";
+import ScheduleMeetingModal from "./ScheduleMeetingModal";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import KnockRequests from "./KnockRequests";
 import RoomLayout from "./roomLayout/RoomLayout";
@@ -70,6 +71,7 @@ export default function RoomView({
   // view modes — see ./roomLayout. Panels = video, chat, whiteboard.
   const { tree, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
   const [arranging, setArranging] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   // Access code for a code-gated room — fetched only for managers (RLS on
   // room_secrets returns nothing to anyone else), so it can be grabbed and
@@ -348,6 +350,22 @@ export default function RoomView({
               onAddWeb={() => addWeb("")}
             />
 
+            {/* Schedule a meeting into this room (meeting rooms only). */}
+            {room.kind === "meeting" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setScheduleOpen(true)}
+                title="Schedule a meeting"
+                aria-label="Schedule a meeting"
+                className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
+                  dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <CalendarPlus className="w-5 h-5 sm:w-4 sm:h-4" />
+              </Button>
+            )}
+
             {/* Settings + Leave — pinned to the far right. Larger touch
                 targets on mobile. */}
             {canEditRoom && onEditRoom && (
@@ -383,6 +401,16 @@ export default function RoomView({
           </div>
         </div>
       </header>
+
+      {scheduleOpen && (
+        <ScheduleMeetingModal
+          room={room}
+          teamId={room.team_id}
+          dark={dark}
+          onClose={() => setScheduleOpen(false)}
+          onCreated={() => setScheduleOpen(false)}
+        />
+      )}
 
       {/* Knock requests — people held at the lock gate asking to be let in.
           Only occupants see these (RLS-scoped); any of them can admit. */}
