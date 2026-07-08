@@ -19,6 +19,12 @@ export async function createScheduledMeeting(payload) {
   return supabase.from("scheduled_meetings").insert(payload).select().single();
 }
 
+export async function updateScheduledMeeting(id, patch) {
+  return supabase.from("scheduled_meetings")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id);
+}
+
 export async function deleteScheduledMeeting(id) {
   return supabase.from("scheduled_meetings").delete().eq("id", id);
 }

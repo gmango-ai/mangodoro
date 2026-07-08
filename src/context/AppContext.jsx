@@ -1653,6 +1653,87 @@ export function AppProvider({ session, children }) {
     return { documentId, url };
   }
 
+  // Read the user's Google Calendar (primary) for a window. Foreground token —
+  // the existing calendar.events scope already permits events.list. Returns a
+  // lean normalized list; stays silent on failure (it's a background layer).
+  async function listGoogleCalendarEvents({ timeMin, timeMax }) {
+    if (!googleToken || Date.now() > googleTokenExpiry) return [];
+    const params = new URLSearchParams({
+      timeMin: new Date(timeMin).toISOString(),
+      timeMax: new Date(timeMax).toISOString(),
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+    });
+    let res;
+    try {
+      res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+        headers: { "Authorization": `Bearer ${googleToken}` },
+      });
+    } catch { return []; }
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    return (data.items || []).map((ev) => {
+      // Working-location events (eventType 'workingLocation') describe where the
+      // person is working that day (home/office/custom) — surface a label so the
+      // calendar can render them as a location badge, not a normal event.
+      const wl = ev.workingLocationProperties;
+      let locationLabel = null;
+      if (ev.eventType === "workingLocation" && wl) {
+        if (wl.type === "homeOffice") locationLabel = "Home";
+        else if (wl.type === "officeLocation") locationLabel = wl.officeLocation?.label || "Office";
+        else if (wl.type === "customLocation") locationLabel = wl.customLocation?.label || "Elsewhere";
+        else locationLabel = "Working";
+      }
+      return {
+        id: ev.id,
+        title: ev.summary || locationLabel || "(busy)",
+        start: ev.start?.dateTime || ev.start?.date,
+        end: ev.end?.dateTime || ev.end?.date,
+        allDay: !ev.start?.dateTime,
+        htmlLink: ev.htmlLink,
+        eventType: ev.eventType || "default",
+        locationLabel,
+      };
+    });
+  }
+
+  // Patch a Google event we created (write-back on reschedule/edit).
+  async function updateCalendarEvent(eventId, { start, end, summary, description } = {}) {
+    if (!googleToken || Date.now() > googleTokenExpiry || !eventId) return { error: { message: "not connected" } };
+    const toISO = (d) => (d instanceof Date ? d.toISOString() : new Date(d).toISOString());
+    const body = {};
+    if (start) body.start = { dateTime: toISO(start) };
+    if (end) body.end = { dateTime: toISO(end) };
+    if (summary !== undefined) body.summary = summary;
+    if (description !== undefined) body.description = description || "";
+    let res;
+    try {
+      res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
+        method: "PATCH",
+        headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch { return { error: { message: "network" } }; }
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) connectGoogle();
+      return { error: { message: `google ${res.status}` } };
+    }
+    return { error: null };
+  }
+
+  // Delete a Google event we created (best-effort — silent on failure).
+  async function deleteCalendarEvent(eventId) {
+    if (!googleToken || Date.now() > googleTokenExpiry || !eventId) return { error: null };
+    try {
+      await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${googleToken}` },
+      });
+    } catch { /* best-effort */ }
+    return { error: null };
+  }
+
   async function addProjectQuick(name, color = "#14b8a6") {
     if (!session?.user?.id || !name.trim()) return null;
     const { data } = await supabase.from("projects").insert({
@@ -1729,6 +1810,7 @@ export function AppProvider({ session, children }) {
     connectGoogle, disconnectGoogle: disconnectGoogleSheets,
     connectGoogleSheets: connectGoogle, disconnectGoogleSheets, // back-compat aliases
     exportToGoogleSheets, createCalendarEvent, exportToGoogleDoc,
+    listGoogleCalendarEvents, updateCalendarEvent, deleteCalendarEvent,
     // export/import
     exportAllCSV, exportMonthCSV, exportAllXLSX, exportMonthXLSX,
     importFromLocalStorage, importEntriesFromFile, exportProfile, importProfileFromFile,
