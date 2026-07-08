@@ -1,9 +1,9 @@
 // LiveKit client config + access-token fetch.
 //
-// Mirrors the shape of jitsi.js: the client never holds the LiveKit API
-// secret — it calls the `mint-livekit-token` Supabase edge function with
-// its session, and that function signs a short-lived room-scoped token
-// against the secret (a Supabase secret, never a VITE_ var).
+// The client never holds the LiveKit API secret — it calls the
+// `mint-livekit-token` Supabase edge function with its session, and that
+// function signs a short-lived room-scoped token against the secret (a
+// Supabase secret, never a VITE_ var).
 //
 // Env:
 //   VITE_LIVE_KIT_URL  — wss://<project>.livekit.cloud (safe to expose)
@@ -17,7 +17,7 @@ import { LIVEKIT_URL } from "./videoProvider";
 export { LIVEKIT_URL };
 
 // Per-room namespace so LiveKit room names don't collide with anything
-// else in the same LiveKit project. Matches the Jitsi prefix for parity.
+// else in the same LiveKit project.
 const ROOM_PREFIX = "mangodoro-";
 
 export function liveKitRoomName(roomId) {

@@ -17,7 +17,7 @@ function chargeStyleFor(charge, glyph) {
 }
 
 // The ONE reactions bar, shared by every surface (whiteboard, video call
-// toolbar, Jitsi floating bar). It is purely presentational: the charge /
+// toolbar). It is purely presentational: the charge /
 // send / channel engine lives in EmoteOverlay and is handed in via props, so
 // the six presets, recents, the "+ more" picker, and the charge glow are
 // identical everywhere and only have to be maintained once.

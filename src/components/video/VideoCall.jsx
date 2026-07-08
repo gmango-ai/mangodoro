@@ -1,18 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
-import { resolveVideoProvider, VIDEO } from "../../lib/videoProvider";
 import { track, isMobileClient } from "../../lib/analytics";
-import JitsiCall from "./JitsiCall";
 import LiveKitCall from "./LiveKitCall";
 import EmoteOverlay from "../emotes/EmoteOverlay";
 
-// Provider dispatcher for a single room's call.
+// Wrapper for a single room's LiveKit call.
 //
-// Resolves the provider (LiveKit everywhere it's configured; Jitsi only as a
-// fallback / manual override — see videoProvider.js), renders the matching
-// provider component, and owns the cross-provider concerns:
+// Renders LiveKitCall and owns the cross-cutting concerns:
 //   • the shared "couldn't load the call" error UI
-//   • the EmoteOverlay (reactions float over either provider)
+//   • the EmoteOverlay (reactions float over the call)
 //   • PostHog instrumentation — attempt / connected / failed / ended,
 //     tagged with provider + platform + duration.
 //
@@ -25,7 +21,8 @@ export default function VideoCall({ roomId, displayName, compact, publish, liste
   const dark = theme === "dark";
   const [error, setError] = useState(null);
 
-  const provider = useMemo(() => resolveVideoProvider(roomId), [roomId]);
+  // Kept as a stable tag on the PostHog call events (all calls are LiveKit now).
+  const provider = "livekit";
 
   // Analytics lifecycle — refs so we don't re-render on timing bookkeeping.
   const attemptAtRef = useRef(0);
@@ -90,8 +87,8 @@ export default function VideoCall({ roomId, displayName, compact, publish, liste
         is_mobile: isMobileClient(),
         reason,
         duration_s: Math.round((Date.now() - connectedAtRef.current) / 1000),
-        // The lead-up captured by <ConnectionDiagnostics> (LiveKit only — Jitsi
-        // passes no report) so PostHog can separate network drops from kicks:
+        // The lead-up captured by <ConnectionDiagnostics> so PostHog can
+        // separate network drops from kicks:
         // a drop after reconnect attempts / a quality collapse / going offline is
         // the member's connection; a clean drop at full quality is server-side.
         reconnects: report?.reconnects ?? null,
@@ -114,8 +111,6 @@ export default function VideoCall({ roomId, displayName, compact, publish, liste
     });
   };
 
-  const ProviderCall = provider === VIDEO.LIVEKIT ? LiveKitCall : JitsiCall;
-
   return (
     <div className="relative w-full h-full">
       {error ? (
@@ -129,7 +124,7 @@ export default function VideoCall({ roomId, displayName, compact, publish, liste
         </div>
       ) : (
         <>
-          <ProviderCall
+          <LiveKitCall
             roomId={roomId}
             displayName={displayName}
             compact={compact}
@@ -145,14 +140,13 @@ export default function VideoCall({ roomId, displayName, compact, publish, liste
             onError={handleError}
           />
           {/* Reaction particles, scoped by roomId so everyone sees each
-              other's emotes over the video. On LiveKit the trigger lives in
-              the call toolbar (barPosition hidden); Jitsi keeps the floating
-              bar since we can't inject into its iframe toolbar. */}
+              other's emotes over the video. The trigger lives in the call
+              toolbar, so the overlay's own bar stays hidden. */}
           {roomId && (
             <EmoteOverlay
               ref={emoteRef}
               channelKey={`room:${roomId}`}
-              barPosition={provider === VIDEO.LIVEKIT ? "hidden" : "right-center"}
+              barPosition="hidden"
               senderName={displayName}
             />
           )}

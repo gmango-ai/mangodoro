@@ -1,19 +1,18 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { logCallEvent } from "../components/video/livekitDiagnostics";
 
-// Owns the *one* active Jitsi room call across the whole app session.
-// The actual iframe is mounted exactly once at AppLayout (via
-// PersistentVideoCall) and never re-parented, so navigating between
-// /office and /pomodoro / settings / etc. doesn't drop the call.
+// Owns the *one* active LiveKit room call across the whole app session.
+// The call is mounted exactly once at AppLayout (via PersistentVideoCall)
+// on a stable host node that's re-parented (not remounted), so navigating
+// between /office and /pomodoro / settings / etc. doesn't drop the call.
 //
 // State:
 //   call         — { roomId, displayName } | null. Truthy = call alive.
 //   stageEl      — the DOM element on the current page where the call
 //                  should visually "live" (e.g. RoomVideoStage's
-//                  container). When set, PersistentVideoCall syncs
-//                  its fixed-position rectangle to this element's
-//                  bounding rect. When null, it falls back to a
-//                  bottom-right PiP.
+//                  container). When set, PersistentVideoCall appends its
+//                  host node inside this element. When null, it falls back
+//                  to a bottom-right PiP.
 //
 // Why a context (vs Redux/Zustand/etc): this is a single-pair state
 // + setStageEl callback; context with React state is the smallest

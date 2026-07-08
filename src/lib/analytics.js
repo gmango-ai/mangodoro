@@ -2,10 +2,9 @@
 // absent, so local dev / unconfigured builds carry no analytics weight
 // and nothing throws.
 //
-// Used primarily to measure the Jitsi ↔ LiveKit video A/B: each call
-// emits attempt / connected / failed / ended events tagged with the
-// provider + platform, so PostHog can compare connect-success and
-// session length per provider × mobile-vs-desktop.
+// Each video call emits attempt / connected / failed / ended events
+// tagged with platform + duration, so PostHog can track connect-success
+// and session length across mobile-vs-desktop.
 
 import posthog from "posthog-js";
 

@@ -2,7 +2,7 @@
 //
 // Returns a freshly-signed LiveKit access token for the calling user so
 // the browser can join a room without us shipping the LiveKit API secret
-// to the client. Counterpart to mint-jaas-jwt (Jitsi/JaaS).
+// to the client.
 //
 // Auth: requires a Supabase user JWT. The participant identity is always
 // the authenticated uid — a client can supply a display name + room but
