@@ -58,6 +58,7 @@ const WhiteboardsListPage = lazy(() => import("./pages/WhiteboardsListPage"));
 const WhiteboardPage = lazy(() => import("./pages/WhiteboardPage"));
 const OfficePage = lazy(() => import("./pages/OfficePage"));
 const MeetingSummariesPage = lazy(() => import("./pages/MeetingSummariesPage"));
+const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const JoinSyncPage = lazy(() => import("./pages/JoinSyncPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
@@ -425,6 +426,7 @@ function AppLayout({ session }) {
             <Route path="/office/r/:roomId" element={<OfficePage />} />
             <Route path="/meetings" element={<MeetingSummariesPage />} />
             <Route path="/meetings/:recordingId" element={<MeetingSummariesPage />} />
+            <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             {/* /account merged into /settings → Profile section. */}
             <Route path="/account" element={<Navigate to="/settings" replace />} />

@@ -1,0 +1,53 @@
+/* FullCalendar theming for the unified calendar page. */
+
+.cal-wrap .fc {
+  font-size: 0.85rem;
+}
+.cal-wrap .fc .fc-toolbar-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.cal-wrap .fc .fc-button {
+  text-transform: capitalize;
+}
+
+/* Done planner tasks render muted + struck-through. */
+.cal-wrap .cal-task-done .fc-event-title {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* Dark theme — override FullCalendar's CSS variables. */
+.cal-dark .fc {
+  --fc-page-bg-color: transparent;
+  --fc-border-color: var(--color-border, #334155);
+  --fc-neutral-bg-color: rgba(148, 163, 184, 0.08);
+  --fc-neutral-text-color: #cbd5e1;
+  --fc-today-bg-color: rgba(20, 184, 166, 0.10);
+  --fc-list-event-hover-bg-color: rgba(148, 163, 184, 0.12);
+  --fc-highlight-color: rgba(20, 184, 166, 0.15);
+  color: #e2e8f0;
+}
+.cal-dark .fc .fc-col-header-cell-cushion,
+.cal-dark .fc .fc-daygrid-day-number,
+.cal-dark .fc .fc-timegrid-slot-label-cushion,
+.cal-dark .fc .fc-list-day-text,
+.cal-dark .fc .fc-list-day-side-text {
+  color: #cbd5e1;
+}
+.cal-dark .fc .fc-button-primary {
+  background-color: rgba(148, 163, 184, 0.12);
+  border-color: var(--color-border, #334155);
+  color: #e2e8f0;
+}
+.cal-dark .fc .fc-button-primary:hover {
+  background-color: rgba(148, 163, 184, 0.2);
+}
+.cal-dark .fc .fc-button-primary:not(:disabled).fc-button-active {
+  background-color: var(--color-accent, #14b8a6);
+  border-color: var(--color-accent, #14b8a6);
+  color: #fff;
+}
+.cal-dark .fc .fc-list-empty {
+  background-color: transparent;
+}
