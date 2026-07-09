@@ -21,10 +21,12 @@ import {
   googleEventToEvent, profileOooToEvents,
   workLocationEvents, workHoursBackgroundEvents,
   updateMeetingTime, updatePlannerSchedule, updateTaskDue, updatePersonalDue,
-  updatePlannerTaskFields, createPlannerTask, fetchOpenPlannerTasks,
+  updatePlannerTaskFields, createPlannerTask, fetchOpenPlannerTasks, saveWorkLocationOverrides,
 } from "../lib/calendar";
+import Modal from "../components/Modal";
 import { oceanType, OCEAN_LEGEND } from "../components/calendar/oceanTheme";
 import MiniMonth from "../components/calendar/MiniMonth";
+import ExpandedMonth from "../components/calendar/ExpandedMonth";
 import EventSlideOver from "../components/calendar/EventSlideOver";
 import MilestoneModal from "../components/calendar/MilestoneModal";
 import NewItemPopover from "../components/calendar/NewItemPopover";
@@ -67,7 +69,7 @@ function goalGroupKey(g) {
 // Same location → one chip; different → a single conflict chip showing both.
 const LOC_CODE_LABEL = { office: "Office", home: "Home", remote: "Remote", out: "Out" };
 const canonLoc = (s) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
-function mergeWorkLocations(appLoc, gLoc) {
+function mergeWorkLocations(appLoc, gLoc, overrides = {}) {
   const out = [];
   const dates = new Set([...appLoc.keys(), ...gLoc.keys()]);
   dates.forEach((date) => {
@@ -76,7 +78,8 @@ function mergeWorkLocations(appLoc, gLoc) {
     const gLabel = gLoc.get(date) || null;
     let type = "worklocation_app", title = aLabel, conflict = null;
     if (aLabel && gLabel) {
-      if (canonLoc(aLabel) === canonLoc(gLabel)) { title = aLabel; type = "worklocation"; }
+      if (overrides[date]) { title = overrides[date]; type = "worklocation"; } // resolved
+      else if (canonLoc(aLabel) === canonLoc(gLabel)) { title = aLabel; type = "worklocation"; }
       else { title = `${aLabel} vs ${gLabel}`; type = "worklocation_conflict"; conflict = { app: aLabel, google: gLabel, date }; }
     } else if (gLabel) { title = gLabel; type = "worklocation"; }
     if (!title) return;
@@ -129,6 +132,9 @@ export default function CalendarPage() {
   const [taskEdit, setTaskEdit] = useState(null);
   const [allGoals, setAllGoals] = useState([]);
   const [myTasks, setMyTasks] = useState([]);
+  const [locConflict, setLocConflict] = useState(null); // { app, google, date }
+  const [expanded, setExpanded] = useState(false);
+  const [collapsedTypes, setCollapsedTypes] = useState(() => new Set());
   const [goalsCollapsed, setGoalsCollapsed] = useState(() => { try { return localStorage.getItem(LS_GOALS_COLLAPSED) === "1"; } catch { return false; } });
   const [openGroups, setOpenGroups] = useState(() => new Set(["thisWeek", "month"]));
 
@@ -230,7 +236,7 @@ export default function CalendarPage() {
     await Promise.all(jobs);
     // Merge app + Google work location into ONE chip per day (dedupe when they
     // agree; flag a conflict when they differ).
-    if (!team) mergeWorkLocations(appLoc, gLoc).forEach((e) => collected.push(e));
+    if (!team) mergeWorkLocations(appLoc, gLoc, avail?.work_location_overrides || {}).forEach((e) => collected.push(e));
     // Stamp reading-order rank: context band → meetings/deadlines (by priority) → tasks.
     collected.forEach((e) => { if (e.extendedProps) e.extendedProps.orderRank = rankFor(e.extendedProps); });
     setEvents(collected);
@@ -280,7 +286,18 @@ export default function CalendarPage() {
     if (res.error) info.revert();
   }, []);
 
-  const openDetails = useCallback((ev) => setDetailEvent({ title: ev.title, start: ev.start, end: ev.end, allDay: ev.allDay, extendedProps: ev.extendedProps || {} }), []);
+  const openDetails = useCallback((ev) => {
+    const p = ev.extendedProps || {};
+    if (p.type === "worklocation_conflict" && p.conflict) { setLocConflict(p.conflict); return; }
+    setDetailEvent({ title: ev.title, start: ev.start, end: ev.end, allDay: ev.allDay, extendedProps: p });
+  }, []);
+  const resolveLocation = async (date, label) => {
+    const next = { ...(avail?.work_location_overrides || {}), [date]: label };
+    await saveWorkLocationOverrides(userId, next);
+    setAvail((a) => ({ ...(a || {}), work_location_overrides: next }));
+    setLocConflict(null);
+    reload();
+  };
   const createTask = async (t) => {
     if (!newSlot || !userId) return;
     const s = newSlot.start;
@@ -502,8 +519,9 @@ export default function CalendarPage() {
             )}
             <div className="cal-ocean__seg">
               {[["dayGridMonth", "Month"], ["timeGridWeek", "Week"], ["timeGridDay", "Day"]].map(([v, lbl]) => (
-                <button key={v} type="button" aria-pressed={viewType === v} onClick={() => api()?.changeView(v)}>{lbl}</button>
+                <button key={v} type="button" aria-pressed={!expanded && viewType === v} onClick={() => { setExpanded(false); api()?.changeView(v); }}>{lbl}</button>
               ))}
+              <button type="button" aria-pressed={expanded} onClick={() => { setExpanded(true); api()?.changeView("dayGridMonth"); }} title="Expanded — all events by type, no popover">Expanded</button>
             </div>
             <button type="button" className="cal-ocean__new" onClick={() => setNewSlot({ start: focusDate || new Date(), end: null, allDay: true })}>
               <Plus className="w-4 h-4" /> New event
@@ -511,6 +529,15 @@ export default function CalendarPage() {
           </header>
 
           <div className="cal-ocean__gridwrap">
+            {expanded && (
+              <ExpandedMonth
+                events={events}
+                collapsedTypes={collapsedTypes}
+                onToggleType={(t) => setCollapsedTypes((prev) => { const n = new Set(prev); if (n.has(t)) n.delete(t); else n.add(t); return n; })}
+                onOpen={openDetails}
+              />
+            )}
+            <div style={{ display: expanded ? "none" : "block", height: "100%" }}>
             <FullCalendar
               ref={calRef}
               plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
@@ -535,6 +562,7 @@ export default function CalendarPage() {
               height="100%"
               eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
             />
+            </div>
           </div>
         </main>
 
@@ -632,6 +660,27 @@ export default function CalendarPage() {
           )}
         </aside>
       </div>
+
+      {/* ── work-location conflict resolver ── */}
+      {locConflict && (
+        <Modal open onClose={() => setLocConflict(null)} labelledBy="loc-conflict-title">
+          <div onClick={(e) => e.stopPropagation()} className="cal-ocean" style={{ height: "auto", background: "var(--o-sand-50)", borderRadius: 20, border: "1px solid var(--o-border-default)", boxShadow: "var(--o-shadow-xl)", width: "100%", maxWidth: 360, padding: 20 }}>
+            <h2 id="loc-conflict-title" style={{ fontSize: 16, fontWeight: 800, color: "var(--o-ink-900)", margin: "0 0 4px" }}>Working location</h2>
+            <p style={{ fontSize: 12.5, color: "var(--o-ink-500)", margin: "0 0 14px" }}>
+              {new Date(locConflict.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} — your schedule and Google disagree. Which is right?
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button type="button" className="cal-ocean__today" style={{ width: "100%", justifyContent: "flex-start", textAlign: "left" }} onClick={() => resolveLocation(locConflict.date, locConflict.app)}>
+                <b>{locConflict.app}</b> — your schedule
+              </button>
+              <button type="button" className="cal-ocean__today" style={{ width: "100%", justifyContent: "flex-start", textAlign: "left" }} onClick={() => resolveLocation(locConflict.date, locConflict.google)}>
+                <b>{locConflict.google}</b> — Google
+              </button>
+              <button type="button" onClick={() => setLocConflict(null)} style={{ marginTop: 4, alignSelf: "flex-end", border: "none", background: "transparent", color: "var(--o-ink-400)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Cancel</button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* ── slide-over + modals ── */}
       {detailEvent && (

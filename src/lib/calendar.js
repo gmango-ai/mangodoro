@@ -108,7 +108,7 @@ export async function fetchMyAvailability(userId) {
   if (!userId) return { data: null };
   return supabase
     .from("user_settings")
-    .select("work_start, work_end, work_days, work_schedule, ooo_start, ooo_end, ooo_note, ooo_ranges")
+    .select("work_start, work_end, work_days, work_schedule, work_location_overrides, ooo_start, ooo_end, ooo_note, ooo_ranges")
     .eq("user_id", userId)
     .maybeSingle();
 }
@@ -432,6 +432,12 @@ export async function createPlannerTask({ userId, title, plannerDate, startTime,
 
 export async function updatePlannerTaskFields(id, patch) {
   return supabase.from("planner_tasks").update(patch).eq("id", id);
+}
+
+// Persist the full per-date work-location override map (YYYY-MM-DD → label).
+export async function saveWorkLocationOverrides(userId, overrides) {
+  if (!userId) return { error: { message: "no user" } };
+  return supabase.from("user_settings").update({ work_location_overrides: overrides }).eq("user_id", userId);
 }
 
 // The user's open planner tasks (for the calendar's Tasks card), independent of
