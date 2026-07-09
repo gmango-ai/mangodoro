@@ -898,17 +898,36 @@ const CARET_CLS = WB_TOUCH
 // trigger, unclipped, identically on desktop and touch.
 function MaybeFlyoutPortal({ children }) {
   const anchorRef = useRef(null);
+  const wrapRef = useRef(null);
   const [pos, setPos] = useState(null);
+  const [dx, setDx] = useState(0); // horizontal nudge to keep it on-screen
+  // First pass: place a 0-size anchor at the trigger's BOTTOM-centre, so the
+  // flyout's own `bottom-11` renders it a tight gap above the toolbar (anchoring
+  // at the top would stack that gap on the trigger's height → floats too high).
   useLayoutEffect(() => {
     const wrap = anchorRef.current?.parentElement; // the tool's wrapper
     const r = wrap?.getBoundingClientRect();
-    if (r) setPos({ left: r.left + r.width / 2, top: r.top });
+    if (r) setPos({ left: r.left + r.width / 2, top: r.bottom });
   }, []);
+  // Second pass: measure the (centred) flyout and clamp it inside the viewport
+  // so a trigger near an edge doesn't push the popover off-screen. The popover
+  // is the last child (every call site renders the backdrop first).
+  useLayoutEffect(() => {
+    if (!pos || !wrapRef.current) return;
+    const pop = wrapRef.current.lastElementChild;
+    const r = pop?.getBoundingClientRect();
+    if (!r) return;
+    const m = 8;
+    let shift = 0;
+    if (r.left < m) shift = m - r.left;
+    else if (r.right > window.innerWidth - m) shift = window.innerWidth - m - r.right;
+    if (shift) setDx((d) => d + shift);
+  }, [pos]);
   return (
     <>
       <span ref={anchorRef} aria-hidden style={{ position: "absolute", width: 0, height: 0 }} />
       {pos && createPortal(
-        <div className="fixed z-[80]" style={{ left: pos.left, top: pos.top }}>
+        <div ref={wrapRef} className="fixed z-[80]" style={{ left: pos.left + dx, top: pos.top }}>
           {children}
         </div>,
         document.body,
