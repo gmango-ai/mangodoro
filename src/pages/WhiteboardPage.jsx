@@ -2108,16 +2108,32 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         }
         // Raster brush: rasterise locally each move; batch the broadcast.
         if (owns && paintStrokeIdRef.current) {
-          // Snapshot any newly-entered tile before this segment paints it.
           const u = paintUndoRef.current;
-          if (u) {
-            paintRef.current?.snapshot(segmentTileKeys(u.prev[0], u.prev[1], p.x, p.y, u.size), u.before);
-            u.prev = [p.x, p.y];
+          // Drain coalesced samples (a fast drag / Pencil fires many between
+          // rAFs) so the stroke lays down a dense, continuous line instead of a
+          // few far-apart points that read as separate blobs.
+          const evs = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : null;
+          const samples = evs && evs.length ? evs : [e];
+          const newPts = [];
+          let ref = u ? u.prev : null;
+          for (const ev of samples) {
+            let q = p;
+            if (ev !== e) { try { q = rf.screenToFlowPosition({ x: ev.clientX, y: ev.clientY }); } catch { continue; } }
+            if (!ref || Math.abs(q.x - ref[0]) + Math.abs(q.y - ref[1]) > 0.75) { newPts.push([q.x, q.y]); ref = [q.x, q.y]; }
           }
-          paintRef.current?.apply({ id: paintStrokeIdRef.current, brush: paintBrushRef.current, pts: [[p.x, p.y]] }, true);
-          paintBatchRef.current.push([p.x, p.y]);
-          const now = Date.now();
-          if (now - paintLastFlushRef.current > 70) { paintLastFlushRef.current = now; flushPaint(); }
+          if (newPts.length) {
+            if (u) {
+              // Snapshot any newly-entered tile before this stroke paints it.
+              for (const pt of newPts) {
+                paintRef.current?.snapshot(segmentTileKeys(u.prev[0], u.prev[1], pt[0], pt[1], u.size), u.before);
+                u.prev = pt;
+              }
+            }
+            paintRef.current?.apply({ id: paintStrokeIdRef.current, brush: paintBrushRef.current, pts: newPts }, true);
+            for (const pt of newPts) paintBatchRef.current.push(pt);
+            const now = Date.now();
+            if (now - paintLastFlushRef.current > 70) { paintLastFlushRef.current = now; flushPaint(); }
+          }
         }
         const dr = owns ? drawingRef.current : null;
         if (dr) {

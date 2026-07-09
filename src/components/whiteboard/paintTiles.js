@@ -17,7 +17,7 @@ export const TILE_PX = TILE_UNITS * PX_PER_UNIT;
 
 const tileKey = (tx, ty) => `${tx}_${ty}`;
 
-// A store holds the live tiles + per-stroke cursors. onCreate fires when a new
+// A store holds the live tiles + per-stroke sessions. onCreate fires when a new
 // tile is materialised so the React layer can mount its canvas.
 export function createPaintStore(onCreate) {
   return { tiles: new Map(), strokes: new Map(), onCreate };
@@ -47,8 +47,23 @@ function getOrCreateTile(store, tx, ty) {
   return tile;
 }
 
-// Set up a tile context to draw in FLOW coordinates (scaled into the tile's
-// local pixel space) with the given brush.
+// ── Wet-layer stroke model ──────────────────────────────────────────────────
+// A stroke must read as ONE mark at its chosen opacity — not a pile of
+// overlapping stamps that darken where they cross (which is what you get when
+// each dab/segment composites straight onto the tile at globalAlpha < 1: round
+// caps overlap, holding still builds up, translucent strokes turn opaque).
+//
+// So a stroke is drawn to a per-tile WET scratch canvas at FULL opacity (round
+// caps and overlaps just stay opaque — no build-up), over a DRY snapshot of the
+// tile taken before the stroke touched it. Every frame the visible tile is
+// recomposited: dry, then the wet layer flattened onto it ONCE at the stroke's
+// opacity (source-over for paint, destination-out for the eraser). Textured
+// brushes still build their grain/spray up inside the wet layer, so their look
+// is preserved while the overall stroke opacity is applied exactly once.
+
+// Set up a WET context to draw in FLOW coordinates at full opacity. The stroke
+// opacity + eraser compositing are applied later when the wet layer is flattened
+// onto the tile (see recompose), so wet drawing is always opaque source-over.
 function paintInto(ctx, ox, oy, brush) {
   ctx.setTransform(PX_PER_UNIT, 0, 0, PX_PER_UNIT, -ox * PX_PER_UNIT, -oy * PX_PER_UNIT);
   ctx.lineCap = "round";
@@ -56,8 +71,45 @@ function paintInto(ctx, ox, oy, brush) {
   ctx.lineWidth = brush.size;
   ctx.strokeStyle = brush.color;
   ctx.fillStyle = brush.color;
-  ctx.globalAlpha = brush.opacity ?? 1;
-  ctx.globalCompositeOperation = brush.mode === "eraser" ? "destination-out" : "source-over";
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+}
+
+// Get (or lazily create) the wet+dry scratch for one tile of the active stroke.
+// `dry` is a copy of the tile's pixels the moment the stroke first reached it;
+// `wet` accumulates only this stroke's ink at full opacity. Registers the key in
+// `touched` so the caller recomposites it after drawing.
+function strokeTile(store, session, tx, ty, touched) {
+  const key = tileKey(tx, ty);
+  touched.add(key);
+  let st = session.tiles.get(key);
+  if (st) return st;
+  const tile = getOrCreateTile(store, tx, ty);
+  const dry = document.createElement("canvas");
+  dry.width = TILE_PX; dry.height = TILE_PX;
+  dry.getContext("2d").drawImage(tile.canvas, 0, 0);
+  const wet = document.createElement("canvas");
+  wet.width = TILE_PX; wet.height = TILE_PX;
+  st = { tile, dry, wet, wctx: wet.getContext("2d") };
+  session.tiles.set(key, st);
+  return st;
+}
+
+// Repaint a tile from its dry snapshot + the wet layer flattened once at the
+// stroke's opacity. This is what makes overlaps/holding not darken.
+function recompose(st, opacity, mode) {
+  const ctx = st.tile.ctx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  ctx.clearRect(0, 0, TILE_PX, TILE_PX);
+  ctx.drawImage(st.dry, 0, 0);
+  ctx.globalAlpha = opacity;
+  ctx.globalCompositeOperation = mode === "eraser" ? "destination-out" : "source-over";
+  ctx.drawImage(st.wet, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  st.tile.dirty = true;
 }
 
 function tileRange(minX, minY, maxX, maxY) {
@@ -110,19 +162,20 @@ function mulberry32(a) {
   };
 }
 
-// Stamp one filled dot of radius r at (x,y) across every tile it touches, at
-// brush opacity × alpha. The building block for the textured brushes.
-function stampDot(store, x, y, r, brush, alpha) {
+// Stamp one filled dot of radius r at (x,y) into the wet layer of every tile it
+// touches, at `alpha` (its texture weight — stroke opacity is applied later).
+// The building block for the textured brushes.
+function stampDot(store, session, x, y, r, brush, alpha, touched) {
   const { t0x, t1x, t0y, t1y } = tileRange(x - r, y - r, x + r, y + r);
   for (let ty = t0y; ty <= t1y; ty++) {
     for (let tx = t0x; tx <= t1x; tx++) {
-      const tile = getOrCreateTile(store, tx, ty);
-      paintInto(tile.ctx, tx * TILE_UNITS, ty * TILE_UNITS, brush);
-      tile.ctx.globalAlpha = (brush.opacity ?? 1) * alpha;
-      tile.ctx.beginPath();
-      tile.ctx.arc(x, y, r, 0, Math.PI * 2);
-      tile.ctx.fill();
-      tile.dirty = true;
+      const st = strokeTile(store, session, tx, ty, touched);
+      const ctx = st.wctx;
+      paintInto(ctx, tx * TILE_UNITS, ty * TILE_UNITS, brush);
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 }
@@ -136,17 +189,17 @@ function transparentEdge(hex) {
 }
 
 // One soft round dab — opaque core feathering to a transparent edge (radial
-// gradient). The airbrush building block; deterministic (no randomness).
-function softDab(store, x, y, r, brush, alpha) {
+// gradient), into the wet layer. The airbrush building block; deterministic.
+function softDab(store, session, x, y, r, brush, alpha, touched) {
   if (r <= 0) return;
   const { t0x, t1x, t0y, t1y } = tileRange(x - r, y - r, x + r, y + r);
   const edge = transparentEdge(brush.color);
   for (let ty = t0y; ty <= t1y; ty++) {
     for (let tx = t0x; tx <= t1x; tx++) {
-      const tile = getOrCreateTile(store, tx, ty);
-      const ctx = tile.ctx;
+      const st = strokeTile(store, session, tx, ty, touched);
+      const ctx = st.wctx;
       paintInto(ctx, tx * TILE_UNITS, ty * TILE_UNITS, brush);
-      ctx.globalAlpha = (brush.opacity ?? 1) * alpha;
+      ctx.globalAlpha = alpha;
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
       g.addColorStop(0, brush.color);
       g.addColorStop(0.35, brush.color);
@@ -155,27 +208,26 @@ function softDab(store, x, y, r, brush, alpha) {
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
-      tile.dirty = true;
     }
   }
 }
 
 // Airbrush: dense soft dabs along the segment at low alpha — a feathered,
 // build-up spray with a soft edge (not a grainy texture). Deterministic.
-function airbrushSegment(store, ax, ay, bx, by, brush) {
+function airbrushSegment(store, session, ax, ay, bx, by, brush, touched) {
   const R = brush.size / 2;
   const dist = Math.hypot(bx - ax, by - ay);
   const spacing = Math.max(0.5, R * 0.3);
   const n = Math.max(1, Math.round(dist / spacing));
   for (let s = 0; s <= n; s++) {
     const t = n ? s / n : 0;
-    softDab(store, ax + (bx - ax) * t, ay + (by - ay) * t, R, brush, 0.08);
+    softDab(store, session, ax + (bx - ax) * t, ay + (by - ay) * t, R, brush, 0.08, touched);
   }
 }
 
 // Pencil: a graphite line — dense fine grains across the nib, centre-weighted
 // with random gaps (the "tooth" of the paper) and per-grain alpha variation.
-function pencilSegment(store, ax, ay, bx, by, brush, rng) {
+function pencilSegment(store, session, ax, ay, bx, by, brush, rng, touched) {
   const dx = bx - ax, dy = by - ay;
   const len = Math.hypot(dx, dy) || 0.001;
   const step = Math.max(0.4, brush.size * 0.05); // tight spacing → continuous line
@@ -191,29 +243,30 @@ function pencilSegment(store, ax, ay, bx, by, brush, rng) {
       if (rng() < 0.12) continue; // light paper tooth — a few gaps, not a dotted line
       const u = rng() + rng() - 1; // centre-weighted across the nib (~triangular)
       const off = u * half;
-      stampDot(store, cx + nx * off, cy + ny * off, grainR, brush, 0.22 + rng() * 0.45);
+      stampDot(store, session, cx + nx * off, cy + ny * off, grainR, brush, 0.22 + rng() * 0.45, touched);
     }
   }
 }
 
-// Draw a single round dab (stroke start / a tap).
-function dab(store, x, y, brush) {
+// Draw a single round dab into the wet layer (stroke start / a tap).
+function dab(store, session, x, y, brush, touched) {
   const r = brush.size / 2;
   const { t0x, t1x, t0y, t1y } = tileRange(x - r, y - r, x + r, y + r);
   for (let ty = t0y; ty <= t1y; ty++) {
     for (let tx = t0x; tx <= t1x; tx++) {
-      const tile = getOrCreateTile(store, tx, ty);
-      paintInto(tile.ctx, tx * TILE_UNITS, ty * TILE_UNITS, brush);
-      tile.ctx.beginPath();
-      tile.ctx.arc(x, y, r, 0, Math.PI * 2);
-      tile.ctx.fill();
-      tile.dirty = true;
+      const st = strokeTile(store, session, tx, ty, touched);
+      const ctx = st.wctx;
+      paintInto(ctx, tx * TILE_UNITS, ty * TILE_UNITS, brush);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 }
 
-// Draw a stroke segment a→b onto every tile it can touch.
-function segment(store, ax, ay, bx, by, brush) {
+// Draw a stroke segment a→b into the wet layer of every tile it can touch. A
+// single stroked polyline join → no per-segment cap doubling.
+function segment(store, session, ax, ay, bx, by, brush, touched) {
   const r = brush.size / 2;
   const { t0x, t1x, t0y, t1y } = tileRange(
     Math.min(ax, bx) - r, Math.min(ay, by) - r,
@@ -221,13 +274,13 @@ function segment(store, ax, ay, bx, by, brush) {
   );
   for (let ty = t0y; ty <= t1y; ty++) {
     for (let tx = t0x; tx <= t1x; tx++) {
-      const tile = getOrCreateTile(store, tx, ty);
-      paintInto(tile.ctx, tx * TILE_UNITS, ty * TILE_UNITS, brush);
-      tile.ctx.beginPath();
-      tile.ctx.moveTo(ax, ay);
-      tile.ctx.lineTo(bx, by);
-      tile.ctx.stroke();
-      tile.dirty = true;
+      const st = strokeTile(store, session, tx, ty, touched);
+      const ctx = st.wctx;
+      paintInto(ctx, tx * TILE_UNITS, ty * TILE_UNITS, brush);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
     }
   }
 }
@@ -235,28 +288,41 @@ function segment(store, ax, ay, bx, by, brush) {
 // Rasterise a stroke chunk: { id, brush, pts:[[x,y]...], end? }. Connects to the
 // stroke's previous point (tracked by id) so streamed chunks join seamlessly.
 // Local and remote strokes both flow through here for identical results.
+//
+// Each stroke keeps a SESSION: per-tile wet+dry scratch (see strokeTile). New
+// ink lands in the wet layer at full opacity, then every touched tile is
+// recomposited (dry + wet flattened once at the stroke's opacity) so overlaps
+// and holding don't darken. The session is dropped on `end`, leaving the baked
+// result on the tiles.
 export function applyPaintChunk(store, chunk) {
   if (!chunk || !chunk.brush) return;
   const pts = chunk.pts || [];
   const brush = chunk.brush;
   // Erasing is always a clean round stroke; texture only applies to painting.
   const texture = brush.mode === "eraser" ? "smooth" : (brush.texture || "smooth");
-  const st = store.strokes.get(chunk.id) || { prev: null, i: 0 };
-  let prev = st.prev;
-  let i = st.i;
+  const opacity = brush.opacity ?? 1;
+  let session = store.strokes.get(chunk.id);
+  if (!session) { session = { prev: null, i: 0, tiles: new Map() }; store.strokes.set(chunk.id, session); }
+  let prev = session.prev;
+  let i = session.i;
+  const touched = new Set();
   for (const [x, y] of pts) {
     if (texture === "airbrush") {
-      airbrushSegment(store, prev ? prev[0] : x, prev ? prev[1] : y, x, y, brush);
+      airbrushSegment(store, session, prev ? prev[0] : x, prev ? prev[1] : y, x, y, brush, touched);
     } else if (texture === "pencil") {
       const rng = mulberry32(hashSeed(chunk.id, i)); // deterministic per point
-      pencilSegment(store, prev ? prev[0] : x, prev ? prev[1] : y, x, y, brush, rng);
+      pencilSegment(store, session, prev ? prev[0] : x, prev ? prev[1] : y, x, y, brush, rng, touched);
     } else {
-      if (prev) segment(store, prev[0], prev[1], x, y, brush);
-      else dab(store, x, y, brush);
+      if (prev) segment(store, session, prev[0], prev[1], x, y, brush, touched);
+      else dab(store, session, x, y, brush, touched);
     }
     prev = [x, y];
     i++;
   }
+  for (const key of touched) {
+    const st = session.tiles.get(key);
+    if (st) recompose(st, opacity, brush.mode);
+  }
   if (chunk.end) store.strokes.delete(chunk.id);
-  else store.strokes.set(chunk.id, { prev, i });
+  else { session.prev = prev; session.i = i; }
 }
