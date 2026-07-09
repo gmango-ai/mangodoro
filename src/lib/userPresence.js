@@ -81,6 +81,7 @@ export async function setPresenceOverride({ userId, availability, message = null
       override_message: message,
       override_expires_at: toIso(expiresAt),
       override_set_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(), // setting a status = active; avoid an instant sweep
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" }
