@@ -12,7 +12,8 @@ const toIso = (v) =>
 const PRESENCE_COLUMNS =
   "user_id, team_id, availability, since, activity_label, activity_link, " +
   "activity_since, activity_private, location_kind, location_room_id, " +
-  "override_availability, override_message, override_expires_at, updated_at";
+  "override_availability, override_message, override_expires_at, invisible, " +
+  "last_seen_at, updated_at";
 
 // Persist my resolved snapshot.
 //
@@ -43,8 +44,22 @@ export async function upsertUserPresence({
       activity_private: isPrivate,
       location_kind: location?.kind || "none",
       location_room_id: location?.roomId ?? null,
+      last_seen_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
+    { onConflict: "user_id" }
+  );
+}
+
+// Heartbeat — refresh last_seen_at without recomputing the snapshot, so the
+// server sweep (P3) can flip a row to 'offline' once the beats stop (a dead
+// client can't report its own death). Cheap; the leader tab fires it on a
+// cadence between full snapshot writes.
+export async function touchPresenceHeartbeat(userId) {
+  if (!userId) return { error: { message: "no user" } };
+  const nowIso = new Date().toISOString();
+  return supabase.from("user_presence").upsert(
+    { user_id: userId, last_seen_at: nowIso, updated_at: nowIso },
     { onConflict: "user_id" }
   );
 }
