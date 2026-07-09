@@ -26,7 +26,6 @@ import {
 import Modal from "../components/Modal";
 import { oceanType, OCEAN_LEGEND } from "../components/calendar/oceanTheme";
 import MiniMonth from "../components/calendar/MiniMonth";
-import ExpandedMonth from "../components/calendar/ExpandedMonth";
 import EventSlideOver from "../components/calendar/EventSlideOver";
 import MilestoneModal from "../components/calendar/MilestoneModal";
 import NewItemPopover from "../components/calendar/NewItemPopover";
@@ -134,7 +133,6 @@ export default function CalendarPage() {
   const [myTasks, setMyTasks] = useState([]);
   const [locConflict, setLocConflict] = useState(null); // { app, google, date }
   const [expanded, setExpanded] = useState(false);
-  const [collapsedTypes, setCollapsedTypes] = useState(() => new Set());
   const [goalsCollapsed, setGoalsCollapsed] = useState(() => { try { return localStorage.getItem(LS_GOALS_COLLAPSED) === "1"; } catch { return false; } });
   const [openGroups, setOpenGroups] = useState(() => new Set(["thisWeek", "month"]));
 
@@ -528,16 +526,7 @@ export default function CalendarPage() {
             </button>
           </header>
 
-          <div className="cal-ocean__gridwrap">
-            {expanded && (
-              <ExpandedMonth
-                events={events}
-                collapsedTypes={collapsedTypes}
-                onToggleType={(t) => setCollapsedTypes((prev) => { const n = new Set(prev); if (n.has(t)) n.delete(t); else n.add(t); return n; })}
-                onOpen={openDetails}
-              />
-            )}
-            <div style={{ display: expanded ? "none" : "block", height: "100%" }}>
+          <div className={`cal-ocean__gridwrap ${expanded ? "cal-ocean__gridwrap--expanded" : ""}`}>
             <FullCalendar
               ref={calRef}
               plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
@@ -556,13 +545,12 @@ export default function CalendarPage() {
               eventResize={onEventChange}
               nowIndicator
               firstDay={weekStart}
-              dayMaxEvents={4}
+              dayMaxEvents={expanded ? false : 4}
               slotMinTime="06:00:00"
               slotMaxTime="22:00:00"
-              height="100%"
+              height={expanded ? "auto" : "100%"}
               eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
             />
-            </div>
           </div>
         </main>
 
