@@ -1351,7 +1351,10 @@ function AreaSelectionFloating({ sel }) {
   return (
     <div
       className="wb-area-overlay"
-      style={{ position: "absolute", left: rect.x + dx, top: rect.y + dy, width: rect.w, height: rect.h, cursor: "move", touchAction: "none" }}
+      // pointerEvents:auto is REQUIRED — .react-flow__viewport (our portal host)
+      // sets pointer-events:none, which children inherit; without this the
+      // overlay isn't a hit target and drag/click fall through to the pane.
+      style={{ position: "absolute", left: rect.x + dx, top: rect.y + dy, width: rect.w, height: rect.h, cursor: "move", touchAction: "none", pointerEvents: "auto" }}
     >
       <div
         style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
@@ -1885,6 +1888,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // TDZ in its dependency array.
   const finalizeAreaRef = useRef(null);
   const moveAreaRef = useRef(null);              // → moveAreaSelection (also forward-defined)
+  const commitAreaRef = useRef(null);            // → commitAreaSelection (forward-defined)
   const areaMoveRef = useRef(null);              // { pid, sx, sy, baseDx, baseDy } while dragging the floating selection
 
   // Pen colour + width (persisted per device). A ref so the pointer handlers
@@ -2116,13 +2120,17 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       // Dragging the floating region selection to MOVE it. Captured on <main>
       // (reliable) rather than the overlay itself (which sits in the transformed
       // ViewportPortal). Works for pen + touch.
-      if (areaSelRef.current && !areaMoveRef.current && e.button === 0 && e.target instanceof Element && e.target.closest(".wb-area-overlay")) {
-        let p; try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
-        const s = areaSelRef.current;
-        areaMoveRef.current = { pid: e.pointerId, sx: p.x, sy: p.y, baseDx: s.dx, baseDy: s.dy };
-        try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
-        e.preventDefault();
-        return;
+      if (areaSelRef.current && !areaMoveRef.current && e.button === 0 && e.target instanceof Element) {
+        if (e.target.closest(".wb-area-overlay")) {
+          let p; try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
+          const s = areaSelRef.current;
+          areaMoveRef.current = { pid: e.pointerId, sx: p.x, sy: p.y, baseDx: s.dx, baseDy: s.dy };
+          try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
+          e.preventDefault();
+          return;
+        }
+        // Pointer down OFF the selection (and not on a toolbar) → place it.
+        if (!e.target.closest(".react-flow__panel")) { commitAreaRef.current?.(); return; }
       }
       // Select tool on DESKTOP: dragging the empty pane draws a region-select
       // box (folded in from the old dedicated tool). It grabs pen strokes/notes
@@ -3357,6 +3365,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       }),
     });
   }, [pushExternalStep, runSilent, setNodes, broadcastPaintOps]);
+  commitAreaRef.current = commitAreaSelection;
 
   // Delete the floating selection (raster already lifted; drop nodes).
   const deleteAreaSelection = useCallback(() => {
