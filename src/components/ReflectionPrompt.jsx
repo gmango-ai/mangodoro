@@ -4,6 +4,7 @@ import { useApp } from "../context/AppContext";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { useTheme } from "../context/ThemeContext";
 import { CLOCK_NOTE_STATUSES } from "../lib/utils";
+import { addFocusNote } from "../lib/focusNotes";
 
 // "What did you work on?" capture around pomodoro phases. When a focus block
 // ends (→ break) or a break ends (→ next focus) — per the user's reflect_when
@@ -51,6 +52,9 @@ export default function ReflectionPrompt() {
       // live task pointed at this. Not clocked in → just set the status line.
       if (clockIn) { addClockNote?.({ text: v, status }); renameCurrentTask?.(v); }
       else updateStatus?.({ status: v });
+      // Always keep a durable copy in the focus-notes journal (with its Result
+      // status) so past reflections can be browsed on the profile.
+      addFocusNote({ text: v, status });
     }
     setOpen(false);
     setStatus(null);
