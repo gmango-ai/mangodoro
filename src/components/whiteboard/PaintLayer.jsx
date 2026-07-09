@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ViewportPortal } from "@xyflow/react";
-import { createPaintStore, applyPaintChunk, ensureTile, TILE_UNITS, TILE_PX } from "./paintTiles";
+import { createPaintStore, applyPaintChunk, ensureTile, TILE_UNITS, TILE_PX, PX_PER_UNIT } from "./paintTiles";
 import { listPaintTiles, uploadPaintTile } from "../../lib/whiteboardPaint";
 
 const FLUSH_DELAY_MS = 2000; // idle time before dirty tiles are saved to Storage
@@ -69,8 +69,133 @@ const PaintLayer = forwardRef(function PaintLayer({ boardId, enabled, zIndex = 5
       applyPaintChunk(storeRef.current, chunk);
       if (local) scheduleFlush();
     },
+    // Undo support: capture the current pixels of the given tile keys into a
+    // map (key → PNG dataURL, or null if the tile doesn't exist yet = empty).
+    // Skips keys already present so a stroke only records each tile's PRE-state
+    // once. Guarded against tainted canvases.
+    snapshot: (keys, into) => {
+      const map = into || new Map();
+      for (const key of keys) {
+        if (map.has(key)) continue;
+        const tile = storeRef.current.tiles.get(key);
+        let url = null;
+        if (tile) { try { url = tile.canvas.toDataURL("image/png"); } catch { url = null; } }
+        map.set(key, url);
+      }
+      return map;
+    },
+    // Restore tiles to a snapshot (undo/redo). null = wipe the tile back to
+    // empty. Marks dirty + schedules a save so the restore persists.
+    restore: (map) => {
+      if (!map) return;
+      for (const [key, url] of map) {
+        const [tx, ty] = key.split("_").map(Number);
+        const tile = ensureTile(storeRef.current, tx, ty);
+        const ctx = tile.ctx;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.clearRect(0, 0, TILE_PX, TILE_PX);
+        tile.dirty = true;
+        if (url) {
+          const img = new Image();
+          img.onload = () => {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = "source-over";
+            ctx.clearRect(0, 0, TILE_PX, TILE_PX);
+            ctx.drawImage(img, 0, 0, TILE_PX, TILE_PX);
+            bump();
+          };
+          img.src = url;
+        }
+      }
+      bump();
+      scheduleFlush();
+    },
+    // Keys of every live tile — used to snapshot the whole layer before a clear.
+    allTileKeys: () => [...storeRef.current.tiles.keys()],
+    // Wipe every tile (Clear-all drawings). Undo is handled by the caller via
+    // snapshot()/restore() of allTileKeys().
+    clearAll: () => {
+      for (const tile of storeRef.current.tiles.values()) {
+        const ctx = tile.ctx;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.clearRect(0, 0, TILE_PX, TILE_PX);
+        tile.dirty = true;
+      }
+      bump();
+      scheduleFlush();
+    },
+    // ── Region select (move/delete raster paint) ──────────────────────────
+    // Composite the pixels inside a flow-space rect into a fresh canvas (device
+    // px). The lifted raster selection. null-safe on empty tiles.
+    readRegion: ({ x, y, w, h }) => {
+      const out = document.createElement("canvas");
+      out.width = Math.max(1, Math.round(w * PX_PER_UNIT));
+      out.height = Math.max(1, Math.round(h * PX_PER_UNIT));
+      const octx = out.getContext("2d");
+      const t0x = Math.floor(x / TILE_UNITS), t1x = Math.floor((x + w) / TILE_UNITS);
+      const t0y = Math.floor(y / TILE_UNITS), t1y = Math.floor((y + h) / TILE_UNITS);
+      for (let ty = t0y; ty <= t1y; ty++) for (let tx = t0x; tx <= t1x; tx++) {
+        const tile = storeRef.current.tiles.get(`${tx}_${ty}`);
+        if (!tile) continue;
+        const ox = tx * TILE_UNITS, oy = ty * TILE_UNITS;
+        const ix0 = Math.max(x, ox), iy0 = Math.max(y, oy);
+        const ix1 = Math.min(x + w, ox + TILE_UNITS), iy1 = Math.min(y + h, oy + TILE_UNITS);
+        if (ix1 <= ix0 || iy1 <= iy0) continue;
+        octx.drawImage(
+          tile.canvas,
+          (ix0 - ox) * PX_PER_UNIT, (iy0 - oy) * PX_PER_UNIT, (ix1 - ix0) * PX_PER_UNIT, (iy1 - iy0) * PX_PER_UNIT,
+          (ix0 - x) * PX_PER_UNIT, (iy0 - y) * PX_PER_UNIT, (ix1 - ix0) * PX_PER_UNIT, (iy1 - iy0) * PX_PER_UNIT,
+        );
+      }
+      return out;
+    },
+    // Clear the pixels inside a flow-space rect (lift/delete).
+    clearRegion: ({ x, y, w, h }) => {
+      const t0x = Math.floor(x / TILE_UNITS), t1x = Math.floor((x + w) / TILE_UNITS);
+      const t0y = Math.floor(y / TILE_UNITS), t1y = Math.floor((y + h) / TILE_UNITS);
+      for (let ty = t0y; ty <= t1y; ty++) for (let tx = t0x; tx <= t1x; tx++) {
+        const tile = storeRef.current.tiles.get(`${tx}_${ty}`);
+        if (!tile) continue;
+        const ctx = tile.ctx;
+        ctx.setTransform(PX_PER_UNIT, 0, 0, PX_PER_UNIT, -tx * TILE_UNITS * PX_PER_UNIT, -ty * TILE_UNITS * PX_PER_UNIT);
+        ctx.clearRect(x, y, w, h);
+        tile.dirty = true;
+      }
+      bump();
+      scheduleFlush();
+    },
+    // Draw a lifted region canvas onto the tiles at a (possibly moved) flow rect.
+    stampRegion: (src, { x, y, w, h }) => {
+      if (!src) return;
+      const t0x = Math.floor(x / TILE_UNITS), t1x = Math.floor((x + w) / TILE_UNITS);
+      const t0y = Math.floor(y / TILE_UNITS), t1y = Math.floor((y + h) / TILE_UNITS);
+      for (let ty = t0y; ty <= t1y; ty++) for (let tx = t0x; tx <= t1x; tx++) {
+        const tile = ensureTile(storeRef.current, tx, ty);
+        const ox = tx * TILE_UNITS, oy = ty * TILE_UNITS;
+        const ix0 = Math.max(x, ox), iy0 = Math.max(y, oy);
+        const ix1 = Math.min(x + w, ox + TILE_UNITS), iy1 = Math.min(y + h, oy + TILE_UNITS);
+        if (ix1 <= ix0 || iy1 <= iy0) continue;
+        const ctx = tile.ctx;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.drawImage(
+          src,
+          (ix0 - x) * PX_PER_UNIT, (iy0 - y) * PX_PER_UNIT, (ix1 - ix0) * PX_PER_UNIT, (iy1 - iy0) * PX_PER_UNIT,
+          (ix0 - ox) * PX_PER_UNIT, (iy0 - oy) * PX_PER_UNIT, (ix1 - ix0) * PX_PER_UNIT, (iy1 - iy0) * PX_PER_UNIT,
+        );
+        tile.dirty = true;
+      }
+      bump();
+      scheduleFlush();
+    },
     store: storeRef.current,
-  }), [scheduleFlush]);
+  }), [scheduleFlush, bump]);
 
   // Flush any pending save on unmount.
   useEffect(() => () => { if (flushTimer.current) { clearTimeout(flushTimer.current); doFlush(); } }, [doFlush]);

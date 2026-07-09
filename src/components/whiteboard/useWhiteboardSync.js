@@ -40,7 +40,7 @@ function stripLocal(o) {
 }
 const idJson = (o) => JSON.stringify(stripLocal(o));
 
-export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, setEdges, name, onRemoteApply, onPaint }) {
+export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, setEdges, name, onRemoteApply, onPaint, onPaintPatch }) {
   const meId = useRef("");
   if (!meId.current) {
     meId.current = (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -179,6 +179,15 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
       onPaint?.(p);
     });
 
+    // Raster REGION ops (move/delete/clear-all): an ordered ops list applied to
+    // the local paint layer. Moves recompute pixels from the peer's own tiles;
+    // undo carries region PNGs. See applyPaintOps in WhiteboardPage.
+    ch.on("broadcast", { event: "paintpatch" }, (m) => {
+      const p = m.payload;
+      if (!p || p.from === meId.current) return;
+      onPaintPatch?.(p.ops);
+    });
+
     ch.on("broadcast", { event: "sync-req" }, (m) => {
       const from = m.payload?.from;
       if (!from || from === meId.current) return;
@@ -233,7 +242,7 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
       setPeers({});
       setMembers([]);
     };
-  }, [enabled, boardId, applyOps, myName, myColor, onPaint]);
+  }, [enabled, boardId, applyOps, myName, myColor, onPaint, onPaintPatch]);
 
   // ── outgoing cursor (throttled, trailing) ──
   // `laser` rides along on the same channel: when set, peers render the
@@ -263,6 +272,13 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     try { ch.send({ type: "broadcast", event: "paint", payload: { ...payload, from: meId.current } }); } catch { /* */ }
   }, []);
 
+  // Broadcast a raster region-op patch (ordered ops list) to peers.
+  const pushPaintPatch = useCallback((ops) => {
+    const ch = chanRef.current;
+    if (!ch || !ops?.length) return;
+    try { ch.send({ type: "broadcast", event: "paintpatch", payload: { from: meId.current, ops } }); } catch { /* */ }
+  }, []);
+
   // Prune stale cursors (peer idle / dropped without a presence leave).
   useEffect(() => {
     if (!enabled) return;
@@ -280,5 +296,5 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     return () => clearInterval(t);
   }, [enabled]);
 
-  return { peers, members, pushCursor, pushPaint, myColor };
+  return { peers, members, pushCursor, pushPaint, pushPaintPatch, myColor };
 }

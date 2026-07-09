@@ -53,6 +53,8 @@ import {
   Wand2,
   Paintbrush,
   Eraser,
+  BoxSelect,
+  Check,
   MessageSquare,
   MoreHorizontal,
   StickyNote,
@@ -87,6 +89,8 @@ import {
   stickyHex,
   markNodeForEdit,
   strokePath,
+  strokeOutlinePath,
+  PEN_NIB_SCALE,
 } from "../components/whiteboard/nodes";
 import {
   nodeAbsPos,
@@ -132,6 +136,7 @@ import Inspector from "../components/whiteboard/Inspector";
 import { DropUpContext } from "../components/whiteboard/toolbarUI";
 import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 import PaintLayer from "../components/whiteboard/PaintLayer";
+import { segmentTileKeys, regionTileKeys } from "../components/whiteboard/paintTiles";
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import WhiteboardTimer from "../components/whiteboard/WhiteboardTimer";
@@ -451,6 +456,46 @@ function PaletteGrid({ colors, selected, onPick }) {
   );
 }
 
+// Procreate-style colour control: a single swatch button showing the current
+// colour that opens a palette + custom-picker popover (replaces a cramped inline
+// swatch row). Shared by the paint toolbar.
+function ColorButton({ dark, color, palette, onPick }) {
+  const [open, setOpen] = useState(false);
+  const safe = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#0ea5e9";
+  return (
+    <div className="relative flex items-center">
+      <button
+        type="button"
+        title="Colour"
+        aria-label="Colour"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={`${WB_TOUCH ? "w-9 h-9" : "w-7 h-7"} rounded-full shrink-0 border-2 transition-transform active:scale-95 ${
+          dark ? "border-white/25" : "border-black/10"
+        }`}
+        style={{ background: safe, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.15)" }}
+      />
+      {open && (
+        <ToolPopover dark={dark} onClose={() => setOpen(false)}>
+          <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Colour
+          </div>
+          <PaletteGrid colors={palette} selected={color} onPick={(hex) => { onPick(hex); setOpen(false); }} />
+          <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            <input
+              type="color"
+              value={safe}
+              onChange={(e) => onPick(e.target.value)}
+              style={{ width: 26, height: 26, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+            />
+            Custom colour
+          </label>
+        </ToolPopover>
+      )}
+    </div>
+  );
+}
+
 // Sticky tool for the rail. The button shows the current default color
 // and adds a note in it; the corner caret opens a palette flyout to
 // change the default (curated pastels + any custom hex). Picking a color
@@ -698,6 +743,30 @@ function PenTool({ dark, active, style, setStyle, onToggle }) {
               >{label}</button>
             ))}
           </div>
+          <div className={`text-[10px] font-bold uppercase tracking-wide mt-2.5 mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Opacity
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={10}
+              max={100}
+              step={5}
+              value={Math.round((style.opacity ?? 1) * 100)}
+              onChange={(e) => setStyle((s) => ({ ...s, opacity: Number(e.target.value) / 100 }))}
+              className="flex-1 accent-[var(--color-accent)]"
+            />
+            <span className={`text-[11px] tabular-nums w-8 text-right ${dark ? "text-slate-300" : "text-slate-600"}`}>{Math.round((style.opacity ?? 1) * 100)}%</span>
+          </div>
+          <label className={`mt-2.5 flex items-center justify-between gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            <span>Pressure (Apple Pencil)</span>
+            <input
+              type="checkbox"
+              checked={style.pressure ?? true}
+              onChange={(e) => setStyle((s) => ({ ...s, pressure: e.target.checked }))}
+              className="w-4 h-4 accent-[var(--color-accent)]"
+            />
+          </label>
         </ToolPopover>
       )}
     </div>
@@ -757,10 +826,11 @@ function LaserTool({ dark, active, color, setColor, onToggle }) {
   );
 }
 
-// Quick colours for the paint toolbar (a curated row; the well covers the rest).
-const PAINT_QUICK_COLORS = [
-  "#0f172a", "#ef4444", "#f97316", "#f59e0b", "#22c55e",
-  "#0ea5e9", "#6366f1", "#a855f7", "#ec4899", "#ffffff",
+// Fuller palette for the ColorButton popover (3 rows of 6).
+const BRUSH_PALETTE = [
+  "#0f172a", "#64748b", "#ef4444", "#f97316", "#f59e0b", "#eab308",
+  "#84cc16", "#22c55e", "#10b981", "#14b8a6", "#06b6d4", "#0ea5e9",
+  "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899", "#ffffff",
 ];
 
 // Floating toolbar shown while the brush is active — brush/eraser, colour, size
@@ -768,6 +838,28 @@ const PAINT_QUICK_COLORS = [
 // 44px tool targets on touch (Apple HIG); compact 32px with a mouse.
 const WB_TOUCH =
   typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+// Once a stylus (Apple Pencil) has touched down, concurrent finger/palm touches
+// are treated as palm and ignored for this window after the last pen event —
+// palm rejection that still lets stylus-less users draw with a finger.
+const PEN_GRACE_MS = 900;
+
+// Multi-finger tap gestures: 2-finger tap = undo, 3-finger tap = redo (the
+// iPad-native convention). A tap is quick, with a near-still centroid and
+// spread — any real pan/pinch moves those and cancels the gesture.
+const TAP_GESTURE_MS = 300;   // max duration to still count as a tap
+const TAP_GESTURE_SLOP = 12;  // px of centroid/spread drift allowed
+function touchCentroid(touches) {
+  let x = 0, y = 0;
+  const n = touches.length || 1;
+  for (const t of touches) { x += t.clientX; y += t.clientY; }
+  return { x: x / n, y: y / n };
+}
+function touchSpread(touches, c) {
+  if (touches.length < 2) return 0;
+  let s = 0;
+  for (const t of touches) s += Math.hypot(t.clientX - c.x, t.clientY - c.y);
+  return s / touches.length;
+}
 const TOOL_BTN_SIZE = WB_TOUCH ? "w-11 h-11" : "w-8 h-8";
 // Tool + its options caret read as one grouped row on touch.
 const TOOL_GROUP_CLS = WB_TOUCH ? "relative flex items-center" : "relative";
@@ -803,13 +895,17 @@ function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
   const divider = <div className={`w-px h-6 mx-0.5 ${dark ? "bg-white/10" : "bg-slate-200"}`} />;
   const labelCls = `text-[10px] font-bold uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`;
   const numCls = `text-[11px] tabular-nums ${dark ? "text-slate-300" : "text-slate-600"}`;
+  const touch = WB_TOUCH;
+  // Brush + eraser carry independent sizes; edit whichever mode is active.
+  const curSize = activeBrushSize(style);
+  const setSize = (n) => setStyle((s) => (s.erase ? { ...s, eraseSize: n } : { ...s, size: n }));
   const seg = (on, onClick, title, Icon) => (
     <button
       type="button"
       title={title}
       aria-pressed={on}
       onClick={onClick}
-      className={`h-8 px-2.5 rounded-lg flex items-center transition-colors ${
+      className={`${touch ? "h-10 px-3" : "h-8 px-2.5"} rounded-lg flex items-center transition-colors ${
         on
           ? dark ? "bg-sky-500/25 text-sky-300" : "bg-sky-100 text-sky-700"
           : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
@@ -817,6 +913,21 @@ function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
     >
       <Icon className="w-4 h-4" />
     </button>
+  );
+  const chip = (label, active, onClick, { title, disabled, wide } = {}) => (
+    <button
+      key={label}
+      type="button"
+      title={title || label}
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={onClick}
+      className={`${touch ? "h-9" : "h-7"} ${wide ? "px-2.5" : touch ? "w-9" : "w-7"} rounded-md text-[11px] font-semibold transition-colors disabled:opacity-40 shrink-0 ${
+        active
+          ? dark ? "bg-white/15 text-white" : "bg-slate-200 text-slate-700"
+          : dark ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
+      }`}
+    >{label}</button>
   );
   return (
     <Panel
@@ -831,43 +942,37 @@ function PaintToolbar({ dark, style, setStyle, bottomOffset = 64 }) {
       {seg(!style.erase, () => setStyle((s) => ({ ...s, erase: false })), "Brush", Paintbrush)}
       {seg(style.erase, () => setStyle((s) => ({ ...s, erase: true })), "Eraser", Eraser)}
       {divider}
-      <div className="flex items-center gap-1">
-        {PAINT_QUICK_COLORS.map((hex) => (
-          <button
-            key={hex}
-            type="button"
-            title={hex}
-            onClick={() => setStyle((s) => ({ ...s, color: hex, erase: false }))}
-            className="w-5 h-5 rounded-md transition-transform hover:scale-110 shrink-0"
-            style={{
-              background: hex,
-              outline: !style.erase && style.color.toLowerCase() === hex.toLowerCase() ? "2px solid #f97316" : "none",
-              outlineOffset: 1,
-              boxShadow: "inset 0 0 0 1px rgba(0,0,0,.15)",
-            }}
-          />
-        ))}
-        <input
-          type="color"
-          title="Custom colour"
-          value={/^#[0-9a-fA-F]{6}$/.test(style.color) ? style.color : "#0ea5e9"}
-          onChange={(e) => setStyle((s) => ({ ...s, color: e.target.value, erase: false }))}
-          style={{ width: 22, height: 22, padding: 0, border: "none", background: "none", cursor: "pointer" }}
-        />
+      <ColorButton
+        dark={dark}
+        color={style.color}
+        palette={BRUSH_PALETTE}
+        onPick={(hex) => setStyle((s) => ({ ...s, color: hex, erase: false }))}
+      />
+      {divider}
+      {/* Brush texture — eraser is always smooth, so it's disabled there. */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        {BRUSH_TEXTURES.map(([label, key]) =>
+          chip(label, !style.erase && style.texture === key, () => setStyle((s) => ({ ...s, texture: key })), {
+            title: `${label} brush`, disabled: style.erase, wide: true,
+          }),
+        )}
       </div>
       {divider}
       <div className="flex items-center gap-1.5 shrink-0">
         <span className={labelCls}>Size</span>
+        <div className="flex items-center gap-0.5">
+          {BRUSH_SIZE_PRESETS.map(([label, n]) => chip(label, curSize === n, () => setSize(n), { title: `${label} — ${n}px` }))}
+        </div>
         <input
           type="range"
           min={1}
           max={120}
           step={1}
-          value={style.size}
-          onChange={(e) => setStyle((s) => ({ ...s, size: Number(e.target.value) }))}
-          className="w-24 accent-[var(--color-accent)]"
+          value={curSize}
+          onChange={(e) => setSize(Number(e.target.value))}
+          className={`${touch ? "w-20" : "w-24"} accent-[var(--color-accent)]`}
         />
-        <span className={`${numCls} w-6 text-right`}>{style.size}</span>
+        <span className={`${numCls} w-6 text-right`}>{curSize}</span>
       </div>
       {divider}
       <div className="flex items-center gap-1.5 shrink-0">
@@ -1162,29 +1267,50 @@ const PEN_WIDTHS = [["Fine", 2], ["Medium", 4], ["Bold", 8]];
 function loadPenStyle() {
   try {
     const v = JSON.parse(localStorage.getItem(PEN_STYLE_KEY) || "null");
-    if (v && typeof v.color === "string") return { color: v.color, width: v.width || 4 };
+    if (v && typeof v.color === "string") {
+      return { color: v.color, width: v.width || 4, opacity: v.opacity ?? 1, pressure: v.pressure ?? true };
+    }
   } catch { /* */ }
-  return { color: "#0f172a", width: 4 };
+  // Default to a mid blue that's visible on BOTH light and dark boards — the old
+  // near-black (#0f172a) was invisible on the dark theme, so the pen looked
+  // broken. Users can still pick black in the pen colour flyout.
+  return { color: "#0ea5e9", width: 4, opacity: 1, pressure: true };
 }
 function savePenStyle(style) {
   try { localStorage.setItem(PEN_STYLE_KEY, JSON.stringify(style)); } catch { /* */ }
 }
 
-// Remembered raster-brush settings (colour / size / opacity / eraser).
+// Remembered raster-brush settings. Brush and eraser keep INDEPENDENT sizes
+// (size vs eraseSize) so switching between them doesn't clobber the other.
 const BRUSH_STYLE_KEY = "ql_wb_brush_style";
+const BRUSH_TEXTURES = [["Smooth", "smooth"], ["Pencil", "pencil"], ["Airbrush", "airbrush"]];
+const BRUSH_SIZE_PRESETS = [["S", 6], ["M", 18], ["L", 42], ["XL", 90]];
 function loadBrushStyle() {
   try {
     const v = JSON.parse(localStorage.getItem(BRUSH_STYLE_KEY) || "null");
     if (v && typeof v.color === "string") {
-      return { color: v.color, size: v.size || 18, opacity: v.opacity ?? 1, erase: false };
+      return {
+        color: v.color,
+        size: v.size || 18,
+        eraseSize: v.eraseSize || v.size || 32,
+        opacity: v.opacity ?? 1,
+        texture: v.texture || "smooth",
+        erase: false,
+      };
     }
   } catch { /* */ }
-  return { color: "#0ea5e9", size: 18, opacity: 1, erase: false };
+  return { color: "#0ea5e9", size: 18, eraseSize: 32, opacity: 1, texture: "smooth", erase: false };
 }
 function saveBrushStyle(style) {
   // Eraser is a transient mode, not a saved preference.
-  try { localStorage.setItem(BRUSH_STYLE_KEY, JSON.stringify({ color: style.color, size: style.size, opacity: style.opacity })); } catch { /* */ }
+  try {
+    localStorage.setItem(BRUSH_STYLE_KEY, JSON.stringify({
+      color: style.color, size: style.size, eraseSize: style.eraseSize, opacity: style.opacity, texture: style.texture,
+    }));
+  } catch { /* */ }
 }
+// The size that applies right now depends on which mode (brush vs eraser) is on.
+const activeBrushSize = (s) => (s.erase ? (s.eraseSize ?? 32) : s.size);
 
 // Chosen laser colour (per device). null = fall back to my cursor colour.
 const LASER_COLOR_KEY = "ql_wb_laser_color";
@@ -1193,6 +1319,55 @@ function loadLaserColor() {
 }
 function saveLaserColor(c) {
   try { if (c) localStorage.setItem(LASER_COLOR_KEY, c); } catch { /* */ }
+}
+
+// Floating raster+node region selection (rendered inside <ViewportPortal>, i.e.
+// flow space). Shows the lifted paint pixels at rect+offset with a marching-ants
+// border; dragging it moves the whole selection (raster + picked pen strokes).
+// The Delete/Done controls live in a separate screen-space panel.
+function AreaSelectionFloating({ sel, rf, onMove }) {
+  const dragRef = useRef(null);
+  const { rect, raster, dx, dy } = sel;
+  const down = (e) => {
+    e.stopPropagation();
+    const s = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    dragRef.current = { sx: s.x, sy: s.y, baseDx: dx, baseDy: dy, pid: e.pointerId };
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
+  };
+  const move = (e) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pid) return;
+    const s = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    onMove(d.baseDx + (s.x - d.sx), d.baseDy + (s.y - d.sy));
+  };
+  const up = (e) => {
+    if (dragRef.current && e.pointerId === dragRef.current.pid) {
+      try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+      dragRef.current = null;
+    }
+  };
+  return (
+    <div
+      style={{ position: "absolute", left: rect.x + dx, top: rect.y + dy, width: rect.w, height: rect.h, cursor: "move", touchAction: "none" }}
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={up}
+    >
+      <div
+        style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+        ref={(el) => {
+          if (el && raster && raster.parentNode !== el) {
+            raster.style.width = "100%";
+            raster.style.height = "100%";
+            raster.style.display = "block";
+            el.appendChild(raster);
+          }
+        }}
+      />
+      <div style={{ position: "absolute", inset: 0, border: "1.5px dashed var(--color-accent)", background: "color-mix(in srgb, var(--color-accent) 8%, transparent)", borderRadius: 4, pointerEvents: "none" }} />
+    </div>
+  );
 }
 
 export default function WhiteboardPage() {
@@ -1394,6 +1569,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const [marqueeRect, setMarqueeRect] = useState(null);
   const marqueePointerDown = (e) => {
     if (!WB_TOUCH || e.pointerType !== "touch" || tool !== "select") return;
+    // A palm resting while the Pencil selects/annotates must not start a marquee.
+    if (penActive()) return;
     const st = marqueeRef.current;
     if (st) {
       // Second finger — it's a pinch, not a marquee.
@@ -1490,8 +1667,38 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // the pen/brush/laser handlers use POINTER events, which are unaffected.
   const blockSingleTouchInDraw = (e) => {
     if (!WB_TOUCH) return;
-    if (tool !== "pen" && tool !== "brush" && tool !== "laser") return;
+    if (tool !== "pen" && tool !== "brush" && tool !== "laser" && tool !== "selectarea") return;
     if (e.touches.length === 1) e.stopPropagation();
+  };
+
+  // Two/three-finger tap = undo/redo (iPad convention). Start a candidate on a
+  // 2- or 3-finger touch; cancel it the moment the centroid or spread drifts
+  // (that's a pan/pinch, not a tap); fire on a quick clean release. Passive —
+  // never preventDefault, so pinch-zoom/pan navigation is untouched.
+  const onWbTouchStart = (e) => {
+    if (!WB_TOUCH) return;
+    const n = e.touches.length;
+    if (strokePidRef.current != null || n < 2 || n > 3) { tapGestureRef.current = null; return; }
+    const c = touchCentroid(e.touches);
+    const g = tapGestureRef.current;
+    if (g && !g.canceled) g.max = Math.max(g.max, n); // a 3rd finger joined a 2-finger start
+    else tapGestureRef.current = { max: n, t: Date.now(), c, spread: touchSpread(e.touches, c), canceled: false };
+  };
+  const onWbTouchMove = (e) => {
+    const g = tapGestureRef.current;
+    if (!g || g.canceled) return;
+    const c = touchCentroid(e.touches);
+    if (Math.hypot(c.x - g.c.x, c.y - g.c.y) > TAP_GESTURE_SLOP) { g.canceled = true; return; }
+    if (Math.abs(touchSpread(e.touches, c) - g.spread) > TAP_GESTURE_SLOP) g.canceled = true;
+  };
+  const onWbTouchEnd = (e) => {
+    const g = tapGestureRef.current;
+    if (!g) return;
+    if (e.touches.length > 0) return; // wait until every finger lifts
+    tapGestureRef.current = null;
+    if (g.canceled || Date.now() - g.t > TAP_GESTURE_MS) return;
+    if (g.max === 2 && canUndo) { undo(); navigator.vibrate?.(8); }
+    else if (g.max === 3 && canRedo) { redo(); navigator.vibrate?.(8); }
   };
   const onEditorClickCapture = (e) => {
     if (Date.now() < suppressPaneClickRef.current) {
@@ -1504,6 +1711,46 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // mounted (shared with Messages/Office) so iOS rubber-banding can't reveal
   // the page padding below the canvas or shove content under the tab bar.
   useBodyScrollLock(!embedded);
+
+  // Kill the iOS Apple-Pencil text-selection / callout gesture that otherwise
+  // fires mid-stroke and chops handwriting into fragments ("hello" → "[le]").
+  // It's driven by the TOUCH event's default action, and React's touch
+  // listeners are passive (preventDefault is ignored there) — so we attach a
+  // NON-passive native listener on the canvas and preventDefault while a draw
+  // tool is active. Scoped away from the toolbars (they keep their scroll), and
+  // it never stops propagation, so drawing (pointer events), pinch-zoom, and the
+  // two/three-finger tap-undo all still fire.
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return undefined;
+    const onTouch = (e) => {
+      const tool = toolRef.current;
+      if (tool !== "pen" && tool !== "brush" && tool !== "laser" && tool !== "selectarea") return;
+      const tgt = e.target;
+      if (tgt instanceof Element && tgt.closest(".react-flow__panel")) return; // leave toolbars alone
+      if (e.cancelable) e.preventDefault();
+    };
+    el.addEventListener("touchstart", onTouch, { passive: false });
+    el.addEventListener("touchmove", onTouch, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", onTouch);
+      el.removeEventListener("touchmove", onTouch);
+    };
+  }, []);
+
+  // The Pencil can still create a text selection while drawing, which pops the
+  // iOS Copy/Look-Up callout (harmless but ugly). Collapse any selection the
+  // moment it forms while a draw tool is active, so the menu has nothing to show.
+  useEffect(() => {
+    const onSel = () => {
+      const tool = toolRef.current;
+      if (tool !== "pen" && tool !== "brush" && tool !== "laser") return;
+      const sel = window.getSelection?.();
+      if (sel && !sel.isCollapsed) sel.removeAllRanges();
+    };
+    document.addEventListener("selectionchange", onSel);
+    return () => document.removeEventListener("selectionchange", onSel);
+  }, []);
 
   // Default style seeded into new text nodes (persisted per device). A ref keeps
   // the latest for the stable double-click-create handler.
@@ -1564,7 +1811,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // ── undo / redo (entity-scoped, multiplayer-safe). Set up BEFORE sync so it
   // can hand sync its onRemoteApply seam (peer edits fold into the baseline
   // and never become my undo steps). See useWhiteboardHistory.
-  const { undo, redo, canUndo, canRedo, onRemoteApply } = useWhiteboardHistory({
+  const { undo, redo, canUndo, canRedo, onRemoteApply, pushExternalStep, runSilent } = useWhiteboardHistory({
     nodes,
     edges,
     setNodes,
@@ -1579,8 +1826,17 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // churn the sync channel subscription.
   const paintRef = useRef(null);
   const onPaint = useCallback((p) => paintRef.current?.apply(p), []);
+  // Raster-brush undo: while a stroke runs, snapshot the PRE-paint pixels of
+  // each tile it enters (once). On release we commit an external history step
+  // (before → undo, after → redo). Local strokes only; see Phase 5 in the plan.
+  const paintUndoRef = useRef(null);
+  // Region-op patches from peers apply through applyPaintOps (set below). A ref
+  // breaks the hook cycle (sync needs onPaintPatch; applyPaintOps needs the
+  // sync's pushPaintPatch).
+  const applyPaintOpsRef = useRef(null);
+  const onPaintPatch = useCallback((ops) => applyPaintOpsRef.current?.(ops, false), []);
 
-  const { peers, members, pushCursor, pushPaint, myColor } = useWhiteboardSync({
+  const { peers, members, pushCursor, pushPaint, pushPaintPatch, myColor } = useWhiteboardSync({
     boardId: board?.id,
     enabled: collabEnabled,
     nodes,
@@ -1590,7 +1846,39 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     name: myName,
     onRemoteApply,
     onPaint,
+    onPaintPatch,
   });
+
+  // Apply an ordered list of raster region ops to the LOCAL paint layer (used
+  // when a peer's patch arrives). Op shapes:
+  //   { clearall:true }             — wipe the whole layer
+  //   { clear: rect }               — clear a flow-rect
+  //   { lift: {src, dst} }          — MOVE: recompute pixels from THIS client's
+  //                                   own tiles (readRegion(src)) → clear src →
+  //                                   stamp at dst (no pixels on the wire)
+  //   { stamp: {rect, canvas|img} } — draw a region image (undo carries a PNG)
+  const applyPaintOps = useCallback((ops) => {
+    const pr = paintRef.current;
+    for (const op of ops) {
+      if (op.clearall) pr?.clearAll();
+      else if (op.clear) pr?.clearRegion(op.clear);
+      else if (op.lift) { const r = pr?.readRegion(op.lift.src); pr?.clearRegion(op.lift.src); if (r) pr?.stampRegion(r, op.lift.dst); }
+      else if (op.stamp) {
+        if (op.stamp.canvas) pr?.stampRegion(op.stamp.canvas, op.stamp.rect);
+        else if (op.stamp.img) { const im = new Image(); im.onload = () => paintRef.current?.stampRegion(im, op.stamp.rect); im.src = op.stamp.img; }
+      }
+    }
+  }, []);
+  applyPaintOpsRef.current = applyPaintOps;
+  // Broadcast region ops to peers (no local apply — the caller already mutated
+  // its own tiles). Canvas stamps are encoded to PNG dataURLs for the wire.
+  const broadcastPaintOps = useCallback((ops) => {
+    if (!ops?.length) return;
+    const wire = ops.map((op) => (op.stamp?.canvas
+      ? { stamp: { rect: op.stamp.rect, img: op.stamp.canvas.toDataURL("image/png") } }
+      : op));
+    pushPaintPatch(wire);
+  }, [pushPaintPatch]);
 
   // Active canvas tool: "select" (default), "laser" (ephemeral presenting
   // pointer) or "pen" (freehand draw). Laser/pen gate node interaction so you
@@ -1598,6 +1886,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const [tool, setTool] = useState("select");
   const toolRef = useRef(tool);
   toolRef.current = tool;
+
+  // ── Region select (tool "selectarea"): drag a box, then move/delete the
+  // enclosed pen strokes (draw nodes) + raster paint as a floating selection.
+  const [areaBox, setAreaBox] = useState(null);   // {x0,y0,x1,y1} SCREEN px while dragging the box
+  const areaDragRef = useRef(null);               // { pid, x0, y0 } during the box drag
+  const [areaSel, setAreaSel] = useState(null);   // floating selection (see finalizeAreaSelection)
+  const areaSelRef = useRef(null);
+  areaSelRef.current = areaSel;
 
   // Pen colour + width (persisted per device). A ref so the pointer handlers
   // read the latest without re-subscribing.
@@ -1650,8 +1946,66 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // finger landing mid-stroke means navigation (pinch) — abort the stroke so
   // it doesn't zigzag between the two fingers.
   const strokePidRef = useRef(null);
+  // In-flight multi-finger tap-gesture candidate (2=undo, 3=redo). See the
+  // onWbTouch* handlers.
+  const tapGestureRef = useRef(null);
+  // "pen" | "touch" | "mouse" of the pointer that owns the active stroke — lets
+  // us tell a resting palm (touch) apart from the drawing Pencil.
+  const strokeTypeRef = useRef(null);
+  // Timestamp of the most recent stylus contact (grace window for marquee).
+  const lastPenTsRef = useRef(0);
+  // Native Apple Pencil detection via WebKit TouchEvents. PointerEvent's
+  // `pointerType:"pen"` is unreliable inside the iOS WKWebView, but every touch
+  // carries `Touch.touchType` ("stylus" | "direct") + `Touch.force` — the real
+  // native pen API. We mirror the live touches here so a pointerdown (which
+  // lacks touchType) can be classified by matching its position to a touch.
+  const touchMapRef = useRef(new Map()); // identifier → { type, x, y, force }
+  // Sticky: once a stylus has touched this board, adopt the Procreate model —
+  // the Pencil draws, fingers pan/gesture (they never draw). This is what makes
+  // palm rejection + two-finger-undo actually work.
+  const stylusSeenRef = useRef(false);
+  const trackTouches = useCallback((e) => {
+    const m = touchMapRef.current;
+    m.clear();
+    let stylus = false;
+    for (const t of e.touches) {
+      const type = t.touchType || "direct"; // non-WebKit → treat as finger
+      const radius = Math.max(t.radiusX || 0, t.radiusY || 0);
+      m.set(t.identifier, { type, x: t.clientX, y: t.clientY, force: t.force, radius });
+      if (type === "stylus") stylus = true;
+    }
+    if (stylus) { stylusSeenRef.current = true; lastPenTsRef.current = Date.now(); }
+  }, []);
+  // Classify a pointer as pen/touch/mouse, preferring the WebKit stylus signal
+  // (by nearest touch position) over the unreliable pointerType.
+  const classifyPointer = useCallback((e) => {
+    if (e.pointerType === "pen") return "pen";
+    if (e.pointerType === "mouse") return "mouse";
+    let best = null, bestD = Infinity;
+    for (const t of touchMapRef.current.values()) {
+      const d = Math.abs(t.x - e.clientX) + Math.abs(t.y - e.clientY);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (best && bestD <= 14) return best.type === "stylus" ? "pen" : "touch";
+    return "touch";
+  }, []);
+  // Force (0..1) for the matching stylus touch, else the pointer's pressure.
+  const pointerForce = useCallback((e) => {
+    let best = null, bestD = Infinity;
+    for (const t of touchMapRef.current.values()) {
+      const d = Math.abs(t.x - e.clientX) + Math.abs(t.y - e.clientY);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (best && bestD <= 14 && best.force > 0) return best.force;
+    return e.pressure > 0 ? e.pressure : 0.5;
+  }, []);
+  const penActive = useCallback(
+    () => strokeTypeRef.current === "pen" || Date.now() - lastPenTsRef.current < PEN_GRACE_MS,
+    [],
+  );
   const cancelActiveStroke = useCallback(() => {
     strokePidRef.current = null;
+    strokeTypeRef.current = null;
     if (laserDrawingRef.current) {
       laserDrawingRef.current = false;
       setLaserPressing(false);
@@ -1660,21 +2014,39 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     }
     if (paintStrokeIdRef.current) {
       const id = paintStrokeIdRef.current;
-      pushPaint({ id, brush: paintBrushRef.current, pts: paintBatchRef.current, end: true });
+      // Two fingers = navigate. Erase the stray dab/partial stroke the first
+      // finger painted before the pinch was recognised by restoring the tiles
+      // we snapshotted at stroke start; if we have no snapshot, just close it.
+      const u = paintUndoRef.current;
+      paintUndoRef.current = null;
+      paintStrokeIdRef.current = null;
       paintBatchRef.current = [];
       paintRef.current?.apply({ id, brush: paintBrushRef.current, pts: [], end: true }, true);
-      paintStrokeIdRef.current = null;
+      if (u && u.before.size) paintRef.current?.restore(u.before);
     }
     if (drawingRef.current) {
       drawingRef.current = null;
       if (drawRafRef.current) { cancelAnimationFrame(drawRafRef.current); drawRafRef.current = 0; }
       setDrawPath(null);
     }
-  }, [pushCursor, pushPaint]);
+  }, [pushCursor]);
+
+  // Live pen-preview path: variable-width outline when pressure is on, else the
+  // cheap constant-width centerline. Matches how DrawNode renders the committed
+  // stroke so the preview doesn't jump on release.
+  const previewPath = useCallback((pts) => {
+    const ps = penStyleRef.current;
+    return ps.pressure ? strokeOutlinePath(pts, { width: ps.width, last: false }) : strokePath(pts);
+  }, []);
 
   const onWbPointerMove = useCallback(
     (e) => {
       lastClientRef.current = { x: e.clientX, y: e.clientY };
+      if (e.pointerType === "pen") { lastPenTsRef.current = Date.now(); stylusSeenRef.current = true; }
+      if (areaDragRef.current && e.pointerId === areaDragRef.current.pid) {
+        setAreaBox((bx) => (bx ? { ...bx, x1: e.clientX, y1: e.clientY } : bx));
+        return;
+      }
       try {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         lastPtRef.current = { x: p.x, y: p.y };
@@ -1694,6 +2066,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         }
         // Raster brush: rasterise locally each move; batch the broadcast.
         if (owns && paintStrokeIdRef.current) {
+          // Snapshot any newly-entered tile before this segment paints it.
+          const u = paintUndoRef.current;
+          if (u) {
+            paintRef.current?.snapshot(segmentTileKeys(u.prev[0], u.prev[1], p.x, p.y, u.size), u.before);
+            u.prev = [p.x, p.y];
+          }
           paintRef.current?.apply({ id: paintStrokeIdRef.current, brush: paintBrushRef.current, pts: [[p.x, p.y]] }, true);
           paintBatchRef.current.push([p.x, p.y]);
           const now = Date.now();
@@ -1701,23 +2079,33 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         }
         const dr = owns ? drawingRef.current : null;
         if (dr) {
-          const last = dr.points[dr.points.length - 1];
-          // Drop near-duplicate samples so the path stays light.
-          if (!last || Math.abs(p.x - last[0]) + Math.abs(p.y - last[1]) > 1.2) {
-            dr.points.push([p.x, p.y]);
-            if (!drawRafRef.current) {
-              drawRafRef.current = requestAnimationFrame(() => {
-                drawRafRef.current = 0;
-                setDrawPath(strokePath(drawingRef.current?.points || []));
-              });
+          // Drain coalesced samples (a Pencil fires many between rAFs) so the
+          // stroke keeps every point + its pressure, not just the last one.
+          const evs = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : null;
+          const samples = evs && evs.length ? evs : [e];
+          let added = false;
+          for (const ev of samples) {
+            let q = p;
+            if (ev !== e) { try { q = rf.screenToFlowPosition({ x: ev.clientX, y: ev.clientY }); } catch { continue; } }
+            const last = dr.points[dr.points.length - 1];
+            // Drop near-duplicate samples so the path stays light.
+            if (!last || Math.abs(q.x - last[0]) + Math.abs(q.y - last[1]) > 1.2) {
+              dr.points.push([q.x, q.y, pointerForce(ev)]);
+              added = true;
             }
+          }
+          if (added && !drawRafRef.current) {
+            drawRafRef.current = requestAnimationFrame(() => {
+              drawRafRef.current = 0;
+              setDrawPath(previewPath(drawingRef.current?.points || []));
+            });
           }
         }
       } catch {
         /* */
       }
     },
-    [rf, pushCursor, flushPaint]
+    [rf, pushCursor, flushPaint, previewPath, pointerForce]
   );
 
   // Pen down: begin a stroke. Capture-phase so it wins over the (disabled in
@@ -1725,23 +2113,50 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // node. Only fires inside the canvas, never over the toolbar/controls.
   const onWbPointerDownCapture = useCallback(
     (e) => {
+      const ptype = classifyPointer(e);
+      if (ptype === "pen") { lastPenTsRef.current = Date.now(); stylusSeenRef.current = true; }
       const mode = toolRef.current;
+      // Region-select tool: start dragging a selection box (unless a floating
+      // selection is already active — its overlay handles input then).
+      if (mode === "selectarea") {
+        if (areaSelRef.current || e.button !== 0) return;
+        const at = e.target;
+        if (!(at instanceof Element) || !at.closest(".react-flow") || at.closest(".react-flow__panel")) return;
+        areaDragRef.current = { pid: e.pointerId, x0: e.clientX, y0: e.clientY };
+        setAreaBox({ x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY });
+        try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
+        e.preventDefault();
+        return;
+      }
       if ((mode !== "pen" && mode !== "laser" && mode !== "brush") || e.button !== 0) return;
       const t = e.target;
       if (!(t instanceof Element) || !t.closest(".react-flow") || t.closest(".react-flow__panel")) return;
+      // Palm rejection, grace-window (NOT sticky): a finger/palm touch is
+      // ignored only while the Pencil is actively in use (a pen stroke is live,
+      // or a pen event landed within PEN_GRACE_MS). When the Pencil is away,
+      // fingers draw normally. A Pencil landing mid finger-stroke takes over
+      // (below), covering the palm-touched-first case.
+      if (ptype === "touch" && penActive()) return;
       // In laser / brush mode, ⌘/Ctrl+drag pans (handled by ReactFlow), so the
       // left-drag stays free for the laser ink / brush — don't capture it.
       if ((mode === "laser" || mode === "brush") && (e.ctrlKey || e.metaKey)) return;
       if (strokePidRef.current != null) {
-        // Second finger mid-stroke → the user is pinching to navigate.
-        cancelActiveStroke();
-        return;
+        if (ptype === "pen" && strokeTypeRef.current !== "pen") {
+          // Pencil landed while a finger/palm stroke was going (palm touched
+          // first) — the Pencil wins: drop that stroke and start a pen one.
+          cancelActiveStroke();
+        } else if (ptype === strokeTypeRef.current) {
+          cancelActiveStroke(); // same-class second pointer = pinch → navigate
+          return;
+        } else {
+          return; // touch during a pen stroke = resting palm → ignore, keep drawing
+        }
       }
       let p;
       try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
       if (mode === "pen") {
-        drawingRef.current = { points: [[p.x, p.y]] };
-        setDrawPath(strokePath(drawingRef.current.points));
+        drawingRef.current = { points: [[p.x, p.y, pointerForce(e)]] };
+        setDrawPath(previewPath(drawingRef.current.points));
       } else if (mode === "laser") {
         laserDrawingRef.current = true;
         setLaserPressing(true);
@@ -1752,22 +2167,27 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         const bs = brushStyleRef.current;
         const brush = {
           color: bs.erase ? "#000000" : bs.color,
-          size: bs.size,
+          size: activeBrushSize(bs),
           opacity: bs.erase ? 1 : bs.opacity,
           mode: bs.erase ? "eraser" : "brush",
+          texture: bs.erase ? "smooth" : bs.texture,
         };
         const id = freshId("pt");
         paintStrokeIdRef.current = id;
         paintBrushRef.current = brush;
         paintBatchRef.current = [[p.x, p.y]];
         paintLastFlushRef.current = Date.now();
+        // Snapshot the tiles under the first dab BEFORE painting them (undo).
+        paintUndoRef.current = { size: brush.size, prev: [p.x, p.y], before: new Map() };
+        paintRef.current?.snapshot(segmentTileKeys(p.x, p.y, p.x, p.y, brush.size), paintUndoRef.current.before);
         paintRef.current?.apply({ id, brush, pts: [[p.x, p.y]] }, true);
       }
       strokePidRef.current = e.pointerId;
+      strokeTypeRef.current = ptype;
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
       e.preventDefault();
     },
-    [rf, pushCursor, cancelActiveStroke]
+    [rf, pushCursor, cancelActiveStroke, penActive, previewPath, classifyPointer, pointerForce]
   );
 
   // Pen up: commit the stroke as a draw node (bbox-relative points). Tiny taps
@@ -1785,12 +2205,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (x < minX) minX = x; if (y < minY) minY = y;
       if (x > maxX) maxX = x; if (y > maxY) maxY = y;
     }
-    const { color, width } = penStyleRef.current;
-    const pad = Math.max(width, 4);
+    const { color, width, opacity = 1, pressure = true } = penStyleRef.current;
+    // A pressure stroke's nib grows to ~width*PEN_NIB_SCALE, so pad the bbox by
+    // that half-width to avoid clipping the fattest part of the outline.
+    const pad = Math.max(pressure ? (width * PEN_NIB_SCALE) / 2 : width, 4);
     minX -= pad; minY -= pad; maxX += pad; maxY += pad;
     const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
     if (w < 4 && h < 4) return; // discard a stray dot
-    const rel = pts.map(([x, y]) => [Math.round((x - minX) * 10) / 10, Math.round((y - minY) * 10) / 10]);
+    // Preserve the pressure (3rd slot) so the committed node renders identically.
+    const rel = pts.map(([x, y, pr]) => [Math.round((x - minX) * 10) / 10, Math.round((y - minY) * 10) / 10, pr ?? 0.5]);
     const node = {
       id: freshId("draw"),
       type: "draw",
@@ -1798,7 +2221,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       width: w,
       height: h,
       style: { pointerEvents: "none" },
-      data: { points: rel, color, strokeWidth: width, w, h },
+      data: { points: rel, color, strokeWidth: width, w, h, opacity, pressure },
     };
     // Don't auto-select — keep the pen flowing for the next stroke.
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(node));
@@ -1806,9 +2229,19 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   const onWbPointerUp = useCallback(
     (e) => {
+      // Region-select box finished → lift the enclosed strokes + paint.
+      if (areaDragRef.current && e.pointerId === areaDragRef.current.pid) {
+        const d = areaDragRef.current;
+        areaDragRef.current = null;
+        setAreaBox(null);
+        try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+        finalizeAreaSelection(d.x0, d.y0, e.clientX, e.clientY);
+        return;
+      }
       // Only the stroke-owning pointer ends it.
       if (strokePidRef.current != null && e.pointerId !== strokePidRef.current) return;
       strokePidRef.current = null;
+      strokeTypeRef.current = null;
       if (laserDrawingRef.current) {
         laserDrawingRef.current = false;
         setLaserPressing(false);
@@ -1827,13 +2260,25 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         paintBatchRef.current = [];
         paintRef.current?.apply({ id, brush: paintBrushRef.current, pts: [], end: true }, true);
         paintStrokeIdRef.current = null;
+        // Commit the raster undo step now that the tiles hold the finished
+        // stroke: before = the snapshot we took, after = the current pixels.
+        const u = paintUndoRef.current;
+        paintUndoRef.current = null;
+        if (u && u.before.size) {
+          const before = u.before;
+          const after = paintRef.current?.snapshot(before.keys(), new Map());
+          if (after) pushExternalStep({
+            undo: () => paintRef.current?.restore(before),
+            redo: () => paintRef.current?.restore(after),
+          });
+        }
         return;
       }
       if (!drawingRef.current) return;
       try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
       finishStroke();
     },
-    [finishStroke, pushCursor, pushPaint]
+    [finishStroke, pushCursor, pushPaint, pushExternalStep, finalizeAreaSelection]
   );
 
   // On a tool switch, push one cursor update reflecting the new mode so peers
@@ -1860,6 +2305,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         return;
       const board = mainRef.current;
       if (!board || !(board.matches(":hover") || board.contains(el))) return;
+      // A floating region selection intercepts Esc (cancel) + Delete/Backspace.
+      if (areaSelRef.current) {
+        if (e.key === "Escape") { e.preventDefault(); cancelAreaSelection(); setTool("select"); return; }
+        if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteAreaSelection(); return; }
+      }
       // Escape drops back to the select tool (exit laser mode).
       if (e.key === "Escape") { setTool("select"); return; }
       // "Q" pops the quick-tool palette at the cursor (so items spawn where you
@@ -2789,6 +3239,148 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     );
   }, [nodes, edges, setNodes, setEdges]);
 
+  // Clear all drawings — pen strokes (draw nodes) + raster brush ink — leaving
+  // notes, shapes, images, frames. Both halves are wiped in ONE undoable step
+  // (runSilent keeps the node removal from becoming its own step; the external
+  // step restores nodes + raster together).
+  const clearAllDrawings = useCallback(() => {
+    const removed = rf.getNodes().filter((n) => n.type === "draw");
+    const keys = paintRef.current?.allTileKeys?.() || [];
+    const before = paintRef.current?.snapshot(keys, new Map());
+    if (!removed.length && !(before && before.size)) return; // nothing to clear
+    if (!window.confirm("Clear all drawings on this board? Notes and shapes stay. You can undo this.")) return;
+    const apply = () => runSilent(() => {
+      setNodes((nds) => nds.filter((n) => n.type !== "draw"));
+      paintRef.current?.clearAll();
+      broadcastPaintOps([{ clearall: true }]); // peers wipe live
+    });
+    apply();
+    pushExternalStep({
+      undo: () => runSilent(() => {
+        setNodes((nds) => nds.filter((n) => n.type !== "draw").concat(removed));
+        if (before) paintRef.current?.restore(before); // local only — peers get raster back on reload
+      }),
+      redo: apply,
+    });
+  }, [rf, setNodes, pushExternalStep, runSilent, broadcastPaintOps]);
+
+  // ── Region select: finalize the drag-box into a floating selection ──────
+  // Picks the pen strokes (draw nodes) it encloses + LIFTS the raster paint
+  // (reads it into a canvas, clears it from the tiles). The floating selection
+  // can then be dragged (move) or deleted; committed on tool-change / Done.
+  const finalizeAreaSelection = useCallback((sx0, sy0, sx1, sy1) => {
+    const minX = Math.min(sx0, sx1), maxX = Math.max(sx0, sx1);
+    const minY = Math.min(sy0, sy1), maxY = Math.max(sy0, sy1);
+    if (maxX - minX < 6 && maxY - minY < 6) return; // a tap, not a box
+    const a = rf.screenToFlowPosition({ x: minX, y: minY });
+    const b = rf.screenToFlowPosition({ x: maxX, y: maxY });
+    const rect = { x: a.x, y: a.y, w: Math.max(1, b.x - a.x), h: Math.max(1, b.y - a.y) };
+    const picked = [];
+    for (const n of rf.getNodes()) {
+      if (n.type !== "draw") continue;
+      const inode = rf.getInternalNode(n.id);
+      const pos = inode?.internals?.positionAbsolute || n.position;
+      const w = n.measured?.width ?? n.width ?? 0;
+      const h = n.measured?.height ?? n.height ?? 0;
+      if (pos.x < rect.x + rect.w && pos.x + w > rect.x && pos.y < rect.y + rect.h && pos.y + h > rect.y) picked.push(n);
+    }
+    const before = paintRef.current?.snapshot(regionTileKeys(rect), new Map()) || new Map();
+    const hadPaint = [...before.values()].some((v) => v); // a tile exists in the region
+    const raster = hadPaint ? paintRef.current?.readRegion(rect) : null;
+    if (raster) paintRef.current?.clearRegion(rect);
+    if (!picked.length && !raster) return; // empty area
+    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0 });
+  }, [rf]);
+
+  // Live-move the floating selection: raster overlay + the picked nodes together.
+  const moveAreaSelection = useCallback((dx, dy) => {
+    const s = areaSelRef.current;
+    if (!s) return;
+    setAreaSel((cur) => (cur ? { ...cur, dx, dy } : cur));
+    runSilent(() => setNodes((nds) => nds.map((n) => {
+      const o = s.nodes.find((m) => m.id === n.id);
+      return o ? { ...n, position: { x: o.position.x + dx, y: o.position.y + dy } } : n;
+    })));
+  }, [setNodes, runSilent]);
+
+  // Commit the floating selection at its current position (stamp raster, keep
+  // node positions). One undoable step covers raster + nodes.
+  const commitAreaSelection = useCallback(() => {
+    const s = areaSelRef.current;
+    if (!s) return;
+    setAreaSel(null);
+    const { rect, raster, nodes, before, dx, dy } = s;
+    const destRect = { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h };
+    if (dx === 0 && dy === 0) { if (raster) paintRef.current?.stampRegion(raster, rect); return; } // no move → drop back (peers never saw the lift)
+    // dst pre-stamp pixels — peers need these to undo the move live.
+    const dstBefore = raster ? paintRef.current?.readRegion(destRect) : null;
+    if (raster) {
+      paintRef.current?.snapshot(regionTileKeys(destRect), before);
+      paintRef.current?.stampRegion(raster, destRect);
+      broadcastPaintOps([{ lift: { src: rect, dst: destRect } }]); // peers recompute the move from their own tiles
+    }
+    pushExternalStep({
+      undo: () => runSilent(() => {
+        if (before) paintRef.current?.restore(before);
+        if (raster) broadcastPaintOps([{ clear: destRect }, { stamp: { rect: destRect, canvas: dstBefore } }, { stamp: { rect, canvas: raster } }]);
+        setNodes((nds) => nds.map((n) => {
+          const o = nodes.find((m) => m.id === n.id);
+          return o ? { ...n, position: { x: o.position.x, y: o.position.y } } : n;
+        }));
+      }),
+      redo: () => runSilent(() => {
+        if (raster) { paintRef.current?.clearRegion(rect); paintRef.current?.stampRegion(raster, destRect); broadcastPaintOps([{ lift: { src: rect, dst: destRect } }]); }
+        setNodes((nds) => nds.map((n) => {
+          const o = nodes.find((m) => m.id === n.id);
+          return o ? { ...n, position: { x: o.position.x + dx, y: o.position.y + dy } } : n;
+        }));
+      }),
+    });
+  }, [pushExternalStep, runSilent, setNodes, broadcastPaintOps]);
+
+  // Delete the floating selection (raster already lifted; drop nodes).
+  const deleteAreaSelection = useCallback(() => {
+    const s = areaSelRef.current;
+    if (!s) return;
+    setAreaSel(null);
+    const { rect, raster, nodes, before } = s;
+    const ids = new Set(nodes.map((n) => n.id));
+    if (raster) broadcastPaintOps([{ clear: rect }]); // peers clear the lifted region
+    runSilent(() => setNodes((nds) => nds.filter((n) => !ids.has(n.id))));
+    pushExternalStep({
+      undo: () => runSilent(() => {
+        if (before) paintRef.current?.restore(before);
+        if (raster) broadcastPaintOps([{ stamp: { rect, canvas: raster } }]); // peers stamp it back
+        setNodes((nds) => nds.filter((n) => !ids.has(n.id)).concat(nodes));
+      }),
+      redo: () => runSilent(() => {
+        paintRef.current?.clearRegion(rect);
+        broadcastPaintOps([{ clear: rect }]);
+        setNodes((nds) => nds.filter((n) => !ids.has(n.id)));
+      }),
+    });
+  }, [pushExternalStep, runSilent, setNodes, broadcastPaintOps]);
+
+  // Cancel (Escape): put raster + nodes back where they were, no undo step.
+  const cancelAreaSelection = useCallback(() => {
+    const s = areaSelRef.current;
+    if (!s) return;
+    setAreaSel(null);
+    const { nodes, before } = s;
+    runSilent(() => {
+      if (before) paintRef.current?.restore(before);
+      setNodes((nds) => nds.map((n) => {
+        const o = nodes.find((m) => m.id === n.id);
+        return o ? { ...n, position: { x: o.position.x, y: o.position.y } } : n;
+      }));
+    });
+  }, [runSilent, setNodes]);
+
+  // Leaving the select-area tool commits any floating selection.
+  useEffect(() => {
+    if (tool !== "selectarea" && areaSelRef.current) commitAreaSelection();
+  }, [tool, commitAreaSelection]);
+
   // Clone nodes (pulling in any framed children + edges fully inside the
   // selection), offset a touch and left selected. Powers ⌘/Ctrl-click on a
   // node and ⌘/Ctrl-D on the selection. Offset is grid-aligned so clones stay
@@ -3306,7 +3898,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       // gesture area so taps there don't trigger an OS swipe. env() = 0 on
       // desktop, so it's a no-op there.
       className={`relative w-full overflow-hidden ${
-        tool === "pen" ? "wb-pen " : tool === "brush" ? "wb-paint " : ""
+        tool === "pen" ? "wb-pen wb-draw " : tool === "brush" ? "wb-paint wb-draw " : tool === "laser" ? "wb-laser wb-draw " : tool === "selectarea" ? "wb-draw " : ""
       }${
         embedded
           ? "h-full"
@@ -3317,8 +3909,13 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       onPointerMoveCapture={marqueePointerMove}
       onPointerUpCapture={marqueePointerUp}
       onPointerCancelCapture={marqueePointerUp}
-      onTouchStartCapture={blockSingleTouchInDraw}
-      onTouchMoveCapture={blockSingleTouchInDraw}
+      // Capture phase: track touches (native stylus/force) + run the tap-gesture
+      // recognizer BEFORE d3-zoom's pane listeners can stopPropagation, then the
+      // single-touch draw guard.
+      onTouchStartCapture={(e) => { trackTouches(e); onWbTouchStart(e); blockSingleTouchInDraw(e); }}
+      onTouchMoveCapture={(e) => { trackTouches(e); onWbTouchMove(e); blockSingleTouchInDraw(e); }}
+      onTouchEndCapture={(e) => { trackTouches(e); onWbTouchEnd(e); }}
+      onTouchCancelCapture={(e) => { trackTouches(e); tapGestureRef.current = null; }}
       onClickCapture={onEditorClickCapture}
       onPointerUp={onWbPointerUp}
       onPointerCancel={onWbPointerUp}
@@ -3334,6 +3931,20 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             height: Math.abs(marqueeRect.y1 - marqueeRect.y0),
             border: "1.5px dashed var(--color-accent)",
             background: "color-mix(in srgb, var(--color-accent) 10%, transparent)",
+          }}
+        />
+      )}
+      {/* Region-select drag box (screen coords, like the marquee). */}
+      {areaBox && (
+        <div
+          className="fixed z-[60] pointer-events-none rounded-sm"
+          style={{
+            left: Math.min(areaBox.x0, areaBox.x1),
+            top: Math.min(areaBox.y0, areaBox.y1),
+            width: Math.abs(areaBox.x1 - areaBox.x0),
+            height: Math.abs(areaBox.y1 - areaBox.y0),
+            border: "1.5px dashed var(--color-accent)",
+            background: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
           }}
         />
       )}
@@ -3409,6 +4020,40 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {/* Tiled raster paint layer (collaborative; strokes sync as vectors,
             tiles persist to Storage). High z so paint sits over nodes/images. */}
         <PaintLayer ref={paintRef} boardId={board?.id} enabled={collabEnabled} zIndex={900} />
+        {/* Floating region selection (raster + picked pen strokes) + controls. */}
+        {areaSel && (
+          <>
+            <ViewportPortal>
+              <div style={{ position: "absolute", left: 0, top: 0, zIndex: 950 }}>
+                <AreaSelectionFloating sel={areaSel} rf={rf} onMove={moveAreaSelection} />
+              </div>
+            </ViewportPortal>
+            <Panel
+              position="top-center"
+              className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg ${
+                dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+              }`}
+            >
+              <span className={`text-[11px] font-semibold px-1 ${dark ? "text-slate-300" : "text-slate-600"}`}>Drag to move</span>
+              <button
+                type="button"
+                onClick={deleteAreaSelection}
+                title="Delete selection"
+                className={`${WB_TOUCH ? "h-10 px-3" : "h-8 px-2.5"} rounded-lg flex items-center gap-1 text-[12px] font-semibold transition-colors ${dark ? "text-rose-300 hover:bg-rose-500/15" : "text-rose-600 hover:bg-rose-50"}`}
+              >
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+              <button
+                type="button"
+                onClick={commitAreaSelection}
+                title="Place selection"
+                className={`${WB_TOUCH ? "h-10 px-3" : "h-8 px-2.5"} rounded-lg flex items-center gap-1 text-[12px] font-semibold transition-colors ${dark ? "bg-sky-500/25 text-sky-200 hover:bg-sky-500/35" : "bg-sky-100 text-sky-700 hover:bg-sky-200"}`}
+              >
+                <Check className="w-4 h-4" /> Done
+              </button>
+            </Panel>
+          </>
+        )}
         {(helperLines.vertical || helperLines.horizontal) && (
           <HelperLines
             vertical={helperLines.vertical}
@@ -3437,20 +4082,66 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {drawPath && (
           <ViewportPortal>
             <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 6 }}>
-              <path
-                d={drawPath}
-                fill="none"
-                stroke={penStyle.color}
-                strokeWidth={penStyle.width}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              {penStyle.pressure ? (
+                <path d={drawPath} fill={penStyle.color} fillOpacity={penStyle.opacity ?? 1} />
+              ) : (
+                <path
+                  d={drawPath}
+                  fill="none"
+                  stroke={penStyle.color}
+                  strokeOpacity={penStyle.opacity ?? 1}
+                  strokeWidth={penStyle.width}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
             </svg>
           </ViewportPortal>
         )}
 
         {/* Paint toolbar — brush/eraser, colour, size, opacity (brush mode). */}
         {tool === "brush" && <PaintToolbar dark={dark} style={brushStyle} setStyle={setBrushStyle} bottomOffset={bottomStackOffset} />}
+
+        {/* Touch-only quick undo/redo — the top-chrome buttons are too small for
+            a Pencil, and there's no keyboard for ⌘Z. Also bound to 2/3-finger
+            taps (onWbTouch*). */}
+        {WB_TOUCH && (
+          <Panel
+            position="top-left"
+            className={`flex items-center gap-1 p-1 rounded-2xl border shadow-lg ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}
+          >
+            <button
+              type="button"
+              onClick={undo}
+              disabled={!canUndo}
+              title="Undo (or two-finger tap)"
+              aria-label="Undo"
+              className={`w-11 h-11 rounded-xl inline-flex items-center justify-center transition-colors touch-none ${
+                !canUndo
+                  ? dark ? "text-slate-600" : "text-slate-300"
+                  : dark ? "text-slate-200 hover:bg-white/10 active:bg-white/20" : "text-slate-600 hover:bg-slate-100 active:bg-slate-200"
+              }`}
+            >
+              <Undo2 className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={redo}
+              disabled={!canRedo}
+              title="Redo (or three-finger tap)"
+              aria-label="Redo"
+              className={`w-11 h-11 rounded-xl inline-flex items-center justify-center transition-colors touch-none ${
+                !canRedo
+                  ? dark ? "text-slate-600" : "text-slate-300"
+                  : dark ? "text-slate-200 hover:bg-white/10 active:bg-white/20" : "text-slate-600 hover:bg-slate-100 active:bg-slate-200"
+              }`}
+            >
+              <Redo2 className="w-5 h-5" />
+            </button>
+          </Panel>
+        )}
 
         {/* Align / distribute toolbar — only with 2+ top-level nodes selected. */}
         {multiCount >= 2 && (
@@ -3604,6 +4295,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             setColor={setLaserColor}
             onToggle={() => setTool((t) => (t === "laser" ? "select" : "laser"))}
           />
+          <ToolButton
+            title={tool === "selectarea" ? "Select area (on) — drag a box, then drag to move or ⌫ to delete" : "Select area — box-select drawings to move or delete"}
+            dark={dark}
+            active={tool === "selectarea"}
+            onClick={() => setTool((t) => (t === "selectarea" ? "select" : "selectarea"))}
+          >
+            <BoxSelect className="w-4 h-4" />
+          </ToolButton>
           <ToolbarDivider dark={dark} />
           <ToolButton
             title="Delete selected"
@@ -3779,7 +4478,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       {/* My own laser glow (screen space) — tracks in laser mode, shows on press. */}
       <LocalLaser active={tool === "laser"} show={laserPressing} color={effectiveLaserColor} />
       {/* Photoshop-style brush ring while painting (replaces the crosshair). */}
-      <BrushCursor active={tool === "brush"} size={brushStyle.size} color={brushStyle.color} erase={brushStyle.erase} />
+      <BrushCursor active={tool === "brush"} size={activeBrushSize(brushStyle)} color={brushStyle.color} erase={brushStyle.erase} />
 
       {/* Breadcrumb / board chrome — a floating card pinned top-left. Holds
             back-nav, title, template badge, save state, the reactions-bar
@@ -4038,6 +4737,21 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
               }`}
             >
               <LayoutTemplate className="w-4 h-4" />
+            </button>
+          )}
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={clearAllDrawings}
+              title="Clear all drawings (pen + brush)"
+              aria-label="Clear all drawings"
+              className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+                dark
+                  ? "text-slate-400 hover:bg-white/10"
+                  : "text-slate-500 hover:bg-slate-100"
+              }`}
+            >
+              <Eraser className="w-4 h-4" />
             </button>
           )}
           {isAdmin && !embedded && (

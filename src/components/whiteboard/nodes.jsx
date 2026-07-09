@@ -1,4 +1,5 @@
 import { memo, createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
+import { getStroke } from "perfect-freehand";
 import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
 import { nodeAbsPos, sortParentsFirst } from "./frame";
 import { Target, ChevronDown, Building2, User, Star, X, Plus, CalendarClock, Check } from "lucide-react";
@@ -1301,29 +1302,80 @@ export function strokePath(pts) {
   return `${d} L${last[0]},${last[1]}`;
 }
 
+// perfect-freehand outline points → a filled SVG path (quadratics through the
+// midpoints of the outline polygon). Standard getSvgPathFromStroke helper.
+function outlineToPath(stroke) {
+  if (!stroke.length) return "";
+  const d = stroke.reduce(
+    (acc, [x0, y0], i, arr) => {
+      const [x1, y1] = arr[(i + 1) % arr.length];
+      acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+      return acc;
+    },
+    ["M", ...stroke[0], "Q"],
+  );
+  d.push("Z");
+  return d.join(" ");
+}
+
+// How much the pen "width" preset (2/4/8) scales into a perfect-freehand nib
+// diameter — pressure then thins it down from there.
+export const PEN_NIB_SCALE = 2.2;
+
+// Variable-width freehand outline from pressure points ([x,y,pressure]). Shared
+// by the live preview and the committed DrawNode so they match exactly.
+export function strokeOutlinePath(pts, { width = 4, last = true } = {}) {
+  if (!pts || !pts.length) return "";
+  const stroke = getStroke(pts, {
+    size: Math.max(1, width) * PEN_NIB_SCALE,
+    thinning: 0.6,
+    smoothing: 0.55,
+    streamline: 0.5,
+    simulatePressure: false, // real Pencil pressure rides in the 3rd tuple slot
+    last,
+  });
+  return outlineToPath(stroke);
+}
+
 export const DrawNode = memo(function DrawNode({ id, data, width, height, selected }) {
   const { setNodes } = useReactFlow();
   const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
   const pts = data?.points || [];
   const color = data?.color || "#0f172a";
   const sw = data?.strokeWidth ?? 3;
+  const opacity = data?.opacity ?? 1;
+  const pressure = !!data?.pressure;
   const w = width || data?.w || 1;
   const h = height || data?.h || 1;
   const d = strokePath(pts);
   const lineProps = {
     d, fill: "none", strokeLinecap: "round", strokeLinejoin: "round",
   };
+  // Pressure strokes render as a filled variable-width outline; legacy/flat
+  // strokes keep the cheap constant-width stroked path.
+  const outline = pressure ? strokeOutlinePath(pts, { width: sw }) : null;
   return (
     // pointerEvents:none on the box (also set via node.style) → click-through;
     // the stroke paths opt back in so the line stays grabbable/selectable.
     <div style={{ width: "100%", height: "100%", position: "relative", pointerEvents: "none" }}>
       <svg width={w} height={h} style={{ display: "block", overflow: "visible" }}>
-        {selected && (
-          <path {...lineProps} stroke={SELECT} strokeOpacity={0.3} strokeWidth={sw + 8} style={{ pointerEvents: "none" }} />
-        )}
-        {/* Fat invisible hit line so a thin stroke is easy to grab. */}
+        {/* Fat invisible hit line (uses the centerline) so a thin stroke is easy to grab. */}
         <path {...lineProps} stroke="transparent" strokeWidth={Math.max(sw + 14, 18)} style={{ pointerEvents: "stroke", cursor: "move" }} />
-        <path {...lineProps} stroke={color} strokeWidth={sw} style={{ pointerEvents: "stroke", cursor: "move" }} />
+        {outline ? (
+          <>
+            {selected && (
+              <path d={outline} fill="none" stroke={SELECT} strokeOpacity={0.35} strokeWidth={6} strokeLinejoin="round" style={{ pointerEvents: "none" }} />
+            )}
+            <path d={outline} fill={color} fillOpacity={opacity} style={{ pointerEvents: "fill", cursor: "move" }} />
+          </>
+        ) : (
+          <>
+            {selected && (
+              <path {...lineProps} stroke={SELECT} strokeOpacity={0.3} strokeWidth={sw + 8} style={{ pointerEvents: "none" }} />
+            )}
+            <path {...lineProps} stroke={color} strokeWidth={sw} strokeOpacity={opacity} style={{ pointerEvents: "stroke", cursor: "move" }} />
+          </>
+        )}
       </svg>
       {selected && (
         <button

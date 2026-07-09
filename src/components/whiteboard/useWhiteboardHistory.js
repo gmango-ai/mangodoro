@@ -80,6 +80,7 @@ export function useWhiteboardHistory({ nodes, edges, setNodes, setEdges, enabled
   const timer = useRef(null);
   const pending = useRef(false); // an uncommitted local edit is in flight
   const skip = useRef(false);    // suppress capture for our own undo/redo writes
+  const rebase = useRef(false);  // absorb a runSilent() change into the baseline
   const [, bump] = useReducer((x) => x + 1, 0);
 
   // Re-baseline from a known state and drop history (board load / switch).
@@ -118,6 +119,31 @@ export function useWhiteboardHistory({ nodes, edges, setNodes, setEdges, enabled
     return true;
   }, [rebaseTo]);
 
+  // Run a node/edge mutation WITHOUT recording an entity history step. Lets an
+  // external step (raster + nodes together, e.g. clear-all or a region move)
+  // own the whole undo in one press. The next capture effect ABSORBS the change
+  // into the baseline (rebase) rather than capturing it — so it also can't leak
+  // into a later unrelated step.
+  const runSilent = useCallback((fn) => {
+    rebase.current = true;
+    fn();
+  }, []);
+
+  // Push a non-entity ("external") undo step — used by the raster paint layer,
+  // whose pixels aren't nodes/edges. Carries its own undo()/redo() closures.
+  // Any pending entity edit is captured first so the interleaved order of pen
+  // nodes and brush strokes is preserved in one stack.
+  const pushExternalStep = useCallback((step) => {
+    if (!step) return;
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    pending.current = false;
+    capture();
+    past.current.push({ external: step });
+    if (past.current.length > MAX_DEPTH) past.current.shift();
+    future.current = [];
+    bump();
+  }, [capture]);
+
   // Remote peer ops: absorb into the baseline so they never become MY undo
   // steps. Called from useWhiteboardSync.applyOps (local user's changes never
   // pass through here).
@@ -138,6 +164,15 @@ export function useWhiteboardHistory({ nodes, edges, setNodes, setEdges, enabled
       return undefined;
     }
     if (skip.current) { skip.current = false; return undefined; } // our own undo/redo
+    if (rebase.current) {
+      // runSilent() change → fold it into the baseline (don't capture, and don't
+      // clear the stacks) so it neither becomes its own step nor leaks into the
+      // next captured edit. Its undo is owned by an external step.
+      rebase.current = false;
+      baseN.current = baseFrom(nodesRef.current);
+      baseE.current = baseFrom(edgesRef.current);
+      return undefined;
+    }
     if (!pending.current) { pending.current = true; bump(); }
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
@@ -165,6 +200,7 @@ export function useWhiteboardHistory({ nodes, edges, setNodes, setEdges, enabled
     const txn = past.current.pop();
     if (!txn) { bump(); return; }
     future.current.push(txn);
+    if (txn.external) { try { txn.external.undo(); } catch { /* */ } bump(); return; }
     if (txn.nodes.length) setNodes((nds) => applyReverts(nds, txn.nodes, "before", true));
     if (txn.edges.length) setEdges((eds) => applyReverts(eds, txn.edges, "before", false));
     rebaseTo(txn, "before");
@@ -179,6 +215,7 @@ export function useWhiteboardHistory({ nodes, edges, setNodes, setEdges, enabled
     const txn = future.current.pop();
     if (!txn) { bump(); return; }
     past.current.push(txn);
+    if (txn.external) { try { txn.external.redo(); } catch { /* */ } bump(); return; }
     if (txn.nodes.length) setNodes((nds) => applyReverts(nds, txn.nodes, "after", true));
     if (txn.edges.length) setEdges((eds) => applyReverts(eds, txn.edges, "after", false));
     rebaseTo(txn, "after");
@@ -189,5 +226,5 @@ export function useWhiteboardHistory({ nodes, edges, setNodes, setEdges, enabled
   const canUndo = past.current.length > 0 || pending.current;
   const canRedo = future.current.length > 0;
 
-  return { undo, redo, canUndo, canRedo, onRemoteApply };
+  return { undo, redo, canUndo, canRedo, onRemoteApply, pushExternalStep, runSilent };
 }
