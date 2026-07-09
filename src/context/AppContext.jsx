@@ -341,13 +341,12 @@ export function AppProvider({ session, children }) {
         { event: "UPDATE", schema: "public", table: "user_settings", filter: `user_id=eq.${session.user.id}` },
         (payload) => {
           applyRemoteClock(payload.new?.active_clock ?? null);
-          // Also pick up status / presence_state changes from other devices.
+          // Also pick up status-message changes from other devices.
           const row = payload.new;
           if (row && typeof row === "object") {
             setSettings((prev) => ({
               ...prev,
               status: row.status ?? prev.status ?? "",
-              presenceState: row.presence_state ?? prev.presenceState ?? "active",
               statusUpdatedAt: row.status_updated_at ?? prev.statusUpdatedAt ?? null,
               avatarUrl: row.avatar_url ?? prev.avatarUrl ?? "",
               name: row.name ?? prev.name ?? "",
@@ -368,21 +367,19 @@ export function AppProvider({ session, children }) {
     };
   }, [session?.user?.id]);
 
-  // ── Fire-and-forget status setter usable from anywhere in the app ──
-  const updateStatus = useCallback(async ({ status, presenceState } = {}) => {
-    if (!session?.user?.id) return;
+  // ── Fire-and-forget status-MESSAGE setter usable from anywhere in the app ──
+  // Availability lives on user_presence (the resolver); this only carries the
+  // free-text status message shown on org/profile surfaces (user_settings.status).
+  const updateStatus = useCallback(async ({ status } = {}) => {
+    if (!session?.user?.id || status == null) return;
+    const stamp = new Date().toISOString();
     // Optimistic update so the UI reflects the change instantly.
-    setSettings((prev) => ({
-      ...prev,
-      status: status != null ? status : (prev.status ?? ""),
-      presenceState: presenceState ?? prev.presenceState ?? "active",
-      statusUpdatedAt: new Date().toISOString(),
-    }));
-    const { error } = await supabase.rpc("set_user_status", {
-      p_status: status ?? null,
-      p_presence_state: presenceState ?? null,
-    });
-    if (error) console.warn("set_user_status:", error.message);
+    setSettings((prev) => ({ ...prev, status, statusUpdatedAt: stamp }));
+    const { error } = await supabase
+      .from("user_settings")
+      .update({ status, status_updated_at: stamp })
+      .eq("user_id", session.user.id);
+    if (error) console.warn("update status:", error.message);
   }, [session?.user?.id]);
 
   // ── Capture Google provider_token when user was already signed in ──
@@ -754,7 +751,6 @@ export function AppProvider({ session, children }) {
       sticky_color: stickyColorClean,
       avatar_url: rest.avatarUrl || null,
       status: rest.status ?? null,
-      presence_state: rest.presenceState || null,
       pomodoro_sound_url: rest.pomodoroSoundUrl || null,
       pomodoro_sound_name: rest.pomodoroSoundName || null,
       accent_color: rest.accentColor || "teal",
@@ -1268,7 +1264,6 @@ export function AppProvider({ session, children }) {
     if ("accentColor" in patch) dbPatch.accent_color = patch.accentColor;
     if ("name" in patch) dbPatch.name = patch.name || null;
     if ("status" in patch) dbPatch.status = patch.status ?? null;
-    if ("presenceState" in patch) dbPatch.presence_state = patch.presenceState || null;
     if ("lunchTime" in patch) dbPatch.lunch_time = patch.lunchTime || null;
     if ("lunchMode" in patch) dbPatch.lunch_mode = patch.lunchMode || "off";
     if ("lunchDurationMin" in patch) dbPatch.lunch_duration_min = patch.lunchDurationMin ?? 60;
