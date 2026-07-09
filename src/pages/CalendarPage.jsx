@@ -31,6 +31,7 @@ import MilestoneModal from "../components/calendar/MilestoneModal";
 import NewItemPopover from "../components/calendar/NewItemPopover";
 import TaskEditModal from "../components/calendar/TaskEditModal";
 import ScheduleMeetingModal from "../components/office/ScheduleMeetingModal";
+import { fetchSubtaskCounts } from "../lib/subtasks";
 import "../components/calendar/calendar-ocean.css";
 
 const LS_LAYERS = "cal_layers";
@@ -131,6 +132,8 @@ export default function CalendarPage() {
   const [taskEdit, setTaskEdit] = useState(null);
   const [allGoals, setAllGoals] = useState([]);
   const [myTasks, setMyTasks] = useState([]);
+  /** plannerTaskId -> { done, total, pct } for subtask surfacing on chips + cards. */
+  const [subCounts, setSubCounts] = useState({});
   const [locConflict, setLocConflict] = useState(null); // { app, google, date }
   const [expanded, setExpanded] = useState(false);
   const [goalsCollapsed, setGoalsCollapsed] = useState(() => { try { return localStorage.getItem(LS_GOALS_COLLAPSED) === "1"; } catch { return false; } });
@@ -147,7 +150,18 @@ export default function CalendarPage() {
   const gUpdateRef = useRef(updateCalendarEvent); gUpdateRef.current = updateCalendarEvent;
 
   useEffect(() => { if (userId) fetchMyAvailability(userId).then(({ data }) => setAvail(data || null)); }, [userId]);
-  const reloadTasks = useCallback(() => { if (userId) fetchOpenPlannerTasks(userId).then(({ data }) => setMyTasks(data || [])); }, [userId]);
+  const reloadTasks = useCallback(() => {
+    if (!userId) return;
+    fetchOpenPlannerTasks(userId).then(async ({ data }) => {
+      const tasks = data || [];
+      setMyTasks(tasks);
+      const ids = tasks.map((t) => t.id);
+      if (ids.length) {
+        const { byPlanner } = await fetchSubtaskCounts({ plannerIds: ids });
+        setSubCounts((prev) => ({ ...prev, ...byPlanner }));
+      }
+    });
+  }, [userId]);
   useEffect(() => { reloadTasks(); }, [reloadTasks]);
   useEffect(() => {
     if (scope !== "team" || !teamMembers?.length) { setTeamProfiles({}); return; }
@@ -238,6 +252,9 @@ export default function CalendarPage() {
     // Stamp reading-order rank: context band → meetings/deadlines (by priority) → tasks.
     collected.forEach((e) => { if (e.extendedProps) e.extendedProps.orderRank = rankFor(e.extendedProps); });
     setEvents(collected);
+    // Subtask counts for the planner-task chips now in view (chipContent reads subCounts).
+    const taskIds = collected.filter((e) => e.extendedProps?.type === "task").map((e) => e.extendedProps.sourceId);
+    if (taskIds.length) fetchSubtaskCounts({ plannerIds: taskIds }).then(({ byPlanner }) => setSubCounts((prev) => ({ ...prev, ...byPlanner })));
   }, [activeTeamId, userId, avail, entries, teamProfiles, googleToken]);
 
   const reload = useCallback(() => { if (rangeRef.current) loadRange(rangeRef.current.start, rangeRef.current.end); }, [loadRange]);
@@ -380,11 +397,17 @@ export default function CalendarPage() {
     else if (isLoc) cls.push("cal-chip2--loc");
     if (p.done) cls.push("done");
     const style = isTask ? { color: meta.fg, borderColor: meta.solid } : { background: meta.bg, color: meta.fg, borderColor: meta.solid };
+    const sc = isTask ? subCounts[p.sourceId] : null;
     return (
       <div className={cls.join(" ")} style={style} title={title}>
         {isTask ? <span className="cbox" /> : <span className="cdot" style={{ background: meta.solid }} />}
         {timed && !isTask && <span className="ctime">{arg.timeText}</span>}
         <span className="ctitle">{title}</span>
+        {sc && sc.total > 0 && (
+          <span style={{ marginLeft: "auto", paddingLeft: 4, fontSize: 10, opacity: 0.7, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+            {sc.done}/{sc.total}
+          </span>
+        )}
       </div>
     );
   };
@@ -641,6 +664,11 @@ export default function CalendarPage() {
                     style={{ background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer" }}>
                     {(t.title || "").trim()}
                   </button>
+                  {subCounts[t.id]?.total > 0 && (
+                    <span className="due" style={{ fontVariantNumeric: "tabular-nums" }} title={`${subCounts[t.id].done} of ${subCounts[t.id].total} subtasks done`}>
+                      ☑ {subCounts[t.id].done}/{subCounts[t.id].total}
+                    </span>
+                  )}
                   {t.planner_date && <span className="due">{new Date(t.planner_date + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}
                 </div>
               ))}
