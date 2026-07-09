@@ -6,6 +6,7 @@ import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { useTheme } from "../context/ThemeContext";
 import { CLOCK_NOTE_STATUSES } from "../lib/utils";
 import { addFocusNote } from "../lib/focusNotes";
+import { supabase } from "../supabase";
 
 // "What did you work on?" capture around pomodoro phases. When a focus block
 // ends (→ break) or a break ends (→ next focus) — per the user's reflect_when
@@ -14,7 +15,7 @@ import { addFocusNote } from "../lib/focusNotes";
 const BREAKS = new Set(["shortBreak", "longBreak"]);
 
 export default function ReflectionPrompt() {
-  const { settings, clockIn, renameCurrentTask, addClockNote, updateStatus } = useApp();
+  const { settings, clockIn, renameCurrentTask, addClockNote, updateStatus, session } = useApp();
   const { mode } = usePomodoro();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -23,6 +24,8 @@ export default function ReflectionPrompt() {
   const [status, setStatus] = useState(null); // optional per-block result
   const prevRef = useRef(mode);
   const taRef = useRef(null);
+  const userId = session?.user?.id;
+  const chanRef = useRef(null);
 
   useEffect(() => {
     const prev = prevRef.current;
@@ -44,7 +47,26 @@ export default function ReflectionPrompt() {
 
   useEffect(() => { if (open) requestAnimationFrame(() => taRef.current?.focus()); }, [open]);
 
+  // Cross-device: the pomodoro (and thus this per-block prompt) is synced, so
+  // resolving it on one device should dismiss it on the others. A tiny per-user
+  // broadcast carries a "resolved" ping; receivers just close their prompt.
+  useEffect(() => {
+    if (!userId) return undefined;
+    const ch = supabase
+      .channel(`reflection:${userId}`)
+      .on("broadcast", { event: "resolved" }, () => { setOpen(false); setStatus(null); })
+      .subscribe();
+    chanRef.current = ch;
+    return () => { try { supabase.removeChannel(ch); } catch { /* */ } chanRef.current = null; };
+  }, [userId]);
+
   if (!open) return null;
+
+  // Tell my other devices this block's prompt is handled so they close it too.
+  const broadcastResolved = () => {
+    try { chanRef.current?.send({ type: "broadcast", event: "resolved" }); } catch { /* */ }
+  };
+  const dismiss = () => { broadcastResolved(); setOpen(false); setStatus(null); };
 
   const save = () => {
     const v = text.trim();
@@ -57,11 +79,12 @@ export default function ReflectionPrompt() {
       // status) so past reflections can be browsed on the profile.
       addFocusNote({ text: v, status });
     }
+    broadcastResolved();
     setOpen(false);
     setStatus(null);
   };
   const onKey = (e) => {
-    if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
+    if (e.key === "Escape") { e.preventDefault(); dismiss(); }
     else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save(); }
   };
 
@@ -74,7 +97,7 @@ export default function ReflectionPrompt() {
         <div className="flex items-center gap-2 mb-2">
           <PenLine className="w-4 h-4 text-[var(--color-accent)]" />
           <span className={`text-sm font-bold ${dark ? "text-slate-100" : "text-slate-800"}`}>What did you work on?</span>
-          <button type="button" onClick={() => setOpen(false)} aria-label="Skip" className={`ml-auto ${dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"}`}>
+          <button type="button" onClick={dismiss} aria-label="Skip" className={`ml-auto ${dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"}`}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -107,7 +130,7 @@ export default function ReflectionPrompt() {
           </div>
         )}
         <div className="flex items-center justify-end gap-2 mt-2.5">
-          <button type="button" onClick={() => setOpen(false)} className={`text-sm px-3 py-1.5 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>Skip</button>
+          <button type="button" onClick={dismiss} className={`text-sm px-3 py-1.5 rounded-lg ${dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"}`}>Skip</button>
           <button type="button" onClick={save} disabled={!text.trim()} className="text-sm font-semibold px-3 py-1.5 rounded-lg text-white bg-[var(--color-accent)] disabled:opacity-40">Save</button>
         </div>
       </div>

@@ -68,8 +68,13 @@ export default function JoinTeamPage() {
     setBusy(true);
     const { error: err } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      // Keep the user on this URL after OAuth so the auto-join effect fires.
-      options: { redirectTo: window.location.href },
+      options: {
+        // Keep the user on this URL after OAuth so the auto-join effect fires.
+        redirectTo: window.location.href,
+        // Always show Google's account chooser so a user can pick which
+        // account joins the team instead of being locked to a cached one.
+        queryParams: { prompt: "select_account" },
+      },
     });
     if (err) {
       setError(err.message);

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ClipboardList, Plus, Check, PenLine, X as XIcon, ChevronRight, ChevronDown, Sparkles, Loader2 } from "lucide-react";
 import {
   DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors,
-  useDraggable, useDroppable,
+  useDraggable, useDroppable, closestCenter,
 } from "@dnd-kit/core";
 import { useTheme } from "../../context/ThemeContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
@@ -80,7 +80,12 @@ export default function WidgetsSidebar() {
         </p>
       </div>
 
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      {/* closestCenter: rank drop targets by centre distance, NOT overlap area.
+          rectIntersection (the default) ranks by intersecting area, which is
+          dominated by tall (expanded) widgets — so a short collapsed widget
+          could rarely "win" a drop over an open one, making reorders only work
+          between widgets in the same collapsed/expanded state. */}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <div className="flex-1 overflow-y-auto p-3 space-y-3">
           {order.map((id) => {
             const render = widgetById[id];

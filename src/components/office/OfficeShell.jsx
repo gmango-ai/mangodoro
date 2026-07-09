@@ -69,7 +69,6 @@ export default function OfficeShell({
   onlineCount, canEdit, busy, onJoin, onStart, onEnterRoom, onEditOffice,
   onEditRoom, canEditRoom,
 }) {
-  useBodyScrollLock();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -96,6 +95,12 @@ export default function OfficeShell({
   const resolvedRoomId = (roomId && allRooms.some((r) => r.id === roomId)) ? roomId : null;
   const selectedRoom = resolvedRoomId ? allRooms.find((r) => r.id === resolvedRoomId) : null;
   const activeSession = selectedRoom ? (sessionByRoomId?.get(selectedRoom.id) || null) : null;
+
+  // Only pin the page while we're INSIDE a room — that layout is a fixed
+  // 100dvh flex shell with its own inner scroll areas. The hallway (below) is
+  // a normal document-flow page that scrolls the body; locking it there makes
+  // any content past the viewport unreachable.
+  useBodyScrollLock(!!selectedRoom);
 
   // Auto-open into the room the user is already in.
   // When the user lands on bare /office and they have an active sync

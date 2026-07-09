@@ -211,6 +211,7 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
                 in the collapsible desktop row 2 below. */}
             <div className="hidden xl:flex items-center gap-3 ml-auto">
               <nav className="flex items-center gap-1">
+                <NavLink to="/pomodoro" className={desktopNavLink}>Pomodoro</NavLink>
                 <NavLink to="/office" className={desktopNavLink}>
                   Office
                   {officeActive && (
@@ -363,6 +364,9 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
             <OrgSwitcher />
           </div>
 
+          <NavLink to="/pomodoro" className={sidebarNavLink}>
+            <Timer className="w-5 h-5" /> Pomodoro
+          </NavLink>
           <NavLink to="/office" className={sidebarNavLink}>
             <Building2 className="w-5 h-5" /> Office
             {officeActive && (

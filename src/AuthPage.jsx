@@ -27,6 +27,11 @@ export default function AuthPage() {
       options: {
         redirectTo: getAuthRedirectUrl(),
         skipBrowserRedirect: isMobileApp,
+        // Force Google's account chooser every time. Without this, Google
+        // silently reuses the previously authorized account and never
+        // offers a way to switch — so signing into a second account is
+        // effectively impossible once the first is remembered.
+        queryParams: { prompt: "select_account" },
       },
     });
     if (error) {
@@ -67,7 +72,10 @@ export default function AuthPage() {
           setLoading(false);
         }
       } else {
-        await Browser.open({ url: data.url, presentationStyle: "popover" });
+        // "fullscreen" (not "popover") so the OAuth sheet fills the screen
+        // on iPad — a Capacitor popover renders as a cramped floating card
+        // on tablets, which makes signing in awkward.
+        await Browser.open({ url: data.url, presentationStyle: "fullscreen" });
         // Loading stays true until the deep-link listener fires
         // exchangeCodeForSession and onAuthStateChange flips us to the
         // authed app. If the user dismisses the browser without signing
