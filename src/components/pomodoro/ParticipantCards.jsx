@@ -5,22 +5,8 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { sortParticipants } from "../../lib/participantSort";
 import { useParticipantSort } from "../../hooks/useParticipantSort";
+import { presenceDot, presenceLabel } from "../../lib/presence";
 import ParticipantSortPicker from "./ParticipantSortPicker";
-
-const PRESENCE_DOT = {
-  active:     { light: "bg-emerald-500", dark: "bg-emerald-400" },
-  available:  { light: "bg-sky-500",     dark: "bg-sky-400"     },
-  heads_down: { light: "bg-violet-500",  dark: "bg-violet-400"  },
-  in_meeting: { light: "bg-rose-500",    dark: "bg-rose-400"    },
-  away:       { light: "bg-amber-500",   dark: "bg-amber-400"   },
-};
-const PRESENCE_LABEL = {
-  active: "Focusing",
-  available: "Available",
-  heads_down: "Heads-down",
-  in_meeting: "Meeting",
-  away: "Away",
-};
 
 function Avatar({ participant, size = 40, dark }) {
   const initial = (participant.display_name || "?")
@@ -49,11 +35,9 @@ function Avatar({ participant, size = 40, dark }) {
 }
 
 function ParticipantCard({ participant, isLeader, isSelf, dark }) {
-  const presence = PRESENCE_DOT[participant.presence_state] || PRESENCE_DOT.active;
-  const dotCls = dark ? presence.dark : presence.light;
+  const dotCls = presenceDot(participant.presence_state);
   const statusText = participant.status?.trim()
-    || PRESENCE_LABEL[participant.presence_state]
-    || "Focusing";
+    || presenceLabel(participant.presence_state);
 
   return (
     <div className="flex items-start gap-3 py-2">
@@ -63,7 +47,7 @@ function ParticipantCard({ participant, isLeader, isSelf, dark }) {
           className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 ${
             dark ? "border-[var(--color-surface)]" : "border-white"
           } ${dotCls}`}
-          title={PRESENCE_LABEL[participant.presence_state] || ""}
+          title={presenceLabel(participant.presence_state)}
         />
       </div>
       <div className="min-w-0 flex-1">

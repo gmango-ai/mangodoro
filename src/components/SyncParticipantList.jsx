@@ -6,6 +6,7 @@ import ConfirmRow from "./ConfirmRow";
 import { sortParticipants } from "../lib/participantSort";
 import { useParticipantSort } from "../hooks/useParticipantSort";
 import ParticipantSortPicker from "./pomodoro/ParticipantSortPicker";
+import { availabilityDot, availabilityLabel, legacyToAvailability } from "../lib/presence";
 
 // Inline team chip strip — minimal so it fits next to a participant
 // name without inflating row height. Mirror MemberIdentity's chip
@@ -40,18 +41,9 @@ function TeamChips({ teams, dark, max = 3 }) {
   );
 }
 
-const PRESENCE_INFO = {
-  active:     { label: "Active",       light: "bg-emerald-500", dark: "bg-emerald-400" },
-  available:  { label: "Available",    light: "bg-sky-500",     dark: "bg-sky-400"     },
-  heads_down: { label: "Heads-down",   light: "bg-violet-500",  dark: "bg-violet-400"  },
-  in_meeting: { label: "In a meeting", light: "bg-rose-500",    dark: "bg-rose-400"    },
-  away:       { label: "Away",         light: "bg-amber-500",   dark: "bg-amber-400"   },
-  out_to_lunch: { label: "Out to lunch", light: "bg-orange-500", dark: "bg-orange-400" },
-  commuting:  { label: "Commuting",    light: "bg-cyan-500",    dark: "bg-cyan-400"    },
-};
-
 function presenceOf(p) {
-  return PRESENCE_INFO[p?.presence_state] || PRESENCE_INFO.active;
+  const a = legacyToAvailability(p?.presence_state);
+  return { label: availabilityLabel(a), dot: availabilityDot(a) };
 }
 
 function relativeTime(iso) {
@@ -241,7 +233,7 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
         const isSelf = p.user_id === currentUserId;
         const isOnline = presenceMap?.[p.user_id] ?? false;
         const presence = presenceOf(p);
-        const dotCls = isOnline ? (dark ? presence.dark : presence.light) : "bg-slate-400";
+        const dotCls = isOnline ? (presence.dot) : "bg-slate-400";
         const isSelected = selectedId === p.user_id;
         return (
           <li key={p.user_id}>
@@ -305,7 +297,7 @@ function CompactView({ participants, leaderId, controllerId, presenceMap, curren
         const isSelf = p.user_id === currentUserId;
         const isOnline = presenceMap?.[p.user_id] ?? false;
         const presence = presenceOf(p);
-        const dotCls = isOnline ? (dark ? presence.dark : presence.light) : "bg-slate-400";
+        const dotCls = isOnline ? (presence.dot) : "bg-slate-400";
         const isSelected = selectedId === p.user_id;
         return (
           <button
@@ -381,7 +373,7 @@ function ParticipantDetail({
             )}
           </div>
           <div className={`flex items-center gap-1.5 text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? (dark ? presence.dark : presence.light) : "bg-slate-400"}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? (presence.dot) : "bg-slate-400"}`} />
             <span>{presence.label}{!isOnline ? " · Offline" : ""}</span>
           </div>
           {p.joined_at && (

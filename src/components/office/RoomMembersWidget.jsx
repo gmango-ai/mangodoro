@@ -6,25 +6,7 @@ import { useParticipantSort } from "../../hooks/useParticipantSort";
 import ParticipantSortPicker from "../pomodoro/ParticipantSortPicker";
 import UserAvatar from "../UserAvatar";
 import WidgetSection from "./WidgetSection";
-
-const PRESENCE_LABEL = {
-  active: "Active",
-  available: "Available",
-  heads_down: "Heads-down",
-  in_meeting: "In meeting",
-  away: "Away",
-  out_to_lunch: "Out to lunch",
-  commuting: "Commuting",
-};
-const PRESENCE_DOT = {
-  active: "bg-emerald-500",
-  available: "bg-sky-500",
-  heads_down: "bg-violet-500",
-  in_meeting: "bg-rose-500",
-  away: "bg-amber-500",
-  out_to_lunch: "bg-orange-500",
-  commuting: "bg-cyan-500",
-};
+import { presenceDot, presenceLabel } from "../../lib/presence";
 
 // Lists everyone currently in the user's active sync session — i.e.
 // the people in this room with them. Reads from SyncSessionContext's
@@ -87,7 +69,7 @@ export default function RoomMembersWidget({ dark }) {
                 <li
                   key={p.user_id}
                   className="flex items-center gap-2"
-                  title={`${p.display_name || "Member"} · ${PRESENCE_LABEL[presence] || presence}${
+                  title={`${p.display_name || "Member"} · ${presenceLabel(presence)}${
                     online ? " · here now" : " · idle"
                   }`}
                 >
@@ -101,7 +83,7 @@ export default function RoomMembersWidget({ dark }) {
                         same color map as the rest of the office UI. */}
                     <span
                       className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ${
-                        PRESENCE_DOT[presence] || "bg-emerald-500"
+                        presenceDot(presence)
                       } ${dark ? "ring-[var(--color-surface)]" : "ring-white"}`}
                       aria-hidden
                     />
