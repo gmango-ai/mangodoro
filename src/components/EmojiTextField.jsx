@@ -19,22 +19,26 @@ import { expandShortcodesAtCaret, searchShortcodes } from "../lib/emojiShortcode
 const EMOJI_RE = /:([a-z0-9_+-]{2,})$/i;
 
 const EmojiTextField = forwardRef(function EmojiTextField(
-  { value, onChange, onKeyDown, onBlur, multiline = false, disableAutocomplete = false, popoverWidth = 224, ...rest },
+  { value, onChange, onKeyDown, onBlur, multiline = false, component, disableAutocomplete = false, popoverWidth = 224, ...rest },
   ref,
 ) {
   const innerRef = useRef(null);
+  const activeItemRef = useRef(null);
   useImperativeHandle(ref, () => innerRef.current, []);
   const [emojiQ, setEmojiQ] = useState(null);
   const [rect, setRect] = useState(null);
   const [activeIdx, setActiveIdx] = useState(0);
 
+  // Show ALL matches (the list scrolls); no artificial cap.
   const matches = useMemo(
-    () => (disableAutocomplete || emojiQ == null ? [] : searchShortcodes(emojiQ, 7)),
+    () => (disableAutocomplete || emojiQ == null ? [] : searchShortcodes(emojiQ, Infinity)),
     [emojiQ, disableAutocomplete],
   );
 
   // Restart the highlight at the top whenever the query changes.
   useEffect(() => { setActiveIdx(0); }, [emojiQ]);
+  // Keep the highlighted row visible as you arrow through a long list.
+  useEffect(() => { activeItemRef.current?.scrollIntoView({ block: "nearest" }); }, [activeIdx]);
 
   useLayoutEffect(() => {
     if (matches.length && innerRef.current) setRect(innerRef.current.getBoundingClientRect());
@@ -80,7 +84,10 @@ const EmojiTextField = forwardRef(function EmojiTextField(
     onKeyDown?.(e);
   };
 
-  const Tag = multiline ? "textarea" : "input";
+  // Render a native field by default, or wrap a passed component (e.g. the app's
+  // <Input>/<Textarea>) so their styling is preserved — they forward the ref to
+  // the DOM node, which is what we need for caret handling.
+  const Tag = component || (multiline ? "textarea" : "input");
 
   // Flip below the field when it sits too near the top of the viewport.
   const below = rect && rect.top < 240;
@@ -111,6 +118,7 @@ const EmojiTextField = forwardRef(function EmojiTextField(
           {matches.map((em, i) => (
             <button
               key={em.code}
+              ref={i === activeIdx ? activeItemRef : null}
               type="button"
               onMouseDown={(e) => { e.preventDefault(); pick(em.emoji); }}
               onMouseEnter={() => setActiveIdx(i)}

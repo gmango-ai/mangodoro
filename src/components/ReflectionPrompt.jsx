@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import EmojiTextField from "./EmojiTextField";
 import { PenLine, X } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
@@ -77,7 +78,7 @@ export default function ReflectionPrompt() {
             <X className="w-4 h-4" />
           </button>
         </div>
-        <textarea
+        <EmojiTextField multiline
           ref={taRef}
           value={text}
           onChange={(e) => setText(e.target.value)}

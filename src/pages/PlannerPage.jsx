@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import EmojiTextField from "../components/EmojiTextField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ChevronDown,
@@ -342,7 +343,7 @@ function SubtaskSection({ task, subtasks, dark, disabled, onAddSubtask, onAddAiS
       )}
 
       <form onSubmit={submitNew} className="flex items-center gap-1.5">
-        <Input
+        <EmojiTextField component={Input}
           value={newSub}
           onChange={(e) => setNewSub(e.target.value)}
           placeholder="Add a subtask…"
@@ -559,7 +560,7 @@ function PlannerTaskRow({
 
           {/* Notes — tucked behind a link until you need them. */}
           {showNotes ? (
-            <Textarea
+            <EmojiTextField component={Textarea}
               id={`task-note-${t.id}`}
               rows={2}
               placeholder="What's left, blockers, next steps…"
@@ -1463,7 +1464,7 @@ export default function PlannerPage() {
                 </Select>
               </div>
               <div className="flex flex-col sm:flex-row gap-3">
-                <Input
+                <EmojiTextField component={Input}
                   placeholder="Add a task for today…"
                   value={newCurrent}
                   onChange={(e) => setNewCurrent(e.target.value)}
@@ -1518,7 +1519,7 @@ export default function PlannerPage() {
                   </Button>
                 )}
               </div>
-              <Textarea
+              <EmojiTextField component={Textarea}
                 id="planner-breakdown-brief"
                 rows={3}
                 placeholder="e.g. Prepare the quarterly review deck: gather metrics, draft slides, and rehearse…"
@@ -1665,7 +1666,7 @@ export default function PlannerPage() {
             )}
             {renderTaskGroups(backlogTasks, "backlog", { showDateBadge: true, dateBadgeStr: "Backlog" })}
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <Input
+              <EmojiTextField component={Input}
                 placeholder="Capture an idea for later…"
                 value={newBacklog}
                 onChange={(e) => setNewBacklog(e.target.value)}
@@ -1724,7 +1725,7 @@ export default function PlannerPage() {
             })}
 
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <Input
+              <EmojiTextField component={Input}
                 placeholder={`Add for ${formatDateLabel(tomorrow)}…`}
                 value={newFuture}
                 onChange={(e) => setNewFuture(e.target.value)}

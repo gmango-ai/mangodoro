@@ -6,6 +6,7 @@ import { calcWorked, formatDuration, formatDecimal, todayStr, toDisplayTime, mak
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import EmojiTextField from "./EmojiTextField";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Calendar, Clock, Plus, Pencil, ArrowRightLeft, Check } from "lucide-react";
@@ -132,7 +133,7 @@ export default function LogHoursForm() {
                   </p>
                 </div>
                 <div className="w-full max-w-md flex flex-col gap-3">
-                  <Input
+                  <EmojiTextField component={Input}
                     value={initialTaskDraft}
                     onChange={(e) => setInitialTaskDraft(e.target.value.slice(0, 200))}
                     placeholder="What are you working on? (optional)"
@@ -227,7 +228,7 @@ export default function LogHoursForm() {
                   </div>
                   {taskEditMode ? (
                     <div className="flex items-center gap-2">
-                      <Input
+                      <EmojiTextField component={Input}
                         autoFocus
                         value={taskDraft}
                         onChange={(e) => setTaskDraft(e.target.value.slice(0, 200))}
@@ -304,7 +305,7 @@ export default function LogHoursForm() {
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <Textarea
+                        <EmojiTextField component={Textarea}
                           ref={clockDescRef}
                           value={clockIn.description || ""}
                           onChange={(e) => {
@@ -406,7 +407,7 @@ export default function LogHoursForm() {
                 <div className={subCardCls}>
                   <div className="space-y-4">
                     <div>
-                      <Textarea
+                      <EmojiTextField component={Textarea}
                         value={pendingEntry.description || ""}
                         onChange={(e) => updatePendingEntry({ description: e.target.value })}
                         placeholder="What did you work on?"
@@ -543,7 +544,7 @@ export default function LogHoursForm() {
 
                 <div className="space-y-4">
                   <div>
-                    <Textarea
+                    <EmojiTextField component={Textarea}
                       ref={manualDescRef}
                       value={form.description}
                       onChange={(e) => {

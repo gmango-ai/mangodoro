@@ -1,4 +1,5 @@
 import { useState } from "react";
+import EmojiTextField from "../EmojiTextField";
 import { Flag, X, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Modal from "../Modal";
@@ -68,7 +69,7 @@ export default function MilestoneModal({ teamId, dark, initialDate, milestone, o
         <form onSubmit={submit} className="space-y-3">
           <div>
             <label className={labelCls}>Title</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus className={`w-full rounded-lg border px-3 py-2 text-sm ${field}`} />
+            <EmojiTextField value={title} onChange={(e) => setTitle(e.target.value)} autoFocus className={`w-full rounded-lg border px-3 py-2 text-sm ${field}`} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -82,7 +83,7 @@ export default function MilestoneModal({ teamId, dark, initialDate, milestone, o
           </div>
           <div>
             <label className={labelCls}>Notes (optional)</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${field}`} />
+            <EmojiTextField multiline value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${field}`} />
           </div>
           <div>
             <label className={labelCls}>Visibility</label>

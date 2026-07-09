@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import EmojiTextField from "../EmojiTextField";
 import { CalendarPlus, X, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Modal from "../Modal";
@@ -191,7 +192,7 @@ export default function ScheduleMeetingModal({ room, rooms, teamId, dark, initia
           )}
           <div>
             <label className={labelCls}>Title</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${field}`} />
+            <EmojiTextField value={title} onChange={(e) => setTitle(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${field}`} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

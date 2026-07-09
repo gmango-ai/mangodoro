@@ -17,6 +17,7 @@ import {
   listSubtasks, addSubtask, addSubtasks, setSubtaskDone, deleteSubtask, subtaskProgress,
 } from "../../lib/subtasks";
 import { useWidgetOrder } from "../../hooks/useWidgetOrder";
+import EmojiTextField from "../EmojiTextField";
 import WhiteboardPicker from "./WhiteboardPicker";
 import PomodoroWidget from "./PomodoroWidget";
 import GoalsWidget from "./GoalsWidget";
@@ -305,7 +306,7 @@ function TasksWidget({ dark }) {
       <div className="space-y-2">
         {/* Add a task */}
         <div className="flex items-center gap-1.5">
-          <input
+          <EmojiTextField
             type="text"
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -456,7 +457,7 @@ function WidgetTaskRow({ task, subs, dark, rowBtn, isDone, onToggle, onRemove, o
             </div>
           ))}
           <form onSubmit={submitNew} className="flex items-center gap-1">
-            <input
+            <EmojiTextField
               type="text"
               value={newSub}
               onChange={(e) => setNewSub(e.target.value)}
