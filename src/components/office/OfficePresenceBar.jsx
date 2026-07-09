@@ -5,13 +5,14 @@ import { useProfileCard } from "../../context/ProfileContext";
 import { useClockedIn } from "../../hooks/useClockedIn";
 import { useTeamPresence } from "../../hooks/useTeamPresence";
 import UserAvatar from "../UserAvatar";
-import { presenceRing, presenceLabel } from "../../lib/presence";
+import { availabilityRing, availabilityLabel, shownAvailability, legacyToAvailability } from "../../lib/presence";
+import { usePresenceById } from "../../hooks/usePresenceById";
 import { Crown } from "lucide-react";
 
-// Presence states that count as "around in the hallway" when not clocked in —
-// the engaged/at-desk ones. Idle (away) and explicitly-away (lunch/commuting)
-// are online but not "here", so we leave them out of the hallway.
-const HALLWAY_PRESENT = new Set(["active", "available", "heads_down", "in_meeting"]);
+// Availabilities that count as "around in the hallway" when not clocked in —
+// the engaged/at-desk ones. away/lunch/commuting/offline are not "here", so we
+// leave them out of the hallway.
+const HALLWAY_PRESENT = new Set(["online", "focusing", "meeting"]);
 
 // Ambient "who's in the office" strip for the hallway header.
 //
@@ -28,6 +29,7 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
   const { openProfile } = useProfileCard();
   const clocked = useClockedIn();
   const online = useTeamPresence();
+  const presenceById = usePresenceById();
   const myId = session?.user?.id;
 
   // People in rooms (first session a person appears in wins).
@@ -74,7 +76,8 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
     // Online but not clocked in — teammates only (not self), present states.
     for (const p of online || []) {
       if (p.user_id === myId || inRoomIds.has(p.user_id) || map.has(p.user_id)) continue;
-      if (!memberById.has(p.user_id) || !HALLWAY_PRESENT.has(p.presence_state)) continue;
+      const avail = presenceById.get(p.user_id) || legacyToAvailability(p.presence_state);
+      if (!memberById.has(p.user_id) || !HALLWAY_PRESENT.has(avail)) continue;
       const m = memberById.get(p.user_id);
       map.set(p.user_id, {
         user_id: p.user_id,
@@ -83,11 +86,11 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
         clocked: false,
         on_break: false,
         task: "",
-        presence_state: p.presence_state,
+        availability: avail,
       });
     }
     return [...map.values()];
-  }, [clocked, online, inRoomIds, memberById, myId, settings]);
+  }, [clocked, online, inRoomIds, memberById, myId, settings, presenceById]);
 
   if (people.length === 0 && hallway.length === 0) return null;
 
@@ -103,7 +106,7 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
             {people.slice(0, MAX).map((p) => {
               const teams = teamsByUserId?.get(p.user_id) || [];
               const teamNames = teams.map((t) => t.name).join(" · ");
-              const title = `${p.name} — ${presenceLabel(p.presence_state)} · in ${p.roomName}${teamNames ? ` · ${teamNames}` : ""}`;
+              const title = `${p.name} — ${availabilityLabel(shownAvailability(p.user_id, p.presence_state, presenceById))} · in ${p.roomName}${teamNames ? ` · ${teamNames}` : ""}`;
               return (
                 <button
                   key={p.user_id}
@@ -111,7 +114,7 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
                   onClick={() => onEnterRoom?.(p.roomId)}
                   title={title}
                   aria-label={title}
-                  className={`relative shrink-0 rounded-full ring-2 ${presenceRing(p.presence_state)} -ml-2 first:ml-0 transition-transform hover:-translate-y-0.5 hover:z-10`}
+                  className={`relative shrink-0 rounded-full ring-2 ${availabilityRing(shownAvailability(p.user_id, p.presence_state, presenceById))} -ml-2 first:ml-0 transition-transform hover:-translate-y-0.5 hover:z-10`}
                 >
                   <UserAvatar url={p.avatar_url} name={p.name} size={28} />
                   {p.isLeader && <Crown className="absolute -top-1.5 -right-1.5 w-3 h-3 text-amber-400 drop-shadow" fill="currentColor" />}
@@ -132,8 +135,8 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
           <span className={label}>In the hallway</span>
           <div className="flex items-center">
             {hallway.slice(0, MAX).map((p) => {
-              const ring = p.clocked ? (p.on_break ? "ring-orange-500" : "ring-emerald-500") : presenceRing(p.presence_state);
-              const status = p.clocked ? (p.on_break ? "On lunch" : "Working") : presenceLabel(p.presence_state);
+              const ring = p.clocked ? (p.on_break ? "ring-orange-500" : "ring-emerald-500") : availabilityRing(p.availability);
+              const status = p.clocked ? (p.on_break ? "On lunch" : "Working") : availabilityLabel(p.availability);
               const title = `${p.name} — ${status}${p.task?.trim() ? ` · ${p.task}` : ""} · in the hallway`;
               return (
                 <button

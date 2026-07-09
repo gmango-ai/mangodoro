@@ -5,7 +5,8 @@ import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
 import UserAvatar from "../UserAvatar";
 import FollowButton from "../FollowButton";
-import { presenceDot, presenceLabel } from "../../lib/presence";
+import { availabilityDot, availabilityLabel, legacyToAvailability } from "../../lib/presence";
+import { usePresenceById } from "../../hooks/usePresenceById";
 import { getProfile } from "../../lib/profiles";
 import { getUserWorkSummary } from "../../lib/workStatus";
 import { useVisibilityPausedInterval } from "../../hooks/useVisibilityPausedInterval";
@@ -21,6 +22,7 @@ export default function ProfileCard({ userId, onOpenFull }) {
   const { teamMembers, teamsByUserId } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const presenceById = usePresenceById();
   const [profile, setProfile] = useState(null);
   const [sum, setSum] = useState(null);
   const [, force] = useState(0); // re-render to keep the local clock fresh
@@ -48,7 +50,9 @@ export default function ProfileCard({ userId, onOpenFull }) {
   const member = (teamMembers || []).find((m) => m.user_id === userId);
   const name = profile?.display_name || member?.name || "Member";
   const avatar = profile?.avatar_url || member?.avatar_url || "";
-  const presence = member?.presence_state;
+  // Prefer the canonical availability (user_presence), incl. offline; fall back
+  // to the legacy member.presence_state so a not-yet-seen teammate still shows.
+  const presence = presenceById.get(userId) || (member?.presence_state ? legacyToAvailability(member.presence_state) : null);
   const status = member?.status;
   const teams = teamsByUserId?.get(userId) || [];
 
@@ -61,8 +65,8 @@ export default function ProfileCard({ userId, onOpenFull }) {
           {profile?.job_title && <div className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>{profile.job_title}</div>}
           {presence && (
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className={`w-2 h-2 rounded-full ${presenceDot(presence)}`} />
-              <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>{presenceLabel(presence)}</span>
+              <span className={`w-2 h-2 rounded-full ${availabilityDot(presence)}`} />
+              <span className={`text-xs ${dark ? "text-slate-400" : "text-slate-500"}`}>{availabilityLabel(presence)}</span>
             </div>
           )}
           {profile?.handle && <div className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>@{profile.handle}</div>}

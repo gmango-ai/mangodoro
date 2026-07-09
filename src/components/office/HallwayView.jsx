@@ -12,7 +12,8 @@ import OfficeLayoutEditor from "../OfficeLayoutEditor";
 import OfficePresenceBar from "./OfficePresenceBar";
 import TeamStatusRoster from "./TeamStatusRoster";
 import UserAvatar from "../UserAvatar";
-import { presenceRing } from "../../lib/presence";
+import { availabilityRing, shownAvailability } from "../../lib/presence";
+import { usePresenceById } from "../../hooks/usePresenceById";
 
 const KIND_ICON = {
   general: Hash,
@@ -299,6 +300,7 @@ export default function HallwayView({
 // Locked rooms render with the same dim+lock affordance as in the
 // floor view so the gating cue stays consistent across views.
 function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, onEnterRoom, dark }) {
+  const presenceById = usePresenceById();
   if (!grouped.length) {
     return (
       <p className={`text-sm text-center py-10 ${dark ? "text-slate-500" : "text-slate-400"}`}>
@@ -374,7 +376,7 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                                     url={o.avatar_url}
                                     name={o.name}
                                     size={20}
-                                    className={`ring-2 ${presenceRing(o.presence_state)}`}
+                                    className={`ring-2 ${availabilityRing(shownAvailability(o.user_id, o.presence_state, presenceById))}`}
                                   />
                                 </span>
                               ))}

@@ -72,3 +72,15 @@ export const availabilityLight = (a) => availabilityMeta(a).light;
 export const presenceDot   = (state) => availabilityDot(legacyToAvailability(state));
 export const presenceRing  = (state) => availabilityRing(legacyToAvailability(state));
 export const presenceLabel = (state) => availabilityLabel(legacyToAvailability(state));
+
+// The availability to SHOW for an occupant/participant: prefer the canonical
+// user_presence value (from a userId->availability map, e.g. usePresenceById),
+// falling back to the legacy participant presence_state so there's never a
+// regression while the write-throughs are still around. A canonical 'offline'
+// falls back too — an occupant is definitionally present, so a lagging offline
+// snapshot shouldn't hide them.
+export function shownAvailability(userId, legacyState, presenceById) {
+  const a = presenceById && typeof presenceById.get === "function" ? presenceById.get(userId) : null;
+  if (a && a !== "offline") return a;
+  return legacyToAvailability(legacyState);
+}

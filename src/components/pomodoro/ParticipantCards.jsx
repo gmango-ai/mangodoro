@@ -5,7 +5,8 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { sortParticipants } from "../../lib/participantSort";
 import { useParticipantSort } from "../../hooks/useParticipantSort";
-import { presenceDot, presenceLabel } from "../../lib/presence";
+import { availabilityDot, availabilityLabel, shownAvailability } from "../../lib/presence";
+import { usePresenceById } from "../../hooks/usePresenceById";
 import ParticipantSortPicker from "./ParticipantSortPicker";
 
 function Avatar({ participant, size = 40, dark }) {
@@ -35,9 +36,10 @@ function Avatar({ participant, size = 40, dark }) {
 }
 
 function ParticipantCard({ participant, isLeader, isSelf, dark }) {
-  const dotCls = presenceDot(participant.presence_state);
-  const statusText = participant.status?.trim()
-    || presenceLabel(participant.presence_state);
+  const presenceById = usePresenceById();
+  const avail = shownAvailability(participant.user_id, participant.presence_state, presenceById);
+  const dotCls = availabilityDot(avail);
+  const statusText = participant.status?.trim() || availabilityLabel(avail);
 
   return (
     <div className="flex items-start gap-3 py-2">
@@ -47,7 +49,7 @@ function ParticipantCard({ participant, isLeader, isSelf, dark }) {
           className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 ${
             dark ? "border-[var(--color-surface)]" : "border-white"
           } ${dotCls}`}
-          title={presenceLabel(participant.presence_state)}
+          title={availabilityLabel(avail)}
         />
       </div>
       <div className="min-w-0 flex-1">

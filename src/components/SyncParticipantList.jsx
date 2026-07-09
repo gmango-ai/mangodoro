@@ -6,7 +6,8 @@ import ConfirmRow from "./ConfirmRow";
 import { sortParticipants } from "../lib/participantSort";
 import { useParticipantSort } from "../hooks/useParticipantSort";
 import ParticipantSortPicker from "./pomodoro/ParticipantSortPicker";
-import { availabilityDot, availabilityLabel, legacyToAvailability } from "../lib/presence";
+import { availabilityDot, availabilityLabel, shownAvailability } from "../lib/presence";
+import { usePresenceById } from "../hooks/usePresenceById";
 
 // Inline team chip strip — minimal so it fits next to a participant
 // name without inflating row height. Mirror MemberIdentity's chip
@@ -41,8 +42,8 @@ function TeamChips({ teams, dark, max = 3 }) {
   );
 }
 
-function presenceOf(p) {
-  const a = legacyToAvailability(p?.presence_state);
+function presenceOf(p, presenceById) {
+  const a = shownAvailability(p?.user_id, p?.presence_state, presenceById);
   return { label: availabilityLabel(a), dot: availabilityDot(a) };
 }
 
@@ -225,6 +226,7 @@ export default function SyncParticipantList({
 
 function ListView({ participants, leaderId, controllerId, presenceMap, currentUserId, selectedId, onSelect, dark }) {
   const { teamsByUserId } = useTeam();
+  const presenceById = usePresenceById();
   return (
     <ul className="max-h-72 overflow-y-auto -mx-0.5 px-0.5 space-y-1">
       {participants.map((p) => {
@@ -232,7 +234,7 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
         const isController = p.user_id === controllerId;
         const isSelf = p.user_id === currentUserId;
         const isOnline = presenceMap?.[p.user_id] ?? false;
-        const presence = presenceOf(p);
+        const presence = presenceOf(p, presenceById);
         const dotCls = isOnline ? (presence.dot) : "bg-slate-400";
         const isSelected = selectedId === p.user_id;
         return (
@@ -289,6 +291,7 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
 }
 
 function CompactView({ participants, leaderId, controllerId, presenceMap, currentUserId, selectedId, onSelect, dark }) {
+  const presenceById = usePresenceById();
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {participants.map((p) => {
@@ -296,7 +299,7 @@ function CompactView({ participants, leaderId, controllerId, presenceMap, curren
         const isController = p.user_id === controllerId;
         const isSelf = p.user_id === currentUserId;
         const isOnline = presenceMap?.[p.user_id] ?? false;
-        const presence = presenceOf(p);
+        const presence = presenceOf(p, presenceById);
         const dotCls = isOnline ? (presence.dot) : "bg-slate-400";
         const isSelected = selectedId === p.user_id;
         return (
@@ -337,7 +340,8 @@ function ParticipantDetail({
   onTransferLeader, onKickParticipant, onEditMyStatus, onClose,
 }) {
   const { teamsByUserId } = useTeam();
-  const presence = presenceOf(p);
+  const presenceById = usePresenceById();
+  const presence = presenceOf(p, presenceById);
   const userTeams = teamsByUserId?.get(p.user_id) || [];
 
   return (
