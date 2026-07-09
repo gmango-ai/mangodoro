@@ -10,7 +10,7 @@ const ORDER_KEY = "ql_widget_order";
 // inside the whiteboard, not as a widget.)
 export const DEFAULT_WIDGET_ORDER = [
   "pomodoro",
-  "room-members",
+  "team-status",
   "upcoming-meetings",
   "world-clock",
   "goals",

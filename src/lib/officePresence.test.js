@@ -44,4 +44,18 @@ describe("mergeOfficePresence", () => {
   it("does not duplicate a person present in both sets", () => {
     expect(mergeOfficePresence([row()], [live()])).toHaveLength(1);
   });
+
+  it("uses identity for name/avatar of an offline person and hides their stale room", () => {
+    const [m] = mergeOfficePresence([row({ user_id: "u" })], [], { u: { name: "Ida", avatar: "i.png" } });
+    expect(m.online).toBe(false);
+    expect(m.name).toBe("Ida");
+    expect(m.avatar).toBe("i.png");
+    expect(m.locationRoomId).toBeNull(); // a snapshot's room shouldn't show once offline
+  });
+
+  it("includes identity members with no presence at all, as offline", () => {
+    const list = mergeOfficePresence([], [], { z: { name: "Zed" } });
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ userId: "z", online: false, availability: "offline", name: "Zed" });
+  });
 });

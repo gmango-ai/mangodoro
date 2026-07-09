@@ -20,7 +20,7 @@ import { useWidgetOrder } from "../../hooks/useWidgetOrder";
 import WhiteboardPicker from "./WhiteboardPicker";
 import PomodoroWidget from "./PomodoroWidget";
 import GoalsWidget from "./GoalsWidget";
-import RoomMembersWidget from "./RoomMembersWidget";
+import TeamStatusWidget from "./TeamStatusWidget";
 import WorldClockWidget from "./WorldClockWidget";
 import UpcomingMeetingsWidget from "./UpcomingMeetingsWidget";
 import WidgetSection, { DragHandleProvider } from "./WidgetSection";
@@ -55,7 +55,7 @@ export default function WidgetsSidebar() {
   // is harmlessly skipped.
   const widgetById = {
     pomodoro:     () => <PomodoroWidget dark={dark} />,
-    "room-members": () => <RoomMembersWidget dark={dark} />,
+    "team-status": () => <TeamStatusWidget dark={dark} />,
     "world-clock": () => <WorldClockWidget dark={dark} />,
     "upcoming-meetings": () => <UpcomingMeetingsWidget dark={dark} />,
     goals:        () => <GoalsWidget dark={dark} />,
