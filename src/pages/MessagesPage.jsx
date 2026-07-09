@@ -20,6 +20,7 @@ import {
   setConversationPinned, setConversationMuted,
 } from "../lib/messages";
 import { attachToMessage, listAttachments, isImage } from "../lib/messageAttachments";
+import { expandEmojiShortcodes, expandShortcodesAtCaret, searchShortcodes } from "../lib/emojiShortcodes";
 import { emitMention } from "../lib/notifications";
 import { playMessage } from "../lib/uiSounds";
 import { supabase } from "../supabase";
@@ -264,6 +265,7 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState([]);
   const [mentionQ, setMentionQ] = useState(null);
+  const [emojiQ, setEmojiQ] = useState(null);
   const taRef = useRef(null);
   const fileRef = useRef(null);
   const filesRef = useRef(files);
@@ -273,6 +275,8 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
     const q = mentionQ.toLowerCase();
     return candidates.filter((m) => (m.name || "").toLowerCase().includes(q)).slice(0, 6);
   }, [mentionQ, candidates]);
+
+  const emojiMatches = useMemo(() => (emojiQ == null ? [] : searchShortcodes(emojiQ, 7)), [emojiQ]);
 
   useEffect(() => {
     filesRef.current.forEach((f) => {
@@ -286,11 +290,20 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
   const grow = (el) => { if (el) { el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 160)}px`; } };
 
   const onChange = (e) => {
-    setDraft(e.target.value);
+    const raw = e.target.value;
+    // Live-expand a just-completed :shortcode: (Discord-style), keeping the caret.
+    const { value, caret } = expandShortcodesAtCaret(raw, e.target.selectionStart);
+    setDraft(value);
     grow(e.target);
-    const upto = e.target.value.slice(0, e.target.selectionStart);
+    if (value !== raw && taRef.current) {
+      requestAnimationFrame(() => taRef.current?.setSelectionRange(caret, caret));
+    }
+    const upto = value.slice(0, caret);
     const m = upto.match(/@([\w]*)$/);
     setMentionQ(m ? m[1] : null);
+    // Emoji autocomplete: a lone ":word" (â‰¥2 chars, not yet closed).
+    const em = upto.match(/(?:^|\s):([a-z0-9_+-]{2,})$/i);
+    setEmojiQ(em ? em[1] : null);
     onTyping?.();
   };
 
@@ -303,12 +316,22 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
     setTimeout(() => ta?.focus(), 0);
   };
 
+  const pickEmoji = (emoji) => {
+    const ta = taRef.current;
+    const pos = ta ? ta.selectionStart : draft.length;
+    const before = draft.slice(0, pos).replace(/:([a-z0-9_+-]{2,})$/i, `${emoji} `);
+    const next = before + draft.slice(pos);
+    setDraft(next);
+    setEmojiQ(null);
+    setTimeout(() => { ta?.focus(); const c = before.length; ta?.setSelectionRange(c, c); }, 0);
+  };
+
   const addFiles = (list) => setFiles((p) => [...p, ...Array.from(list).map((f) => Object.assign(f, { _url: f.type?.startsWith("image/") ? URL.createObjectURL(f) : null }))]);
 
   const submit = async () => {
-    const body = draft.trim();
+    const body = expandEmojiShortcodes(draft.trim()); // catch any unexpanded :code:
     if (!body && files.length === 0) return;
-    setDraft(""); setFiles([]); setMentionQ(null);
+    setDraft(""); setFiles([]); setMentionQ(null); setEmojiQ(null);
     if (taRef.current) taRef.current.style.height = "auto";
     await onSend(body, files);
   };
@@ -344,6 +367,16 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
             ))}
           </div>
         )}
+        {matches.length === 0 && emojiMatches.length > 0 && (
+          <div className={`absolute bottom-full left-0 mb-2 w-60 max-h-52 overflow-y-auto rounded-xl border shadow-lg z-30 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}>
+            {emojiMatches.map((em, i) => (
+              <button key={em.code} type="button" onClick={() => pickEmoji(em.emoji)} className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm ${i === 0 ? (dark ? "bg-white/5" : "bg-slate-50") : ""} ${dark ? "hover:bg-white/10 text-slate-200" : "hover:bg-slate-100 text-slate-700"}`}>
+                <span className="text-base leading-none">{em.emoji}</span>
+                <span className="text-slate-400">:{em.code}:</span>
+              </button>
+            ))}
+          </div>
+        )}
         {allowImages && <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files || []); e.target.value = ""; }} />}
         {allowImages && (
           <button type="button" onClick={() => fileRef.current?.click()} aria-label="Attach"
@@ -355,7 +388,12 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Messageâ€
           ref={taRef}
           value={draft}
           onChange={onChange}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && mentionQ == null) { e.preventDefault(); submit(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              if (emojiMatches.length) { e.preventDefault(); pickEmoji(emojiMatches[0].emoji); return; }
+              if (mentionQ == null) { e.preventDefault(); submit(); }
+            }
+          }}
           rows={1}
           placeholder={placeholder}
           className={`flex-1 resize-none bg-transparent py-2 text-sm outline-none max-h-40 ${dark ? "text-slate-100 placeholder:text-slate-500" : "text-slate-800 placeholder:text-slate-400"}`}

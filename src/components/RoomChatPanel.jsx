@@ -9,6 +9,7 @@ import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
 import { Thread, ChannelSettings } from "../pages/MessagesPage";
 import { emitMention } from "../lib/notifications";
+import { expandEmojiShortcodes, expandShortcodesAtCaret } from "../lib/emojiShortcodes";
 import { getProfiles } from "../lib/profiles";
 import { availability, isOutOfOfficeAny } from "../lib/timezone";
 import UserAvatar from "./UserAvatar";
@@ -353,9 +354,11 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
 
   // Detect an @token immediately before the caret as the user types.
   const onDraftChange = (e) => {
-    const val = e.target.value;
+    const raw = e.target.value;
+    // Live-expand a just-completed :shortcode: (Discord-style), keeping the caret.
+    const { value: val, caret } = expandShortcodesAtCaret(raw, e.target.selectionStart ?? raw.length);
     setDraft(val);
-    const caret = e.target.selectionStart ?? val.length;
+    if (val !== raw && taRef.current) requestAnimationFrame(() => taRef.current?.setSelectionRange(caret, caret));
     const m = val.slice(0, caret).match(/(^|\s)@(\w*)$/);
     if (m) setMention({ query: m[2], index: 0, anchor: caret - m[2].length - 1 });
     else setMention(null);
@@ -388,7 +391,7 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
   }, [messages.length]);
 
   const handleSend = async () => {
-    const body = draft.trim();
+    const body = expandEmojiShortcodes(draft.trim());
     if (!body || sending) return;
     setSending(true);
     setDraft("");
