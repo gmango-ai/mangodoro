@@ -3,6 +3,14 @@ import { supabase } from "../supabase";
 import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 import { todayStr, tomorrowStr, formatDateLabel, offsetDateStr } from "../lib/utils";
+import {
+  listSubtasks,
+  addSubtask as addSubtaskRow,
+  addSubtasks as addSubtaskRows,
+  setSubtaskDone,
+  deleteSubtask as deleteSubtaskRow,
+  subtaskProgress,
+} from "../lib/subtasks";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +26,9 @@ import {
   Sparkles,
   Trophy,
   X,
+  Plus,
+  Loader2,
+  ListChecks,
 } from "lucide-react";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
 
@@ -201,6 +212,185 @@ function getMoveDestinations(task, today, tomorrow) {
   return opts;
 }
 
+/**
+ * Collapsible subtask checklist for a planner task: check/add/delete + AI
+ * generate. Parent progress derives from these (handled by the page). Self-
+ * contained AI suggestion flow (mirrors the page-level breakdown selection UI).
+ */
+function SubtaskSection({ task, subtasks, dark, disabled, onAddSubtask, onAddAiSubtasks, onToggleSubtask, onDeleteSubtask }) {
+  const { suggestSubtasks, deepseekKey } = useApp();
+  const subs = subtasks || [];
+  const { done, total, pct } = subtaskProgress(subs);
+  const [open, setOpen] = useState(subs.length > 0);
+  const [newSub, setNewSub] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState(null); // null hidden; [] none
+  const [selected, setSelected] = useState([]);
+
+  const inputCls = dark
+    ? "bg-[var(--color-bg)] border-slate-600/90 text-slate-100"
+    : "bg-white border-slate-200 text-slate-900";
+
+  async function submitNew(e) {
+    e?.preventDefault?.();
+    const v = newSub.trim();
+    if (!v) return;
+    setNewSub("");
+    await onAddSubtask(task, v);
+    setOpen(true);
+  }
+
+  async function runAi() {
+    setAiBusy(true);
+    try {
+      const titles = await suggestSubtasks(task.title, task.notes);
+      if (!titles?.length) {
+        setSuggestions([]);
+        return;
+      }
+      setSuggestions(titles);
+      setSelected(titles.map(() => true));
+      setOpen(true);
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function addSelected() {
+    const titles = (suggestions || []).filter((_, i) => selected[i]);
+    if (!titles.length) {
+      setSuggestions(null);
+      return;
+    }
+    await onAddAiSubtasks(task, titles);
+    setSuggestions(null);
+    setSelected([]);
+  }
+
+  return (
+    <div className={`rounded-xl border ${dark ? "border-slate-700/60 bg-[var(--color-surface)]/40" : "border-slate-200/80 bg-slate-50/60"}`}>
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className={`flex items-center gap-1.5 text-[11px] font-medium ${dark ? "text-slate-300" : "text-slate-600"}`}
+          aria-expanded={open}
+        >
+          {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          <ListChecks className="w-3.5 h-3.5" />
+          Subtasks
+          {total > 0 && (
+            <span className={`tabular-nums ${dark ? "text-slate-400" : "text-slate-500"}`}>
+              {done}/{total} · {pct}%
+            </span>
+          )}
+        </button>
+        <div className="ml-auto flex items-center gap-1.5">
+          {deepseekKey && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[11px] gap-1"
+              onClick={runAi}
+              disabled={disabled || aiBusy}
+              title="Generate subtasks with AI"
+            >
+              {aiBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              AI
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {total > 0 && (
+        <div className={`mx-2.5 mb-2 h-1.5 rounded-full overflow-hidden ${dark ? "bg-slate-700/60" : "bg-slate-200"}`}>
+          <div
+            className="h-full rounded-full bg-[var(--color-accent)] transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+
+      {open && (
+        <div className="px-2.5 pb-2.5 space-y-1.5">
+          {subs.map((s) => (
+            <div key={s.id} className="flex items-center gap-2 group">
+              <Checkbox
+                checked={s.done}
+                onCheckedChange={() => onToggleSubtask(task, s)}
+                disabled={disabled}
+                className="shrink-0"
+                aria-label={s.done ? "Mark subtask not done" : "Mark subtask done"}
+              />
+              <span className={`flex-1 text-xs leading-snug ${s.done ? "line-through opacity-55" : ""} ${dark ? "text-slate-200" : "text-slate-700"}`}>
+                {s.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => onDeleteSubtask(task, s)}
+                disabled={disabled}
+                className={`shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ${dark ? "text-slate-500 hover:text-red-400" : "text-slate-400 hover:text-red-600"}`}
+                title="Delete subtask"
+                aria-label="Delete subtask"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+
+          {suggestions !== null && (
+            <div className={`rounded-lg border p-2 space-y-1.5 ${dark ? "border-slate-600/70 bg-[var(--color-bg)]/40" : "border-slate-200 bg-white"}`}>
+              {suggestions.length === 0 ? (
+                <p className={`text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                  No suggestions — add a DeepSeek key in Settings, or add subtasks manually.
+                </p>
+              ) : (
+                <>
+                  <p className={`text-[10px] font-semibold uppercase tracking-wide ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                    AI suggestions
+                  </p>
+                  {suggestions.map((title, i) => (
+                    <label key={i} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={selected[i]}
+                        onCheckedChange={(v) => setSelected((prev) => prev.map((p, j) => (j === i ? !!v : p)))}
+                        className="shrink-0"
+                      />
+                      <span className={`text-xs ${dark ? "text-slate-200" : "text-slate-700"}`}>{title}</span>
+                    </label>
+                  ))}
+                  <div className="flex gap-1.5 pt-0.5">
+                    <Button type="button" size="sm" className="h-7 px-2.5 text-[11px]" onClick={addSelected} disabled={disabled}>
+                      Add selected
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2.5 text-[11px]" onClick={() => setSuggestions(null)}>
+                      Dismiss
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          <form onSubmit={submitNew} className="flex items-center gap-1.5 pt-0.5">
+            <Input
+              value={newSub}
+              onChange={(e) => setNewSub(e.target.value)}
+              placeholder="Add a subtask…"
+              disabled={disabled}
+              className={`h-8 text-xs ${inputCls}`}
+            />
+            <Button type="submit" variant="outline" size="icon" className="h-8 w-8 shrink-0" disabled={disabled || !newSub.trim()} aria-label="Add subtask">
+              <Plus className="w-4 h-4" />
+            </Button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlannerTaskRow({
   t,
   dark,
@@ -219,11 +409,19 @@ function PlannerTaskRow({
   projects,
   maxPoints,
   reorder,
+  subtasks,
+  onAddSubtask,
+  onAddAiSubtasks,
+  onToggleSubtask,
+  onDeleteSubtask,
 }) {
   const inputCls = dark
     ? "bg-[var(--color-bg)] border-slate-600/90 text-slate-100"
     : "bg-white border-slate-200 text-slate-900";
 
+  const subs = subtasks || [];
+  const hasSubtasks = subs.length > 0;
+  const subProg = subtaskProgress(subs);
   const committedPct = Math.min(99, t.progress);
   const [dragPct, setDragPct] = useState(null);
   const sliderShown = dragPct !== null ? dragPct : committedPct;
@@ -354,48 +552,71 @@ function PlannerTaskRow({
                   Progress
                 </span>
                 <span className={`text-[11px] tabular-nums ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                  {sliderShown}%
+                  {hasSubtasks ? `${subProg.done}/${subProg.total} · ${subProg.pct}%` : `${sliderShown}%`}
                 </span>
               </div>
-              <input
-                type="range"
-                min={0}
-                max={99}
-                step={1}
-                value={sliderShown}
-                disabled={disabled}
-                onInput={(e) => setDragPct(Number(e.target.value))}
-                onPointerUp={async (e) => {
-                  const v = Number(e.currentTarget.value);
-                  try {
-                    await onProgressChange(t, v);
-                  } finally {
-                    setDragPct(null);
-                  }
-                }}
-                onPointerCancel={() => setDragPct(null)}
-                onKeyUp={async (e) => {
-                  if (
-                    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(
-                      e.key,
-                    )
-                  ) {
-                    try {
-                      await onProgressChange(t, Number(e.currentTarget.value));
-                    } finally {
-                      setDragPct(null);
-                    }
-                  }
-                }}
-                className={`w-full h-2 rounded-full cursor-pointer disabled:opacity-50 ${
-                  dark ? "accent-cyan-500" : "accent-teal-600"
-                }`}
-                aria-label="Task progress percent"
-              />
-              <p className={`text-[10px] mt-1.5 ${dark ? "text-slate-500" : "text-slate-500"}`}>
-                Up to 99% for partial points — check off when done for full credit.
-              </p>
+              {hasSubtasks ? (
+                <>
+                  <div className={`w-full h-2 rounded-full overflow-hidden ${dark ? "bg-slate-700/60" : "bg-slate-200"}`}>
+                    <div className="h-full rounded-full bg-[var(--color-accent)] transition-all" style={{ width: `${subProg.pct}%` }} />
+                  </div>
+                  <p className={`text-[10px] mt-1.5 ${dark ? "text-slate-500" : "text-slate-500"}`}>
+                    Progress is driven by your subtasks — check off when done for full credit.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="range"
+                    min={0}
+                    max={99}
+                    step={1}
+                    value={sliderShown}
+                    disabled={disabled}
+                    onInput={(e) => setDragPct(Number(e.target.value))}
+                    onPointerUp={async (e) => {
+                      const v = Number(e.currentTarget.value);
+                      try {
+                        await onProgressChange(t, v);
+                      } finally {
+                        setDragPct(null);
+                      }
+                    }}
+                    onPointerCancel={() => setDragPct(null)}
+                    onKeyUp={async (e) => {
+                      if (
+                        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(
+                          e.key,
+                        )
+                      ) {
+                        try {
+                          await onProgressChange(t, Number(e.currentTarget.value));
+                        } finally {
+                          setDragPct(null);
+                        }
+                      }
+                    }}
+                    className={`w-full h-2 rounded-full cursor-pointer disabled:opacity-50 ${
+                      dark ? "accent-cyan-500" : "accent-teal-600"
+                    }`}
+                    aria-label="Task progress percent"
+                  />
+                  <p className={`text-[10px] mt-1.5 ${dark ? "text-slate-500" : "text-slate-500"}`}>
+                    Up to 99% for partial points — check off when done for full credit.
+                  </p>
+                </>
+              )}
             </div>
+            <SubtaskSection
+              task={t}
+              subtasks={subs}
+              dark={dark}
+              disabled={disabled}
+              onAddSubtask={onAddSubtask}
+              onAddAiSubtasks={onAddAiSubtasks}
+              onToggleSubtask={onToggleSubtask}
+              onDeleteSubtask={onDeleteSubtask}
+            />
             <div>
               <label
                 htmlFor={`task-note-${t.id}`}
@@ -568,6 +789,8 @@ export default function PlannerPage() {
   const userId = session?.user?.id;
 
   const [items, setItems] = useState([]);
+  /** parentTaskId -> subtasks[] (sorted). */
+  const [subtasksByTask, setSubtasksByTask] = useState({});
   const [totalPoints, setTotalPoints] = useState(0);
   /** Background planner fetch — never hide the page. */
   const [plannerSyncing, setPlannerSyncing] = useState(false);
@@ -661,7 +884,16 @@ export default function PlannerPage() {
       const byId = new Map();
       for (const row of ranged || []) byId.set(row.id, row);
       for (const row of backlogRows || []) byId.set(row.id, row);
-      setItems([...byId.values()].map(normalizePlannerTask));
+      const normalized = [...byId.values()].map(normalizePlannerTask);
+      setItems(normalized);
+      // Batch-load subtasks for the tasks now in view.
+      const ids = normalized.map((t) => t.id);
+      if (ids.length) {
+        const { byPlanner } = await listSubtasks({ plannerIds: ids });
+        setSubtasksByTask(Object.fromEntries(byPlanner));
+      } else {
+        setSubtasksByTask({});
+      }
     }
 
     const { data: pts } = await supabase.from("planner_points").select("total_points").eq("user_id", userId).maybeSingle();
@@ -854,6 +1086,76 @@ export default function PlannerPage() {
       return;
     }
     setItems((prev) => prev.map((t) => (t.id === task.id ? { ...t, projectId: next } : t)));
+  }
+
+  // --- Subtasks -----------------------------------------------------------
+  // Derive parent progress from subtask completion and route it through the
+  // single gamification path so points stay correct. Full credit still comes
+  // from checking the parent done (progress-only updates cap at 99).
+  async function recomputeParentProgress(task, subs) {
+    const { total, pct } = subtaskProgress(subs);
+    if (!total || task.done) return;
+    await syncTaskGamification(task, { progress: pct });
+  }
+
+  function setSubtasksFor(taskId, next) {
+    setSubtasksByTask((prev) => ({ ...prev, [taskId]: next }));
+  }
+
+  async function addSubtaskTo(task, titleRaw) {
+    const title = (titleRaw || "").trim();
+    if (!title || !userId) return;
+    const existing = subtasksByTask[task.id] || [];
+    const sortOrder = existing.length ? Math.max(...existing.map((s) => s.sort_order)) + 1 : 0;
+    const { data, error } = await addSubtaskRow({ plannerTaskId: task.id, title, sortOrder });
+    if (error || !data) {
+      flash("✗ Could not add subtask");
+      return;
+    }
+    const next = [...existing, data];
+    setSubtasksFor(task.id, next);
+    await recomputeParentProgress(task, next);
+  }
+
+  async function addAiSubtasksTo(task, titles) {
+    if (!userId || !titles?.length) return;
+    const existing = subtasksByTask[task.id] || [];
+    const startOrder = existing.length ? Math.max(...existing.map((s) => s.sort_order)) + 1 : 0;
+    const { data, error } = await addSubtaskRows({ plannerTaskId: task.id, titles, startOrder });
+    if (error || !data) {
+      flash("✗ Could not add subtasks");
+      return;
+    }
+    const next = [...existing, ...data].sort((a, b) => a.sort_order - b.sort_order);
+    setSubtasksFor(task.id, next);
+    await recomputeParentProgress(task, next);
+    flash(`✓ Added ${data.length} subtask${data.length === 1 ? "" : "s"}`);
+  }
+
+  async function toggleSubtaskFor(task, sub) {
+    if (!userId) return;
+    const next = (subtasksByTask[task.id] || []).map((s) => (s.id === sub.id ? { ...s, done: !s.done } : s));
+    setSubtasksFor(task.id, next); // optimistic
+    const { error } = await setSubtaskDone(sub.id, !sub.done);
+    if (error) {
+      flash("✗ Could not update subtask");
+      setSubtasksFor(task.id, subtasksByTask[task.id] || []);
+      return;
+    }
+    await recomputeParentProgress(task, next);
+  }
+
+  async function deleteSubtaskFor(task, sub) {
+    if (!userId) return;
+    const next = (subtasksByTask[task.id] || []).filter((s) => s.id !== sub.id);
+    setSubtasksFor(task.id, next);
+    const { error } = await deleteSubtaskRow(sub.id);
+    if (error) {
+      flash("✗ Could not delete subtask");
+      setSubtasksFor(task.id, subtasksByTask[task.id] || []);
+      return;
+    }
+    await recomputeParentProgress(task, next);
   }
 
   function toggleProjectGroup(key) {
@@ -1113,6 +1415,11 @@ export default function PlannerPage() {
                     onProgressChange={setProgress}
                     onNotesChange={saveTaskNotes}
                     onProjectChange={setTaskProject}
+                    subtasks={subtasksByTask[t.id]}
+                    onAddSubtask={addSubtaskTo}
+                    onAddAiSubtasks={addAiSubtasksTo}
+                    onToggleSubtask={toggleSubtaskFor}
+                    onDeleteSubtask={deleteSubtaskFor}
                     reorder={{
                       canUp: idx > 0,
                       canDown: idx < group.tasks.length - 1,

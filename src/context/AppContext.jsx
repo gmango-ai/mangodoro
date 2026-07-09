@@ -870,6 +870,25 @@ export function AppProvider({ session, children }) {
     }
   }
 
+  /** AI subtasks for a task: returns concrete subtask titles, or null if unavailable. */
+  async function suggestSubtasks(title, notes = "") {
+    const t = (title || "").trim();
+    if (!t || !deepseekKey) return null;
+    try {
+      const result = await callDeepSeek(
+        "You break a task into 3-6 small, concrete, ordered subtasks. Reply with one subtask per line only — no numbering, bullets, or commentary. Each line under 80 characters.",
+        `Break this task into actionable subtasks:\n\nTask: ${t}${notes ? `\nNotes: ${notes}` : ""}`,
+      );
+      const lines = result
+        .split(/\n/)
+        .map((l) => l.replace(/^\s*\d+[\).\s]+/, "").replace(/^\s*[-*•]\s*/, "").trim())
+        .filter(Boolean);
+      return lines.length ? lines.slice(0, 8) : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function rewriteDescription(text, setter) {
     const src = text !== undefined ? text : form.description;
     const set = setter || ((v) => setField("description", v));
@@ -1803,7 +1822,7 @@ export function AppProvider({ session, children }) {
     // ai
     rewritingDesc, rewriteDescription,
     monthSummaries, setMonthSummaries, generateMonthSummary,
-    breakdownPlannerTask,
+    breakdownPlannerTask, suggestSubtasks,
     // invoice
     showInvoice, setShowInvoice,
     // computed
