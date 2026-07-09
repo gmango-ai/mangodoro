@@ -131,6 +131,40 @@
 .cal-ocean__run + .cal-ocean__run { margin-top: 2px; }
 .cal-ocean__runlabel { font-size: 9.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.8; padding: 2px 8px 0; }
 
+/* status strip — work location / OOO / goals, rendered as statuses not events */
+.cal-ocean__statusrow { display: flex; flex-wrap: wrap; gap: 5px; padding: 3px 6px 5px; }
+.cal-ocean__status {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  padding: 2px 8px; border-radius: 999px; border: 1px dashed var(--o-ink-300);
+  background: transparent; color: var(--o-ink-500); cursor: pointer;
+  font-size: 10.5px; font-weight: 700;
+}
+.cal-ocean__status:hover { background: var(--o-sand-100); }
+.cal-ocean__status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-ocean__status svg { flex: none; opacity: 0.75; }
+
+/* all-day (untimed) event rows read differently from timed ones: a square marker
+   + a muted "all-day" tag instead of a time. */
+.cal-ocean__row .sq { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.cal-ocean__row--allday .time { font-size: 9.5px; font-style: italic; opacity: 0.7; }
+
+/* dedicated all-day agenda rows: a bordered pill above the timed events */
+.cal-ocean__allday {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; cursor: pointer;
+  margin: 2px 4px; padding: 4px 8px; border-radius: 8px;
+  border: 1px solid var(--o-border-default); background: rgba(255,255,255,0.4);
+}
+.cal-ocean__allday:hover { background: var(--o-sand-100); }
+.cal-ocean__allday .tag {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--o-ink-400); background: var(--o-sand-100); padding: 1px 5px; border-radius: 4px; flex: none;
+}
+.cal-ocean__allday .sq { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.cal-ocean__allday .txt { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--o-ink-800); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* cap the agenda list so the Tasks card below stays on screen */
+.cal-ocean__agendascroll { max-height: 48vh; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+
 /* mini-month */
 .cal-ocean__mini { }
 .cal-ocean__mini-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -182,8 +216,19 @@
 .cal-ocean .fc .fc-daygrid-day:hover { background: rgba(45,127,249,0.05); }
 .cal-ocean .fc .fc-daygrid-day.fc-day-sat, .cal-ocean .fc .fc-daygrid-day.fc-day-sun { background: rgba(20,196,174,0.03); }
 .cal-ocean .fc .fc-daygrid-more-link { font-size: 10.5px; color: var(--o-ink-500); font-weight: 600; }
-.cal-ocean .fc .fc-popover { z-index: 90 !important; border-radius: var(--o-radius-md); border: 1px solid var(--o-glass-border); box-shadow: var(--o-shadow-md); }
-.cal-ocean .fc .fc-popover-header { background: var(--o-sand-100); }
+/* The "+more" day popover must be SOLID — the grid uses --fc-page-bg-color:
+   transparent (to float over the ocean bg), which otherwise makes the popover
+   see-through and the month cells behind it bleed through. */
+.cal-ocean .fc .fc-popover {
+  z-index: 90 !important;
+  border-radius: var(--o-radius-md);
+  border: 1px solid var(--o-border-default);
+  box-shadow: var(--o-shadow-xl);
+  background: var(--o-sand-50) !important;
+}
+.cal-ocean .fc .fc-popover-body { background: var(--o-sand-50); padding: 6px 8px 8px; }
+.cal-ocean .fc .fc-popover-header { background: var(--o-sand-100); color: var(--o-ink-800); font-weight: 700; }
+.cal-ocean .fc .fc-popover .fc-daygrid-event { margin: 2px 0; }
 
 /* time-grid week/day */
 .cal-ocean .fc .fc-timegrid-slot-label-cushion { font-family: var(--o-mono); font-size: 10.5px; color: var(--o-ink-400); }
@@ -263,6 +308,25 @@
 }
 /* The chip inside a span bar shouldn't paint its own bg — let the bar show. */
 .cal-ocean .fc .cal-span .cal-chip2--ctx { opacity: 1; }
+
+/* Collapsed goals: a thin bar (you see a goal is set, not its text). */
+.cal-ocean .fc .fc-daygrid-event.cal-goal-min { margin: 1px 2px; }
+.cal-ocean .fc .cal-goal-min .fc-event-main { padding: 0; }
+.cal-ocean .cal-goal-minchip { height: 4px; padding: 0; gap: 0; }
+
+/* sidebar goal groups */
+.cal-ocean__goalgroup + .cal-ocean__goalgroup { margin-top: 2px; }
+.cal-ocean__goalgrouphd {
+  display: flex; align-items: center; gap: 5px; width: 100%; border: none; background: transparent;
+  padding: 4px 2px; cursor: pointer; color: var(--o-ink-600);
+}
+.cal-ocean__goalgrouphd:hover { color: var(--o-ink-900); }
+.cal-ocean__goalgrouphd .lbl { font-size: 12px; font-weight: 700; }
+.cal-ocean__goalgrouphd .cnt { margin-left: auto; font-family: var(--o-mono); font-size: 10.5px; color: var(--o-ink-400); }
+.cal-ocean__goalgrouphd svg { flex: none; color: var(--o-ink-400); }
+.cal-ocean__goalitem { display: flex; align-items: flex-start; gap: 8px; padding: 3px 2px 3px 20px; }
+.cal-ocean__goalitem .dot { width: 7px; height: 7px; border-radius: 999px; margin-top: 5px; flex: none; }
+.cal-ocean__goalitem .txt { font-size: 12.5px; font-weight: 600; color: var(--o-ink-700); line-height: 1.35; }
 
 /* ── slide-over event detail ───────────────────────────── */
 .cal-ocean__backdrop { position: absolute; inset: 0; background: rgba(11,42,58,0.18); z-index: 40; animation: cal-fade .18s var(--o-ease-out); }

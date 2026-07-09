@@ -5,11 +5,11 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import listPlugin from "@fullcalendar/list";
 import interactionPlugin from "@fullcalendar/interaction";
-import { ChevronLeft, ChevronRight, Plus, CalendarClock, User, Users, Home, Target, Umbrella } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, CalendarClock, CheckSquare, User, Users, Home, Target, Umbrella, AlertTriangle } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
-import { listTeamGoals } from "../lib/goals";
+import { listTeamGoals, weekBucket } from "../lib/goals";
 import { listMilestonesInRange, updateMilestone } from "../lib/milestones";
 import { getProfiles } from "../lib/profiles";
 import {
@@ -17,11 +17,11 @@ import {
   fetchMeetingsInRange, fetchPlannerTasksInRange, fetchPlannerDueInRange,
   fetchPersonalDueInRange, fetchMyAvailability,
   meetingToEvent, plannerTaskToEvent, taskDueToEvent, personalDueToEvent,
-  milestoneToEvent, goalToEvent, availabilityToEvents, entryToEvent,
+  milestoneToEvent, goalToEvent, goalGridSpan, availabilityToEvents, entryToEvent,
   googleEventToEvent, profileOooToEvents,
   workLocationEvents, workHoursBackgroundEvents,
   updateMeetingTime, updatePlannerSchedule, updateTaskDue, updatePersonalDue,
-  updatePlannerTaskFields, createPlannerTask,
+  updatePlannerTaskFields, createPlannerTask, fetchOpenPlannerTasks,
 } from "../lib/calendar";
 import { oceanType, OCEAN_LEGEND } from "../components/calendar/oceanTheme";
 import MiniMonth from "../components/calendar/MiniMonth";
@@ -39,15 +39,60 @@ const PERSONAL_ONLY = new Set(["tasks", "actuals", "google"]);
 // Day reading order (lower = higher). CONTEXT band on top (OOO, goals, work
 // location), then the "meat" — meetings + deadlines by priority — then tasks.
 const RANK = {
-  ooo: 0.0, goal: 0.1, worklocation_app: 0.2, worklocation: 0.25,
+  ooo: 0.0, goal: 0.1, worklocation_conflict: 0.15, worklocation_app: 0.2, worklocation: 0.25,
   task_due: 1.0, ptask_due: 1.0, milestone: 1.2, google: 1.4,
   task: 3.0, actual: 4.0,
 };
-const CTX_TYPES = new Set(["worklocation_app", "worklocation", "ooo", "goal"]);
+const CTX_TYPES = new Set(["worklocation_app", "worklocation", "worklocation_conflict", "ooo", "goal"]);
 const rankFor = (p) => (p?.type === "meeting"
   ? 1.0 - ((p.priority ?? 1) - 1) * 0.3   // high(2)=0.7 above deadlines · low(0)=1.3 below
   : RANK[p?.type] ?? 2);
 const AGENDA_SKIP = new Set(["ooo_bg", "workhours"]);
+const AGENDA_STATUS = new Set(["worklocation", "worklocation_app", "worklocation_conflict", "ooo", "goal"]);
+const LS_GOALS_COLLAPSED = "cal_goals_collapsed";
+// Sidebar goal groups, in display order.
+const GOAL_GROUPS = [
+  ["thisWeek", "This week"], ["nextWeek", "Next week"], ["month", "This month"],
+  ["quarter", "This quarter"], ["year", "This year"], ["ongoing", "Ongoing"], ["earlier", "Earlier weeks"],
+];
+function goalGroupKey(g) {
+  if (g.horizon === "week") { const b = weekBucket(g); return b === "this" ? "thisWeek" : b === "next" ? "nextWeek" : "earlier"; }
+  if (g.horizon === "month") return "month";
+  if (g.horizon === "quarter") return "quarter";
+  if (g.horizon === "year") return "year";
+  return "ongoing";
+}
+
+// Merge the app work-schedule location with Google's working-location per day.
+// Same location → one chip; different → a single conflict chip showing both.
+const LOC_CODE_LABEL = { office: "Office", home: "Home", remote: "Remote", out: "Out" };
+const canonLoc = (s) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
+function mergeWorkLocations(appLoc, gLoc) {
+  const out = [];
+  const dates = new Set([...appLoc.keys(), ...gLoc.keys()]);
+  dates.forEach((date) => {
+    const aCode = appLoc.get(date);
+    const aLabel = aCode ? (LOC_CODE_LABEL[aCode] || aCode) : null;
+    const gLabel = gLoc.get(date) || null;
+    let type = "worklocation_app", title = aLabel, conflict = null;
+    if (aLabel && gLabel) {
+      if (canonLoc(aLabel) === canonLoc(gLabel)) { title = aLabel; type = "worklocation"; }
+      else { title = `${aLabel} vs ${gLabel}`; type = "worklocation_conflict"; conflict = { app: aLabel, google: gLabel, date }; }
+    } else if (gLabel) { title = gLabel; type = "worklocation"; }
+    if (!title) return;
+    out.push({ id: `wloc:${date}`, title, start: date, allDay: true, editable: false, extendedProps: { type, loc: aCode, conflict } });
+  });
+  return out;
+}
+
+// Scope a goal to the viewer: own personal goals, department goals for members,
+// company goals for all. Skip completed goals.
+function goalVisibleToViewer(g, myUserId, myOrgTeamIds) {
+  if (g.status === "done") return false;
+  if (g.owner_type === "user") return g.owner_id === myUserId;
+  if (g.owner_type === "department") return !!myOrgTeamIds?.has?.(g.owner_id);
+  return true; // company / team-wide
+}
 const stripEmoji = (s) => String(s || "").replace(/^[⏳◆🏖⏱🎯]\s*/, "");
 const eventDayStr = (e) => (e.allDay && typeof e.start === "string" && e.start.length === 10 ? e.start : toDateStr(new Date(e.start)));
 
@@ -61,7 +106,7 @@ function loadEnabledLayers() {
 
 export default function CalendarPage() {
   const { session, entries, googleToken, googleTokenExpiry, connectGoogle, listGoogleCalendarEvents, updateCalendarEvent } = useApp();
-  const { activeTeamId, rooms, teamMembers } = useTeam();
+  const { activeTeamId, rooms, teamMembers, myOrgTeamIds } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -82,15 +127,24 @@ export default function CalendarPage() {
   const [milestoneModal, setMilestoneModal] = useState(null);
   const [meetingModal, setMeetingModal] = useState(null);
   const [taskEdit, setTaskEdit] = useState(null);
+  const [allGoals, setAllGoals] = useState([]);
+  const [myTasks, setMyTasks] = useState([]);
+  const [goalsCollapsed, setGoalsCollapsed] = useState(() => { try { return localStorage.getItem(LS_GOALS_COLLAPSED) === "1"; } catch { return false; } });
+  const [openGroups, setOpenGroups] = useState(() => new Set(["thisWeek", "month"]));
 
   const calRef = useRef(null);
   const rangeRef = useRef(null);
   const layersRef = useRef(enabledLayers); layersRef.current = enabledLayers;
   const scopeRef = useRef(scope); scopeRef.current = scope;
+  const weekStartRef = useRef(weekStart); weekStartRef.current = weekStart;
+  const orgTeamsRef = useRef(myOrgTeamIds); orgTeamsRef.current = myOrgTeamIds;
+  const goalsCollapsedRef = useRef(goalsCollapsed); goalsCollapsedRef.current = goalsCollapsed;
   const gcalRef = useRef(listGoogleCalendarEvents); gcalRef.current = listGoogleCalendarEvents;
   const gUpdateRef = useRef(updateCalendarEvent); gUpdateRef.current = updateCalendarEvent;
 
   useEffect(() => { if (userId) fetchMyAvailability(userId).then(({ data }) => setAvail(data || null)); }, [userId]);
+  const reloadTasks = useCallback(() => { if (userId) fetchOpenPlannerTasks(userId).then(({ data }) => setMyTasks(data || [])); }, [userId]);
+  useEffect(() => { reloadTasks(); }, [reloadTasks]);
   useEffect(() => {
     if (scope !== "team" || !teamMembers?.length) { setTeamProfiles({}); return; }
     getProfiles(teamMembers.map((m) => m.user_id).filter(Boolean)).then((map) => setTeamProfiles(map || {}));
@@ -103,6 +157,8 @@ export default function CalendarPage() {
     const endStr = toDateStr(endDate);
     const collected = [];
     const jobs = [];
+    const appLoc = new Map();   // date → app work-location code (from work_schedule)
+    const gLoc = new Map();      // date → Google working-location label
 
     if (layers.has("meetings") && activeTeamId) {
       jobs.push(fetchMeetingsInRange(activeTeamId, startDate.toISOString(), endDate.toISOString())
@@ -110,9 +166,34 @@ export default function CalendarPage() {
     }
     if (layers.has("goals") && activeTeamId) {
       jobs.push(listTeamGoals(activeTeamId).then(({ data }) => {
-        (data || []).filter((g) => g.week_start && g.week_start >= startStr && g.week_start < endStr)
-          .forEach((g) => { const e = goalToEvent(g); if (e) collected.push(e); });
+        const scoped = (data || []).filter((g) => goalVisibleToViewer(g, userId, orgTeamsRef.current));
+        setAllGoals(scoped);
+        const ws = weekStartRef.current;
+        if (goalsCollapsedRef.current) {
+          // Collapsed: ONE thin line per unique week/month span (not per goal).
+          const spans = new Map();
+          scoped.forEach((g) => {
+            const span = goalGridSpan(g, ws);
+            if (!span || span.start >= endStr || span.end <= startStr) return;
+            const key = `${span.start}_${span.end}`;
+            const cur = spans.get(key) || { span, count: 0 };
+            cur.count += 1;
+            spans.set(key, cur);
+          });
+          spans.forEach(({ span, count }, key) => collected.push({
+            id: `goalsline:${key}`, start: span.start, end: span.end, allDay: true, display: "block",
+            editable: false, classNames: ["cal-span", "cal-span-goal", "cal-goal-min"],
+            extendedProps: { type: "goal", collapsed: true, count },
+          }));
+        } else {
+          scoped.forEach((g) => {
+            const e = goalToEvent(g, ws, false);
+            if (e && e.start < endStr && e.end > startStr) collected.push(e); // overlaps visible range
+          });
+        }
       }));
+    } else {
+      setAllGoals([]);
     }
     if (!team) {
       if (layers.has("tasks") && userId) {
@@ -125,13 +206,21 @@ export default function CalendarPage() {
       }
       if (layers.has("availability") && avail) {
         availabilityToEvents(avail).forEach((e) => collected.push(e));
-        workLocationEvents(avail, startDate, endDate).forEach((e) => collected.push(e));
+        // App work location → merged below (not pushed directly, to dedupe vs Google).
+        workLocationEvents(avail, startDate, endDate).forEach((e) => appLoc.set(e.start, e.extendedProps?.loc));
         workHoursBackgroundEvents(avail, startDate, endDate).forEach((e) => collected.push(e));
       }
       if (layers.has("actuals")) (entries || []).filter((e) => e.date >= startStr && e.date < endStr).forEach((e) => collected.push(entryToEvent(e)));
       if (layers.has("google") && googleToken) {
         jobs.push(gcalRef.current?.({ timeMin: startDate.toISOString(), timeMax: endDate.toISOString() })
-          .then((list) => (list || []).forEach((g) => collected.push(googleEventToEvent(g)))));
+          .then((list) => (list || []).forEach((g) => {
+            if (g.eventType === "workingLocation") {
+              const ds = g.allDay && typeof g.start === "string" && g.start.length === 10 ? g.start : toDateStr(new Date(g.start));
+              gLoc.set(ds, g.locationLabel || g.title);
+            } else {
+              collected.push(googleEventToEvent(g));
+            }
+          })));
       }
     } else {
       if (layers.has("deadlines") && activeTeamId) jobs.push(listMilestonesInRange(activeTeamId, startStr, endStr).then(({ data }) => (data || []).filter((m) => m.scope === "team").forEach((m) => collected.push(milestoneToEvent(m)))));
@@ -139,6 +228,9 @@ export default function CalendarPage() {
     }
 
     await Promise.all(jobs);
+    // Merge app + Google work location into ONE chip per day (dedupe when they
+    // agree; flag a conflict when they differ).
+    if (!team) mergeWorkLocations(appLoc, gLoc).forEach((e) => collected.push(e));
     // Stamp reading-order rank: context band → meetings/deadlines (by priority) → tasks.
     collected.forEach((e) => { if (e.extendedProps) e.extendedProps.orderRank = rankFor(e.extendedProps); });
     setEvents(collected);
@@ -154,7 +246,9 @@ export default function CalendarPage() {
     loadRange(arg.start, arg.end);
   }, [loadRange]);
 
-  useEffect(() => { reload(); }, [enabledLayers, scope, reload]);
+  useEffect(() => { reload(); }, [enabledLayers, scope, weekStart, goalsCollapsed, reload]);
+  const toggleGoalsCollapsed = () => setGoalsCollapsed((v) => { const nv = !v; try { localStorage.setItem(LS_GOALS_COLLAPSED, nv ? "1" : "0"); } catch { /* */ } return nv; });
+  const toggleGroup = (k) => setOpenGroups((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   const api = () => calRef.current?.getApi();
   const changeScope = (id) => { setScope(id); try { localStorage.setItem(LS_SCOPE, id); } catch { /* */ } };
@@ -193,7 +287,7 @@ export default function CalendarPage() {
     await createPlannerTask({ userId, title: t, plannerDate: toDateStr(s), startTime: newSlot.allDay ? null : timeStrFromDate(s), durationMin: !newSlot.allDay && newSlot.end ? Math.round((newSlot.end - s) / 60000) : null });
     reload();
   };
-  const toggleTaskDone = async (row) => { await updatePlannerTaskFields(row.id, { done: !row.done }); reload(); };
+  const toggleTaskDone = async (row) => { await updatePlannerTaskFields(row.id, { done: !row.done }); reloadTasks(); reload(); };
 
   // ── right-rail agenda: everything from ~now forward, sorted by time, with
   // consecutive same-type items clustered (grouped by type around a similar time). ──
@@ -209,9 +303,12 @@ export default function CalendarPage() {
     let curKey = null;
     for (const it of items) {
       const k = toDateStr(it._s);
-      if (k !== curKey) { days.push({ key: k, date: new Date(it._s), runs: [] }); curKey = k; }
+      if (k !== curKey) { days.push({ key: k, date: new Date(it._s), statuses: [], allday: [], runs: [] }); curKey = k; }
       const day = days[days.length - 1];
       const type = it.extendedProps?.type;
+      // Order within a day: statuses (work location/OOO/goals) → all-day events → timed.
+      if (AGENDA_STATUS.has(type)) { day.statuses.push(it); continue; }
+      if (it.allDay) { day.allday.push(it); continue; }
       const last = day.runs[day.runs.length - 1];
       if (last && last.type === type) last.items.push(it);
       else day.runs.push({ type, items: [it] });
@@ -227,6 +324,13 @@ export default function CalendarPage() {
     return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   };
 
+  // Goals grouped by timeframe for the sidebar.
+  const goalGroups = useMemo(() => {
+    const b = { thisWeek: [], nextWeek: [], month: [], quarter: [], year: [], ongoing: [], earlier: [] };
+    for (const g of allGoals) b[goalGroupKey(g)].push(g);
+    return b;
+  }, [allGoals]);
+
   const scopes = [{ id: "personal", icon: User, label: "Mine" }, { id: "team", icon: Users, label: "Team" }];
   const visibleLegend = OCEAN_LEGEND.filter((l) => scope === "personal" || !PERSONAL_ONLY.has(l.layer));
 
@@ -237,10 +341,14 @@ export default function CalendarPage() {
     const title = stripEmoji(arg.event.title);
     const timed = !arg.event.allDay && arg.event.start;
 
+    // Collapsed goal → a thin bar with no text (you see it's set, not what it is).
+    if (p.type === "goal" && p.collapsed) {
+      return <div className="cal-chip2 cal-chip2--ctx cal-goal-minchip" style={{ color: meta.fg }} />;
+    }
     // Day-context band (compact, muted): work location, goals, OOO.
     if (CTX_TYPES.has(p.type)) {
       const isLoc = p.type === "worklocation" || p.type === "worklocation_app";
-      const Icon = isLoc ? Home : p.type === "goal" ? Target : Umbrella;
+      const Icon = p.type === "worklocation_conflict" ? AlertTriangle : isLoc ? Home : p.type === "goal" ? Target : Umbrella;
       return (
         <div className="cal-chip2 cal-chip2--ctx" style={{ color: meta.fg }} title={title}>
           <Icon /><span className="ctitle">{title}</span>
@@ -308,6 +416,38 @@ export default function CalendarPage() {
             })}
           </div>
 
+          {enabledLayers.has("goals") && allGoals.length > 0 && (
+            <div className="cal-ocean__card">
+              <div className="cal-ocean__eyebrow" style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+                <span>Goals</span>
+                <button type="button" onClick={toggleGoalsCollapsed} title={goalsCollapsed ? "Show goal text on the calendar" : "Collapse goal bars on the calendar"}
+                  style={{ marginLeft: "auto", border: "none", background: "transparent", color: "var(--o-ink-400)", cursor: "pointer", fontSize: 10, fontWeight: 700, textTransform: "none", letterSpacing: 0 }}>
+                  {goalsCollapsed ? "Expand on calendar" : "Collapse on calendar"}
+                </button>
+              </div>
+              {GOAL_GROUPS.map(([key, label]) => {
+                const list = goalGroups[key];
+                if (!list.length) return null;
+                const open = openGroups.has(key);
+                return (
+                  <div key={key} className="cal-ocean__goalgroup">
+                    <button type="button" className="cal-ocean__goalgrouphd" onClick={() => toggleGroup(key)}>
+                      {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                      <span className="lbl">{label}</span>
+                      <span className="cnt">{list.length}</span>
+                    </button>
+                    {open && list.map((g) => (
+                      <div key={g.id} className="cal-ocean__goalitem">
+                        <span className="dot" style={{ background: g.owner_color || "var(--o-mango-500)" }} />
+                        <span className="txt">{(g.body || "").trim() || "Goal"}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {scope === "personal" && (
             <div className="cal-ocean__card">
               <div className="cal-ocean__eyebrow">Google Calendar</div>
@@ -347,6 +487,19 @@ export default function CalendarPage() {
             <button type="button" className="cal-ocean__navbtn" aria-label="Next" onClick={() => api()?.next()}><ChevronRight className="w-[18px] h-[18px]" /></button>
             <button type="button" className="cal-ocean__today" onClick={() => api()?.today()}>Today</button>
             <span className="cal-ocean__spacer" />
+            {scope === "personal" && (
+              googleConnected ? (
+                <button type="button" className="cal-ocean__today" onClick={reload} title="Google Calendar connected — refresh"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 999, background: "var(--o-aqua-500)" }} /> Google
+                </button>
+              ) : (
+                <button type="button" className="cal-ocean__today" onClick={() => { if (!enabledLayers.has("google")) toggleLayer("google"); connectGoogle(); }} title="Connect Google Calendar"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 999, background: "#4285F4" }} /> Connect Google
+                </button>
+              )
+            )}
             <div className="cal-ocean__seg">
               {[["dayGridMonth", "Month"], ["timeGridWeek", "Week"], ["timeGridDay", "Day"]].map(([v, lbl]) => (
                 <button key={v} type="button" aria-pressed={viewType === v} onClick={() => api()?.changeView(v)}>{lbl}</button>
@@ -367,7 +520,7 @@ export default function CalendarPage() {
               eventContent={chipContent}
               eventOrder="orderRank,start,title"
               datesSet={onDatesSet}
-              eventClick={(info) => openDetails(info.event)}
+              eventClick={(info) => { if (info.event.extendedProps?.collapsed) toggleGoalsCollapsed(); else openDetails(info.event); }}
               editable
               selectable
               selectMirror
@@ -389,9 +542,39 @@ export default function CalendarPage() {
         <aside className="cal-ocean__rail cal-ocean__rail--right">
           <div className="cal-ocean__card">
             <div className="cal-ocean__cardhd"><CalendarClock className="w-[17px] h-[17px]" style={{ color: "var(--o-ocean-600)" }} /><h3>Agenda</h3></div>
+            <div className="cal-ocean__agendascroll">
             {agenda.length === 0 ? <p className="cal-ocean__empty">Nothing coming up.</p> : agenda.map((day) => (
               <div key={day.key} className="cal-ocean__aday">
                 <div className="cal-ocean__adayhd">{dayHeading(day.date)}</div>
+
+                {/* 1. status strip: work location / OOO / goals — not events */}
+                {day.statuses.length > 0 && (
+                  <div className="cal-ocean__statusrow">
+                    {day.statuses.map((it) => {
+                      const t = it.extendedProps?.type;
+                      const Icon = t === "worklocation_conflict" ? AlertTriangle : (t === "worklocation" || t === "worklocation_app") ? Home : t === "goal" ? Target : Umbrella;
+                      return (
+                        <button key={it.id} type="button" className="cal-ocean__status" onClick={() => openDetails(it)} title={stripEmoji(it.title)}>
+                          <Icon className="w-3 h-3" /> <span>{stripEmoji(it.title)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* 2. all-day events — distinct pill rows, above timed events */}
+                {day.allday.map((it) => {
+                  const meta = oceanType(it.extendedProps?.type);
+                  return (
+                    <button key={it.id} type="button" className="cal-ocean__allday" onClick={() => openDetails(it)}>
+                      <span className="tag">all-day</span>
+                      <span className="sq" style={{ background: meta.solid }} />
+                      <span className="txt">{stripEmoji(it.title)}</span>
+                    </button>
+                  );
+                })}
+
+                {/* 3. timed events, clustered by type */}
                 {day.runs.map((run, ri) => {
                   const meta = oceanType(run.type);
                   return (
@@ -401,15 +584,16 @@ export default function CalendarPage() {
                         const isTask = it.extendedProps?.type === "task";
                         const done = !!it.extendedProps?.done;
                         const row = it.extendedProps?.row || {};
+                        const allDay = it.allDay;
                         return (
-                          <div key={it.id} className="cal-ocean__row">
-                            <span className="time">{it.allDay ? "" : it._s.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+                          <div key={it.id} className={`cal-ocean__row ${allDay ? "cal-ocean__row--allday" : ""}`}>
+                            <span className="time">{allDay ? "all-day" : it._s.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
                             {isTask ? (
                               <button type="button" aria-label="Toggle done" onClick={() => toggleTaskDone(row)}
                                 className="cal-ocean__box" style={{ borderColor: done ? "var(--o-aqua-500)" : "var(--o-ink-300)", background: done ? "var(--o-aqua-500)" : "transparent" }}>
                                 {done && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4"><polyline points="20 6 9 17 4 12" /></svg>}
                               </button>
-                            ) : <span className="dot" style={{ background: meta.solid }} />}
+                            ) : <span className={allDay ? "sq" : "dot"} style={{ background: meta.solid }} />}
                             <button type="button" className="txt" onClick={() => openDetails(it)}
                               style={{ background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer", textDecoration: done ? "line-through" : "none", color: done ? "var(--o-ink-400)" : undefined }}>
                               {stripEmoji(it.title)}
@@ -422,7 +606,30 @@ export default function CalendarPage() {
                 })}
               </div>
             ))}
+            </div>
           </div>
+
+          {scope === "personal" && (
+            <div className="cal-ocean__card">
+              <div className="cal-ocean__cardhd">
+                <CheckSquare className="w-[17px] h-[17px]" style={{ color: "var(--o-mango-600)" }} /><h3>Tasks</h3>
+                <span className="count">{myTasks.length} open</span>
+              </div>
+              {myTasks.length === 0 ? (
+                <p className="cal-ocean__empty">No open tasks. <button type="button" onClick={() => navigate("/time-tracker/planner")} style={{ background: "none", border: "none", padding: 0, color: "var(--o-ocean-600)", cursor: "pointer", fontWeight: 600 }}>Open planner</button></p>
+              ) : myTasks.map((t) => (
+                <div key={t.id} className="cal-ocean__row" style={{ cursor: "default" }}>
+                  <button type="button" aria-label="Mark done" onClick={() => toggleTaskDone(t)}
+                    className="cal-ocean__box" style={{ borderColor: "var(--o-ink-300)", background: "transparent" }} />
+                  <button type="button" className="txt" onClick={() => navigate("/time-tracker/planner")}
+                    style={{ background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer" }}>
+                    {(t.title || "").trim()}
+                  </button>
+                  {t.planner_date && <span className="due">{new Date(t.planner_date + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </aside>
       </div>
 

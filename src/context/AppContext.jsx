@@ -1671,7 +1671,12 @@ export function AppProvider({ session, children }) {
         headers: { "Authorization": `Bearer ${googleToken}` },
       });
     } catch { return []; }
-    if (!res.ok) return [];
+    if (!res.ok) {
+      // Token expired / lost scope: clear it so callers stop retrying (no 401
+      // storm) and the UI falls back to a "Connect Google" prompt.
+      if (res.status === 401 || res.status === 403) { setGoogleToken(null); setGoogleTokenExpiry(0); }
+      return [];
+    }
     const data = await res.json().catch(() => ({}));
     return (data.items || []).map((ev) => {
       // Working-location events (eventType 'workingLocation') describe where the

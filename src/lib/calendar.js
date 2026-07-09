@@ -206,19 +206,55 @@ export function entryToEvent(e) {
   return { ...common, title: `⏱ ${hrs}h`, start: e.date, allDay: true };
 }
 
-// Week-scoped goal → an all-day banner spanning its week (Mon..Sun).
-export function goalToEvent(g) {
-  if (!g.week_start) return null;
+// The week-start day (0=Sun..6) on or before a date — so a goal's Monday-anchored
+// week aligns to the calendar's chosen first day (spans that whole 7-day row).
+function weekStartOnOrBefore(dateStr, weekStartDow) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  const diff = (d.getDay() - weekStartDow + 7) % 7;
+  d.setDate(d.getDate() - diff);
+  return toDateStr(d);
+}
+
+// A goal's calendar span (exclusive end), or null if it shouldn't sit on the
+// grid. Week goals span their week (aligned to weekStart). Month goals span the
+// month they were set in (set_at) — month/quarter/year carry no explicit period,
+// so we anchor month goals to their set date. Quarter/year/none are "ongoing"
+// (null here) and belong in the side list, not the grid.
+export function goalGridSpan(g, weekStart = 1) {
+  if (g.horizon === "week" && g.week_start) {
+    const s = weekStartOnOrBefore(g.week_start, weekStart);
+    return { start: s, end: addDaysStr(s, 7) };
+  }
+  if (g.horizon === "month") {
+    const anchor = g.set_at || g.created_at;
+    if (!anchor) return null;
+    const d = new Date(anchor);
+    if (Number.isNaN(d.getTime())) return null;
+    const first = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+    return { start: first, end: toDateStr(new Date(d.getFullYear(), d.getMonth() + 1, 1)) };
+  }
+  return null;
+}
+
+export function isOngoingGoal(g) {
+  return !["week", "month"].includes(g.horizon) || (g.horizon === "week" && !g.week_start);
+}
+
+// Goal → an all-day banner spanning its period. Returns null for ongoing goals.
+// `collapsed` renders a thin bar (you see a goal is set, but not its text).
+export function goalToEvent(g, weekStart = 1, collapsed = false) {
+  const span = goalGridSpan(g, weekStart);
+  if (!span) return null;
   return {
     id: `goal:${g.id}`,
     title: `🎯 ${g.body || "Goal"}`,
-    start: g.week_start,
-    end: addDaysStr(g.week_start, 7), // exclusive end
+    start: span.start,
+    end: span.end,
     allDay: true,
     display: "block",
     editable: false,
-    classNames: ["cal-span", "cal-span-goal"], // filled bar so it spans the whole week
-    extendedProps: { type: "goal", sourceId: g.id, row: g },
+    classNames: collapsed ? ["cal-span", "cal-span-goal", "cal-goal-min"] : ["cal-span", "cal-span-goal"],
+    extendedProps: { type: "goal", sourceId: g.id, collapsed, row: g },
   };
 }
 
@@ -396,6 +432,19 @@ export async function createPlannerTask({ userId, title, plannerDate, startTime,
 
 export async function updatePlannerTaskFields(id, patch) {
   return supabase.from("planner_tasks").update(patch).eq("id", id);
+}
+
+// The user's open planner tasks (for the calendar's Tasks card), independent of
+// what's placed on the grid — scheduled ones first, then undated backlog.
+export async function fetchOpenPlannerTasks(userId, limit = 20) {
+  if (!userId) return { data: [] };
+  return supabase
+    .from("planner_tasks")
+    .select("id, planner_date, due_date, title, done, in_progress, priority")
+    .eq("user_id", userId)
+    .eq("done", false)
+    .order("planner_date", { ascending: true, nullsFirst: false })
+    .limit(limit);
 }
 export async function deletePlannerTask(id) {
   return supabase.from("planner_tasks").delete().eq("id", id);

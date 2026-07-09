@@ -13,6 +13,7 @@ const T = {
   google:    { label: "Google",    bg: "rgba(125,180,248,0.16)", fg: "#1A4FA8", solid: "#7DB4F8" },
   worklocation: { label: "Working location", bg: "rgba(85,118,134,0.10)", fg: "#355d6e", solid: "#7F9AA7" },
   worklocation_app: { label: "Working location", bg: "rgba(45,127,249,0.08)", fg: "#355d6e", solid: "#7DB4F8" },
+  worklocation_conflict: { label: "Location conflict", bg: "rgba(255,159,28,0.14)", fg: "#C96A05", solid: "#FF9F1C" },
 };
 const FALLBACK = { label: "Event", bg: "rgba(85,118,134,0.14)", fg: "#355d6e", solid: "#7F9AA7" };
 
