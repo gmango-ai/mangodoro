@@ -2297,13 +2297,17 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // Mirror mic/speaker/connection state to the drive-mode bridge (giant car UI).
   useDriveBridge({ micMuted, onToggleMic });
 
-  // Meeting recording (record + transcribe + AI summary). Only the active
-  // session leader may toggle it; everyone sees the REC indicator via Realtime.
+  // Meeting recording (record + transcribe + AI summary). The session LEADER or
+  // a team ADMIN/OWNER may toggle it — this must match start-egress's server-side
+  // authorization, or the button would be hidden for people the server allows
+  // (that's why it appeared in a room you lead but not one you don't). Everyone
+  // sees the REC indicator via Realtime.
   const { session } = useApp();
   const { syncSession } = useSyncSession();
+  const { isAdmin, isOwner } = useTeam();
   const rec = useMeetingRecording(roomId);
   const isLeader = !!syncSession && syncSession.leader_id === session?.user?.id;
-  const canRecord = publish && isLeader;
+  const canRecord = publish && !!syncSession && (isLeader || isAdmin || isOwner);
   const [recNotice, setRecNotice] = useState(null);
   const prevRecActiveRef = useRef(false);
   useEffect(() => {
