@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context/AppContext";
-import { useSyncSession } from "../context/SyncSessionContext";
-import { useResolvedSelf } from "../hooks/useResolvedSelf";
-import { applyStatusOverride } from "../lib/statusActions";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
@@ -201,12 +198,10 @@ function ProfileSection({ dark }) {
   const {
     settings, setSettings, session,
     hourlyRate, setHourlyRate,
-    updateSettingsField, updateStatus,
+    updateSettingsField,
     addCustomSound, renameCustomSound, removeCustomSound,
   } = useApp();
   const { teamSounds } = useTeam();
-  const { syncSession, setStatus: setSyncStatus } = useSyncSession();
-  const { resolved } = useResolvedSelf();
   const [soundSettings, setSoundSettings] = useState(() => loadPomodoroSoundSettings());
   function updateSound(patch) {
     setSoundSettings((prev) => {
@@ -219,10 +214,6 @@ function ProfileSection({ dark }) {
 
   const [name, setName] = useState(settings.name || "");
   const [avatarUrl, setAvatarUrl] = useState(settings.avatarUrl || "");
-  const overMsg = resolved?.override?.message || "";
-  const availability = resolved?.availability || "offline";
-  const overridden = !!resolved?.override;
-  const [status, setStatus] = useState(overMsg);
   const [rateDraft, setRateDraft] = useState(hourlyRate ? String(hourlyRate) : "");
   const [annualDraft, setAnnualDraft] = useState("");
   const [error, setError] = useState("");
@@ -233,7 +224,6 @@ function ProfileSection({ dark }) {
   useEffect(() => { setJobTitle(settings.jobTitle || ""); }, [settings.jobTitle]);
   useEffect(() => { setName(settings.name || ""); }, [settings.name]);
   useEffect(() => { setAvatarUrl(settings.avatarUrl || ""); }, [settings.avatarUrl]);
-  useEffect(() => { setStatus(overMsg); }, [overMsg]);
   useEffect(() => { setRateDraft(hourlyRate ? String(hourlyRate) : ""); }, [hourlyRate]);
   useEffect(() => {
     setAnnualDraft(settings?.annualSalary != null ? String(settings.annualSalary) : (hourlyRate ? String(Math.round(hourlyRate * HOURS_PER_YEAR)) : ""));
@@ -268,20 +258,6 @@ function ProfileSection({ dark }) {
     persist({ name: clean || null });
   }
 
-  // Unified with the nav StatusChip: writes the manual OVERRIDE so it propagates
-  // everywhere and the resolver's mirror can't overwrite it.
-  function writeStatus(avail) {
-    applyStatusOverride({ availability: avail, message: status.trim() || null, userId, syncSession, updateStatus, setStatus: setSyncStatus });
-    flashSaved();
-  }
-  function onStatusBlur() {
-    if (status.trim() === overMsg.trim()) return;
-    writeStatus(overridden ? availability : "online");
-  }
-  function pickPresence(key) {
-    if (overridden && availability === key) return;
-    writeStatus(key);
-  }
 
   async function onRateBlur() {
     const rate = parseFloat(rateDraft);
@@ -304,14 +280,6 @@ function ProfileSection({ dark }) {
     updateSettingsField({ wageMode: "yearly", annualSalary: clean || null });
     flashSaved();
   }
-
-  const PRESENCE = [
-    { key: "online", label: "Online", color: "bg-emerald-500" },
-    { key: "focusing", label: "Focusing", color: "bg-violet-500" },
-    { key: "meeting", label: "In a meeting", color: "bg-rose-500" },
-    { key: "lunch", label: "On lunch", color: "bg-orange-400" },
-    { key: "commuting", label: "Commuting", color: "bg-cyan-500" },
-  ];
 
   return (
     <>
@@ -353,41 +321,6 @@ function ProfileSection({ dark }) {
               onError={(msg) => setError(msg)}
             />
           </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Status" hint="Visible to teammates. Updates instantly." dark={dark}>
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-1.5">
-            {PRESENCE.map((opt) => {
-              const active = overridden && availability === opt.key;
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => pickPresence(opt.key)}
-                  className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
-                    active
-                      ? "bg-[var(--color-accent)] text-white"
-                      : dark
-                        ? "bg-[var(--color-surface-raised)] text-slate-300 hover:bg-slate-700"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full ${opt.color}`} />
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-          <Input
-            value={status}
-            onChange={(e) => setStatus(e.target.value.slice(0, 80))}
-            onBlur={onStatusBlur}
-            placeholder="What are you working on? (optional)"
-            maxLength={80}
-            className="max-w-md"
-          />
         </div>
       </SectionCard>
 
