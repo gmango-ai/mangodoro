@@ -53,7 +53,6 @@ import {
   Wand2,
   Paintbrush,
   Eraser,
-  BoxSelect,
   Check,
   MessageSquare,
   MoreHorizontal,
@@ -461,36 +460,56 @@ function PaletteGrid({ colors, selected, onPick }) {
 // swatch row). Shared by the paint toolbar.
 function ColorButton({ dark, color, palette, onPick }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null); // {left, bottom} in viewport px
+  const btnRef = useRef(null);
   const safe = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#0ea5e9";
+  const toggle = () => {
+    if (open) { setOpen(false); return; }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ left: r.left + r.width / 2, bottom: window.innerHeight - r.top + 8 });
+    setOpen(true);
+  };
   return (
-    <div className="relative flex items-center">
+    <div className="flex items-center">
       <button
+        ref={btnRef}
         type="button"
         title="Colour"
         aria-label="Colour"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         className={`${WB_TOUCH ? "w-9 h-9" : "w-7 h-7"} rounded-full shrink-0 border-2 transition-transform active:scale-95 ${
           dark ? "border-white/25" : "border-black/10"
         }`}
         style={{ background: safe, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.15)" }}
       />
-      {open && (
-        <ToolPopover dark={dark} onClose={() => setOpen(false)}>
-          <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-            Colour
+      {/* Portal to <body> so the popover isn't clipped by the paint toolbar's
+          overflow-x-auto (which also clips overflow-y → invisible on desktop). */}
+      {open && pos && createPortal(
+        <>
+          <div className="fixed inset-0 z-[95]" onClick={() => setOpen(false)} />
+          <div
+            className={`fixed z-[96] p-2.5 rounded-2xl border shadow-lg ${
+              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+            }`}
+            style={{ left: pos.left, bottom: pos.bottom, transform: "translateX(-50%)", width: 200 }}
+          >
+            <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              Colour
+            </div>
+            <PaletteGrid colors={palette} selected={color} onPick={(hex) => { onPick(hex); setOpen(false); }} />
+            <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+              <input
+                type="color"
+                value={safe}
+                onChange={(e) => onPick(e.target.value)}
+                style={{ width: 26, height: 26, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+              />
+              Custom colour
+            </label>
           </div>
-          <PaletteGrid colors={palette} selected={color} onPick={(hex) => { onPick(hex); setOpen(false); }} />
-          <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
-            <input
-              type="color"
-              value={safe}
-              onChange={(e) => onPick(e.target.value)}
-              style={{ width: 26, height: 26, padding: 0, border: "none", background: "none", cursor: "pointer" }}
-            />
-            Custom colour
-          </label>
-        </ToolPopover>
+        </>,
+        document.body,
       )}
     </div>
   );
@@ -1325,34 +1344,14 @@ function saveLaserColor(c) {
 // flow space). Shows the lifted paint pixels at rect+offset with a marching-ants
 // border; dragging it moves the whole selection (raster + picked pen strokes).
 // The Delete/Done controls live in a separate screen-space panel.
-function AreaSelectionFloating({ sel, rf, onMove }) {
-  const dragRef = useRef(null);
+function AreaSelectionFloating({ sel }) {
   const { rect, raster, dx, dy } = sel;
-  const down = (e) => {
-    e.stopPropagation();
-    const s = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    dragRef.current = { sx: s.x, sy: s.y, baseDx: dx, baseDy: dy, pid: e.pointerId };
-    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
-  };
-  const move = (e) => {
-    const d = dragRef.current;
-    if (!d || e.pointerId !== d.pid) return;
-    const s = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    onMove(d.baseDx + (s.x - d.sx), d.baseDy + (s.y - d.sy));
-  };
-  const up = (e) => {
-    if (dragRef.current && e.pointerId === dragRef.current.pid) {
-      try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
-      dragRef.current = null;
-    }
-  };
+  // The drag is handled on <main> (see onWbPointerDownCapture) keyed off the
+  // .wb-area-overlay class, so this just renders the lifted pixels + border.
   return (
     <div
+      className="wb-area-overlay"
       style={{ position: "absolute", left: rect.x + dx, top: rect.y + dy, width: rect.w, height: rect.h, cursor: "move", touchAction: "none" }}
-      onPointerDown={down}
-      onPointerMove={move}
-      onPointerUp={up}
-      onPointerCancel={up}
     >
       <div
         style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
@@ -1642,23 +1641,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     // selection — swallow it (see onClickCapture below).
     suppressPaneClickRef.current = Date.now() + 500;
     setMarqueeRect(null);
-    const minX = Math.min(st.x0, st.x1), maxX = Math.max(st.x0, st.x1);
-    const minY = Math.min(st.y0, st.y1), maxY = Math.max(st.y0, st.y1);
-    if (maxX - minX < 6 && maxY - minY < 6) return; // stationary hold — no-op
-    const a = rf.screenToFlowPosition({ x: minX, y: minY });
-    const b = rf.screenToFlowPosition({ x: maxX, y: maxY });
-    const sel = new Set();
-    for (const n of rf.getNodes()) {
-      if (n.type === "zone") continue;
-      const inode = rf.getInternalNode(n.id);
-      const pos = inode?.internals?.positionAbsolute || n.position;
-      const w = n.measured?.width ?? n.width ?? 0;
-      const h = n.measured?.height ?? n.height ?? 0;
-      if (pos.x < b.x && pos.x + w > a.x && pos.y < b.y && pos.y + h > a.y) sel.add(n.id);
-    }
-    if (sel.size) {
-      setNodes((nds) => nds.map((n) => (n.selected === sel.has(n.id) ? n : { ...n, selected: sel.has(n.id) })));
-    }
+    // Region select (folded in): grab strokes/notes/shapes + lift brush paint
+    // into a floating move/delete selection.
+    finalizeAreaRef.current?.(st.x0, st.y0, st.x1, st.y1);
   };
   // Draw modes: one finger draws, two fingers navigate. Once d3-zoom accepts
   // a touchstart (needed for pinch) it pans on ANY one-finger drag, stealing
@@ -1667,7 +1652,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // the pen/brush/laser handlers use POINTER events, which are unaffected.
   const blockSingleTouchInDraw = (e) => {
     if (!WB_TOUCH) return;
-    if (tool !== "pen" && tool !== "brush" && tool !== "laser" && tool !== "selectarea") return;
+    if (tool !== "pen" && tool !== "brush" && tool !== "laser") return;
     if (e.touches.length === 1) e.stopPropagation();
   };
 
@@ -1725,7 +1710,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     if (!el) return undefined;
     const onTouch = (e) => {
       const tool = toolRef.current;
-      if (tool !== "pen" && tool !== "brush" && tool !== "laser" && tool !== "selectarea") return;
+      if (tool !== "pen" && tool !== "brush" && tool !== "laser") return;
       const tgt = e.target;
       if (tgt instanceof Element && tgt.closest(".react-flow__panel")) return; // leave toolbars alone
       if (e.cancelable) e.preventDefault();
@@ -1887,8 +1872,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const toolRef = useRef(tool);
   toolRef.current = tool;
 
-  // ── Region select (tool "selectarea"): drag a box, then move/delete the
-  // enclosed pen strokes (draw nodes) + raster paint as a floating selection.
+  // ── Region select (folded into the SELECT tool): a marquee (desktop
+  // left-drag / mobile long-press-drag) grabs strokes/notes/shapes + lifts
+  // brush paint into a floating move/delete selection.
   const [areaBox, setAreaBox] = useState(null);   // {x0,y0,x1,y1} SCREEN px while dragging the box
   const areaDragRef = useRef(null);               // { pid, x0, y0 } during the box drag
   const [areaSel, setAreaSel] = useState(null);   // floating selection (see finalizeAreaSelection)
@@ -1898,6 +1884,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // pointer-up handler calls it through this ref to avoid a forward-reference
   // TDZ in its dependency array.
   const finalizeAreaRef = useRef(null);
+  const moveAreaRef = useRef(null);              // → moveAreaSelection (also forward-defined)
+  const areaMoveRef = useRef(null);              // { pid, sx, sy, baseDx, baseDy } while dragging the floating selection
 
   // Pen colour + width (persisted per device). A ref so the pointer handlers
   // read the latest without re-subscribing.
@@ -2051,6 +2039,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         setAreaBox((bx) => (bx ? { ...bx, x1: e.clientX, y1: e.clientY } : bx));
         return;
       }
+      if (areaMoveRef.current && e.pointerId === areaMoveRef.current.pid) {
+        const m = areaMoveRef.current;
+        try { const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); moveAreaRef.current?.(m.baseDx + (p.x - m.sx), m.baseDy + (p.y - m.sy)); } catch { /* */ }
+        return;
+      }
       try {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         lastPtRef.current = { x: p.x, y: p.y };
@@ -2120,12 +2113,25 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       const ptype = classifyPointer(e);
       if (ptype === "pen") { lastPenTsRef.current = Date.now(); stylusSeenRef.current = true; }
       const mode = toolRef.current;
-      // Region-select tool: start dragging a selection box (unless a floating
-      // selection is already active — its overlay handles input then).
-      if (mode === "selectarea") {
+      // Dragging the floating region selection to MOVE it. Captured on <main>
+      // (reliable) rather than the overlay itself (which sits in the transformed
+      // ViewportPortal). Works for pen + touch.
+      if (areaSelRef.current && !areaMoveRef.current && e.button === 0 && e.target instanceof Element && e.target.closest(".wb-area-overlay")) {
+        let p; try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
+        const s = areaSelRef.current;
+        areaMoveRef.current = { pid: e.pointerId, sx: p.x, sy: p.y, baseDx: s.dx, baseDy: s.dy };
+        try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
+        e.preventDefault();
+        return;
+      }
+      // Select tool on DESKTOP: dragging the empty pane draws a region-select
+      // box (folded in from the old dedicated tool). It grabs pen strokes/notes
+      // AND lifts brush paint. Only on the pane (a node press = drag that node);
+      // on touch the region box is the long-press marquee (marqueePointerUp).
+      if (mode === "select" && !WB_TOUCH) {
         if (areaSelRef.current || e.button !== 0) return;
         const at = e.target;
-        if (!(at instanceof Element) || !at.closest(".react-flow") || at.closest(".react-flow__panel")) return;
+        if (!(at instanceof Element) || !at.closest(".react-flow__pane")) return;
         areaDragRef.current = { pid: e.pointerId, x0: e.clientX, y0: e.clientY };
         setAreaBox({ x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY });
         try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
@@ -2233,6 +2239,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   const onWbPointerUp = useCallback(
     (e) => {
+      // Floating-selection move finished.
+      if (areaMoveRef.current && e.pointerId === areaMoveRef.current.pid) {
+        areaMoveRef.current = null;
+        try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+        return;
+      }
       // Region-select box finished → lift the enclosed strokes + paint.
       if (areaDragRef.current && e.pointerId === areaDragRef.current.pid) {
         const d = areaDragRef.current;
@@ -3283,7 +3295,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     const rect = { x: a.x, y: a.y, w: Math.max(1, b.x - a.x), h: Math.max(1, b.y - a.y) };
     const picked = [];
     for (const n of rf.getNodes()) {
-      if (n.type !== "draw") continue;
+      if (n.type === "zone") continue; // grab strokes, notes, shapes, images — not zones
       const inode = rf.getInternalNode(n.id);
       const pos = inode?.internals?.positionAbsolute || n.position;
       const w = n.measured?.width ?? n.width ?? 0;
@@ -3309,6 +3321,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       return o ? { ...n, position: { x: o.position.x + dx, y: o.position.y + dy } } : n;
     })));
   }, [setNodes, runSilent]);
+  moveAreaRef.current = moveAreaSelection;
 
   // Commit the floating selection at its current position (stamp raster, keep
   // node positions). One undoable step covers raster + nodes.
@@ -3385,7 +3398,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   // Leaving the select-area tool commits any floating selection.
   useEffect(() => {
-    if (tool !== "selectarea" && areaSelRef.current) commitAreaSelection();
+    if (tool !== "select" && areaSelRef.current) commitAreaSelection();
   }, [tool, commitAreaSelection]);
 
   // Clone nodes (pulling in any framed children + edges fully inside the
@@ -3905,7 +3918,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       // gesture area so taps there don't trigger an OS swipe. env() = 0 on
       // desktop, so it's a no-op there.
       className={`relative w-full overflow-hidden ${
-        tool === "pen" ? "wb-pen wb-draw " : tool === "brush" ? "wb-paint wb-draw " : tool === "laser" ? "wb-laser wb-draw " : tool === "selectarea" ? "wb-draw " : ""
+        tool === "pen" ? "wb-pen wb-draw " : tool === "brush" ? "wb-paint wb-draw " : tool === "laser" ? "wb-laser wb-draw " : ""
       }${
         embedded
           ? "h-full"
@@ -3985,13 +3998,16 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
         // Laser mode is point-only: no selecting, dragging, or connecting — so
         // you can gesture over the board without disturbing it.
-        nodesDraggable={tool === "select"}
+        // Node drag is off while a floating region selection is active — the
+        // selection overlay owns the move then.
+        nodesDraggable={tool === "select" && !areaSel}
         nodesConnectable={tool === "select"}
         elementsSelectable={tool === "select"}
-        // Touch: one-finger drag PANS and pinch stays a clean zoom; area
-        // select is long-press-then-drag (the custom marquee above). Desktop
-        // keeps RF's left-drag marquee.
-        selectionOnDrag={WB_TOUCH ? false : tool === "select"}
+        // Region select is folded into the select tool: desktop left-drag on
+        // the pane draws our box (onWbPointerDownCapture), touch uses the
+        // long-press marquee — both feed finalizeAreaSelection. So RF's own
+        // drag-select is off (it would double up).
+        selectionOnDrag={false}
         selectionMode={SelectionMode.Partial}
         // Shift adds to selection, freeing ⌘/Ctrl for the click-to-clone quick action.
         multiSelectionKeyCode="Shift"
@@ -4032,7 +4048,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           <>
             <ViewportPortal>
               <div style={{ position: "absolute", left: 0, top: 0, zIndex: 950 }}>
-                <AreaSelectionFloating sel={areaSel} rf={rf} onMove={moveAreaSelection} />
+                <AreaSelectionFloating sel={areaSel} />
               </div>
             </ViewportPortal>
             <Panel
@@ -4264,14 +4280,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             setColor={setLaserColor}
             onToggle={() => setTool((t) => (t === "laser" ? "select" : "laser"))}
           />
-          <ToolButton
-            title={tool === "selectarea" ? "Select area (on) — drag a box, then drag to move or ⌫ to delete" : "Select area — box-select drawings to move or delete"}
-            dark={dark}
-            active={tool === "selectarea"}
-            onClick={() => setTool((t) => (t === "selectarea" ? "select" : "selectarea"))}
-          >
-            <BoxSelect className="w-4 h-4" />
-          </ToolButton>
           <ToolbarDivider dark={dark} />
           <ToolButton
             title="Delete selected"
