@@ -131,12 +131,22 @@ const PaintLayer = forwardRef(function PaintLayer({ boardId, enabled, zIndex = 5
     },
     // ── Region select (move/delete raster paint) ──────────────────────────
     // Composite the pixels inside a flow-space rect into a fresh canvas (device
-    // px). The lifted raster selection. null-safe on empty tiles.
-    readRegion: ({ x, y, w, h }) => {
+    // px). The lifted raster selection. null-safe on empty tiles. `clip` (array
+    // of flow-space {x,y}, a polygon) restricts the lift to a lasso shape.
+    readRegion: ({ x, y, w, h }, clip) => {
       const out = document.createElement("canvas");
       out.width = Math.max(1, Math.round(w * PX_PER_UNIT));
       out.height = Math.max(1, Math.round(h * PX_PER_UNIT));
       const octx = out.getContext("2d");
+      if (clip && clip.length >= 3) {
+        octx.beginPath();
+        clip.forEach((p, i) => {
+          const cx = (p.x - x) * PX_PER_UNIT, cy = (p.y - y) * PX_PER_UNIT;
+          if (i) octx.lineTo(cx, cy); else octx.moveTo(cx, cy);
+        });
+        octx.closePath();
+        octx.clip(); // only the polygon interior gets composited
+      }
       const t0x = Math.floor(x / TILE_UNITS), t1x = Math.floor((x + w) / TILE_UNITS);
       const t0y = Math.floor(y / TILE_UNITS), t1y = Math.floor((y + h) / TILE_UNITS);
       for (let ty = t0y; ty <= t1y; ty++) for (let tx = t0x; tx <= t1x; tx++) {
@@ -154,8 +164,11 @@ const PaintLayer = forwardRef(function PaintLayer({ boardId, enabled, zIndex = 5
       }
       return out;
     },
-    // Clear the pixels inside a flow-space rect (lift/delete).
-    clearRegion: ({ x, y, w, h }) => {
+    // Clear the pixels inside a flow-space rect (lift/delete). With `clip` (a
+    // flow-space polygon) only the polygon interior is cleared — clearRect can't
+    // be clipped, so we erase with a destination-out polygon fill instead.
+    clearRegion: ({ x, y, w, h }, clip) => {
+      const poly = clip && clip.length >= 3 ? clip : null;
       const t0x = Math.floor(x / TILE_UNITS), t1x = Math.floor((x + w) / TILE_UNITS);
       const t0y = Math.floor(y / TILE_UNITS), t1y = Math.floor((y + h) / TILE_UNITS);
       for (let ty = t0y; ty <= t1y; ty++) for (let tx = t0x; tx <= t1x; tx++) {
@@ -163,7 +176,17 @@ const PaintLayer = forwardRef(function PaintLayer({ boardId, enabled, zIndex = 5
         if (!tile) continue;
         const ctx = tile.ctx;
         ctx.setTransform(PX_PER_UNIT, 0, 0, PX_PER_UNIT, -tx * TILE_UNITS * PX_PER_UNIT, -ty * TILE_UNITS * PX_PER_UNIT);
-        ctx.clearRect(x, y, w, h);
+        if (poly) {
+          ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = "destination-out";
+          ctx.beginPath();
+          poly.forEach((p, i) => { if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); });
+          ctx.closePath();
+          ctx.fill();
+          ctx.globalCompositeOperation = "source-over";
+        } else {
+          ctx.clearRect(x, y, w, h);
+        }
         tile.dirty = true;
       }
       bump();

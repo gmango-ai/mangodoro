@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -53,6 +53,7 @@ import {
   Wand2,
   Paintbrush,
   Eraser,
+  Lasso,
   Check,
   MessageSquare,
   MoreHorizontal,
@@ -460,56 +461,39 @@ function PaletteGrid({ colors, selected, onPick }) {
 // swatch row). Shared by the paint toolbar.
 function ColorButton({ dark, color, palette, onPick }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState(null); // {left, bottom} in viewport px
-  const btnRef = useRef(null);
   const safe = /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#0ea5e9";
-  const toggle = () => {
-    if (open) { setOpen(false); return; }
-    const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ left: r.left + r.width / 2, bottom: window.innerHeight - r.top + 8 });
-    setOpen(true);
-  };
+  // Routes through ToolPopover like every other rail flyout, so the popover
+  // portals above the trigger and escapes the toolbar's overflow clipping
+  // (which used to mask it out on desktop). "All popovers handled the same."
   return (
     <div className="flex items-center">
       <button
-        ref={btnRef}
         type="button"
         title="Colour"
         aria-label="Colour"
         aria-expanded={open}
-        onClick={toggle}
+        onClick={() => setOpen((o) => !o)}
         className={`${WB_TOUCH ? "w-9 h-9" : "w-7 h-7"} rounded-full shrink-0 border-2 transition-transform active:scale-95 ${
           dark ? "border-white/25" : "border-black/10"
         }`}
         style={{ background: safe, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.15)" }}
       />
-      {/* Portal to <body> so the popover isn't clipped by the paint toolbar's
-          overflow-x-auto (which also clips overflow-y → invisible on desktop). */}
-      {open && pos && createPortal(
-        <>
-          <div className="fixed inset-0 z-[95]" onClick={() => setOpen(false)} />
-          <div
-            className={`fixed z-[96] p-2.5 rounded-2xl border shadow-lg ${
-              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-            }`}
-            style={{ left: pos.left, bottom: pos.bottom, transform: "translateX(-50%)", width: 200 }}
-          >
-            <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
-              Colour
-            </div>
-            <PaletteGrid colors={palette} selected={color} onPick={(hex) => { onPick(hex); setOpen(false); }} />
-            <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
-              <input
-                type="color"
-                value={safe}
-                onChange={(e) => onPick(e.target.value)}
-                style={{ width: 26, height: 26, padding: 0, border: "none", background: "none", cursor: "pointer" }}
-              />
-              Custom colour
-            </label>
+      {open && (
+        <ToolPopover dark={dark} onClose={() => setOpen(false)}>
+          <div className={`text-[10px] font-bold uppercase tracking-wide mb-1.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+            Colour
           </div>
-        </>,
-        document.body,
+          <PaletteGrid colors={palette} selected={color} onPick={(hex) => { onPick(hex); setOpen(false); }} />
+          <label className={`mt-2.5 flex items-center gap-2 text-[11px] font-semibold cursor-pointer ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            <input
+              type="color"
+              value={safe}
+              onChange={(e) => onPick(e.target.value)}
+              style={{ width: 26, height: 26, padding: 0, border: "none", background: "none", cursor: "pointer" }}
+            />
+            Custom colour
+          </label>
+        </ToolPopover>
       )}
     </div>
   );
@@ -879,6 +863,21 @@ function touchSpread(touches, c) {
   for (const t of touches) s += Math.hypot(t.clientX - c.x, t.clientY - c.y);
   return s / touches.length;
 }
+// Ray-casting point-in-polygon (poly = [{x,y},...]). Used by the lasso to test
+// which node centres it encloses.
+function pointInPolygon(px, py, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    if (((yi > py) !== (yj > py)) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+// A screen-space point path → an SVG polyline path string.
+function screenPolyPath(pts) {
+  if (!pts || pts.length < 2) return "";
+  return "M" + pts.map((p) => `${p[0]},${p[1]}`).join(" L");
+}
 const TOOL_BTN_SIZE = WB_TOUCH ? "w-11 h-11" : "w-8 h-8";
 // Tool + its options caret read as one grouped row on touch.
 const TOOL_GROUP_CLS = WB_TOUCH ? "relative flex items-center" : "relative";
@@ -892,21 +891,29 @@ const CARET_CLS = WB_TOUCH
   ? "w-7 h-11 -ml-1.5 rounded-full flex items-center justify-center"
   : "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shadow";
 
-// Hosts a tool flyout. Desktop: anchored above its trigger (absolute inside
-// the tool's relative wrapper). Touch: the toolbar scrolls horizontally and
-// would clip it — portal to <body>, centered above the bar (clearance kept
-// in --wb-toolbar-clear by the toolbar measurer; -44px compensates the
-// child's own bottom-11 anchor).
+// Hosts a tool flyout. The toolbars use overflow-x-auto (which also clips
+// overflow-y), so an inline absolute flyout gets masked out. Instead we ALWAYS
+// portal to <body> into a 0-size fixed anchor placed at the trigger's top-centre
+// — the flyout's own `absolute bottom-11 left-1/2` then renders it above the
+// trigger, unclipped, identically on desktop and touch.
 function MaybeFlyoutPortal({ children }) {
-  if (!WB_TOUCH) return <>{children}</>;
-  return createPortal(
-    <div
-      className="fixed left-1/2 -translate-x-1/2 z-[80]"
-      style={{ bottom: "calc(var(--bottom-inset, 0px) + var(--wb-toolbar-clear, 64px) - 44px)" }}
-    >
-      {children}
-    </div>,
-    document.body,
+  const anchorRef = useRef(null);
+  const [pos, setPos] = useState(null);
+  useLayoutEffect(() => {
+    const wrap = anchorRef.current?.parentElement; // the tool's wrapper
+    const r = wrap?.getBoundingClientRect();
+    if (r) setPos({ left: r.left + r.width / 2, top: r.top });
+  }, []);
+  return (
+    <>
+      <span ref={anchorRef} aria-hidden style={{ position: "absolute", width: 0, height: 0 }} />
+      {pos && createPortal(
+        <div className="fixed z-[80]" style={{ left: pos.left, top: pos.top }}>
+          {children}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -1655,7 +1662,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // the pen/brush/laser handlers use POINTER events, which are unaffected.
   const blockSingleTouchInDraw = (e) => {
     if (!WB_TOUCH) return;
-    if (tool !== "pen" && tool !== "brush" && tool !== "laser") return;
+    if (tool !== "pen" && tool !== "brush" && tool !== "laser" && tool !== "lasso") return;
     if (e.touches.length === 1) e.stopPropagation();
   };
 
@@ -1713,7 +1720,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     if (!el) return undefined;
     const onTouch = (e) => {
       const tool = toolRef.current;
-      if (tool !== "pen" && tool !== "brush" && tool !== "laser") return;
+      if (tool !== "pen" && tool !== "brush" && tool !== "laser" && tool !== "lasso") return;
       const tgt = e.target;
       if (tgt instanceof Element && tgt.closest(".react-flow__panel")) return; // leave toolbars alone
       if (e.cancelable) e.preventDefault();
@@ -1849,8 +1856,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     const pr = paintRef.current;
     for (const op of ops) {
       if (op.clearall) pr?.clearAll();
-      else if (op.clear) pr?.clearRegion(op.clear);
-      else if (op.lift) { const r = pr?.readRegion(op.lift.src); pr?.clearRegion(op.lift.src); if (r) pr?.stampRegion(r, op.lift.dst); }
+      else if (op.clear) pr?.clearRegion(op.clear, op.clip);
+      else if (op.lift) { const r = pr?.readRegion(op.lift.src, op.lift.clip); pr?.clearRegion(op.lift.src, op.lift.clip); if (r) pr?.stampRegion(r, op.lift.dst); }
       else if (op.stamp) {
         if (op.stamp.canvas) pr?.stampRegion(op.stamp.canvas, op.stamp.rect);
         else if (op.stamp.img) { const im = new Image(); im.onload = () => paintRef.current?.stampRegion(im, op.stamp.rect); im.src = op.stamp.img; }
@@ -1890,6 +1897,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const moveAreaRef = useRef(null);              // → moveAreaSelection (also forward-defined)
   const commitAreaRef = useRef(null);            // → commitAreaSelection (forward-defined)
   const areaMoveRef = useRef(null);              // { pid, sx, sy, baseDx, baseDy } while dragging the floating selection
+  // Lasso tool: draw a freeform path; on release it selects strokes/notes inside
+  // the polygon + lifts the polygon-clipped brush paint into the same floating
+  // selection as the box marquee.
+  const lassoRef = useRef(null);                 // { pid, pts:[[clientX,clientY],...] } while drawing
+  const [lassoPath, setLassoPath] = useState(null); // SVG path (screen coords) for the live preview
+  const finalizeLassoRef = useRef(null);         // → finalizeLassoSelection (forward-defined)
 
   // Pen colour + width (persisted per device). A ref so the pointer handlers
   // read the latest without re-subscribing.
@@ -2048,6 +2061,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         try { const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); moveAreaRef.current?.(m.baseDx + (p.x - m.sx), m.baseDy + (p.y - m.sy)); } catch { /* */ }
         return;
       }
+      if (lassoRef.current && e.pointerId === lassoRef.current.pid) {
+        const l = lassoRef.current;
+        const last = l.pts[l.pts.length - 1];
+        if (!last || Math.abs(e.clientX - last[0]) + Math.abs(e.clientY - last[1]) > 2) {
+          l.pts.push([e.clientX, e.clientY]);
+          setLassoPath(screenPolyPath(l.pts));
+        }
+        return;
+      }
       try {
         const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
         lastPtRef.current = { x: p.x, y: p.y };
@@ -2131,6 +2153,17 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         }
         // Pointer down OFF the selection (and not on a toolbar) → place it.
         if (!e.target.closest(".react-flow__panel")) { commitAreaRef.current?.(); return; }
+      }
+      // Lasso tool: draw a freeform selection path.
+      if (mode === "lasso") {
+        if (e.button !== 0) return;
+        const at = e.target;
+        if (!(at instanceof Element) || !at.closest(".react-flow") || at.closest(".react-flow__panel")) return;
+        lassoRef.current = { pid: e.pointerId, pts: [[e.clientX, e.clientY]] };
+        setLassoPath(screenPolyPath(lassoRef.current.pts));
+        try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
+        e.preventDefault();
+        return;
       }
       // Select tool on DESKTOP: dragging the empty pane draws a region-select
       // box (folded in from the old dedicated tool). It grabs pen strokes/notes
@@ -2251,6 +2284,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (areaMoveRef.current && e.pointerId === areaMoveRef.current.pid) {
         areaMoveRef.current = null;
         try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+        return;
+      }
+      // Lasso path finished → select inside the polygon + lift clipped paint.
+      if (lassoRef.current && e.pointerId === lassoRef.current.pid) {
+        const l = lassoRef.current;
+        lassoRef.current = null;
+        setLassoPath(null);
+        try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+        finalizeLassoRef.current?.(l.pts);
         return;
       }
       // Region-select box finished → lift the enclosed strokes + paint.
@@ -3319,6 +3361,33 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   }, [rf]);
   finalizeAreaRef.current = finalizeAreaSelection;
 
+  // Lasso: same as the box, but the region is a freeform polygon — nodes are
+  // picked by centre-in-polygon and the paint is lifted clipped to the shape.
+  const finalizeLassoSelection = useCallback((screenPts) => {
+    if (!screenPts || screenPts.length < 3) return;
+    const poly = screenPts.map((p) => rf.screenToFlowPosition({ x: p[0], y: p[1] }));
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of poly) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
+    const rect = { x: minX, y: minY, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) };
+    if (rect.w < 4 && rect.h < 4) return;
+    const picked = [];
+    for (const n of rf.getNodes()) {
+      if (n.type === "zone") continue;
+      const inode = rf.getInternalNode(n.id);
+      const pos = inode?.internals?.positionAbsolute || n.position;
+      const w = n.measured?.width ?? n.width ?? 0;
+      const h = n.measured?.height ?? n.height ?? 0;
+      if (pointInPolygon(pos.x + w / 2, pos.y + h / 2, poly)) picked.push(n);
+    }
+    const before = paintRef.current?.snapshot(regionTileKeys(rect), new Map()) || new Map();
+    const hadPaint = [...before.values()].some((v) => v);
+    const raster = hadPaint ? paintRef.current?.readRegion(rect, poly) : null;
+    if (raster) paintRef.current?.clearRegion(rect, poly);
+    if (!picked.length && !raster) return;
+    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, clip: poly });
+  }, [rf]);
+  finalizeLassoRef.current = finalizeLassoSelection;
+
   // Live-move the floating selection: raster overlay + the picked nodes together.
   const moveAreaSelection = useCallback((dx, dy) => {
     const s = areaSelRef.current;
@@ -3337,7 +3406,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     const s = areaSelRef.current;
     if (!s) return;
     setAreaSel(null);
-    const { rect, raster, nodes, before, dx, dy } = s;
+    const { rect, raster, nodes, before, dx, dy, clip } = s;
     const destRect = { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h };
     if (dx === 0 && dy === 0) { if (raster) paintRef.current?.stampRegion(raster, rect); return; } // no move → drop back (peers never saw the lift)
     // dst pre-stamp pixels — peers need these to undo the move live.
@@ -3345,7 +3414,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     if (raster) {
       paintRef.current?.snapshot(regionTileKeys(destRect), before);
       paintRef.current?.stampRegion(raster, destRect);
-      broadcastPaintOps([{ lift: { src: rect, dst: destRect } }]); // peers recompute the move from their own tiles
+      broadcastPaintOps([{ lift: { src: rect, dst: destRect, clip } }]); // peers recompute the (clipped) move from their own tiles
     }
     pushExternalStep({
       undo: () => runSilent(() => {
@@ -3357,7 +3426,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         }));
       }),
       redo: () => runSilent(() => {
-        if (raster) { paintRef.current?.clearRegion(rect); paintRef.current?.stampRegion(raster, destRect); broadcastPaintOps([{ lift: { src: rect, dst: destRect } }]); }
+        if (raster) { paintRef.current?.clearRegion(rect, clip); paintRef.current?.stampRegion(raster, destRect); broadcastPaintOps([{ lift: { src: rect, dst: destRect, clip } }]); }
         setNodes((nds) => nds.map((n) => {
           const o = nodes.find((m) => m.id === n.id);
           return o ? { ...n, position: { x: o.position.x + dx, y: o.position.y + dy } } : n;
@@ -3372,19 +3441,19 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     const s = areaSelRef.current;
     if (!s) return;
     setAreaSel(null);
-    const { rect, raster, nodes, before } = s;
+    const { rect, raster, nodes, before, clip } = s;
     const ids = new Set(nodes.map((n) => n.id));
-    if (raster) broadcastPaintOps([{ clear: rect }]); // peers clear the lifted region
+    if (raster) broadcastPaintOps([{ clear: rect, clip }]); // peers clear the lifted (clipped) region
     runSilent(() => setNodes((nds) => nds.filter((n) => !ids.has(n.id))));
     pushExternalStep({
       undo: () => runSilent(() => {
         if (before) paintRef.current?.restore(before);
-        if (raster) broadcastPaintOps([{ stamp: { rect, canvas: raster } }]); // peers stamp it back
+        if (raster) broadcastPaintOps([{ stamp: { rect, canvas: raster } }]); // peers stamp it back (canvas is already clipped)
         setNodes((nds) => nds.filter((n) => !ids.has(n.id)).concat(nodes));
       }),
       redo: () => runSilent(() => {
-        paintRef.current?.clearRegion(rect);
-        broadcastPaintOps([{ clear: rect }]);
+        paintRef.current?.clearRegion(rect, clip);
+        broadcastPaintOps([{ clear: rect, clip }]);
         setNodes((nds) => nds.filter((n) => !ids.has(n.id)));
       }),
     });
@@ -3407,7 +3476,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   // Leaving the select-area tool commits any floating selection.
   useEffect(() => {
-    if (tool !== "select" && areaSelRef.current) commitAreaSelection();
+    if (tool !== "select" && tool !== "lasso" && areaSelRef.current) commitAreaSelection();
   }, [tool, commitAreaSelection]);
 
   // Clone nodes (pulling in any framed children + edges fully inside the
@@ -3927,7 +3996,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       // gesture area so taps there don't trigger an OS swipe. env() = 0 on
       // desktop, so it's a no-op there.
       className={`relative w-full overflow-hidden ${
-        tool === "pen" ? "wb-pen wb-draw " : tool === "brush" ? "wb-paint wb-draw " : tool === "laser" ? "wb-laser wb-draw " : ""
+        tool === "pen" ? "wb-pen wb-draw " : tool === "brush" ? "wb-paint wb-draw " : tool === "laser" ? "wb-laser wb-draw " : tool === "lasso" ? "wb-draw " : ""
       }${
         embedded
           ? "h-full"
@@ -3962,6 +4031,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             background: "color-mix(in srgb, var(--color-accent) 10%, transparent)",
           }}
         />
+      )}
+      {/* Lasso live path (screen coords). */}
+      {lassoPath && (
+        <svg className="fixed inset-0 z-[60] pointer-events-none" width="100%" height="100%" style={{ left: 0, top: 0 }}>
+          <path d={lassoPath} fill="color-mix(in srgb, var(--color-accent) 12%, transparent)" stroke="var(--color-accent)" strokeWidth={1.5} strokeDasharray="5 3" strokeLinejoin="round" />
+        </svg>
       )}
       {/* Region-select drag box (screen coords, like the marquee). */}
       {areaBox && (
@@ -4289,6 +4364,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             setColor={setLaserColor}
             onToggle={() => setTool((t) => (t === "laser" ? "select" : "laser"))}
           />
+          <ToolButton
+            title={tool === "lasso" ? "Lasso (on) — draw a shape to select; drag to move or ⌫ to delete" : "Lasso — freeform select strokes + paint"}
+            dark={dark}
+            active={tool === "lasso"}
+            onClick={() => setTool((t) => (t === "lasso" ? "select" : "lasso"))}
+          >
+            <Lasso className="w-4 h-4" />
+          </ToolButton>
           <ToolbarDivider dark={dark} />
           <ToolButton
             title="Delete selected"
