@@ -95,18 +95,22 @@ function strokeTile(store, session, tx, ty, touched) {
   return st;
 }
 
-// Repaint a tile from its dry snapshot + the wet layer flattened once at the
-// stroke's opacity. This is what makes overlaps/holding not darken.
-function recompose(st, opacity, mode) {
+// Repaint a tile REGION from its dry snapshot + the wet layer flattened once at
+// the stroke's opacity. This is what makes overlaps/holding not darken. Only the
+// rect that changed this frame is recomposited (a full 1024² clear+2 blits per
+// pointer move is the airbrush's mobile bottleneck); the tile outside the rect
+// still holds the correct dry pixels since we never cleared them.
+function recompose(st, opacity, mode, rx, ry, rw, rh) {
+  if (rw <= 0 || rh <= 0) return;
   const ctx = st.tile.ctx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
-  ctx.clearRect(0, 0, TILE_PX, TILE_PX);
-  ctx.drawImage(st.dry, 0, 0);
+  ctx.clearRect(rx, ry, rw, rh);
+  ctx.drawImage(st.dry, rx, ry, rw, rh, rx, ry, rw, rh);
   ctx.globalAlpha = opacity;
   ctx.globalCompositeOperation = mode === "eraser" ? "destination-out" : "source-over";
-  ctx.drawImage(st.wet, 0, 0);
+  ctx.drawImage(st.wet, rx, ry, rw, rh, rx, ry, rw, rh);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   st.tile.dirty = true;
@@ -188,26 +192,44 @@ function transparentEdge(hex) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},0)`;
 }
 
-// One soft round dab — opaque core feathering to a transparent edge (radial
-// gradient), into the wet layer. The airbrush building block; deterministic.
+// A cached soft-dab SPRITE for the stroke — the airbrush stamps thousands of
+// these, and building a fresh radialGradient per dab is the airbrush's main CPU
+// cost. Colour + radius are constant for a stroke, so render the feathered dab
+// ONCE (at device resolution) and reuse it. Cheap `drawImage` replaces the
+// per-dab gradient + fill.
+function airSprite(session, brush, r) {
+  const cur = session.sprite;
+  if (cur && cur.r === r && cur.color === brush.color) return cur.canvas;
+  const px = Math.max(2, Math.ceil(2 * r * PX_PER_UNIT));
+  const c = document.createElement("canvas");
+  c.width = px; c.height = px;
+  const g = c.getContext("2d");
+  const mid = px / 2;
+  const grad = g.createRadialGradient(mid, mid, 0, mid, mid, mid);
+  grad.addColorStop(0, brush.color);
+  grad.addColorStop(0.35, brush.color);
+  grad.addColorStop(1, transparentEdge(brush.color));
+  g.fillStyle = grad;
+  g.beginPath();
+  g.arc(mid, mid, mid, 0, Math.PI * 2);
+  g.fill();
+  session.sprite = { canvas: c, r, color: brush.color };
+  return c;
+}
+
+// One soft round dab — opaque core feathering to a transparent edge — into the
+// wet layer, stamped from the cached sprite. The airbrush building block.
 function softDab(store, session, x, y, r, brush, alpha, touched) {
   if (r <= 0) return;
+  const sprite = airSprite(session, brush, r);
   const { t0x, t1x, t0y, t1y } = tileRange(x - r, y - r, x + r, y + r);
-  const edge = transparentEdge(brush.color);
   for (let ty = t0y; ty <= t1y; ty++) {
     for (let tx = t0x; tx <= t1x; tx++) {
       const st = strokeTile(store, session, tx, ty, touched);
       const ctx = st.wctx;
       paintInto(ctx, tx * TILE_UNITS, ty * TILE_UNITS, brush);
       ctx.globalAlpha = alpha;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, brush.color);
-      g.addColorStop(0.35, brush.color);
-      g.addColorStop(1, edge);
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.drawImage(sprite, x - r, y - r, 2 * r, 2 * r);
     }
   }
 }
@@ -306,7 +328,13 @@ export function applyPaintChunk(store, chunk) {
   let prev = session.prev;
   let i = session.i;
   const touched = new Set();
+  // Track the flow-space bbox of ink laid down this call, so we recomposite only
+  // the region that changed (not the whole tile).
+  let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+  const grow = (x, y) => { if (x < bx0) bx0 = x; if (y < by0) by0 = y; if (x > bx1) bx1 = x; if (y > by1) by1 = y; };
   for (const [x, y] of pts) {
+    if (prev) grow(prev[0], prev[1]);
+    grow(x, y);
     if (texture === "airbrush") {
       airbrushSegment(store, session, prev ? prev[0] : x, prev ? prev[1] : y, x, y, brush, touched);
     } else if (texture === "pencil") {
@@ -319,9 +347,18 @@ export function applyPaintChunk(store, chunk) {
     prev = [x, y];
     i++;
   }
+  const pad = brush.size; // covers the nib half-width + any grain/spray scatter
   for (const key of touched) {
     const st = session.tiles.get(key);
-    if (st) recompose(st, opacity, brush.mode);
+    if (!st) continue;
+    const us = key.indexOf("_");
+    const ox = parseInt(key.slice(0, us), 10) * TILE_UNITS;
+    const oy = parseInt(key.slice(us + 1), 10) * TILE_UNITS;
+    const rx = Math.max(0, Math.floor((Math.max(bx0 - pad, ox) - ox) * PX_PER_UNIT));
+    const ry = Math.max(0, Math.floor((Math.max(by0 - pad, oy) - oy) * PX_PER_UNIT));
+    const rr = Math.min(TILE_PX, Math.ceil((Math.min(bx1 + pad, ox + TILE_UNITS) - ox) * PX_PER_UNIT));
+    const rb = Math.min(TILE_PX, Math.ceil((Math.min(by1 + pad, oy + TILE_UNITS) - oy) * PX_PER_UNIT));
+    recompose(st, opacity, brush.mode, rx, ry, rr - rx, rb - ry);
   }
   if (chunk.end) store.strokes.delete(chunk.id);
   else { session.prev = prev; session.i = i; }
