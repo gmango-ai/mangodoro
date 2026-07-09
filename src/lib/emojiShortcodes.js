@@ -41,6 +41,18 @@ export const EMOJI_SHORTCODES = {
   earth: "🌍", seedling: "🌱", four_leaf_clover: "🍀", rose: "🌹", sunflower: "🌻",
   dog: "🐶", cat: "🐱", unicorn: "🦄", penguin: "🐧", turtle: "🐢", snail: "🐌",
   mango: "🥭", tangerine: "🍊",
+
+  // Natural-language aliases people actually reach for (:happy:, :love:, …).
+  happy: "😄", sad: "😢", laugh: "😆", lol: "😂", crying: "😭", love: "❤️",
+  angry_face: "😠", mad: "😡", wow: "😮", omg: "😲", ok: "👌", okay: "👌",
+  yes: "✅", no: "❌", thanks: "🙏", thank_you: "🙏", please: "🙏", cool: "😎",
+  think: "🤔", shrug: "🤷", facepalm: "🤦", eyeroll: "🙄", kiss: "😘", hug: "🤗",
+  cross: "❌", tick: "✔️", done: "✅", nice: "👍", yay: "🎉", woohoo: "🎉",
+  celebrate: "🎉", party_popper: "🎉", clapping: "👏", goodbye: "👋", hi: "👋",
+  hello: "👋", scared: "😱", shock: "😱", nervous: "😅", oops: "😬", grimace: "😬",
+  drool: "🤤", sick: "🤢", dead: "💀", cool_sunglasses: "😎", heart_eyes_alt: "😍",
+  love_you: "🥰", smiling: "🥰", grateful: "🙏", high_five: "🙌", perfect: "💯",
+  bullseye: "🎯", target: "🎯", idea: "💡", coffee_break: "☕", lunch: "🍽️",
 };
 
 const RE = /:([a-z0-9_+-]+):/gi;

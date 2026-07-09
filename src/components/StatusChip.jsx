@@ -7,6 +7,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import { availabilityDot, availabilityLabel } from "../lib/presence";
 import { formatSince } from "../lib/utils";
 import { applyStatusOverride, clearStatusOverride, setStatusPin, setStatusInvisible } from "../lib/statusActions";
+import EmojiTextField from "./EmojiTextField";
 import Popover from "./goals/Popover";
 
 // The always-visible self status chip + setter (plan §5). Label/light/duration
@@ -118,7 +119,7 @@ export default function StatusChip() {
 
         {/* Message — Enter sets it against the current/derived state. */}
         <div className="px-1 pb-1.5">
-          <input
+          <EmojiTextField
             value={msg}
             onChange={(e) => setMsg(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") apply(overridden ? availability : "online"); }}

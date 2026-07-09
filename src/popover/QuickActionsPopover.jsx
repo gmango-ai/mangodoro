@@ -18,6 +18,7 @@ import { usePopoverAutoResize } from "./usePopoverAutoResize";
 import { useResolvedSelf } from "../hooks/useResolvedSelf";
 import { applyStatusOverride } from "../lib/statusActions";
 import { availabilityDot } from "../lib/presence";
+import EmojiTextField from "../components/EmojiTextField";
 
 /**
  * Electron menu-bar popover. Three pages on a tab strip — Pomodoro,
@@ -717,7 +718,7 @@ function StatusBlock({ dark }) {
           </select>
         </div>
       </div>
-      <input
+      <EmojiTextField
         type="text"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

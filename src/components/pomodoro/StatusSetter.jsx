@@ -5,6 +5,7 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import { useResolvedSelf } from "../../hooks/useResolvedSelf";
 import { availabilityDot, availabilityLabel } from "../../lib/presence";
 import { applyStatusOverride } from "../../lib/statusActions";
+import EmojiTextField from "../EmojiTextField";
 
 // Click-to-expand status editor on the pomodoro surface. Reads the live resolved
 // status (useResolvedSelf) and writes the unified manual override
@@ -83,7 +84,7 @@ export default function StatusSetter({ currentTaskHint = "" }) {
           );
         })}
       </div>
-      <input
+      <EmojiTextField
         type="text"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
