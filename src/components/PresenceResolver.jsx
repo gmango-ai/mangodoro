@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useResolvedSelf } from "../hooks/useResolvedSelf";
-import { useApp } from "../context/AppContext";
-import { useSyncSession } from "../context/SyncSessionContext";
 import { usePresenceLeader } from "../hooks/usePresenceLeader";
 import { presenceSignature, shouldWritePresence } from "../lib/presenceWrite";
 import { upsertUserPresence, touchPresenceHeartbeat } from "../lib/userPresence";
 import { recordPresenceSample } from "../hooks/usePresenceTimeline";
-import { AVAIL_TO_LEGACY } from "../lib/statusActions";
 
 // Seam ① persistence — the app's SINGLE, leader-owned status writer.
 //
@@ -16,24 +13,23 @@ import { AVAIL_TO_LEGACY } from "../lib/statusActions";
 //   • writes the user_presence snapshot (throttled; availability transitions
 //     bypass the throttle), stamping last_seen_at;
 //   • HEARTBEATS last_seen_at between snapshot writes so the server sweep (P3)
-//     can flip a dead client to 'offline' — a closed tab can't self-clear;
-//   • still mirrors to the legacy surfaces (user_settings.presence_state via
-//     updateStatus, sync_session_participants via setStatus) until P4 migrates
-//     those consumers onto user_presence.
+//     can flip a dead client to 'offline' — a closed tab can't self-clear.
+// P4 removed the per-tick legacy write-through (auto-derived status): every
+// surface now reads user_presence. A manual set/clear still mirrors to the
+// legacy user_settings/sync-participant columns (via applyStatusOverride) so
+// the in-room status TEXT stays fresh until those columns are dropped.
 // Retries: the snapshot signature is only advanced on a successful write, so a
 // transient error re-attempts on the next tick instead of stranding the row.
 const HEARTBEAT_MS = 45_000;
 
 export default function PresenceResolver() {
   const { resolved, userId, teamId } = useResolvedSelf();
-  const { updateStatus } = useApp();
-  const { syncSession, setStatus } = useSyncSession();
   const isLeader = usePresenceLeader();
 
   const ref = useRef({});
-  ref.current = { resolved, userId, teamId, syncSession, updateStatus, setStatus, isLeader };
+  ref.current = { resolved, userId, teamId, isLeader };
 
-  const wr = useRef({ prevSig: null, lastWriteAt: null, lastBeatAt: 0, legacySig: null });
+  const wr = useRef({ prevSig: null, lastWriteAt: null, lastBeatAt: 0 });
   const overrideSigRef = useRef(null);
 
   const tick = useCallback(async (force = false) => {
@@ -47,19 +43,6 @@ export default function PresenceResolver() {
 
     // Only the leader persists to the shared DB.
     if (!s.isLeader) return;
-
-    // Write-through to the legacy surfaces, deduped on the mapped value so we
-    // don't re-hit the RPCs every tick. (Manual set/clear already mirror
-    // immediately via statusActions; this covers auto-derived changes.)
-    const legacy = AVAIL_TO_LEGACY[s.resolved.availability] || "available";
-    const statusText = s.resolved.override?.message || "";
-    const roomId = s.syncSession?.id || null;
-    const legacySig = `${legacy}|${statusText}|${roomId}`;
-    if (legacySig !== wr.current.legacySig) {
-      wr.current.legacySig = legacySig;
-      try { s.updateStatus?.({ presenceState: legacy, status: statusText }); } catch { /* */ }
-      if (s.syncSession) { try { s.setStatus?.({ presenceState: legacy, status: statusText }); } catch { /* */ } }
-    }
 
     // user_presence snapshot (throttled / transition-bypass) or, if nothing
     // changed, a lightweight heartbeat so last_seen_at stays fresh.
