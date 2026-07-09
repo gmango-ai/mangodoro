@@ -54,11 +54,6 @@ function persistCollapsedGroupKeys(set) {
   }
 }
 
-function priorityLabel(p) {
-  const labels = ["—", "Low", "Med", "High"];
-  return labels[Math.min(3, Math.max(0, p | 0))] ?? "—";
-}
-
 function CollapsibleProjectGroup({
   groupId,
   heading,
@@ -436,177 +431,147 @@ function PlannerTaskRow({
   }, [t.id, t.notes]);
 
   const pri = t.priority | 0;
-  const priChip =
-    pri >= 3
-      ? dark
-        ? "bg-rose-500/20 text-rose-200 border-rose-500/30"
-        : "bg-rose-50 text-rose-800 border-rose-200/80"
-      : pri === 2
-        ? dark
-          ? "bg-amber-500/15 text-amber-200 border-amber-500/25"
-          : "bg-amber-50 text-amber-900 border-amber-200/80"
-        : pri === 1
-          ? dark
-            ? "bg-slate-600/40 text-slate-300 border-slate-500/40"
-            : "bg-slate-100 text-slate-700 border-slate-200"
-          : dark
-            ? "bg-[var(--color-surface-raised)] text-slate-500 border-slate-600/50"
-            : "bg-slate-50 text-slate-500 border-slate-200/90";
+  const priMeta = [
+    null,
+    { label: "Low", dot: "bg-slate-400" },
+    { label: "Med", dot: "bg-amber-500" },
+    { label: "High", dot: "bg-rose-500" },
+  ][Math.min(3, Math.max(0, pri))];
+
+  const complete = t.done;
+  const headerPct = hasSubtasks ? subProg.pct : committedPct;
+  const [expanded, setExpanded] = useState(false);
+
+  const softBtn = dark
+    ? "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50"
+    : "text-slate-400 hover:text-slate-600 hover:bg-slate-100";
 
   return (
     <li
-      className={`rounded-2xl border transition-colors ${
-        t.inProgress
+      className={`group rounded-xl border transition-all ${
+        t.inProgress && !complete
           ? dark
-            ? "border-[var(--color-accent)] bg-gradient-to-b from-[var(--color-accent-light)] to-slate-950/40"
-            : "border-[var(--color-accent)] bg-gradient-to-b from-[var(--color-accent-light)] to-white"
+            ? "border-[var(--color-accent)]/70 bg-[var(--color-accent-light)]/25"
+            : "border-[var(--color-accent)]/60 bg-[var(--color-accent-light)]/40"
           : dark
-            ? "border-slate-700/70 bg-[var(--color-bg)]/40"
-            : "border-slate-200/90 bg-white"
+            ? "border-slate-700/70 bg-[var(--color-bg)]/40 hover:border-slate-600/90"
+            : "border-slate-200/90 bg-white hover:border-slate-300"
       }`}
     >
-      <div className="p-3.5 sm:p-4 space-y-3">
-        <div className="flex gap-3">
-          <Checkbox
-            checked={t.done}
-            onCheckedChange={() => onToggleDone(t)}
-            className="mt-1 shrink-0"
-            disabled={disabled}
-            aria-label={t.done ? "Mark not done" : "Mark done"}
-          />
-          <div className="flex-1 min-w-0 space-y-2">
-            <div className="flex items-start justify-between gap-2">
-              <p
-                className={`text-[15px] sm:text-sm font-medium leading-snug ${
-                  t.done ? "line-through opacity-60" : ""
-                } ${dark ? "text-slate-100" : "text-slate-900"}`}
-              >
-                {t.title || "(empty)"}
-              </p>
-              {reorder && (
-                <div className="flex shrink-0 gap-0.5 -mr-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    title="Move up in this project"
-                    disabled={disabled || !reorder.canUp}
-                    onClick={() => reorder.onReorder("up")}
-                    aria-label="Move task up"
-                  >
-                    <ChevronUp className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    title="Move down in this project"
-                    disabled={disabled || !reorder.canDown}
-                    onClick={() => reorder.onReorder("down")}
-                    aria-label="Move task down"
-                  >
-                    <ChevronDown className="w-4 h-4" />
-                  </Button>
-                </div>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-              {showDateBadge && dateBadgeStr && (
-                <span
-                  className={`font-medium px-2 py-0.5 rounded-md border ${
-                    dark ? "bg-slate-800/80 border-slate-600 text-slate-300" : "bg-slate-100 border-slate-200 text-slate-600"
-                  }`}
-                >
-                  {dateBadgeStr}
-                </span>
-              )}
-              <span className={`tabular-nums font-medium ${dark ? "text-amber-200/90" : "text-amber-800"}`}>
-                {t.pointsAwardedForTask}/{maxPoints} pts
+      {/* Header — compact, click title/chevron to expand */}
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <Checkbox
+          checked={t.done}
+          onCheckedChange={() => onToggleDone(t)}
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0"
+          disabled={disabled}
+          aria-label={t.done ? "Mark not done" : "Mark done"}
+        />
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex-1 min-w-0 text-left"
+          aria-expanded={expanded}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={`truncate text-sm font-medium leading-snug ${complete ? "line-through opacity-55" : ""} ${
+                dark ? "text-slate-100" : "text-slate-900"
+              }`}
+            >
+              {t.title || "(empty)"}
+            </span>
+            {t.inProgress && !complete && (
+              <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border border-[var(--color-accent)] text-[var(--color-accent)] bg-[var(--color-accent-light)]">
+                <Focus className="w-2.5 h-2.5" /> Focus
               </span>
-              <span
-                className={`px-2 py-0.5 rounded-md border text-[10px] font-semibold uppercase tracking-wide ${priChip}`}
-              >
-                {priorityLabel(pri)}
-              </span>
-              {t.inProgress && !t.done && (
-                <span
-                  className={`inline-flex items-center gap-1 font-semibold uppercase tracking-wide px-2 py-0.5 rounded-md border ${
-                    "border-[var(--color-accent)] text-[var(--color-accent)] bg-[var(--color-accent-light)]"
-                  }`}
-                >
-                  <Focus className="w-3 h-3" />
-                  Focus
-                </span>
-              )}
-            </div>
+            )}
           </div>
-        </div>
+          <div className={`flex items-center gap-x-2.5 gap-y-0.5 flex-wrap mt-1 text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            {priMeta && (
+              <span className="inline-flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${priMeta.dot}`} />
+                {priMeta.label}
+              </span>
+            )}
+            {hasSubtasks && (
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <ListChecks className="w-3 h-3" />
+                {subProg.done}/{subProg.total}
+              </span>
+            )}
+            <span className={`tabular-nums ${complete ? (dark ? "text-emerald-400/90" : "text-emerald-700") : dark ? "text-amber-200/80" : "text-amber-700/90"}`}>
+              {t.pointsAwardedForTask}/{maxPoints} pts
+            </span>
+            {showDateBadge && dateBadgeStr && <span className="tabular-nums">{dateBadgeStr}</span>}
+          </div>
+        </button>
+        {!complete && (
+          <span className={`shrink-0 text-[11px] tabular-nums ${dark ? "text-slate-400" : "text-slate-500"}`}>{headerPct}%</span>
+        )}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className={`shrink-0 p-1 rounded-md transition-colors ${softBtn}`}
+          aria-label={expanded ? "Collapse task" : "Expand task"}
+        >
+          <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </button>
+      </div>
 
-        {!t.done && (
-          <div className={`space-y-3 pt-1 border-t ${dark ? "border-[var(--color-border)]" : "border-slate-100"}`}>
+      {/* Thin at-a-glance progress bar */}
+      {!complete && (
+        <div className={`mx-3 -mt-1 mb-2.5 h-1 rounded-full overflow-hidden ${dark ? "bg-slate-700/50" : "bg-slate-100"}`}>
+          <div className="h-full rounded-full bg-[var(--color-accent)] transition-all" style={{ width: `${headerPct}%` }} />
+        </div>
+      )}
+
+      {/* Expanded editing panel */}
+      {expanded && (
+        <div className={`px-3 pb-3 pt-3 space-y-3 border-t ${dark ? "border-[var(--color-border)]" : "border-slate-100"}`}>
+          {!complete && !hasSubtasks && (
             <div>
               <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span className={`text-[11px] font-medium ${dark ? "text-slate-400" : "text-slate-600"}`}>
-                  Progress
-                </span>
-                <span className={`text-[11px] tabular-nums ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                  {hasSubtasks ? `${subProg.done}/${subProg.total} · ${subProg.pct}%` : `${sliderShown}%`}
-                </span>
+                <span className={`text-[11px] font-medium ${dark ? "text-slate-400" : "text-slate-600"}`}>Progress</span>
+                <span className={`text-[11px] tabular-nums ${dark ? "text-slate-400" : "text-slate-500"}`}>{sliderShown}%</span>
               </div>
-              {hasSubtasks ? (
-                <>
-                  <div className={`w-full h-2 rounded-full overflow-hidden ${dark ? "bg-slate-700/60" : "bg-slate-200"}`}>
-                    <div className="h-full rounded-full bg-[var(--color-accent)] transition-all" style={{ width: `${subProg.pct}%` }} />
-                  </div>
-                  <p className={`text-[10px] mt-1.5 ${dark ? "text-slate-500" : "text-slate-500"}`}>
-                    Progress is driven by your subtasks — check off when done for full credit.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <input
-                    type="range"
-                    min={0}
-                    max={99}
-                    step={1}
-                    value={sliderShown}
-                    disabled={disabled}
-                    onInput={(e) => setDragPct(Number(e.target.value))}
-                    onPointerUp={async (e) => {
-                      const v = Number(e.currentTarget.value);
-                      try {
-                        await onProgressChange(t, v);
-                      } finally {
-                        setDragPct(null);
-                      }
-                    }}
-                    onPointerCancel={() => setDragPct(null)}
-                    onKeyUp={async (e) => {
-                      if (
-                        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(
-                          e.key,
-                        )
-                      ) {
-                        try {
-                          await onProgressChange(t, Number(e.currentTarget.value));
-                        } finally {
-                          setDragPct(null);
-                        }
-                      }
-                    }}
-                    className={`w-full h-2 rounded-full cursor-pointer disabled:opacity-50 ${
-                      dark ? "accent-cyan-500" : "accent-teal-600"
-                    }`}
-                    aria-label="Task progress percent"
-                  />
-                  <p className={`text-[10px] mt-1.5 ${dark ? "text-slate-500" : "text-slate-500"}`}>
-                    Up to 99% for partial points — check off when done for full credit.
-                  </p>
-                </>
-              )}
+              <input
+                type="range"
+                min={0}
+                max={99}
+                step={1}
+                value={sliderShown}
+                disabled={disabled}
+                onInput={(e) => setDragPct(Number(e.target.value))}
+                onPointerUp={async (e) => {
+                  const v = Number(e.currentTarget.value);
+                  try {
+                    await onProgressChange(t, v);
+                  } finally {
+                    setDragPct(null);
+                  }
+                }}
+                onPointerCancel={() => setDragPct(null)}
+                onKeyUp={async (e) => {
+                  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(e.key)) {
+                    try {
+                      await onProgressChange(t, Number(e.currentTarget.value));
+                    } finally {
+                      setDragPct(null);
+                    }
+                  }
+                }}
+                className={`w-full h-2 rounded-full cursor-pointer disabled:opacity-50 ${dark ? "accent-cyan-500" : "accent-teal-600"}`}
+                aria-label="Task progress percent"
+              />
+              <p className={`text-[10px] mt-1.5 ${dark ? "text-slate-500" : "text-slate-500"}`}>
+                Drag for partial credit, or add subtasks to track progress automatically.
+              </p>
             </div>
+          )}
+
+          {!complete && (
             <SubtaskSection
               task={t}
               subtasks={subs}
@@ -617,142 +582,22 @@ function PlannerTaskRow({
               onToggleSubtask={onToggleSubtask}
               onDeleteSubtask={onDeleteSubtask}
             />
-            <div>
-              <label
-                htmlFor={`task-note-${t.id}`}
-                className={`block text-[11px] font-medium mb-1 ${dark ? "text-slate-400" : "text-slate-600"}`}
-              >
-                Notes <span className="font-normal opacity-75">(optional)</span>
-              </label>
-              <Textarea
-                id={`task-note-${t.id}`}
-                rows={2}
-                placeholder="What is left to do, blockers, next steps…"
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                disabled={disabled}
-                className={`text-xs min-h-[52px] resize-y ${inputCls}`}
-                onBlur={() => onNotesChange(t, noteDraft)}
-              />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <Select
-                value={t.projectId ?? "__none__"}
-                onValueChange={(v) => onProjectChange(t, v === "__none__" ? null : v)}
-                disabled={disabled}
-              >
-                <SelectTrigger className={`h-9 text-xs ${inputCls}`} aria-label="Project">
-                  <SelectValue placeholder="Project" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No project</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={String(t.priority)}
-                onValueChange={(v) => onPriorityChange(t, Number(v))}
-                disabled={disabled || t.done}
-              >
-                <SelectTrigger className={`h-9 text-xs ${inputCls}`} aria-label="Priority">
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRIORITY_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9 text-xs gap-1.5"
-                title="Mark as what you are working on now"
-                onClick={() => onSetFocus(t)}
-                disabled={disabled}
-              >
-                <Focus className="w-3.5 h-3.5" />
-                Focus
-              </Button>
-              {onMoveToDate && moveDestinations && moveDestinations.length > 0 && (
-                <Select
-                  key={`mv-${t.id}-${String(t.plannerDate)}`}
-                  onValueChange={(value) => {
-                    const opt = moveDestinations.find((o) => o.value === value);
-                    if (opt) onMoveToDate(t, opt.targetDate);
-                  }}
-                  disabled={disabled}
-                >
-                  <SelectTrigger
-                    className={`h-9 w-full min-w-[140px] sm:w-[160px] text-xs ${inputCls}`}
-                    aria-label="Move task to"
-                  >
-                    <SelectValue placeholder="Move to…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {moveDestinations.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className={`h-9 text-xs ml-auto ${dark ? "text-slate-400 hover:text-red-400" : "text-slate-600 hover:text-red-600"}`}
-                title="Remove task"
-                onClick={() => onDelete(t.id)}
-                disabled={disabled}
-              >
-                <Trash2 className="w-3.5 h-3.5 mr-1" />
-                Delete
-              </Button>
-            </div>
-          </div>
-        )}
+          )}
 
-        {t.done && t.notes?.trim() && (
-          <p
-            className={`text-xs leading-snug whitespace-pre-wrap rounded-xl border px-3 py-2.5 ${
-              dark ? "border-slate-600/70 bg-[var(--color-surface)] text-slate-300" : "border-slate-200 bg-slate-50/80 text-slate-700"
-            }`}
-          >
-            <span className={`font-medium ${dark ? "text-slate-500" : "text-slate-500"}`}>Notes · </span>
-            {t.notes.trim()}
-          </p>
-        )}
-        {t.done && (
-          <p
-            className={`text-[11px] font-medium tabular-nums pt-0.5 ${dark ? "text-emerald-400/95" : "text-emerald-700"}`}
-          >
-            {t.pointsAwardedForTask}/{maxPoints} pts · complete
-          </p>
-        )}
+          <Textarea
+            id={`task-note-${t.id}`}
+            rows={2}
+            placeholder="Notes — what's left, blockers, next steps…"
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+            disabled={disabled}
+            className={`text-xs min-h-[48px] resize-y ${inputCls}`}
+            onBlur={() => onNotesChange(t, noteDraft)}
+          />
 
-        {t.done && (
-          <div
-            className={`flex flex-wrap items-center justify-between gap-2 pt-2 border-t ${
-              dark ? "border-[var(--color-border)]" : "border-slate-100"
-            }`}
-          >
-            <Select
-              value={t.projectId ?? "__none__"}
-              onValueChange={(v) => onProjectChange(t, v === "__none__" ? null : v)}
-              disabled={disabled}
-            >
-              <SelectTrigger className={`h-9 text-xs w-full min-w-[160px] max-w-xs ${inputCls}`} aria-label="Project">
+          <div className="grid grid-cols-2 gap-2">
+            <Select value={t.projectId ?? "__none__"} onValueChange={(v) => onProjectChange(t, v === "__none__" ? null : v)} disabled={disabled}>
+              <SelectTrigger className={`h-8 text-xs ${inputCls}`} aria-label="Project">
                 <SelectValue placeholder="Project" />
               </SelectTrigger>
               <SelectContent>
@@ -764,20 +609,73 @@ function PlannerTaskRow({
                 ))}
               </SelectContent>
             </Select>
+            <Select value={String(t.priority)} onValueChange={(v) => onPriorityChange(t, Number(v))} disabled={disabled || complete}>
+              <SelectTrigger className={`h-8 text-xs ${inputCls}`} aria-label="Priority">
+                <SelectValue placeholder="Priority" />
+              </SelectTrigger>
+              <SelectContent>
+                {PRIORITY_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {reorder && (
+              <div className="flex gap-0.5">
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Move up" disabled={disabled || !reorder.canUp} onClick={() => reorder.onReorder("up")} aria-label="Move task up">
+                  <ChevronUp className="w-4 h-4" />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Move down" disabled={disabled || !reorder.canDown} onClick={() => reorder.onReorder("down")} aria-label="Move task down">
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+            {!complete && (
+              <Button type="button" variant="outline" size="sm" className="h-8 text-xs gap-1.5" title="Mark as what you are working on now" onClick={() => onSetFocus(t)} disabled={disabled}>
+                <Focus className="w-3.5 h-3.5" />
+                Focus
+              </Button>
+            )}
+            {!complete && onMoveToDate && moveDestinations && moveDestinations.length > 0 && (
+              <Select
+                key={`mv-${t.id}-${String(t.plannerDate)}`}
+                onValueChange={(value) => {
+                  const opt = moveDestinations.find((o) => o.value === value);
+                  if (opt) onMoveToDate(t, opt.targetDate);
+                }}
+                disabled={disabled}
+              >
+                <SelectTrigger className={`h-8 min-w-[120px] text-xs ${inputCls}`} aria-label="Move task to">
+                  <SelectValue placeholder="Move to…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {moveDestinations.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              className={`h-9 text-xs shrink-0 ${dark ? "text-slate-400 hover:text-red-400" : "text-slate-600 hover:text-red-600"}`}
+              size="icon"
+              className={`h-8 w-8 ml-auto ${dark ? "text-slate-400 hover:text-red-400" : "text-slate-500 hover:text-red-600"}`}
+              title="Remove task"
               onClick={() => onDelete(t.id)}
               disabled={disabled}
+              aria-label="Delete task"
             >
-              <Trash2 className="w-3.5 h-3.5 mr-1" />
-              Delete
+              <Trash2 className="w-4 h-4" />
             </Button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </li>
   );
 }

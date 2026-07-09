@@ -70,3 +70,15 @@ export function subtaskProgress(subs) {
   const done = (subs || []).filter((s) => s.done).length;
   return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
+
+// Lightweight { parentId: {done,total,pct} } maps for surfacing counts (chips,
+// cards) without materializing full subtask rows in the caller.
+export async function fetchSubtaskCounts({ plannerIds = [], personalIds = [] } = {}) {
+  const { byPlanner, byPersonal } = await listSubtasks({ plannerIds, personalIds });
+  const toCounts = (map) => {
+    const out = {};
+    map.forEach((subs, id) => { out[id] = subtaskProgress(subs); });
+    return out;
+  };
+  return { byPlanner: toCounts(byPlanner), byPersonal: toCounts(byPersonal) };
+}
