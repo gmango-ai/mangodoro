@@ -169,6 +169,26 @@
    gridwrap scrolls. Give day cells room so nothing clips. */
 .cal-ocean__gridwrap--expanded { overflow-y: auto; }
 .cal-ocean__gridwrap--expanded .fc .fc-daygrid-day-frame { min-height: 120px; }
+/* Expanded view has the vertical room: give the NAME the full width across up to
+   2 lines, with the time on its own row beneath (≤3 rows total). Scoped to event
+   chips so the "Office/Home" context bands keep their inline icon+label. The
+   leading dot is dropped — the block/border already carries the colour. */
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+}
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) .cdot,
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) .cbox { display: none; }
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) .ctitle {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) .ctime { margin-left: 0; }
 
 /* mini-month */
 .cal-ocean__mini { }
@@ -269,8 +289,18 @@
 .cal-chip2:hover { transform: translateY(-1px); filter: brightness(0.97); }
 .cal-chip2 .cdot { width: 6px; height: 6px; border-radius: 999px; flex: none; }
 .cal-chip2 .ctime { font-family: var(--o-mono); font-size: 9.5px; opacity: 0.8; flex: none; }
-.cal-chip2 .ctitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* min-width:0 lets the name ellipsise so the trailing time stays visible
+   (the name now leads in every view — see chipContent). */
+.cal-chip2 .ctitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
 .cal-chip2.done .ctitle { text-decoration: line-through; opacity: 0.6; }
+/* Week/Day blocks lead with the NAME on its own line, time beneath (see
+   chipContent) — the tall time-grid block has the room, and it keeps the title
+   from being squeezed out by the fixed-width time in a narrow column. Title
+   stays a single ellipsised line (stretch → clips to the block width) so a long
+   name can't wrap tall and bleed into overlapping events. */
+.cal-chip2--stack { flex-direction: column; align-items: stretch; gap: 0; justify-content: flex-start; }
+.cal-chip2--stack .ctitle { line-height: 1.25; }
+.cal-chip2--stack .ctime { margin-left: 0; }
 
 /* Tasks read as to-dos, NOT events: outlined chip (transparent fill) + a hollow
    checkbox glyph instead of a solid dot. */
@@ -361,5 +391,66 @@
 @keyframes cal-fade { from { opacity: 0; } to { opacity: 1; } }
 
 /* ── responsive: drop rails on small screens ───────────── */
-@media (max-width: 1180px) { .cal-ocean__rail--left { display: none; } }
-@media (max-width: 920px)  { .cal-ocean__rail--right { display: none; } .cal-ocean__gridwrap { padding: 12px; } }
+/* Toolbar toggles + in-drawer closes are desktop-hidden; they only appear at the
+   breakpoint where each rail collapses into an overlay drawer (left ≤1180px,
+   right ≤920px). */
+.cal-ocean__railtoggle   { display: none; }
+.cal-ocean__railtoggle-r { display: none; }
+.cal-ocean__railclose    { display: none; }
+.cal-ocean__railclose-r  { display: none; }
+.cal-ocean__railscrim    { display: none; }
+
+@media (max-width: 1180px) {
+  .cal-ocean__rail--left { display: none; }
+  .cal-ocean__railtoggle { display: inline-flex; }
+  /* Revealed as a left overlay drawer (the shell's .cal-ocean is positioned). */
+  .cal-ocean__rail--left.is-open {
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    z-index: 40;
+    width: 292px; max-width: 86vw;
+    background: var(--o-surface-page);
+    box-shadow: 0 14px 44px rgba(11, 42, 58, .28);
+    animation: cal-rail-in 170ms var(--o-ease-out, ease-out);
+    padding-top: 44px; /* room for the close button */
+  }
+  .cal-ocean__railclose {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: absolute; top: 10px; right: 10px; z-index: 1;
+    width: 30px; height: 30px; border: none; border-radius: var(--o-radius-sm);
+    background: var(--o-sand-100); color: var(--o-ink-600); cursor: pointer;
+  }
+  .cal-ocean__railclose:hover { background: var(--o-sand-200, var(--o-sand-100)); color: var(--o-ink-800); }
+  .cal-ocean__railscrim.is-open {
+    display: block; position: absolute; inset: 0; z-index: 39;
+    background: rgba(11, 42, 58, .32); animation: cal-fade 170ms var(--o-ease-out, ease-out);
+  }
+}
+@keyframes cal-rail-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+
+@media (max-width: 920px) {
+  .cal-ocean__rail--right { display: none; }
+  .cal-ocean__gridwrap { padding: 12px; }
+  .cal-ocean__railtoggle-r { display: inline-flex; }
+  /* Revealed as a RIGHT overlay drawer. */
+  .cal-ocean__rail--right.is-open {
+    display: block;
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    z-index: 40;
+    width: 340px; max-width: 88vw;
+    background: var(--o-surface-page);
+    box-shadow: -14px 0 44px rgba(11, 42, 58, .28);
+    animation: cal-rail-in-r 170ms var(--o-ease-out, ease-out);
+    padding-top: 44px;
+  }
+  .cal-ocean__railclose-r {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: absolute; top: 10px; left: 10px; z-index: 1;
+    width: 30px; height: 30px; border: none; border-radius: var(--o-radius-sm);
+    background: var(--o-sand-100); color: var(--o-ink-600); cursor: pointer;
+  }
+  .cal-ocean__railclose-r:hover { background: var(--o-sand-200, var(--o-sand-100)); color: var(--o-ink-800); }
+}
+@keyframes cal-rail-in-r { from { transform: translateX(100%); } to { transform: translateX(0); } }

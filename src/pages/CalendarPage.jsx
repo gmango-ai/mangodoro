@@ -5,7 +5,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import listPlugin from "@fullcalendar/list";
 import interactionPlugin from "@fullcalendar/interaction";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, CalendarClock, CheckSquare, User, Users, Home, Target, Umbrella, AlertTriangle } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, CalendarClock, CheckSquare, User, Users, Home, Target, Umbrella, AlertTriangle, PanelLeft, PanelRight, X, LayoutGrid, Columns3, RectangleVertical, Maximize2 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
@@ -23,6 +23,7 @@ import {
   updateMeetingTime, updatePlannerSchedule, updateTaskDue, updatePersonalDue,
   updatePlannerTaskFields, createPlannerTask, fetchOpenPlannerTasks, saveWorkLocationOverrides,
 } from "../lib/calendar";
+import { cacheGoogleEvents, loadGoogleCache } from "../lib/googleCache";
 import Modal from "../components/Modal";
 import { oceanType, OCEAN_LEGEND } from "../components/calendar/oceanTheme";
 import MiniMonth from "../components/calendar/MiniMonth";
@@ -136,6 +137,20 @@ export default function CalendarPage() {
   const [subCounts, setSubCounts] = useState({});
   const [locConflict, setLocConflict] = useState(null); // { app, google, date }
   const [expanded, setExpanded] = useState(false);
+  // On narrow screens (≤1180px) the left rail is CSS-hidden; this reveals it as
+  // an overlay drawer so its filters / mini-month / scope switch stay reachable
+  // (e.g. on iPad). Ignored on desktop, where the rail is always inline.
+  const [railOpen, setRailOpen] = useState(false);
+  // The right rail (agenda + tasks) drops at an even narrower breakpoint (≤920px)
+  // where BOTH rails are gone, so it gets its own reveal drawer too.
+  const [railRightOpen, setRailRightOpen] = useState(false);
+  const closeRails = useCallback(() => { setRailOpen(false); setRailRightOpen(false); }, []);
+  useEffect(() => {
+    if (!railOpen && !railRightOpen) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") closeRails(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [railOpen, railRightOpen, closeRails]);
   const [goalsCollapsed, setGoalsCollapsed] = useState(() => { try { return localStorage.getItem(LS_GOALS_COLLAPSED) === "1"; } catch { return false; } });
   const [openGroups, setOpenGroups] = useState(() => new Set(["thisWeek", "month"]));
 
@@ -229,16 +244,34 @@ export default function CalendarPage() {
         workHoursBackgroundEvents(avail, startDate, endDate).forEach((e) => collected.push(e));
       }
       if (layers.has("actuals")) (entries || []).filter((e) => e.date >= startStr && e.date < endStr).forEach((e) => collected.push(entryToEvent(e)));
-      if (layers.has("google") && googleToken) {
-        jobs.push(gcalRef.current?.({ timeMin: startDate.toISOString(), timeMax: endDate.toISOString() })
-          .then((list) => (list || []).forEach((g) => {
-            if (g.eventType === "workingLocation") {
-              const ds = g.allDay && typeof g.start === "string" && g.start.length === 10 ? g.start : toDateStr(new Date(g.start));
-              gLoc.set(ds, g.locationLabel || g.title);
+      if (layers.has("google")) {
+        // Route both live and cached Google events through the same handler.
+        const handleGoogle = (g) => {
+          if (!g) return;
+          if (g.eventType === "workingLocation") {
+            const ds = g.allDay && typeof g.start === "string" && g.start.length === 10 ? g.start : toDateStr(new Date(g.start));
+            gLoc.set(ds, g.locationLabel || g.title);
+          } else {
+            collected.push(googleEventToEvent(g));
+          }
+        };
+        const gStart = startDate.toISOString(), gEnd = endDate.toISOString();
+        if (googleToken) {
+          // Connected: fetch live. A real array (even empty) = success → refresh
+          // the cache. null = the token desynced mid-request → fall back to cache
+          // so events don't vanish (and don't clobber the cache with nothing).
+          jobs.push(Promise.resolve(gcalRef.current?.({ timeMin: gStart, timeMax: gEnd })).then((list) => {
+            if (Array.isArray(list)) {
+              list.forEach(handleGoogle);
+              cacheGoogleEvents(userId, list, gStart, gEnd);
             } else {
-              collected.push(googleEventToEvent(g));
+              return loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle));
             }
-          })));
+          }));
+        } else {
+          // Disconnected: show the last events we cached while connected.
+          jobs.push(loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle)));
+        }
       }
     } else {
       if (layers.has("deadlines") && activeTeamId) jobs.push(listMilestonesInRange(activeTeamId, startStr, endStr).then(({ data }) => (data || []).filter((m) => m.scope === "team").forEach((m) => collected.push(milestoneToEvent(m)))));
@@ -398,11 +431,19 @@ export default function CalendarPage() {
     if (p.done) cls.push("done");
     const style = isTask ? { color: meta.fg, borderColor: meta.solid } : { background: meta.bg, color: meta.fg, borderColor: meta.solid };
     const sc = isTask ? subCounts[p.sourceId] : null;
+    // Week/Day (timeGrid) blocks have room to lead with the NAME — the time is
+    // implied by the row and just trails it. Month cells are cramped, so there
+    // the time still comes first.
+    const timeGrid = arg.view.type === "timeGridWeek" || arg.view.type === "timeGridDay";
+    const timeEl = timed && !isTask ? <span className="ctime">{arg.timeText}</span> : null;
     return (
-      <div className={cls.join(" ")} style={style} title={title}>
-        {isTask ? <span className="cbox" /> : <span className="cdot" style={{ background: meta.solid }} />}
-        {timed && !isTask && <span className="ctime">{arg.timeText}</span>}
+      <div className={`${cls.join(" ")}${timeGrid ? " cal-chip2--stack" : ""}`} style={style} title={title}>
+        {/* Name leads everywhere. Month is a single line (dot · name · time);
+            week/day blocks stack the name over the time (no dot — the block is
+            already colour-coded). */}
+        {!timeGrid && (isTask ? <span className="cbox" /> : <span className="cdot" style={{ background: meta.solid }} />)}
         <span className="ctitle">{title}</span>
+        {timeEl}
         {sc && sc.total > 0 && (
           <span style={{ marginLeft: "auto", paddingLeft: 4, fontSize: 10, opacity: 0.7, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
             {sc.done}/{sc.total}
@@ -412,11 +453,21 @@ export default function CalendarPage() {
     );
   };
 
+  // "Expanded" only applies to the month grid — on week/day it's meaningless.
+  const expandedMonth = expanded && viewType === "dayGridMonth";
+
   return (
     <div className="cal-ocean">
       <div className="cal-ocean__shell">
+        {/* Scrim behind either rail drawer on narrow screens — tap to dismiss. */}
+        {(railOpen || railRightOpen) && <div className="cal-ocean__railscrim is-open" onClick={closeRails} aria-hidden />}
+
         {/* ── left rail ── */}
-        <aside className="cal-ocean__rail cal-ocean__rail--left">
+        <aside className={`cal-ocean__rail cal-ocean__rail--left${railOpen ? " is-open" : ""}`}>
+          {/* Close affordance — only visible when the rail is a drawer. */}
+          <button type="button" className="cal-ocean__railclose" aria-label="Close panel" onClick={() => setRailOpen(false)}>
+            <X className="w-4 h-4" />
+          </button>
           <div className="cal-ocean__seg" style={{ width: "100%", marginBottom: 16 }}>
             {scopes.map((s) => {
               const Icon = s.icon;
@@ -520,6 +571,11 @@ export default function CalendarPage() {
         {/* ── main ── */}
         <main className="cal-ocean__main">
           <header className="cal-ocean__toolbar">
+            {/* Reveal the left rail on narrow screens (hidden on desktop where
+                the rail is always inline — see .cal-ocean__railtoggle). */}
+            <button type="button" className="cal-ocean__navbtn cal-ocean__railtoggle" aria-label="Show panel" aria-expanded={railOpen} onClick={() => setRailOpen((o) => !o)}>
+              <PanelLeft className="w-[18px] h-[18px]" />
+            </button>
             <span className="cal-ocean__title">{title}</span>
             <button type="button" className="cal-ocean__navbtn" aria-label="Previous" onClick={() => api()?.prev()}><ChevronLeft className="w-[18px] h-[18px]" /></button>
             <button type="button" className="cal-ocean__navbtn" aria-label="Next" onClick={() => api()?.next()}><ChevronRight className="w-[18px] h-[18px]" /></button>
@@ -539,17 +595,36 @@ export default function CalendarPage() {
               )
             )}
             <div className="cal-ocean__seg">
-              {[["dayGridMonth", "Month"], ["timeGridWeek", "Week"], ["timeGridDay", "Day"]].map(([v, lbl]) => (
-                <button key={v} type="button" aria-pressed={!expanded && viewType === v} onClick={() => { setExpanded(false); api()?.changeView(v); }}>{lbl}</button>
+              {[["dayGridMonth", "Month", LayoutGrid], ["timeGridWeek", "Week", Columns3], ["timeGridDay", "Day", RectangleVertical]].map(([v, lbl, Icon]) => (
+                <button key={v} type="button" aria-pressed={viewType === v} title={lbl} aria-label={lbl}
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "7px 12px" }}
+                  onClick={() => api()?.changeView(v)}>
+                  <Icon className="w-[17px] h-[17px]" />
+                </button>
               ))}
-              <button type="button" aria-pressed={expanded} onClick={() => { setExpanded(true); api()?.changeView("dayGridMonth"); }} title="Expanded — all events by type, no popover">Expanded</button>
             </div>
+            {/* Expanded is a MONTH-view option (all events by type, no popover),
+                not a separate view — only offered while the month grid is shown. */}
+            {viewType === "dayGridMonth" && (
+              <div className="cal-ocean__seg">
+                <button type="button" aria-pressed={expanded} onClick={() => setExpanded((e) => !e)}
+                  title="Expanded — show every event, no “+more” popover" aria-label="Expanded view"
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "7px 12px" }}>
+                  <Maximize2 className="w-[16px] h-[16px]" />
+                </button>
+              </div>
+            )}
             <button type="button" className="cal-ocean__new" onClick={() => setNewSlot({ start: focusDate || new Date(), end: null, allDay: true })}>
               <Plus className="w-4 h-4" /> New event
             </button>
+            {/* Reveal the right rail (agenda) on very narrow screens (hidden on
+                larger — see .cal-ocean__railtoggle--right). */}
+            <button type="button" className="cal-ocean__navbtn cal-ocean__railtoggle-r" aria-label="Show agenda" aria-expanded={railRightOpen} onClick={() => setRailRightOpen((o) => !o)}>
+              <PanelRight className="w-[18px] h-[18px]" />
+            </button>
           </header>
 
-          <div className={`cal-ocean__gridwrap ${expanded ? "cal-ocean__gridwrap--expanded" : ""}`}>
+          <div className={`cal-ocean__gridwrap ${expandedMonth ? "cal-ocean__gridwrap--expanded" : ""}`}>
             <FullCalendar
               ref={calRef}
               plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
@@ -557,6 +632,7 @@ export default function CalendarPage() {
               headerToolbar={false}
               events={events}
               eventContent={chipContent}
+              eventDisplay="block"
               eventOrder="orderRank,start,title"
               datesSet={onDatesSet}
               eventClick={(info) => { if (info.event.extendedProps?.collapsed) toggleGoalsCollapsed(); else openDetails(info.event); }}
@@ -567,18 +643,23 @@ export default function CalendarPage() {
               eventDrop={onEventChange}
               eventResize={onEventChange}
               nowIndicator
+              slotEventOverlap={false}
               firstDay={weekStart}
-              dayMaxEvents={expanded ? false : 4}
+              dayMaxEvents={expandedMonth ? false : 4}
               slotMinTime="06:00:00"
               slotMaxTime="22:00:00"
-              height={expanded ? "auto" : "100%"}
+              height={expandedMonth ? "auto" : "100%"}
               eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
             />
           </div>
         </main>
 
         {/* ── right rail: unified time-grouped agenda ── */}
-        <aside className="cal-ocean__rail cal-ocean__rail--right">
+        <aside className={`cal-ocean__rail cal-ocean__rail--right${railRightOpen ? " is-open" : ""}`}>
+          {/* Close affordance — only visible when the rail is a drawer. */}
+          <button type="button" className="cal-ocean__railclose-r" aria-label="Close panel" onClick={() => setRailRightOpen(false)}>
+            <X className="w-4 h-4" />
+          </button>
           <div className="cal-ocean__card">
             <div className="cal-ocean__cardhd"><CalendarClock className="w-[17px] h-[17px]" style={{ color: "var(--o-ocean-600)" }} /><h3>Agenda</h3></div>
             <div className="cal-ocean__agendascroll">

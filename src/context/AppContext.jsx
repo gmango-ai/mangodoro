@@ -1675,8 +1675,11 @@ export function AppProvider({ session, children }) {
   // Read the user's Google Calendar (primary) for a window. Foreground token —
   // the existing calendar.events scope already permits events.list. Returns a
   // lean normalized list; stays silent on failure (it's a background layer).
+  // Returns the fetched events on success (an EMPTY array is a valid "no events"
+  // result), or `null` when not connected / the request failed — so callers can
+  // tell a real empty window from a desync and avoid clobbering a cache.
   async function listGoogleCalendarEvents({ timeMin, timeMax }) {
-    if (!googleToken || Date.now() > googleTokenExpiry) return [];
+    if (!googleToken || Date.now() > googleTokenExpiry) return null;
     const params = new URLSearchParams({
       timeMin: new Date(timeMin).toISOString(),
       timeMax: new Date(timeMax).toISOString(),
@@ -1689,12 +1692,12 @@ export function AppProvider({ session, children }) {
       res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
         headers: { "Authorization": `Bearer ${googleToken}` },
       });
-    } catch { return []; }
+    } catch { return null; }
     if (!res.ok) {
       // Token expired / lost scope: clear it so callers stop retrying (no 401
       // storm) and the UI falls back to a "Connect Google" prompt.
       if (res.status === 401 || res.status === 403) { setGoogleToken(null); setGoogleTokenExpiry(0); }
-      return [];
+      return null;
     }
     const data = await res.json().catch(() => ({}));
     return (data.items || []).map((ev) => {
