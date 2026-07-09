@@ -17,7 +17,7 @@
 //   • In a general room the room imposes nothing — status falls through a
 //     predictable per-person ladder (no per-room "vibe" knob).
 
-import { availabilityLight, legacyToAvailability, normAvailability } from "./presence";
+import { availabilityLight, normAvailability } from "./presence";
 
 // Idle thresholds. Ambient matches the existing IdlePresence (5m); derived deep
 // work gets a longer leash because reading/thinking looks identical to idle.
@@ -39,7 +39,6 @@ export const FOCUS_IDLE_MS = 18 * 60 * 1000;
  * @property {{name?:string,since?:number}} [pairingWith]   (Phase 2)
  * @property {{id?:string,with?:string}} [huddle]           1:1 direct call (Phase 2)
  * @property {{label?:string,link?:string,since?:number,private?:boolean,kind?:string}} [activity]
- * @property {string} [legacyPresenceState] bridge while old writers still exist
  * @property {number} [since]              truer start of the current availability
  */
 
@@ -111,13 +110,6 @@ function deriveEnvironmental(sig) {
 
   // #8 general room / clocked in / at desk. (Pairing/huddle no longer set a
   // coarse state — "Pairing with X" rides on activity; availability stays online.)
-  // Honor a legacy *deliberate* busy state during transition; ambient legacy
-  // states fall through so idle can manage them.
-  if (sig.legacyPresenceState) {
-    const mapped = legacyToAvailability(sig.legacyPresenceState);
-    if (mapped === "focusing" || mapped === "meeting" || mapped === "lunch" || mapped === "commuting")
-      return mapped;
-  }
   if (sig.room || sig.clock?.clockedIn || sig.online) return "online";
 
   // #10 nothing to go on

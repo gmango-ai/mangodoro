@@ -40,6 +40,8 @@ import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { notifySessionJoined } from "../sync/joinSession";
 import { uploadTeamIcon, deleteTeamIcon } from "../lib/teamIcon";
 import { compressImage } from "../lib/imageCompress";
+import { usePresenceById } from "../hooks/usePresenceById";
+import { availabilityRing, availabilityLabel } from "../lib/presence";
 import { supabase } from "../supabase";
 
 const TEAM_COLORS = [
@@ -59,6 +61,9 @@ export default function TeamPage() {
     teamSounds, addTeamSound, renameTeamSound, removeTeamSound,
     teamSoundsAdminOnly, canUploadTeamSound, canManageTeamSound,
   } = useTeam();
+  // Live availability for member cards, from the single presence source
+  // (user_presence + realtime liveness) — not the retired user_settings.presence_state.
+  const presenceById = usePresenceById();
   const { settings, session } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -880,6 +885,7 @@ export default function TeamPage() {
                         <MemberCard
                           key={m.user_id}
                           member={m}
+                          availability={presenceById.get(m.user_id)?.availability || "offline"}
                           dark={dark}
                           isAdmin={isAdmin}
                           isOwner={!!m.is_owner}
@@ -1188,28 +1194,13 @@ function SectionHeader({ icon: Icon, title, subtitle, dark, danger = false }) {
 // tagline on top, team chips + admin actions on the bottom. Reads as
 // "who they are, what they are, what they're on, what I can do."
 function MemberCard({
-  member: m, dark, isAdmin, isOwner, viewerIsOwner, viewerUserId,
+  member: m, availability = "offline", dark, isAdmin, isOwner, viewerIsOwner, viewerUserId,
   teamsForUser, onEditHR, onEditTeams, onSetManager, onToggleRole, onRemove, onTeamChipClick,
   onGrantOwner, onRevokeOwner, onTransferOwnership,
 }) {
   const isSelf = viewerUserId === m.user_id;
-  const presenceRing = (() => {
-    switch (m.presence_state) {
-      case "in_meeting": return "ring-rose-500";
-      case "heads_down": return "ring-violet-500";
-      case "away":       return "ring-amber-500";
-      default:           return "ring-emerald-500";
-    }
-  })();
-  const presenceLabel = (() => {
-    switch (m.presence_state) {
-      case "in_meeting": return "In meeting";
-      case "heads_down": return "Heads-down";
-      case "away":       return "Away";
-      case "available":  return "Available";
-      default:           return "Active";
-    }
-  })();
+  const presenceRing = availabilityRing(availability);
+  const presenceLabel = availabilityLabel(availability);
   const joinedDate = new Date(m.joined_at).toLocaleDateString(undefined, {
     month: "short", day: "numeric", year: "numeric",
   });

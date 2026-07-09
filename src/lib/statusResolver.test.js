@@ -174,15 +174,3 @@ describe("resolveStatus — activity + privacy passthrough (Q4)", () => {
     expect(r({ online: true }).activity).toBeNull();
   });
 });
-
-describe("resolveStatus — legacy presence bridge", () => {
-  it("honors a legacy deliberate busy state during transition", () => {
-    expect(r({ online: true, legacyPresenceState: "heads_down" }).availability).toBe("focusing");
-    expect(r({ online: true, legacyPresenceState: "out_to_lunch" }).availability).toBe("lunch");
-  });
-
-  it("lets ambient legacy states fall through to derivation", () => {
-    // legacy 'active' is ambient → resolves to online via the ladder
-    expect(r({ online: true, legacyPresenceState: "active" }).availability).toBe("online");
-  });
-});

@@ -46,7 +46,7 @@ function pickSize(w, h) {
 // Lead users (in any org_team) get a small violet star marker; team
 // names are surfaced in the tooltip for quick "who is this?" scans.
 function OccupantAvatar({ occupant, isLeader, userTeams, size = 28, presenceById }) {
-  const ring = availabilityRing(shownAvailability(occupant.user_id, occupant.presence_state, presenceById));
+  const ring = availabilityRing(shownAvailability(occupant.user_id, presenceById));
   const isLead = (userTeams || []).some((t) => t.role === "lead");
   const teamNames = (userTeams || []).map((t) => t.name).join(" · ");
   const title = teamNames ? `${occupant.name} — ${teamNames}` : occupant.name;
@@ -193,7 +193,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
             {occupants.slice(0, 6).map((o) => (
               <span
                 key={o.user_id}
-                className={`w-1.5 h-1.5 rounded-full ${availabilityDot(shownAvailability(o.user_id, o.presence_state, presenceById))}`}
+                className={`w-1.5 h-1.5 rounded-full ${availabilityDot(shownAvailability(o.user_id, presenceById))}`}
                 title={o.name}
               />
             ))}

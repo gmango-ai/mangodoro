@@ -34,10 +34,10 @@ describe("mergeOfficePresence", () => {
     expect(m.activity).toBeNull();
   });
 
-  it("falls back to legacy presence_state for an online person with no row", () => {
-    const [m] = mergeOfficePresence([], [live({ user_id: "x", presence_state: "heads_down", name: "Bo" })]);
+  it("an online person with no snapshot row shows online", () => {
+    const [m] = mergeOfficePresence([], [live({ user_id: "x", name: "Bo" })]);
     expect(m.userId).toBe("x");
-    expect(m.availability).toBe("focusing"); // heads_down → focusing
+    expect(m.availability).toBe("online");
     expect(m.online).toBe(true);
   });
 

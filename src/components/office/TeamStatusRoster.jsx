@@ -1,10 +1,28 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useOfficePresence } from "../../hooks/useOfficePresence";
 import { availabilityDot, availabilityLabel } from "../../lib/presence";
 import UserAvatar from "../UserAvatar";
+
+// Per-group collapse state, persisted so a folded "Offline" list stays folded.
+// Only EXPLICIT choices are stored; a group with no stored choice falls back to
+// its default (offline starts collapsed — it's the longest, least-actionable
+// list; everyone else starts open).
+const ROSTER_COLLAPSE_KEY = "ql_teamroster_collapsed";
+function loadCollapsedMap() {
+  try {
+    const raw = localStorage.getItem(ROSTER_COLLAPSE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch { return {}; }
+}
+function saveCollapsedMap(map) {
+  try { localStorage.setItem(ROSTER_COLLAPSE_KEY, JSON.stringify(map)); } catch { /* */ }
+}
+const defaultCollapsed = (key) => key === "offline";
 
 // Whole-team status roster read from the single source (user_presence, via
 // useOfficePresence) merged with realtime liveness. Grouped by WHERE people are:
@@ -70,19 +88,37 @@ export default function TeamStatusRoster({ dark }) {
     return out;
   }, [people, roomName, currentRoomId]);
 
+  const [collapsedMap, setCollapsedMap] = useState(loadCollapsedMap);
+  const isCollapsed = (key) => (key in collapsedMap ? collapsedMap[key] : defaultCollapsed(key));
+  const toggleGroup = (key) => setCollapsedMap((m) => {
+    const next = { ...m, [key]: !(key in m ? m[key] : defaultCollapsed(key)) };
+    saveCollapsedMap(next);
+    return next;
+  });
+
   if (people.length === 0) {
     return <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>No teammates yet.</p>;
   }
 
   return (
     <div className="space-y-2.5">
-      {groups.map((g) => (
+      {groups.map((g) => {
+        const collapsed = isCollapsed(g.key);
+        const Chevron = collapsed ? ChevronRight : ChevronDown;
+        return (
         <div key={g.key}>
-          <p className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${
-            g.highlight ? "text-[var(--color-accent)]" : dark ? "text-slate-500" : "text-slate-400"
-          }`}>
-            {g.label} <span className="tabular-nums opacity-70">{g.people.length}</span>
-          </p>
+          <button
+            type="button"
+            onClick={() => toggleGroup(g.key)}
+            aria-expanded={!collapsed}
+            className={`flex items-center gap-1 w-full text-[10px] font-semibold uppercase tracking-wider mb-1 rounded transition-colors ${
+              g.highlight ? "text-[var(--color-accent)]" : dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            <Chevron className="w-3 h-3 shrink-0" />
+            <span>{g.label}</span> <span className="tabular-nums opacity-70">{g.people.length}</span>
+          </button>
+          {!collapsed && (
           <ul className="space-y-1">
             {g.people.map((p) => (
               <li key={p.userId} className="flex items-center gap-2">
@@ -108,8 +144,10 @@ export default function TeamStatusRoster({ dark }) {
               </li>
             ))}
           </ul>
+          )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

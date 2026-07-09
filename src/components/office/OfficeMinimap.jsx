@@ -115,7 +115,7 @@ export default function OfficeMinimap({
                 {occupants.slice(0, 5).map((o) => (
                   <span
                     key={o.user_id}
-                    className={`w-1 h-1 rounded-full ${availabilityDot(shownAvailability(o.user_id, o.presence_state, presenceById))}`}
+                    className={`w-1 h-1 rounded-full ${availabilityDot(shownAvailability(o.user_id, presenceById))}`}
                   />
                 ))}
                 {occupants.length > 5 && (

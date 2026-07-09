@@ -20,13 +20,16 @@ export const PARTICIPANT_SORTS = [
 const VALID = new Set(PARTICIPANT_SORTS.map((s) => s.key));
 export const DEFAULT_SORT = "join";
 
-// Grouping order for the "presence" sort — mirrors the StatusSetter order.
+// Grouping order for the "presence" sort — the 7-state availability vocabulary
+// (most-present first). Resolved per user via the availabilityOf lookup.
 const PRESENCE_RANK = {
-  active: 0,
-  available: 1,
-  heads_down: 2,
-  in_meeting: 3,
+  online: 0,
+  focusing: 1,
+  meeting: 2,
+  lunch: 3,
+  commuting: 3,
   away: 4,
+  offline: 5,
 };
 
 function readStored() {
@@ -83,7 +86,7 @@ function joinedTime(p) {
 // Total-order comparator for the un-pinned "rest". Join time is the primary
 // key for "join" and the tiebreaker for the other modes; user_id is the final,
 // never-changing tiebreaker so the order is fully deterministic.
-function comparator(mode) {
+function comparator(mode, availabilityOf) {
   return (a, b) => {
     if (mode === "name") {
       const c = (a.display_name || "").localeCompare(b.display_name || "", undefined, {
@@ -91,8 +94,8 @@ function comparator(mode) {
       });
       if (c) return c;
     } else if (mode === "presence") {
-      const ar = PRESENCE_RANK[a.presence_state] ?? 99;
-      const br = PRESENCE_RANK[b.presence_state] ?? 99;
+      const ar = PRESENCE_RANK[availabilityOf?.(a.user_id)] ?? 99;
+      const br = PRESENCE_RANK[availabilityOf?.(b.user_id)] ?? 99;
       if (ar !== br) return ar - br;
     }
     const at = joinedTime(a);
@@ -104,7 +107,7 @@ function comparator(mode) {
 
 // Stable ordering: `you` first, then the `leader`, then the rest by `mode`.
 // Returns a new array; never mutates the input.
-export function sortParticipants(list, { mode = DEFAULT_SORT, userId, leaderId } = {}) {
+export function sortParticipants(list, { mode = DEFAULT_SORT, userId, leaderId, availabilityOf } = {}) {
   let self = null;
   let leader = null;
   const rest = [];
@@ -113,7 +116,7 @@ export function sortParticipants(list, { mode = DEFAULT_SORT, userId, leaderId }
     else if (leaderId && p.user_id === leaderId) leader = p;
     else rest.push(p);
   }
-  rest.sort(comparator(VALID.has(mode) ? mode : DEFAULT_SORT));
+  rest.sort(comparator(VALID.has(mode) ? mode : DEFAULT_SORT, availabilityOf));
   const out = [];
   if (self) out.push(self);
   if (leader) out.push(leader);

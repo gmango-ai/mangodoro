@@ -45,20 +45,6 @@ export const normAvailability = (a) => {
   return (a && AVAILABILITY_ALIAS[a]) || "offline";
 };
 
-// Bridge the legacy participant `presence_state` vocabulary
-// (active/available/heads_down/in_meeting/away/out_to_lunch/commuting) onto the
-// new availability names. Used by surfaces still reading presence_state.
-const LEGACY_TO_AVAILABILITY = {
-  active:       "online",
-  available:    "online",
-  heads_down:   "focusing",
-  in_meeting:   "meeting",
-  away:         "away",
-  out_to_lunch: "lunch",
-  commuting:    "commuting",
-};
-export const legacyToAvailability = (state) => LEGACY_TO_AVAILABILITY[state] || "online";
-
 // ── Availability lookups (accept a new key OR an old alias) ────────────────
 export const availabilityMeta  = (a) => AVAILABILITY[normAvailability(a)];
 export const availabilityDot   = (a) => availabilityMeta(a).dot;
@@ -66,21 +52,12 @@ export const availabilityRing  = (a) => availabilityMeta(a).ring;
 export const availabilityLabel = (a) => availabilityMeta(a).label;
 export const availabilityLight = (a) => availabilityMeta(a).light;
 
-// ── Legacy presence_state lookups (delegate through the bridge) ────────────
-// Kept for surfaces still reading a participant `presence_state`; they resolve
-// to the exact same colors/labels as availability so nothing drifts.
-export const presenceDot   = (state) => availabilityDot(legacyToAvailability(state));
-export const presenceRing  = (state) => availabilityRing(legacyToAvailability(state));
-export const presenceLabel = (state) => availabilityLabel(legacyToAvailability(state));
-
-// The availability to SHOW for an occupant/participant: prefer the canonical
-// user_presence value (from a userId->availability map, e.g. usePresenceById),
-// falling back to the legacy participant presence_state so there's never a
-// regression while the write-throughs are still around. A canonical 'offline'
-// falls back too — an occupant is definitionally present, so a lagging offline
-// snapshot shouldn't hide them.
-export function shownAvailability(userId, legacyState, presenceById) {
-  const a = presenceById && typeof presenceById.get === "function" ? presenceById.get(userId) : null;
-  if (a && a !== "offline") return a;
-  return legacyToAvailability(legacyState);
+// The availability to SHOW for an occupant/participant: the canonical
+// user_presence value (from a userId->availability map, e.g. usePresenceById).
+// A missing row OR a lagging 'offline' falls back to `fallback` (default
+// 'online') — an occupant is definitionally present, so it shouldn't be hidden
+// by a not-yet-written or stale-offline snapshot.
+export function shownAvailability(userId, presenceById, fallback = "online") {
+  const a = presenceById && typeof presenceById.get === "function" ? presenceById.get(userId)?.availability : null;
+  return a && a !== "offline" ? a : fallback;
 }

@@ -376,7 +376,7 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                                     url={o.avatar_url}
                                     name={o.name}
                                     size={20}
-                                    className={`ring-2 ${availabilityRing(shownAvailability(o.user_id, o.presence_state, presenceById))}`}
+                                    className={`ring-2 ${availabilityRing(shownAvailability(o.user_id, presenceById))}`}
                                   />
                                 </span>
                               ))}

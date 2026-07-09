@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Check, Radio } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
-import { useSyncSession } from "../../context/SyncSessionContext";
 import { setSubtaskDone, subtaskProgress } from "../../lib/subtasks";
 import { fetchFocusedTask, syncPlannerProgressFromSubtasks } from "../../lib/plannerTasks";
 import { applyStatusOverride } from "../../lib/statusActions";
@@ -15,7 +14,6 @@ export default function FocusTaskPanel() {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { session, updateStatus } = useApp();
-  const { syncSession, setStatus } = useSyncSession();
   const userId = session?.user?.id;
 
   const [task, setTask] = useState(null);
@@ -55,11 +53,8 @@ export default function FocusTaskPanel() {
     applyStatusOverride({
       availability: "focusing",
       message: task.title,
-      expiresAt: null,
       userId,
-      syncSession,
       updateStatus,
-      setStatus,
     });
     setStatusSet(true);
   };

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Utensils, X } from "lucide-react";
 import { useApp } from "../context/AppContext";
-import { useSyncSession } from "../context/SyncSessionContext";
 import { useTheme } from "../context/ThemeContext";
 import { emitSelfNotification } from "../lib/notifications";
+import { applyStatusOverride, clearStatusOverride } from "../lib/statusActions";
 
 // "Out to lunch" auto-status.
 //
@@ -43,8 +43,7 @@ function notifyLunch(userId, title, body) {
 const FIRE_WINDOW_MIN = 10; // catch a tab opened up to 10 min after lunch time
 
 export default function LunchReminder() {
-  const { settings, session, updateStatus, clockIn, startClockBreak, endClockBreak } = useApp();
-  const { syncSession, setStatus: setSyncStatus } = useSyncSession();
+  const { settings, session, clockIn, startClockBreak, endClockBreak } = useApp();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [prompt, setPrompt] = useState(false);
@@ -56,33 +55,27 @@ export default function LunchReminder() {
     mode: settings?.lunchMode || "off",
     lunchTime: settings?.lunchTime || "",
     durationMin: settings?.lunchDurationMin ?? 60,
-    presence: settings?.presenceState || "active",
     lunchPaid: settings?.lunchBreakPaid,
     clockIn,
     startClockBreak,
     endClockBreak,
-    syncSession,
-    setSyncStatus,
-    updateStatus,
     setPrompt,
   };
 
-  const setPresence = async (state) => {
-    const s = ref.current;
-    try { await s.updateStatus?.({ presenceState: state }); } catch { /* */ }
-    // Also reflect it in the active sync session, if any.
-    if (s.syncSession && s.setSyncStatus) { try { await s.setSyncStatus({ presenceState: state }); } catch { /* */ } }
-  };
+  // Lunch = a manual "On lunch" status override (so it shows whether or not you're
+  // clocked in) + the clock break for time-tracking. The override auto-expires at
+  // the lunch-end time so it recovers even if the tab closes.
   const goToLunch = async () => {
     const s = ref.current;
-    await setPresence("out_to_lunch");
+    const until = Date.now() + (s.durationMin || 60) * 60000;
+    applyStatusOverride({ availability: "lunch", message: null, expiresAt: until, userId: s.userId });
     // If clocked in, log the lunch as a break (paid/unpaid per Settings).
     if (s.clockIn && !s.clockIn.activeBreak) s.startClockBreak?.({ unpaid: !s.lunchPaid, kind: "lunch" });
-    put(`lunch_until:${s.userId}`, String(Date.now() + (s.durationMin || 60) * 60000));
+    put(`lunch_until:${s.userId}`, String(until));
   };
   const backFromLunch = async () => {
     const s = ref.current;
-    await setPresence("active");
+    clearStatusOverride({ userId: s.userId });
     if (s.clockIn?.activeBreak?.kind === "lunch") s.endClockBreak?.();
     del(`lunch_until:${s.userId}`);
   };
@@ -95,9 +88,11 @@ export default function LunchReminder() {
     const tick = () => {
       const s = ref.current;
       if (!s.userId) return;
-      // Auto-return when the lunch window elapses (only if still at lunch).
+      // Auto-return when the lunch window elapses. The lunch_until key only
+      // exists while on lunch (set in goToLunch, cleared in backFromLunch), so
+      // its presence + elapsed time is the "still at lunch" signal.
       const until = Number(get(`lunch_until:${s.userId}`) || 0);
-      if (until && Date.now() >= until && s.presence === "out_to_lunch") s.backFromLunch();
+      if (until && Date.now() >= until) s.backFromLunch();
       // Fire the lunch trigger once per day, within a short window after the time.
       if (s.mode === "off" || !s.lunchTime) return;
       const firedKey = `lunch_fired:${s.userId}:${todayKey()}`;

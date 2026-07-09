@@ -668,13 +668,14 @@ const PRESENCE_OPTIONS = [
   { value: "meeting", label: "In a meeting" },
   { value: "lunch", label: "On lunch" },
   { value: "commuting", label: "Commuting" },
+  { value: "away", label: "Away" },
+  { value: "offline", label: "Offline" },
 ];
 
 // Unified with the nav StatusChip: writes the manual OVERRIDE (applyStatusOverride)
 // so it propagates everywhere and the resolver's mirror can't overwrite it.
 function StatusBlock({ dark }) {
   const { session, updateStatus } = useApp();
-  const { syncSession, setStatus } = useSyncSession();
   const { resolved } = useResolvedSelf();
   const userId = session?.user?.id;
 
@@ -685,7 +686,7 @@ function StatusBlock({ dark }) {
   useEffect(() => setDraft(message), [message]);
 
   const write = (avail) =>
-    applyStatusOverride({ availability: avail, message: draft.trim() || null, userId, syncSession, updateStatus, setStatus });
+    applyStatusOverride({ availability: avail, message: draft.trim() || null, userId, updateStatus });
   function commitStatus() {
     if (draft.trim() === message.trim()) return;
     write(overridden ? availability : "online");

@@ -11,7 +11,6 @@ export function buildSignals({
   currentTask,      // AppContext.currentTask: { id, description, started_at } | null
   room,             // resolved room row: { id, name, kind } | null
   pomodoro,         // { isRunning, mode } | null
-  presenceState,    // legacy settings.presenceState (bridge)
   lastActivityMs,   // epoch ms of last input activity (localStorage mango:lastActivity)
   online = true,
   now,
@@ -40,6 +39,5 @@ export function buildSignals({
     clock,
     pomodoro: pomodoro ? { running: !!pomodoro.isRunning, mode: pomodoro.mode } : null,
     activity,
-    legacyPresenceState: presenceState || undefined,
   };
 }

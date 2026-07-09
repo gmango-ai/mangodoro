@@ -5,7 +5,7 @@ import { useTeam } from "../../context/TeamContext";
 import { useTheme } from "../../context/ThemeContext";
 import UserAvatar from "../UserAvatar";
 import FollowButton from "../FollowButton";
-import { availabilityDot, availabilityLabel, legacyToAvailability } from "../../lib/presence";
+import { availabilityDot, availabilityLabel } from "../../lib/presence";
 import { usePresenceById } from "../../hooks/usePresenceById";
 import { getProfile } from "../../lib/profiles";
 import { getUserWorkSummary } from "../../lib/workStatus";
@@ -50,10 +50,11 @@ export default function ProfileCard({ userId, onOpenFull }) {
   const member = (teamMembers || []).find((m) => m.user_id === userId);
   const name = profile?.display_name || member?.name || "Member";
   const avatar = profile?.avatar_url || member?.avatar_url || "";
-  // Prefer the canonical availability (user_presence), incl. offline; fall back
-  // to the legacy member.presence_state so a not-yet-seen teammate still shows.
-  const presence = presenceById.get(userId) || (member?.presence_state ? legacyToAvailability(member.presence_state) : null);
-  const status = member?.status;
+  // Availability comes from the canonical user_presence (incl. offline); the
+  // free-text status message prefers the live override, falling back to the
+  // stored user_settings.status.
+  const presence = presenceById.get(userId)?.availability || null;
+  const status = presenceById.get(userId)?.message || member?.status;
   const teams = teamsByUserId?.get(userId) || [];
 
   return (

@@ -5,7 +5,7 @@ import { useProfileCard } from "../../context/ProfileContext";
 import { useClockedIn } from "../../hooks/useClockedIn";
 import { useTeamPresence } from "../../hooks/useTeamPresence";
 import UserAvatar from "../UserAvatar";
-import { availabilityRing, availabilityLabel, shownAvailability, legacyToAvailability } from "../../lib/presence";
+import { availabilityRing, availabilityLabel, shownAvailability } from "../../lib/presence";
 import { usePresenceById } from "../../hooks/usePresenceById";
 import { Crown } from "lucide-react";
 
@@ -70,13 +70,12 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
         clocked: true,
         on_break: r.on_break,
         task: r.task,
-        presence_state: null,
       });
     }
     // Online but not clocked in — teammates only (not self), present states.
     for (const p of online || []) {
       if (p.user_id === myId || inRoomIds.has(p.user_id) || map.has(p.user_id)) continue;
-      const avail = presenceById.get(p.user_id) || legacyToAvailability(p.presence_state);
+      const avail = presenceById.get(p.user_id)?.availability || "online";
       if (!memberById.has(p.user_id) || !HALLWAY_PRESENT.has(avail)) continue;
       const m = memberById.get(p.user_id);
       map.set(p.user_id, {
@@ -106,7 +105,7 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
             {people.slice(0, MAX).map((p) => {
               const teams = teamsByUserId?.get(p.user_id) || [];
               const teamNames = teams.map((t) => t.name).join(" · ");
-              const title = `${p.name} — ${availabilityLabel(shownAvailability(p.user_id, p.presence_state, presenceById))} · in ${p.roomName}${teamNames ? ` · ${teamNames}` : ""}`;
+              const title = `${p.name} — ${availabilityLabel(shownAvailability(p.user_id, presenceById))} · in ${p.roomName}${teamNames ? ` · ${teamNames}` : ""}`;
               return (
                 <button
                   key={p.user_id}
@@ -114,7 +113,7 @@ export default function OfficePresenceBar({ sessionByRoomId, rooms, onEnterRoom,
                   onClick={() => onEnterRoom?.(p.roomId)}
                   title={title}
                   aria-label={title}
-                  className={`relative shrink-0 rounded-full ring-2 ${availabilityRing(shownAvailability(p.user_id, p.presence_state, presenceById))} -ml-2 first:ml-0 transition-transform hover:-translate-y-0.5 hover:z-10`}
+                  className={`relative shrink-0 rounded-full ring-2 ${availabilityRing(shownAvailability(p.user_id, presenceById))} -ml-2 first:ml-0 transition-transform hover:-translate-y-0.5 hover:z-10`}
                 >
                   <UserAvatar url={p.avatar_url} name={p.name} size={28} />
                   {p.isLeader && <Crown className="absolute -top-1.5 -right-1.5 w-3 h-3 text-amber-400 drop-shadow" fill="currentColor" />}

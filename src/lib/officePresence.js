@@ -1,5 +1,3 @@
-import { legacyToAvailability } from "./presence";
-
 // Merge user_presence snapshot rows with the live team-presence roster into one
 // office-wide status list. PURE (no I/O) so it's unit-testable; useOfficePresence
 // supplies the live inputs.
@@ -32,6 +30,7 @@ export function mergeOfficePresence(rows = [], online = [], identity = {}) {
         r.activity_private || !r.activity_label
           ? null
           : { label: r.activity_label, link: r.activity_link },
+      message: live ? (r.override_message || null) : null,
       locationKind: live ? r.location_kind : "none",
       locationRoomId: live ? r.location_room_id : null,
       since: r.since,
@@ -45,7 +44,7 @@ export function mergeOfficePresence(rows = [], online = [], identity = {}) {
     byId.set(o.user_id, {
       userId: o.user_id,
       online: true,
-      availability: legacyToAvailability(o.presence_state),
+      availability: "online", // online socket, no snapshot row yet
       activity: null,
       locationKind: "none",
       locationRoomId: null,

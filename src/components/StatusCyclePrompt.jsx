@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { useApp } from "../context/AppContext";
-import { useSyncSession } from "../context/SyncSessionContext";
 import { useTheme } from "../context/ThemeContext";
 import { availabilityDot, availabilityLabel } from "../lib/presence";
 import { applyStatusOverride, clearStatusOverride } from "../lib/statusActions";
@@ -11,14 +10,13 @@ import { readStatusOnCycle } from "../lib/statusCyclePref";
 // At the end of each Pomodoro phase (focus or break), per the status-at-cycle
 // preference (Settings → "Status at Pomodoro end"): clear your manual status,
 // or pop a quick prompt to clear / update it. Transition detection mirrors
-// ReflectionPrompt. Writes bridge to the legacy surfaces too (room list).
+// ReflectionPrompt.
 const BREAKS = new Set(["shortBreak", "longBreak"]);
 const QUICK = ["online", "focusing", "away", "offline"];
 
 export default function StatusCyclePrompt() {
   const { mode } = usePomodoro();
   const { session, updateStatus } = useApp();
-  const { syncSession, setStatus } = useSyncSession();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const userId = session?.user?.id;
@@ -26,12 +24,12 @@ export default function StatusCyclePrompt() {
   const [prompt, setPrompt] = useState(null); // { phase: 'focus'|'break' } | null
 
   const doClear = () => {
-    clearStatusOverride({ userId, syncSession, updateStatus, setStatus });
+    clearStatusOverride({ userId, updateStatus });
     setPrompt(null);
   };
 
   const doSet = (availability) => {
-    applyStatusOverride({ availability, message: null, expiresAt: null, userId, syncSession, updateStatus, setStatus });
+    applyStatusOverride({ availability, message: null, userId, updateStatus });
     setPrompt(null);
   };
 

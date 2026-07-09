@@ -185,17 +185,6 @@ export async function fetchSyncSession(sessionId) {
   return { data, error };
 }
 
-export async function setSyncParticipantStatus(sessionId, { status, presenceState } = {}) {
-  const { data, error } = await supabase.rpc("set_sync_participant_status", {
-    p_session_id: sessionId,
-    p_status: status ?? null,
-    p_presence_state: presenceState ?? null,
-  });
-  if (error) return { error };
-  if (data?.error) return { error: { message: data.error } };
-  return { data };
-}
-
 export async function refreshMySyncAvatar() {
   const { error } = await supabase.rpc("refresh_my_sync_avatar");
   return { error };
@@ -342,15 +331,13 @@ export async function listActiveTeamSessions(teamId) {
     ]),
   ];
   // Identity (name + avatar) comes from `profiles` — readable by any co-member
-  // (unlike user_settings, whose RLS only lets admins read teammates, which made
-  // regular members see everyone here as "Team member"). presence_state still
-  // lives on user_settings (admin/self readable); members fall back to the
-  // default dot, exactly as before this change.
+  // (user_settings is only fetched as a name/avatar fallback). Availability now
+  // comes from user_presence at render time (usePresenceById), not from here.
   let profileMap = new Map();
   if (profileIds.length) {
     const [{ data: profs }, { data: settings }] = await Promise.all([
       supabase.from("profiles").select("user_id, display_name, avatar_url").in("user_id", profileIds),
-      supabase.from("user_settings").select("user_id, name, avatar_url, presence_state").in("user_id", profileIds),
+      supabase.from("user_settings").select("user_id, name, avatar_url").in("user_id", profileIds),
     ]);
     const profById = new Map((profs || []).map((r) => [r.user_id, r]));
     const setById = new Map((settings || []).map((r) => [r.user_id, r]));
@@ -360,7 +347,6 @@ export async function listActiveTeamSessions(teamId) {
       return [id, {
         name: p?.display_name || s?.name || "",
         avatar_url: p?.avatar_url || s?.avatar_url || "",
-        presence_state: s?.presence_state || "active",
       }];
     }));
   }
@@ -374,7 +360,6 @@ export async function listActiveTeamSessions(teamId) {
       user_id: p.user_id,
       name: prof?.name || "Team member",
       avatar_url: prof?.avatar_url || "",
-      presence_state: prof?.presence_state || "active",
     });
     occupantsBySession.set(p.session_id, list);
   }
@@ -405,12 +390,3 @@ export async function getSyncSessionPreview(joinCode) {
   return { data };
 }
 
-export async function setUserStatus({ status, presenceState } = {}) {
-  const { data, error } = await supabase.rpc("set_user_status", {
-    p_status: status ?? null,
-    p_presence_state: presenceState ?? null,
-  });
-  if (error) return { error };
-  if (data?.error) return { error: { message: data.error } };
-  return { data };
-}

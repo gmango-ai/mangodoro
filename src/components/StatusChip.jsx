@@ -3,41 +3,33 @@ import { Pin, EyeOff } from "lucide-react";
 import { useResolvedSelf } from "../hooks/useResolvedSelf";
 import { useTheme } from "../context/ThemeContext";
 import { useApp } from "../context/AppContext";
-import { useSyncSession } from "../context/SyncSessionContext";
 import { availabilityDot, availabilityLabel } from "../lib/presence";
 import { formatSince } from "../lib/utils";
 import { applyStatusOverride, clearStatusOverride, setStatusPin, setStatusInvisible } from "../lib/statusActions";
 import EmojiTextField from "./EmojiTextField";
 import Popover from "./goals/Popover";
 
-// The always-visible self status chip + setter (plan §5). Label/light/duration
-// come from the live resolved status (no DB). Clicking opens a picker that
-// writes a manual OVERRIDE — stored in localStorage so it takes effect instantly
-// and mirrored to user_presence for teammates. "Keep this status" pins it
-// against idle (24h); "Appear offline" hides you from teammates; "Back to auto"
-// clears everything.
+// The always-visible self status chip + setter. Label/light/duration come from
+// the live resolved status (no DB). Auto (the resolver) is ALWAYS the baseline;
+// clicking a status writes a temporary manual OVERRIDE on top — stored in
+// localStorage so it takes effect instantly and mirrored to user_presence for
+// teammates. Clicking the currently-active status again drops back to auto.
+// "Keep through idle" pins it (24h); "Appear offline" hides you from teammates.
 
-// Manually settable intents. away/offline are auto (liveness); "appear offline"
-// is the manual invisibility toggle below.
-const PRESETS = ["online", "focusing", "meeting", "lunch", "commuting"];
+// Every coarse state is manually settable — including Away and Offline (distinct
+// from "Appear offline", which keeps your real state but shows teammates offline).
+const PRESETS = ["online", "focusing", "meeting", "lunch", "commuting", "away", "offline"];
 const EMOJIS = ["🎯", "💻", "☕", "🍽️", "📞", "🚗", "🧠", "🌙"];
-const EXPIRIES = [
-  { key: "none", label: "No end", at: () => null },
-  { key: "1h", label: "1 hour", at: () => Date.now() + 3600_000 },
-  { key: "eod", label: "Today", at: () => { const d = new Date(); d.setHours(23, 59, 59, 0); return d.getTime(); } },
-];
 
 export default function StatusChip() {
   const { resolved, userId } = useResolvedSelf();
   const { theme } = useTheme();
   const { updateStatus } = useApp();
-  const { syncSession, setStatus } = useSyncSession();
   const dark = theme === "dark";
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState("");
   const [emoji, setEmoji] = useState(null);
-  const [exp, setExp] = useState("none");
 
   if (!resolved) return null;
   const { availability, activity } = resolved;
@@ -54,22 +46,25 @@ export default function StatusChip() {
   const openMenu = () => {
     setMsg(resolved.override?.message || "");
     setEmoji(resolved.override?.emoji || null);
-    setExp("none");
     setOpen(true);
   };
 
-  const apply = (avail) => {
-    const expiresAt = EXPIRIES.find((e) => e.key === exp)?.at() ?? null;
-    applyStatusOverride({ availability: avail, message: msg.trim() || null, emoji, expiresAt, userId, syncSession, updateStatus, setStatus });
+  const commit = (avail) => {
+    // No manual "clear after" — applyStatusOverride auto-expires it overnight.
+    applyStatusOverride({ availability: avail, message: msg.trim() || null, emoji, userId, updateStatus });
     setOpen(false);
   };
 
-  const backToAuto = () => {
-    clearStatusOverride({ userId, syncSession, updateStatus, setStatus });
-    if (pinned) setStatusPin({ userId, on: false });
-    if (invisible) setStatusInvisible({ userId, on: false });
-    setMsg(""); setEmoji(null);
-    setOpen(false);
+  // Clicking the currently-active status returns to auto — no separate button:
+  // auto is always the baseline, a manual pick is just a temporary override.
+  const pick = (avail) => {
+    if (overridden && availability === avail) {
+      clearStatusOverride({ userId, updateStatus });
+      setMsg(""); setEmoji(null);
+      setOpen(false);
+    } else {
+      commit(avail);
+    }
   };
 
   const toggleCls = (on) => `flex w-full items-center gap-2 rounded-md px-2 py-2.5 sm:py-1.5 text-sm sm:text-xs ${
@@ -122,7 +117,7 @@ export default function StatusChip() {
           <EmojiTextField
             value={msg}
             onChange={(e) => setMsg(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") apply(overridden ? availability : "online"); }}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(overridden ? availability : "online"); }}
             maxLength={80}
             placeholder="What are you up to?"
             className={`w-full rounded-md border px-2 py-2.5 sm:py-1.5 text-sm sm:text-xs ${
@@ -140,7 +135,8 @@ export default function StatusChip() {
               <button
                 key={a}
                 type="button"
-                onClick={() => apply(a)}
+                onClick={() => pick(a)}
+                title={sel ? "Click to return to auto" : ""}
                 className={`flex items-center gap-1.5 rounded-md px-2 py-2.5 sm:py-1.5 text-sm sm:text-xs ${
                   sel
                     ? dark ? "bg-[var(--color-bg)] text-slate-100" : "bg-slate-100 text-slate-800"
@@ -154,26 +150,9 @@ export default function StatusChip() {
             );
           })}
         </div>
-
-        <div className={`mt-1.5 border-t px-2 pt-2 pb-1 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
-          <span className={`mb-1 block text-[10px] uppercase tracking-wide ${dark ? "text-slate-500" : "text-slate-400"}`}>Clear after</span>
-          <div className="flex items-center gap-1">
-            {EXPIRIES.map((e) => (
-              <button
-                key={e.key}
-                type="button"
-                onClick={() => setExp(e.key)}
-                className={`flex-1 rounded-md px-1.5 py-2 sm:py-1 text-xs sm:text-[11px] ${
-                  exp === e.key
-                    ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
-                    : dark ? "text-slate-400 hover:bg-[var(--color-bg)]" : "text-slate-500 hover:bg-slate-100"
-                }`}
-              >
-                {e.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <p className={`px-2 pt-1 text-[10px] ${dark ? "text-slate-500" : "text-slate-400"}`}>
+          {overridden ? "Manual — tap the ✓ status to return to auto." : "Auto — following your activity."}
+        </p>
 
         {/* Immediate toggles — apply on click, independent of the presets. */}
         <div className={`mt-1 border-t px-1 pt-1 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
@@ -188,18 +167,6 @@ export default function StatusChip() {
             <span className="text-[10px] opacity-70">{invisible ? "On" : "Off"}</span>
           </button>
         </div>
-
-        {(overridden || pinned || invisible) && (
-          <button
-            type="button"
-            onClick={backToAuto}
-            className={`mt-1 w-full rounded-md px-2 py-2.5 sm:py-1.5 text-sm sm:text-xs font-medium ${
-              dark ? "text-slate-300 hover:bg-[var(--color-bg)]" : "text-slate-600 hover:bg-slate-100"
-            }`}
-          >
-            ↩ Back to auto
-          </button>
-        )}
       </Popover>
     </>
   );

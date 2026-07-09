@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
-import { useSyncSession } from "../../context/SyncSessionContext";
 import { useResolvedSelf } from "../../hooks/useResolvedSelf";
 import { availabilityDot, availabilityLabel } from "../../lib/presence";
 import { applyStatusOverride } from "../../lib/statusActions";
@@ -12,13 +11,12 @@ import EmojiTextField from "../EmojiTextField";
 // (applyStatusOverride) — the SAME model as the nav StatusChip, so setting your
 // status here propagates everywhere. currentTaskHint pulls whatever you're
 // clocked into as the message in one click.
-const PRESETS = ["online", "focusing", "meeting", "lunch", "commuting"];
+const PRESETS = ["online", "focusing", "meeting", "lunch", "commuting", "away", "offline"];
 
 export default function StatusSetter({ currentTaskHint = "" }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const { session, updateStatus } = useApp();
-  const { syncSession, setStatus } = useSyncSession();
   const { resolved } = useResolvedSelf();
   const userId = session?.user?.id;
 
@@ -31,7 +29,7 @@ export default function StatusSetter({ currentTaskHint = "" }) {
   useEffect(() => { if (!editing) setDraft(message); }, [message, editing]);
 
   const write = (avail) =>
-    applyStatusOverride({ availability: avail, message: draft.trim() || null, userId, syncSession, updateStatus, setStatus });
+    applyStatusOverride({ availability: avail, message: draft.trim() || null, userId, updateStatus });
   const setPreset = (a) => write(a);
   const save = () => { write(overridden ? availability : "online"); setEditing(false); };
   const cancel = () => { setDraft(message); setEditing(false); };

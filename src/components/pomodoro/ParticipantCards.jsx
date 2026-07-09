@@ -37,9 +37,9 @@ function Avatar({ participant, size = 40, dark }) {
 
 function ParticipantCard({ participant, isLeader, isSelf, dark }) {
   const presenceById = usePresenceById();
-  const avail = shownAvailability(participant.user_id, participant.presence_state, presenceById);
+  const avail = shownAvailability(participant.user_id, presenceById);
   const dotCls = availabilityDot(avail);
-  const statusText = participant.status?.trim() || availabilityLabel(avail);
+  const statusText = (presenceById.get(participant.user_id)?.message || participant.status)?.trim() || availabilityLabel(avail);
 
   return (
     <div className="flex items-start gap-3 py-2">
@@ -83,6 +83,7 @@ export default function ParticipantCards({ max = 5 }) {
   const { syncSession, syncParticipants } = useSyncSession();
   const { isSynced } = usePomodoro();
   const [sortMode] = useParticipantSort();
+  const presenceById = usePresenceById();
 
   if (!isSynced || !syncSession) return null;
 
@@ -97,6 +98,7 @@ export default function ParticipantCards({ max = 5 }) {
     mode: sortMode,
     userId,
     leaderId: syncSession.leader_id,
+    availabilityOf: (uid) => presenceById.get(uid)?.availability,
   });
 
   const visible = sorted.slice(0, max);
