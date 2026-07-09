@@ -10,6 +10,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { setGoal, clearGoalNode, GOAL_TIMEFRAMES, timeframeToParams } from "../../lib/goals";
 import { fontStack } from "../../lib/whiteboardFonts";
 import FullEmojiPicker from "../emotes/FullEmojiPicker";
+import EmojiTextField from "../EmojiTextField";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -289,7 +290,8 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
       >
         {(draft || placeholder || " ") + "​"}
       </div>
-      <textarea
+      <EmojiTextField
+        multiline
         ref={textareaRef}
         value={draft}
         rows={1}
