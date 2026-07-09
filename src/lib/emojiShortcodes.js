@@ -1,8 +1,12 @@
 // Discord-style emoji shortcodes: type :smile: to get 🙂.
-// A curated map of the common ones (no dependency). expandEmojiShortcodes runs
-// on message send + live as you type; searchShortcodes powers the autocomplete.
+// The full Unicode set comes from EMOJI_DATA (generated from emoji-picker-react,
+// ~3.9k names); CURATED below overrides it with the short, natural aliases people
+// reach for (:happy:, :+1:, :thumbsup: …) so those win over the formal names.
+// expandEmojiShortcodes runs on send + live as you type; searchShortcodes powers
+// the autocomplete.
+import { EMOJI_DATA } from "./emojiShortcodes.data";
 
-export const EMOJI_SHORTCODES = {
+const CURATED = {
   // faces / feelings
   smile: "🙂", smiley: "😃", grin: "😀", grinning: "😀", laughing: "😆", sweat_smile: "😅",
   joy: "😂", rofl: "🤣", rolling_on_the_floor_laughing: "🤣", slight_smile: "🙂",
@@ -54,6 +58,9 @@ export const EMOJI_SHORTCODES = {
   love_you: "🥰", smiling: "🥰", grateful: "🙏", high_five: "🙌", perfect: "💯",
   bullseye: "🎯", target: "🎯", idea: "💡", coffee_break: "☕", lunch: "🍽️",
 };
+
+// Full set with the curated aliases winning on collisions.
+export const EMOJI_SHORTCODES = { ...EMOJI_DATA, ...CURATED };
 
 const RE = /:([a-z0-9_+-]+):/gi;
 

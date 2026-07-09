@@ -113,7 +113,7 @@ const EmojiTextField = forwardRef(function EmojiTextField(
             width: popoverWidth,
             zIndex: 1000,
           }}
-          className="max-h-52 overflow-y-auto rounded-xl border shadow-lg bg-white dark:bg-[var(--color-surface)] border-slate-200 dark:border-[var(--color-border)]"
+          className="max-h-[min(24rem,60vh)] overflow-y-auto rounded-xl border shadow-lg bg-white dark:bg-[var(--color-surface)] border-slate-200 dark:border-[var(--color-border)]"
         >
           {matches.map((em, i) => (
             <button
