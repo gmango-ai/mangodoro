@@ -34,8 +34,10 @@ export default function StatusChip() {
   const [exp, setExp] = useState("none");
 
   if (!resolved) return null;
-  const { availability, activity, source } = resolved;
-  const overridden = source === "override";
+  const { availability, activity } = resolved;
+  // An override still *exists* even when Away/Offline currently overrides it,
+  // so key the "back to auto" affordance off its presence, not the live source.
+  const overridden = !!resolved.override;
   const detail = overridden && resolved.override?.message
     ? resolved.override.message
     : activity && !activity.private ? activity.label : null;

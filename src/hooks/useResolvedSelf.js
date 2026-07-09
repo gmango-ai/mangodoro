@@ -5,7 +5,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { buildSignals } from "../lib/presenceSignals";
 import { resolveStatus } from "../lib/statusResolver";
-import { readOverride, OVERRIDE_EVENT } from "../lib/statusOverride";
+import { readOverride, readPin, OVERRIDE_EVENT } from "../lib/statusOverride";
 
 // Live resolved status for the current user. Recomputes on context changes and
 // on a 15s heartbeat (so idle transitions + override expiry surface without a
@@ -30,22 +30,30 @@ export function useResolvedSelf() {
   const pomodoro = usePomodoro();
 
   // Heartbeat so time-based transitions (idle, override expiry) surface, plus an
-  // immediate re-read when the manual override changes.
+  // immediate re-read when the manual override, pin, or network state changes.
   const [, bump] = useState(0);
   useEffect(() => {
     const id = setInterval(() => bump((n) => n + 1), 15000);
-    const onOverride = () => bump((n) => n + 1);
-    window.addEventListener(OVERRIDE_EVENT, onOverride);
-    window.addEventListener("storage", onOverride);
+    const onBump = () => bump((n) => n + 1);
+    window.addEventListener(OVERRIDE_EVENT, onBump);
+    window.addEventListener("storage", onBump);
+    window.addEventListener("online", onBump);
+    window.addEventListener("offline", onBump);
     return () => {
       clearInterval(id);
-      window.removeEventListener(OVERRIDE_EVENT, onOverride);
-      window.removeEventListener("storage", onOverride);
+      window.removeEventListener(OVERRIDE_EVENT, onBump);
+      window.removeEventListener("storage", onBump);
+      window.removeEventListener("online", onBump);
+      window.removeEventListener("offline", onBump);
     };
   }, []);
 
   const room = syncSession?.room_id ? rooms?.find((r) => r.id === syncSession.room_id) : null;
   const now = Date.now();
+  // Real liveness: network down → offline. (Tab-close / sleep can't be reported
+  // by a dead client — the server sweep handles those in P3.) `navigator.onLine`
+  // is unavailable during SSR, so default to online.
+  const online = typeof navigator === "undefined" || navigator.onLine !== false;
   const resolved = resolveStatus({
     ...buildSignals({
       clockIn,
@@ -53,10 +61,11 @@ export function useResolvedSelf() {
       room,
       pomodoro: pomodoro ? { isRunning: pomodoro.isRunning, mode: pomodoro.mode } : null,
       lastActivityMs: getNum(ACT_KEY, now),
-      online: true,
+      online,
       now,
     }),
     override: readOverride(now),
+    autoPinUntil: readPin(now),
   });
 
   // Track when the current availability began, for the display `since`.

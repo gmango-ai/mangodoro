@@ -1,4 +1,5 @@
 import { supabase } from "../supabase";
+import { normAvailability } from "./presence";
 
 // user_presence — read/write layer over the resolved status snapshot (seam ①).
 // The client resolves status (src/lib/statusResolver.js), decides when to write
@@ -34,7 +35,7 @@ export async function upsertUserPresence({
     {
       user_id: userId,
       team_id: teamId,
-      availability,
+      availability: normAvailability(availability),
       since: toIso(since),
       activity_label: isPrivate ? null : activity?.label ?? null,
       activity_link: isPrivate ? null : activity?.link ?? null,
@@ -55,12 +56,13 @@ export async function upsertUserPresence({
 // as reachable for up to 15s after they set Focusing / In a meeting.
 export async function setPresenceOverride({ userId, availability, message = null, expiresAt = null }) {
   if (!userId) return { error: { message: "no user" } };
+  const a = normAvailability(availability);
   return supabase.from("user_presence").upsert(
     {
       user_id: userId,
-      availability,
+      availability: a,
       since: new Date().toISOString(),
-      override_availability: availability,
+      override_availability: a,
       override_message: message,
       override_expires_at: toIso(expiresAt),
       override_set_at: new Date().toISOString(),

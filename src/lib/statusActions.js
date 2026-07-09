@@ -1,20 +1,18 @@
 import { writeOverride, clearOverride } from "./statusOverride";
 import { setPresenceOverride, clearPresenceOverride } from "./userPresence";
+import { normAvailability } from "./presence";
 
-// New availability → legacy presence_state (the vocabulary the DB CHECK
-// constraint + existing room/hallway surfaces still use). Keeps write-through
-// within the allowed enum: active/available/heads_down/in_meeting/away/
-// out_to_lunch/commuting.
+// New 7-state availability → legacy presence_state (the vocabulary the legacy
+// user_settings / sync-participant RPCs still require, until P2/P5 retire them).
+// Keyed on the normalized 7-state names; old aliases fold via normAvailability.
 export const AVAIL_TO_LEGACY = {
-  available: "available",
-  pairing: "available",
-  focusing: "heads_down",
-  in_meeting: "in_meeting",
-  away: "away",
-  lunch: "out_to_lunch",
+  online:    "available",
+  focusing:  "heads_down",
+  meeting:   "in_meeting",
+  lunch:     "out_to_lunch",
   commuting: "commuting",
-  off: "away",
-  offline: "away",
+  away:      "away",
+  offline:   "away",
 };
 
 // Set a manual status override and mirror it everywhere IMMEDIATELY: localStorage
@@ -30,9 +28,10 @@ export function applyStatusOverride({
   updateStatus,
   setStatus,
 }) {
-  writeOverride({ availability, message, expiresAt });
-  if (userId) setPresenceOverride({ userId, availability, message, expiresAt });
-  const legacy = AVAIL_TO_LEGACY[availability] || "active";
+  const a = normAvailability(availability);
+  writeOverride({ availability: a, message, expiresAt });
+  if (userId) setPresenceOverride({ userId, availability: a, message, expiresAt });
+  const legacy = AVAIL_TO_LEGACY[a] || "available";
   updateStatus?.({ presenceState: legacy, status: message || "" });
   if (syncSession) setStatus?.({ presenceState: legacy, status: message || "" });
 }

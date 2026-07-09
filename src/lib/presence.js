@@ -64,9 +64,7 @@ export const availabilityMeta  = (a) => AVAILABILITY[normAvailability(a)];
 export const availabilityDot   = (a) => availabilityMeta(a).dot;
 export const availabilityRing  = (a) => availabilityMeta(a).ring;
 export const availabilityLabel = (a) => availabilityMeta(a).label;
-// Transitional shim: the resolver still emits `pairing` until P1 demotes it to
-// activity detail; keep its "busy but reachable" yellow light until then.
-export const availabilityLight = (a) => (a === "pairing" ? "yellow" : availabilityMeta(a).light);
+export const availabilityLight = (a) => availabilityMeta(a).light;
 
 // ── Legacy presence_state lookups (delegate through the bridge) ────────────
 // Kept for surfaces still reading a participant `presence_state`; they resolve

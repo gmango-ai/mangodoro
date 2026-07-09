@@ -34,3 +34,33 @@ export function clearOverride() {
   try { localStorage.removeItem(KEY); } catch { /* */ }
   try { window.dispatchEvent(new Event(OVERRIDE_EVENT)); } catch { /* */ }
 }
+
+// Auto-state pin ("keep my status"): while set + unexpired, idle→away won't
+// override the manual/derived intent. Stored as an epoch-ms deadline; the
+// setter (P5 UI) uses now + 24h so it auto-re-enables after a day.
+const PIN_KEY = "mango:autoPin";
+
+export function readPin(now = Date.now()) {
+  try {
+    const raw = localStorage.getItem(PIN_KEY);
+    if (!raw) return null;
+    const until = Number(raw);
+    if (!until || until <= now) {
+      localStorage.removeItem(PIN_KEY);
+      return null;
+    }
+    return until;
+  } catch {
+    return null;
+  }
+}
+
+export function writePin(until) {
+  try { localStorage.setItem(PIN_KEY, String(until)); } catch { /* */ }
+  try { window.dispatchEvent(new Event(OVERRIDE_EVENT)); } catch { /* */ }
+}
+
+export function clearPin() {
+  try { localStorage.removeItem(PIN_KEY); } catch { /* */ }
+  try { window.dispatchEvent(new Event(OVERRIDE_EVENT)); } catch { /* */ }
+}
