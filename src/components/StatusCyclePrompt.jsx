@@ -13,7 +13,7 @@ import { readStatusOnCycle } from "../lib/statusCyclePref";
 // or pop a quick prompt to clear / update it. Transition detection mirrors
 // ReflectionPrompt. Writes bridge to the legacy surfaces too (room list).
 const BREAKS = new Set(["shortBreak", "longBreak"]);
-const QUICK = ["available", "focusing", "away", "off"];
+const QUICK = ["online", "focusing", "away", "offline"];
 
 export default function StatusCyclePrompt() {
   const { mode } = usePomodoro();

@@ -3,10 +3,9 @@ import { deliveryAction, availabilityBucket } from "./notificationDelivery";
 
 describe("availabilityBucket", () => {
   it("maps availability to free / dnd / away", () => {
-    expect(availabilityBucket("available")).toBe("free");
-    expect(availabilityBucket("pairing")).toBe("free");
+    expect(availabilityBucket("online")).toBe("free");
     expect(availabilityBucket("focusing")).toBe("dnd");
-    expect(availabilityBucket("in_meeting")).toBe("dnd");
+    expect(availabilityBucket("meeting")).toBe("dnd");
     expect(availabilityBucket("away")).toBe("away");
     expect(availabilityBucket("lunch")).toBe("away");
     expect(availabilityBucket("offline")).toBe("away");
@@ -17,7 +16,7 @@ describe("availabilityBucket", () => {
 describe("deliveryAction — the §7.3 matrix", () => {
   it("free: everything delivers in full", () => {
     for (const pr of ["low", "normal", "high", "urgent"]) {
-      expect(deliveryAction(pr, "available")).toEqual({ banner: true, sound: true, push: true, hold: false });
+      expect(deliveryAction(pr, "online")).toEqual({ banner: true, sound: true, push: true, hold: false });
     }
   });
 
@@ -28,9 +27,9 @@ describe("deliveryAction — the §7.3 matrix", () => {
     expect(deliveryAction("urgent", "focusing")).toEqual({ banner: true, sound: true, push: true, hold: false });
   });
 
-  it("in_meeting behaves like focusing (dnd)", () => {
-    expect(deliveryAction("normal", "in_meeting").hold).toBe(true);
-    expect(deliveryAction("urgent", "in_meeting")).toEqual({ banner: true, sound: true, push: true, hold: false });
+  it("meeting behaves like focusing (dnd)", () => {
+    expect(deliveryAction("normal", "meeting").hold).toBe(true);
+    expect(deliveryAction("urgent", "meeting")).toEqual({ banner: true, sound: true, push: true, hold: false });
   });
 
   it("away: low/normal inbox-only, high reaches (no sound), urgent full", () => {
@@ -39,7 +38,7 @@ describe("deliveryAction — the §7.3 matrix", () => {
     expect(deliveryAction("urgent", "away")).toEqual({ banner: true, sound: true, push: true, hold: false });
   });
 
-  it("defaults: normal priority + available", () => {
+  it("defaults: normal priority + online", () => {
     expect(deliveryAction()).toEqual({ banner: true, sound: true, push: true, hold: false });
   });
 });
