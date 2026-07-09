@@ -11,6 +11,7 @@ import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useMessages } from "../context/MessagesContext";
 import { useTheme } from "../context/ThemeContext";
+import { useProfileCard } from "../context/ProfileContext";
 import UserAvatar from "../components/UserAvatar";
 import { EMOTES } from "../components/emotes/presets";
 import FullEmojiPicker from "../components/emotes/FullEmojiPicker";
@@ -86,11 +87,23 @@ export function conversationName(c, memberById) {
 // names first so "@Ann Marie" wins over "@Ann".
 function linkifyMentions(text, mentionNames) {
   if (!text || !text.includes("@") || !mentionNames || mentionNames.size === 0) return text;
-  const present = [...mentionNames.keys()].filter((n) => text.includes(`@${n}`)).sort((a, b) => b.length - a.length);
+  // Match a name as-is AND with its spaces removed — mentions were historically
+  // inserted de-spaced ("@CristianCantu"), which never matched the spaced name.
+  // Both variants resolve to the same id; we always DISPLAY the readable name.
+  const byToken = new Map();
+  for (const [name, id] of mentionNames) {
+    byToken.set(name, { name, id });
+    const nospace = name.replace(/\s+/g, "");
+    if (nospace !== name && !byToken.has(nospace)) byToken.set(nospace, { name, id });
+  }
+  const present = [...byToken.keys()].filter((t) => text.includes(`@${t}`)).sort((a, b) => b.length - a.length);
   if (!present.length) return text;
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(`@(${present.map(esc).join("|")})`, "g");
-  return text.replace(re, (_m, name) => `[@${name}](mention://${mentionNames.get(name)})`);
+  return text.replace(re, (_m, token) => {
+    const v = byToken.get(token);
+    return v ? `[@${v.name}](mention://${v.id})` : _m;
+  });
 }
 // Keep react-markdown's URL safety but let our mention:// scheme (and same-page
 // anchors) through.
@@ -103,11 +116,17 @@ function mdUrl(url) {
 
 // ── light markdown body (bold/italic/code/links + @mentions) ──
 function Body({ text, mentionNames, className = "" }) {
+  const { openProfile } = useProfileCard();
   const src = mentionNames ? linkifyMentions(text, mentionNames) : text;
   return (
     <div className={`text-sm leading-relaxed whitespace-pre-wrap break-words [&_a]:text-[var(--color-accent)] [&_a]:underline [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:bg-black/10 [&_code]:text-[0.85em] [&_p]:m-0 [&_ul]:my-1 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-1 [&_ol]:pl-4 [&_ol]:list-decimal ${className}`}>
       <Markdown urlTransform={mdUrl} components={{ a: ({ node, href, ...p }) => (href || "").startsWith("mention://")
-        ? <span className="font-semibold text-[var(--color-accent)] no-underline" {...p} />
+        ? <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); openProfile?.(href.slice("mention://".length), e.currentTarget.getBoundingClientRect()); }}
+            className="font-semibold text-[var(--color-accent)] no-underline hover:underline align-baseline"
+            {...p}
+          />
         : <a href={href} {...p} target="_blank" rel="noopener noreferrer" /> }}>
         {src || ""}
       </Markdown>
