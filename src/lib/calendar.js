@@ -216,10 +216,8 @@ export function goalToEvent(g) {
     end: addDaysStr(g.week_start, 7), // exclusive end
     allDay: true,
     display: "block",
-    backgroundColor: "transparent",
-    borderColor: COLOR.goal,
-    textColor: COLOR.goal,
     editable: false,
+    classNames: ["cal-span", "cal-span-goal"], // filled bar so it spans the whole week
     extendedProps: { type: "goal", sourceId: g.id, row: g },
   };
 }
@@ -237,7 +235,8 @@ export function availabilityToEvents(settings) {
       backgroundColor: COLOR.ooo, extendedProps: { type: "ooo_bg" },
     });
     out.push({
-      id: `ooo:${key}`, start, end: endEx, allDay: true, editable: false,
+      id: `ooo:${key}`, start, end: endEx, allDay: true, editable: false, display: "block",
+      classNames: ["cal-span", "cal-span-ooo"], // filled bar spanning the OOO range
       title: note || "Out of office", extendedProps: { type: "ooo", note: note || "Out of office" },
     });
   };

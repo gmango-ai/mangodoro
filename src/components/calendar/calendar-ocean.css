@@ -245,6 +245,25 @@
 .cal-ocean .fc .fc-timegrid-bg-harness .fc-bg-event { opacity: 1; }
 .cal-ocean .fc .fc-bg-event { opacity: 0.55; }
 
+/* Multi-day CONTEXT bars (weekly goals, OOO ranges): unlike normal chips, these
+   need a visible fill so they read as a continuous bar across every day they
+   cover — otherwise the transparent-event rule above hides the middle and only
+   the end labels show. `!important` beats that rule. */
+.cal-ocean .fc .fc-daygrid-event.cal-span,
+.cal-ocean .fc .fc-daygrid-event.cal-span .fc-event-main {
+  border-radius: 6px !important;
+}
+.cal-ocean .fc .fc-daygrid-event.cal-span-goal,
+.cal-ocean .fc .fc-daygrid-event.cal-span-goal .fc-event-main {
+  background-color: rgba(251, 192, 45, 0.20) !important;
+}
+.cal-ocean .fc .fc-daygrid-event.cal-span-ooo,
+.cal-ocean .fc .fc-daygrid-event.cal-span-ooo .fc-event-main {
+  background-color: rgba(85, 118, 134, 0.18) !important;
+}
+/* The chip inside a span bar shouldn't paint its own bg — let the bar show. */
+.cal-ocean .fc .cal-span .cal-chip2--ctx { opacity: 1; }
+
 /* ── slide-over event detail ───────────────────────────── */
 .cal-ocean__backdrop { position: absolute; inset: 0; background: rgba(11,42,58,0.18); z-index: 40; animation: cal-fade .18s var(--o-ease-out); }
 .cal-ocean__sheet {
