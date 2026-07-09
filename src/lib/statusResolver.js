@@ -188,6 +188,7 @@ function finalize({ availability, source, override, location, activity, now, sin
       ? {
           availability: override.availability,
           message: override.message,
+          emoji: override.emoji,
           expiresAt: override.expiresAt,
         }
       : null,

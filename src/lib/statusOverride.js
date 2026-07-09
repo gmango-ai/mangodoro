@@ -64,3 +64,20 @@ export function clearPin() {
   try { localStorage.removeItem(PIN_KEY); } catch { /* */ }
   try { window.dispatchEvent(new Event(OVERRIDE_EVENT)); } catch { /* */ }
 }
+
+// "Appear offline" — self still sees real state; teammates see offline. Stored
+// locally for instant self-awareness (the badge) and mirrored to
+// user_presence.invisible for the teammate-facing read.
+const INVIS_KEY = "mango:invisible";
+
+export function readInvisible() {
+  try { return localStorage.getItem(INVIS_KEY) === "1"; } catch { return false; }
+}
+
+export function writeInvisible(on) {
+  try {
+    if (on) localStorage.setItem(INVIS_KEY, "1");
+    else localStorage.removeItem(INVIS_KEY);
+  } catch { /* */ }
+  try { window.dispatchEvent(new Event(OVERRIDE_EVENT)); } catch { /* */ }
+}

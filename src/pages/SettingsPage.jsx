@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context/AppContext";
+import { useSyncSession } from "../context/SyncSessionContext";
+import { useResolvedSelf } from "../hooks/useResolvedSelf";
+import { applyStatusOverride } from "../lib/statusActions";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
@@ -198,10 +201,12 @@ function ProfileSection({ dark }) {
   const {
     settings, setSettings, session,
     hourlyRate, setHourlyRate,
-    updateSettingsField,
+    updateSettingsField, updateStatus,
     addCustomSound, renameCustomSound, removeCustomSound,
   } = useApp();
   const { teamSounds } = useTeam();
+  const { syncSession, setStatus: setSyncStatus } = useSyncSession();
+  const { resolved } = useResolvedSelf();
   const [soundSettings, setSoundSettings] = useState(() => loadPomodoroSoundSettings());
   function updateSound(patch) {
     setSoundSettings((prev) => {
@@ -214,8 +219,10 @@ function ProfileSection({ dark }) {
 
   const [name, setName] = useState(settings.name || "");
   const [avatarUrl, setAvatarUrl] = useState(settings.avatarUrl || "");
-  const [status, setStatus] = useState(settings.status || "");
-  const [presenceState, setPresenceState] = useState(settings.presenceState || "active");
+  const overMsg = resolved?.override?.message || "";
+  const availability = resolved?.availability || "offline";
+  const overridden = !!resolved?.override;
+  const [status, setStatus] = useState(overMsg);
   const [rateDraft, setRateDraft] = useState(hourlyRate ? String(hourlyRate) : "");
   const [annualDraft, setAnnualDraft] = useState("");
   const [error, setError] = useState("");
@@ -226,8 +233,7 @@ function ProfileSection({ dark }) {
   useEffect(() => { setJobTitle(settings.jobTitle || ""); }, [settings.jobTitle]);
   useEffect(() => { setName(settings.name || ""); }, [settings.name]);
   useEffect(() => { setAvatarUrl(settings.avatarUrl || ""); }, [settings.avatarUrl]);
-  useEffect(() => { setStatus(settings.status || ""); }, [settings.status]);
-  useEffect(() => { setPresenceState(settings.presenceState || "active"); }, [settings.presenceState]);
+  useEffect(() => { setStatus(overMsg); }, [overMsg]);
   useEffect(() => { setRateDraft(hourlyRate ? String(hourlyRate) : ""); }, [hourlyRate]);
   useEffect(() => {
     setAnnualDraft(settings?.annualSalary != null ? String(settings.annualSalary) : (hourlyRate ? String(Math.round(hourlyRate * HOURS_PER_YEAR)) : ""));
@@ -262,18 +268,19 @@ function ProfileSection({ dark }) {
     persist({ name: clean || null });
   }
 
-  function onStatusBlur() {
-    const clean = status.trim().slice(0, 80);
-    if (clean === (settings.status || "")) return;
-    updateSettingsField({ status: clean || null });
+  // Unified with the nav StatusChip: writes the manual OVERRIDE so it propagates
+  // everywhere and the resolver's mirror can't overwrite it.
+  function writeStatus(avail) {
+    applyStatusOverride({ availability: avail, message: status.trim() || null, userId, syncSession, updateStatus, setStatus: setSyncStatus });
     flashSaved();
   }
-
+  function onStatusBlur() {
+    if (status.trim() === overMsg.trim()) return;
+    writeStatus(overridden ? availability : "online");
+  }
   function pickPresence(key) {
-    if (presenceState === key) return;
-    setPresenceState(key);
-    updateSettingsField({ presenceState: key });
-    flashSaved();
+    if (overridden && availability === key) return;
+    writeStatus(key);
   }
 
   async function onRateBlur() {
@@ -299,11 +306,11 @@ function ProfileSection({ dark }) {
   }
 
   const PRESENCE = [
-    { key: "active", label: "Active", color: "bg-emerald-500" },
-    { key: "available", label: "Available", color: "bg-sky-500" },
-    { key: "heads_down", label: "Heads-down", color: "bg-violet-500" },
-    { key: "in_meeting", label: "In meeting", color: "bg-rose-500" },
-    { key: "away", label: "Away", color: "bg-amber-500" },
+    { key: "online", label: "Online", color: "bg-emerald-500" },
+    { key: "focusing", label: "Focusing", color: "bg-violet-500" },
+    { key: "meeting", label: "In a meeting", color: "bg-rose-500" },
+    { key: "lunch", label: "On lunch", color: "bg-orange-400" },
+    { key: "commuting", label: "Commuting", color: "bg-cyan-500" },
   ];
 
   return (
@@ -353,7 +360,7 @@ function ProfileSection({ dark }) {
         <div className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
             {PRESENCE.map((opt) => {
-              const active = presenceState === opt.key;
+              const active = overridden && availability === opt.key;
               return (
                 <button
                   key={opt.key}

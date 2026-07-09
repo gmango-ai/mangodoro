@@ -5,7 +5,7 @@ import { useSyncSession } from "../context/SyncSessionContext";
 import { usePomodoro } from "../pomodoro/PomodoroContext";
 import { buildSignals } from "../lib/presenceSignals";
 import { resolveStatus } from "../lib/statusResolver";
-import { readOverride, readPin, OVERRIDE_EVENT } from "../lib/statusOverride";
+import { readOverride, readPin, readInvisible, OVERRIDE_EVENT } from "../lib/statusOverride";
 
 // Live resolved status for the current user. Recomputes on context changes and
 // on a 15s heartbeat (so idle transitions + override expiry surface without a
@@ -67,6 +67,9 @@ export function useResolvedSelf() {
     override: readOverride(now),
     autoPinUntil: readPin(now),
   });
+  // Self-only flags for the chip (don't affect derivation — self always sees real).
+  resolved.pinnedUntil = readPin(now);
+  resolved.invisible = readInvisible();
 
   // Track when the current availability began, for the display `since`.
   const sinceRef = useRef({ avail: null, sinceMs: null });

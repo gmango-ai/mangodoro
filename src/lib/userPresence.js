@@ -69,7 +69,7 @@ export async function touchPresenceHeartbeat(userId) {
 // immediately, so focus-aware routing (_nd_insert_delivery) and the teammate
 // roster (mergeOfficePresence) — which read `availability` — don't show the user
 // as reachable for up to 15s after they set Focusing / In a meeting.
-export async function setPresenceOverride({ userId, availability, message = null, expiresAt = null }) {
+export async function setPresenceOverride({ userId, availability, message = null, emoji = null, expiresAt = null }) {
   if (!userId) return { error: { message: "no user" } };
   const a = normAvailability(availability);
   return supabase.from("user_presence").upsert(
@@ -79,11 +79,30 @@ export async function setPresenceOverride({ userId, availability, message = null
       since: new Date().toISOString(),
       override_availability: a,
       override_message: message,
+      override_emoji: emoji,
       override_expires_at: toIso(expiresAt),
       override_set_at: new Date().toISOString(),
       last_seen_at: new Date().toISOString(), // setting a status = active; avoid an instant sweep
       updated_at: new Date().toISOString(),
     },
+    { onConflict: "user_id" }
+  );
+}
+
+// The auto-state pin ("keep my status" through idle). null clears it.
+export async function setPresencePin(userId, until) {
+  if (!userId) return { error: { message: "no user" } };
+  return supabase.from("user_presence").upsert(
+    { user_id: userId, auto_pin_until: toIso(until), last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { onConflict: "user_id" }
+  );
+}
+
+// "Appear offline" — teammates read this and render the person offline.
+export async function setPresenceInvisible(userId, invisible) {
+  if (!userId) return { error: { message: "no user" } };
+  return supabase.from("user_presence").upsert(
+    { user_id: userId, invisible: !!invisible, last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString() },
     { onConflict: "user_id" }
   );
 }
@@ -95,6 +114,7 @@ export async function clearPresenceOverride(userId) {
       user_id: userId,
       override_availability: null,
       override_message: null,
+      override_emoji: null,
       override_expires_at: null,
       override_set_at: null,
       updated_at: new Date().toISOString(),

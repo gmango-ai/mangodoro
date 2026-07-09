@@ -22,7 +22,8 @@ export function mergeOfficePresence(rows = [], online = [], identity = {}) {
   const avatarOf = (id, ...fallbacks) => fallbacks.find(Boolean) || identity[id]?.avatar || "";
 
   for (const r of rows) {
-    const live = onlineById.get(r.user_id);
+    // "Appear offline" — teammates see them offline regardless of liveness.
+    const live = r.invisible ? null : onlineById.get(r.user_id);
     byId.set(r.user_id, {
       userId: r.user_id,
       online: !!live,
