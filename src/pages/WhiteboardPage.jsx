@@ -1894,6 +1894,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const [areaSel, setAreaSel] = useState(null);   // floating selection (see finalizeAreaSelection)
   const areaSelRef = useRef(null);
   areaSelRef.current = areaSel;
+  // finalizeAreaSelection is defined far below (it needs rf/paintRef); the
+  // pointer-up handler calls it through this ref to avoid a forward-reference
+  // TDZ in its dependency array.
+  const finalizeAreaRef = useRef(null);
 
   // Pen colour + width (persisted per device). A ref so the pointer handlers
   // read the latest without re-subscribing.
@@ -2235,7 +2239,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         areaDragRef.current = null;
         setAreaBox(null);
         try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
-        finalizeAreaSelection(d.x0, d.y0, e.clientX, e.clientY);
+        // via ref — finalizeAreaSelection is defined later in the component; a
+        // direct dep here would be a render-time TDZ (blank screen).
+        finalizeAreaRef.current?.(d.x0, d.y0, e.clientX, e.clientY);
         return;
       }
       // Only the stroke-owning pointer ends it.
@@ -2278,7 +2284,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
       finishStroke();
     },
-    [finishStroke, pushCursor, pushPaint, pushExternalStep, finalizeAreaSelection]
+    [finishStroke, pushCursor, pushPaint, pushExternalStep]
   );
 
   // On a tool switch, push one cursor update reflecting the new mode so peers
@@ -3291,6 +3297,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     if (!picked.length && !raster) return; // empty area
     setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0 });
   }, [rf]);
+  finalizeAreaRef.current = finalizeAreaSelection;
 
   // Live-move the floating selection: raster overlay + the picked nodes together.
   const moveAreaSelection = useCallback((dx, dy) => {
@@ -4102,46 +4109,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {/* Paint toolbar — brush/eraser, colour, size, opacity (brush mode). */}
         {tool === "brush" && <PaintToolbar dark={dark} style={brushStyle} setStyle={setBrushStyle} bottomOffset={bottomStackOffset} />}
 
-        {/* Touch-only quick undo/redo — the top-chrome buttons are too small for
-            a Pencil, and there's no keyboard for ⌘Z. Also bound to 2/3-finger
-            taps (onWbTouch*). */}
-        {WB_TOUCH && (
-          <Panel
-            position="top-left"
-            className={`flex items-center gap-1 p-1 rounded-2xl border shadow-lg ${
-              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-            }`}
-          >
-            <button
-              type="button"
-              onClick={undo}
-              disabled={!canUndo}
-              title="Undo (or two-finger tap)"
-              aria-label="Undo"
-              className={`w-11 h-11 rounded-xl inline-flex items-center justify-center transition-colors touch-none ${
-                !canUndo
-                  ? dark ? "text-slate-600" : "text-slate-300"
-                  : dark ? "text-slate-200 hover:bg-white/10 active:bg-white/20" : "text-slate-600 hover:bg-slate-100 active:bg-slate-200"
-              }`}
-            >
-              <Undo2 className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={redo}
-              disabled={!canRedo}
-              title="Redo (or three-finger tap)"
-              aria-label="Redo"
-              className={`w-11 h-11 rounded-xl inline-flex items-center justify-center transition-colors touch-none ${
-                !canRedo
-                  ? dark ? "text-slate-600" : "text-slate-300"
-                  : dark ? "text-slate-200 hover:bg-white/10 active:bg-white/20" : "text-slate-600 hover:bg-slate-100 active:bg-slate-200"
-              }`}
-            >
-              <Redo2 className="w-5 h-5" />
-            </button>
-          </Panel>
-        )}
+        {/* (Undo/redo live in the top-bar group; 2/3-finger tap gestures still
+            work via onWbTouch*.) */}
 
         {/* Align / distribute toolbar — only with 2+ top-level nodes selected. */}
         {multiCount >= 2 && (
@@ -4593,29 +4562,29 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             type="button"
             onClick={undo}
             disabled={!canUndo}
-            title="Undo (⌘Z)"
+            title="Undo (⌘Z / two-finger tap)"
             aria-label="Undo"
-            className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+            className={`${WB_TOUCH ? "w-9 h-9" : "w-7 h-7"} rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
               !canUndo
                 ? dark ? "text-slate-600 cursor-not-allowed" : "text-slate-300 cursor-not-allowed"
                 : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
             }`}
           >
-            <Undo2 className="w-4 h-4" />
+            <Undo2 className={WB_TOUCH ? "w-5 h-5" : "w-4 h-4"} />
           </button>
           <button
             type="button"
             onClick={redo}
             disabled={!canRedo}
-            title="Redo (⌘⇧Z)"
+            title="Redo (⌘⇧Z / three-finger tap)"
             aria-label="Redo"
-            className={`w-7 h-7 rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
+            className={`${WB_TOUCH ? "w-9 h-9" : "w-7 h-7"} rounded-full inline-flex items-center justify-center transition-colors shrink-0 ${
               !canRedo
                 ? dark ? "text-slate-600 cursor-not-allowed" : "text-slate-300 cursor-not-allowed"
                 : dark ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
             }`}
           >
-            <Redo2 className="w-4 h-4" />
+            <Redo2 className={WB_TOUCH ? "w-5 h-5" : "w-4 h-4"} />
           </button>
           <FitViewButton dark={dark} />
           {/* Collapse / reveal the extra tools. Keeps the bar to one row on a

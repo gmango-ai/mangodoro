@@ -19,6 +19,7 @@ import { MessagesProvider } from "./context/MessagesContext";
 import MessagesPage from "./pages/MessagesPage";
 import { ProfileProvider } from "./context/ProfileContext";
 import { TourProvider } from "./context/TourContext";
+import ErrorBoundary from "./components/ErrorBoundary";
 import LunchReminder from "./components/LunchReminder";
 import HealthReminders from "./components/HealthReminders";
 import PresenceSync from "./components/PresenceSync";
@@ -394,6 +395,10 @@ function AppLayout({ session }) {
             />
           )}
           {!isEmbed && <PWAUpdater />}
+          {/* Route content is boundaried so one page throwing shows a
+              recoverable fallback (not a blank screen) while the nav shell
+              survives; it auto-clears when you navigate (resetKey=pathname). */}
+          <ErrorBoundary label="route" resetKey={location.pathname}>
           <Suspense fallback={ROUTE_FALLBACK}>
           <Routes>
             <Route path="/" element={<LandingRedirector />} />
@@ -429,6 +434,7 @@ function AppLayout({ session }) {
             <Route path="/account" element={<Navigate to="/settings" replace />} />
           </Routes>
           </Suspense>
+          </ErrorBoundary>
 
           {/* Persistent video call mount — lives outside <Routes> so the
               call survives page navigation. Renders as a PiP when no
