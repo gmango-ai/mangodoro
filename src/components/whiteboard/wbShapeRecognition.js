@@ -101,19 +101,41 @@ export function recognizeStroke(rawPts) {
 
   const rect = { x: bb.minX, y: bb.minY, w: Math.max(1, w), h: Math.max(1, h) };
 
-  // Smooth loop → ellipse.
-  if (corners <= 2 || ellErr < 0.12) return { kind: "ellipse", rect };
-  if (corners === 3) return { kind: "triangle", rect };
-  if (corners === 4) {
-    // Rect (corners at the bbox corners) vs diamond (corners at edge midpoints).
-    const nearBoxCorner = simp.filter((c) =>
-      (Math.abs(c[0] - bb.minX) < w * 0.22 || Math.abs(c[0] - bb.maxX) < w * 0.22) &&
-      (Math.abs(c[1] - bb.minY) < h * 0.22 || Math.abs(c[1] - bb.maxY) < h * 0.22),
-    ).length;
-    return nearBoxCorner >= 3 ? { kind: "rect", rect } : { kind: "diamond", rect };
+  // How many of the 4 bbox corners the stroke actually REACHES (within 16% of
+  // the diagonal). This is the key rect↔ellipse discriminator: a rectangle
+  // reaches all four; an ellipse and a diamond reach none (their extremes sit at
+  // edge midpoints); a triangle reaches two. A radial ellipse-fit alone puts a
+  // square right at the round threshold, which is why squares kept snapping to
+  // circles — corner-reach fixes that.
+  // Threshold sits ABOVE a (clean) rectangle's ~0 corner gap but BELOW a
+  // circle's, whose nearest approach to a bbox corner is ~0.146·diag — so a box
+  // registers hits and a circle registers none.
+  const near = diag * 0.11;
+  const bboxCorners = [
+    [bb.minX, bb.minY], [bb.maxX, bb.minY], [bb.maxX, bb.maxY], [bb.minX, bb.maxY],
+  ];
+  let cornerHits = 0;
+  for (const c of bboxCorners) {
+    let best = Infinity;
+    for (const p of pts) { const d = dist(p, c); if (d < best) best = d; }
+    if (best < near) cornerHits++;
   }
-  // Many-cornered but round → ellipse; otherwise keep freehand.
-  if (ellErr < 0.22) return { kind: "ellipse", rect };
+
+  // Reaches all four bbox corners → unambiguously a box.
+  if (cornerHits >= 4) return { kind: "rect", rect };
+  // Genuinely round AND not leaning on the corners → ellipse (strict, so the
+  // default is NOT a circle; a diamond's radial error ~0.145 stays above this).
+  if (ellErr < 0.12 && cornerHits <= 1) return { kind: "ellipse", rect };
+  // Three sharp turns → triangle.
+  if (corners === 3) return { kind: "triangle", rect };
+  // Four turns: a box if it leans on ≥2 bbox corners (covers a slanted
+  // parallelogram, which reaches 2), else a diamond (tips at the edge midpoints).
+  if (corners === 4) return cornerHits >= 2 ? { kind: "rect", rect } : { kind: "diamond", rect };
+  // A smooth many-cornered loop that stays off the corners → ellipse.
+  if (ellErr < 0.2 && cornerHits <= 1) return { kind: "ellipse", rect };
+  // Boxy-ish but under-segmented (rounded corners hide the turns) → default to a
+  // rect rather than freehand, since a deliberate hold expects a snap.
+  if (cornerHits >= 2) return { kind: "rect", rect };
   return null;
 }
 

@@ -190,6 +190,34 @@ const SIDE_FROM_ID = {
 const SIDE_FROM_POS = { top: "t", right: "r", bottom: "b", left: "l" };
 // Fallback entry side: opposite the side the edge left the source from.
 const OPPOSITE_TARGET = { t: "b", r: "l", b: "t", l: "r" };
+// Pen auto-shape: how long the pen must hold still on a recognisable stroke
+// before the snap-preview (ghost + haptic) arms. A lift while armed snaps.
+const SHAPE_HOLD_MS = 350;
+
+// The live "lift to keep this" ghost drawn while an auto-shape hold is armed.
+// Rendered in FLOW space (inside a ViewportPortal); non-scaling strokes keep a
+// constant on-screen weight at any zoom. `preview` is a recognizeStroke result
+// (+ an `edge` flag for lines that will connect two nodes).
+function ShapeGhost({ preview, color }) {
+  const common = { stroke: color, strokeWidth: 2.5, vectorEffect: "non-scaling-stroke", fill: color, fillOpacity: 0.14, strokeLinejoin: "round" };
+  if (preview.kind === "line") {
+    const { from, to, edge } = preview;
+    return (
+      <g>
+        <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={color} strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinecap="round" />
+        {edge && [from, to].map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={4} fill={color} vectorEffect="non-scaling-stroke" />
+        ))}
+      </g>
+    );
+  }
+  const { x, y, w, h } = preview.rect;
+  const cx = x + w / 2, cy = y + h / 2;
+  if (preview.kind === "ellipse") return <ellipse cx={cx} cy={cy} rx={w / 2} ry={h / 2} {...common} />;
+  if (preview.kind === "triangle") return <polygon points={`${cx},${y} ${x + w},${y + h} ${x},${y + h}`} {...common} />;
+  if (preview.kind === "diamond") return <polygon points={`${cx},${y} ${x + w},${cy} ${cx},${y + h} ${x},${cy}`} {...common} />;
+  return <rect x={x} y={y} width={w} height={h} rx={6} {...common} />;
+}
 
 export default function WhiteboardPage() {
   const { whiteboardId } = useParams();
@@ -613,6 +641,47 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // Last SIGNIFICANT pen movement (pos + ts) — lets finishStroke detect a
   // deliberate end-pause ("hold to snap to a shape") vs a stroke still in motion.
   const penMoveRef = useRef({ pos: null, ts: 0 });
+  // Auto-shape hold PREVIEW: while the pen holds still on a recognisable stroke,
+  // we show a ghost of the clean result + a haptic pulse BEFORE you lift, so the
+  // snap is confirmed, not a gamble. shapePreview drives the ghost; the ref lets
+  // the pointer handlers read/gate it; the timer debounces "held still".
+  const [shapePreview, setShapePreview] = useState(null);
+  const shapePreviewRef = useRef(null);
+  const shapeHoldTimerRef = useRef(0);
+  const clearShapePreview = useCallback(() => {
+    if (shapeHoldTimerRef.current) { clearTimeout(shapeHoldTimerRef.current); shapeHoldTimerRef.current = 0; }
+    if (shapePreviewRef.current) { shapePreviewRef.current = null; setShapePreview(null); }
+  }, []);
+  // Called on every pen move: drop any stale preview and (re)arm a hold timer.
+  // When the pen then holds still for SHAPE_HOLD_MS on a recognisable stroke, the
+  // ghost + haptic fire — telling you a lift will snap. Any further move re-arms.
+  const armShapePreview = useCallback(() => {
+    if (shapeHoldTimerRef.current) clearTimeout(shapeHoldTimerRef.current);
+    if (shapePreviewRef.current) { shapePreviewRef.current = null; setShapePreview(null); }
+    shapeHoldTimerRef.current = setTimeout(() => {
+      shapeHoldTimerRef.current = 0;
+      const pts = drawingRef.current?.points;
+      const shape = pts && recognizeStroke(pts);
+      if (!shape) return;
+      // For a line, decide up front whether it will become an EDGE (both ends
+      // over connectable nodes), so the ghost can show that intent.
+      let edge = false;
+      if (shape.kind === "line") {
+        const M = 12;
+        const hit = (pt) => rf.getNodes().find((n) => {
+          if (NON_CONNECTABLE.has(n.type)) return false;
+          const r = nodeRect(n);
+          return r && pt.x >= r.x - M && pt.x <= r.x + r.w + M && pt.y >= r.y - M && pt.y <= r.y + r.h + M;
+        });
+        const a = hit(shape.from), b = hit(shape.to);
+        edge = !!(a && b && a.id !== b.id);
+      }
+      const preview = { ...shape, edge };
+      shapePreviewRef.current = preview;
+      setShapePreview(preview);
+      navigator.vibrate?.(15);
+    }, SHAPE_HOLD_MS);
+  }, [rf]);
 
   // Ephemeral laser-ink trail (FLOW coords, timestamped) drawn while the laser
   // button is held — fades on its own, persists nothing. See LaserTrail.
@@ -729,7 +798,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (drawRafRef.current) { cancelAnimationFrame(drawRafRef.current); drawRafRef.current = 0; }
       setDrawPath(null);
     }
-  }, [pushCursor]);
+    clearShapePreview();
+  }, [pushCursor, clearShapePreview]);
 
   // Live pen-preview path: variable-width outline when pressure is on, else the
   // cheap constant-width centerline. Matches how DrawNode renders the committed
@@ -836,18 +906,23 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
               if (!pm.pos || Math.hypot(q.x - pm.pos[0], q.y - pm.pos[1]) > 6) { pm.pos = [q.x, q.y]; pm.ts = Date.now(); }
             }
           }
-          if (added && !drawRafRef.current) {
-            drawRafRef.current = requestAnimationFrame(() => {
-              drawRafRef.current = 0;
-              setDrawPath(previewPath(drawingRef.current?.points || []));
-            });
+          if (added) {
+            // The pen moved → re-arm the auto-shape hold timer (drops any ghost
+            // that was showing, since the stroke changed).
+            armShapePreview();
+            if (!drawRafRef.current) {
+              drawRafRef.current = requestAnimationFrame(() => {
+                drawRafRef.current = 0;
+                setDrawPath(previewPath(drawingRef.current?.points || []));
+              });
+            }
           }
         }
       } catch {
         /* */
       }
     },
-    [rf, pushCursor, flushPaint, previewPath, pointerForce]
+    [rf, pushCursor, flushPaint, previewPath, pointerForce, armShapePreview]
   );
 
   // Pen down: begin a stroke. Capture-phase so it wins over the (disabled in
@@ -939,6 +1014,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (mode === "pen") {
         drawingRef.current = { points: [[p.x, p.y, pointerForce(e)]] };
         penMoveRef.current = { pos: [p.x, p.y], ts: Date.now() };
+        clearShapePreview();
         setDrawPath(previewPath(drawingRef.current.points));
       } else if (mode === "laser") {
         laserDrawingRef.current = true;
@@ -970,7 +1046,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
       e.preventDefault();
     },
-    [rf, pushCursor, cancelActiveStroke, penActive, previewPath, classifyPointer, pointerForce]
+    [rf, pushCursor, cancelActiveStroke, penActive, previewPath, classifyPointer, pointerForce, clearShapePreview]
   );
 
   // Pen up: commit the stroke as a draw node (bbox-relative points). Tiny taps
@@ -1038,12 +1114,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     setDrawPath(null);
     if (!dr || dr.points.length < 2) return;
     const pts = dr.points;
-    // Auto-shape: a deliberate end-pause ("hold") snaps the stroke to a clean
-    // shape / line / edge. A quick lift keeps it freehand.
-    if (Date.now() - penMoveRef.current.ts > 400) {
-      const shape = recognizeStroke(pts);
-      if (shape && snapRecognized(shape)) return;
-    }
+    // Auto-shape: if the hold-preview armed (the ghost you saw while holding),
+    // lifting snaps to exactly that. No preview → keep the freehand stroke.
+    const armed = shapePreviewRef.current;
+    clearShapePreview();
+    if (armed && snapRecognized(armed)) return;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const [x, y] of pts) {
       if (x < minX) minX = x; if (y < minY) minY = y;
@@ -1069,7 +1144,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     };
     // Don't auto-select — keep the pen flowing for the next stroke.
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(node));
-  }, [setNodes, snapRecognized]);
+  }, [setNodes, snapRecognized, clearShapePreview]);
 
   const onWbPointerUp = useCallback(
     (e) => {
@@ -2452,10 +2527,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {/* My own fading laser-ink trail (flow space). */}
         {tool === "laser" && <LaserTrail pointsRef={laserInkRef} color={effectiveLaserColor} />}
 
-        {/* Live preview of the freehand stroke in progress (flow space). */}
+        {/* Live preview of the freehand stroke in progress (flow space). Fades
+            back while an auto-shape ghost is armed, so the clean shape reads. */}
         {drawPath && (
           <ViewportPortal>
-            <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 6 }}>
+            <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 6, opacity: shapePreview ? 0.3 : 1 }}>
               {penStyle.pressure ? (
                 <path d={drawPath} fill={penStyle.color} fillOpacity={penStyle.opacity ?? 1} />
               ) : (
@@ -2469,6 +2545,16 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
                   strokeLinejoin="round"
                 />
               )}
+            </svg>
+          </ViewportPortal>
+        )}
+
+        {/* Auto-shape "lift to keep" ghost — the clean shape/edge a lift will
+            snap to, shown live while the pen holds still (flow space). */}
+        {shapePreview && (
+          <ViewportPortal>
+            <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none", zIndex: 7 }}>
+              <ShapeGhost preview={shapePreview} color={penStyle.color} />
             </svg>
           </ViewportPortal>
         )}

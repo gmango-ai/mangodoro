@@ -55,6 +55,17 @@ describe("recognizeStroke", () => {
     expect(recognizeStroke(s)?.kind).toBe("diamond");
   });
 
+  it("recognizes a slanted parallelogram as a rect (no parallelogram shape)", () => {
+    // Right-slanted: top edge shifted +60 from the bottom edge.
+    const s = polygon([[60, 0], [260, 0], [200, 120], [0, 120]], 14);
+    expect(recognizeStroke(s)?.kind).toBe("rect");
+  });
+
+  it("does NOT read a wide flat quad as an ellipse", () => {
+    const s = polygon([[40, 0], [240, 0], [200, 70], [0, 70]], 14);
+    expect(recognizeStroke(s)?.kind).not.toBe("ellipse");
+  });
+
   it("recognizes a circle as an ellipse", () => {
     const pts = [];
     for (let i = 0; i <= 48; i++) {
