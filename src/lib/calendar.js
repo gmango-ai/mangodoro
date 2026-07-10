@@ -17,15 +17,21 @@ export const LAYER_LABEL = {
   google: "Google Calendar",
 };
 
+// Event category colors. These are CSS custom properties defined on `.cal-ocean`
+// (see calendar-ocean.css) and DERIVED FROM THE USER'S ACCENT via color-theory
+// hue offsets, so the whole calendar harmonizes with the accent and adapts to
+// light/dark. Passed straight to FullCalendar as inline style strings — the
+// var() resolves against the .cal-ocean container. Hex fallbacks preserve the
+// original palette if a browser lacks relative-color support.
 const COLOR = {
-  meeting: "#14b8a6",
-  task: "#6366f1",
-  due: "#ef4444",
-  milestone: "#a855f7",
-  goal: "#f59e0b",
-  ooo: "rgba(100,116,139,0.18)",
-  actual: "#94a3b8",
-  google: "#4285F4",
+  meeting: "var(--cal-cat-meeting, #14b8a6)",
+  task: "var(--cal-cat-task, #6366f1)",
+  due: "var(--cal-cat-due, #ef4444)",
+  milestone: "var(--cal-cat-milestone, #a855f7)",
+  goal: "var(--cal-cat-goal, #f59e0b)",
+  ooo: "var(--cal-cat-ooo, rgba(100,116,139,0.18))",
+  actual: "var(--cal-cat-actual, #94a3b8)",
+  google: "var(--cal-cat-google, #4285F4)",
 };
 
 // Lenient 'HH:MM' / 'H:MM am' parser for the free-text entries.start/end_time.

@@ -5,7 +5,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import listPlugin from "@fullcalendar/list";
 import interactionPlugin from "@fullcalendar/interaction";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, CalendarClock, CheckSquare, User, Users, Home, Target, Umbrella, AlertTriangle, PanelLeft, PanelRight, X, LayoutGrid, Columns3, RectangleVertical, Maximize2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, CalendarClock, CalendarPlus, CheckSquare, User, Users, Home, Target, Umbrella, AlertTriangle, PanelLeft, PanelRight, X, LayoutGrid, Columns3, RectangleVertical, Maximize2 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
@@ -128,6 +128,10 @@ export default function CalendarPage() {
   const [weekStart, setWeekStart] = useState(() => { try { return localStorage.getItem(LS_WEEKSTART) === "0" ? 0 : 1; } catch { return 1; } });
   const [title, setTitle] = useState("");
   const [viewType, setViewType] = useState("dayGridMonth");
+  // Week-view width level (normal fits to width; wide/xwide widen day columns +
+  // scroll horizontally so more event detail fits). Persisted per device.
+  const [weekWidth, setWeekWidth] = useState(() => { try { return localStorage.getItem("cal_weekw") || "normal"; } catch { return "normal"; } });
+  const changeWeekWidth = (w) => { setWeekWidth(w); try { localStorage.setItem("cal_weekw", w); } catch { /* */ } };
   const [focusDate, setFocusDate] = useState(() => new Date());
   const [detailEvent, setDetailEvent] = useState(null);
   const [newSlot, setNewSlot] = useState(null);
@@ -461,7 +465,7 @@ export default function CalendarPage() {
   const expandedMonth = expanded && viewType === "dayGridMonth";
 
   return (
-    <div className="cal-ocean">
+    <div className="cal-ocean" data-weekw={weekWidth}>
       <div className="cal-ocean__shell">
         {/* Scrim behind either rail drawer on narrow screens — tap to dismiss. */}
         {(railOpen || railRightOpen) && <div className="cal-ocean__railscrim is-open" onClick={closeRails} aria-hidden />}
@@ -618,8 +622,23 @@ export default function CalendarPage() {
                 </button>
               </div>
             )}
-            <button type="button" className="cal-ocean__new" onClick={() => setNewSlot({ start: focusDate || new Date(), end: null, allDay: true })}>
-              <Plus className="w-4 h-4" /> New event
+            {/* Week-view width levels — widen day columns + scroll horizontally
+                so more event detail fits. Only offered on the week grid. */}
+            {viewType === "timeGridWeek" && (
+              <div className="cal-ocean__seg">
+                {[["normal", "Fit"], ["wide", "Wide"], ["xwide", "Max"]].map(([w, lbl]) => (
+                  <button key={w} type="button" aria-pressed={weekWidth === w}
+                    onClick={() => changeWeekWidth(w)}
+                    title={`Week width: ${lbl}`} aria-label={`Week width ${lbl}`}
+                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "7px 11px", fontSize: 12, fontWeight: 700 }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button type="button" className="cal-ocean__new cal-ocean__new--icon" title="New event" aria-label="New event"
+              onClick={() => setNewSlot({ start: focusDate || new Date(), end: null, allDay: true })}>
+              <CalendarPlus className="w-[18px] h-[18px]" />
             </button>
             {/* Reveal the right rail (agenda) on very narrow screens (hidden on
                 larger — see .cal-ocean__railtoggle--right). */}

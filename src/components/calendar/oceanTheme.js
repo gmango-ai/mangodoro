@@ -1,21 +1,32 @@
-// Event-type → ocean-palette styling for the reskinned calendar.
-// bg = chip tint, fg = chip text, dot/solid = the type's saturated color.
+// Event-type → styling for the reskinned calendar.
+// bg = chip tint, fg = chip text, solid = the type's saturated color (dot/border).
+//
+// Colors are DERIVED FROM THE USER'S ACCENT: every value is a CSS custom
+// property (--cal-cat-*) defined on `.cal-ocean` in calendar-ocean.css via
+// color-theory hue offsets, tuned for vibrance + contrast and given a brighter
+// dark-mode variant. These strings are used as inline `style` values (background
+// / color / borderColor) which resolve the var() against the .cal-ocean
+// container, so the whole calendar tracks the accent and adapts to light/dark.
+
+// A chip from one category var: a translucent tint background, the solid color
+// as text + dot/border. color-mix keeps the tint consistent across light/dark.
+const chip = (v) => ({ bg: `color-mix(in srgb, ${v} 20%, transparent)`, fg: v, solid: v });
 
 const T = {
-  meeting:   { label: "Meeting",   bg: "rgba(45,127,249,0.14)",  fg: "#1A4FA8", solid: "#2D7FF9" },
-  task:      { label: "Task",      bg: "rgba(255,159,28,0.16)",  fg: "#C96A05", solid: "#FF9F1C" },
-  task_due:  { label: "Deadline",  bg: "rgba(251,94,75,0.14)",   fg: "#BE2E1D", solid: "#FB5E4B" },
-  ptask_due: { label: "Deadline",  bg: "rgba(251,94,75,0.14)",   fg: "#BE2E1D", solid: "#FB5E4B" },
-  milestone: { label: "Milestone", bg: "rgba(20,196,174,0.16)",  fg: "#097E71", solid: "#14C4AE" },
-  goal:      { label: "Goal",      bg: "rgba(251,192,45,0.18)",  fg: "#9C5208", solid: "#FBC02D" },
-  ooo:       { label: "Out of office", bg: "rgba(85,118,134,0.14)", fg: "#355d6e", solid: "#7F9AA7" },
-  actual:    { label: "Time tracked", bg: "rgba(169,190,200,0.20)", fg: "#557686", solid: "#A9BEC8" },
-  google:    { label: "Google",    bg: "rgba(125,180,248,0.16)", fg: "#1A4FA8", solid: "#7DB4F8" },
-  worklocation: { label: "Working location", bg: "rgba(85,118,134,0.10)", fg: "#355d6e", solid: "#7F9AA7" },
-  worklocation_app: { label: "Working location", bg: "rgba(45,127,249,0.08)", fg: "#355d6e", solid: "#7DB4F8" },
-  worklocation_conflict: { label: "Location conflict", bg: "rgba(255,159,28,0.14)", fg: "#C96A05", solid: "#FF9F1C" },
+  meeting:   { label: "Meeting",       ...chip("var(--cal-cat-meeting, #14b8a6)") },
+  task:      { label: "Task",          ...chip("var(--cal-cat-task, #6366f1)") },
+  task_due:  { label: "Deadline",      ...chip("var(--cal-cat-due, #ef4444)") },
+  ptask_due: { label: "Deadline",      ...chip("var(--cal-cat-due, #ef4444)") },
+  milestone: { label: "Milestone",     ...chip("var(--cal-cat-milestone, #a855f7)") },
+  goal:      { label: "Goal",          ...chip("var(--cal-cat-goal, #f59e0b)") },
+  ooo:       { label: "Out of office", ...chip("var(--cal-cat-actual, #7F9AA7)") },
+  actual:    { label: "Time tracked",  ...chip("var(--cal-cat-actual, #94a3b8)") },
+  google:    { label: "Google",        ...chip("var(--cal-cat-google, #4285F4)") },
+  worklocation:          { label: "Working location", ...chip("var(--cal-cat-actual, #7F9AA7)") },
+  worklocation_app:      { label: "Working location", ...chip("var(--cal-cat-actual, #7DB4F8)") },
+  worklocation_conflict: { label: "Location conflict", ...chip("var(--cal-cat-due, #FF9F1C)") },
 };
-const FALLBACK = { label: "Event", bg: "rgba(85,118,134,0.14)", fg: "#355d6e", solid: "#7F9AA7" };
+const FALLBACK = { label: "Event", ...chip("var(--cal-cat-actual, #7F9AA7)") };
 
 export function oceanType(type) { return T[type] || FALLBACK; }
 

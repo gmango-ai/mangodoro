@@ -13,9 +13,13 @@
    (calendar, pomodoro, sidebar) and still resolve its ocean styling. */
 .tl-ocean, .tl-scope {
   /* palette */
-  --o-mango-50:#FFF6E6; --o-mango-100:#FFE9C2; --o-mango-300:#FFC766; --o-mango-400:#FFB23E; --o-mango-500:#FF9F1C; --o-mango-600:#F2860A; --o-mango-700:#C96A05;
+  /* "mango" is the island's ACCENT role — follow the app's chosen accent color
+     (theme-aware via applyAccent) instead of a fixed orange. Hex kept as fallback. */
+  --o-mango-50:var(--color-accent-light,#FFF6E6); --o-mango-100:var(--color-accent-light,#FFE9C2); --o-mango-300:var(--color-accent,#FFC766); --o-mango-400:var(--color-accent,#FFB23E); --o-mango-500:var(--color-accent,#FF9F1C); --o-mango-600:var(--color-accent-hover,#F2860A); --o-mango-700:var(--color-accent-hover,#C96A05);
   --o-coral-100:#FFE0DA; --o-coral-400:#FF8472; --o-coral-500:#FB5E4B; --o-coral-600:#E8412D; --o-coral-700:#BE2E1D;
-  --o-ocean-50:#EAF3FE; --o-ocean-100:#D2E6FE; --o-ocean-300:#7DB4F8; --o-ocean-400:#4F95F4; --o-ocean-500:#2D7FF9; --o-ocean-600:#1E66DB; --o-ocean-700:#1A4FA8;
+  /* "ocean" was a secondary blue accent for chrome (spine, active tabs, primary
+     buttons, hovers) — fold it into the app accent so nothing stays blue. */
+  --o-ocean-50:var(--color-accent-light,#EAF3FE); --o-ocean-100:var(--color-accent-light,#D2E6FE); --o-ocean-300:var(--color-accent,#7DB4F8); --o-ocean-400:var(--color-accent,#4F95F4); --o-ocean-500:var(--color-accent,#2D7FF9); --o-ocean-600:var(--color-accent-hover,#1E66DB); --o-ocean-700:var(--color-accent,#1A4FA8);
   --o-aqua-100:#C7F5EE; --o-aqua-400:#2FD3BD; --o-aqua-500:#14C4AE; --o-aqua-600:#0BA593; --o-aqua-700:#097E71;
   --o-sun-400:#FFD166; --o-sun-500:#FBC02D;
   --o-ink-900:#0B2A3A; --o-ink-800:#123749; --o-ink-700:#1C4759; --o-ink-600:#355d6e; --o-ink-500:#557686; --o-ink-400:#7F9AA7; --o-ink-300:#A9BEC8;
@@ -24,12 +28,12 @@
   --o-glass:rgba(255,255,255,0.55);
   --o-glass-strong:rgba(255,255,255,0.74);
   --o-glass-border:rgba(255,255,255,0.65);
-  --o-glass-mango:linear-gradient(135deg, rgba(255,159,28,0.16) 0%, rgba(251,94,75,0.07) 55%, rgba(255,255,255,0.55) 100%);
+  --o-glass-mango:linear-gradient(135deg, color-mix(in srgb, var(--color-accent, #FF9F1C) 16%, transparent) 0%, color-mix(in srgb, var(--color-accent, #FF9F1C) 7%, transparent) 55%, var(--o-glass) 100%);
   --o-border-subtle:#EDEAE2; --o-border-default:#E2DCD0; --o-border-strong:#CEC6B6;
-  --o-spine:rgba(45,127,249,.22);
+  --o-spine:color-mix(in srgb, var(--color-accent, #2D7FF9) 26%, transparent);
 
   --o-surface-page:
-    radial-gradient(120% 90% at 12% -8%, rgba(45,127,249,0.16), transparent 55%),
+    radial-gradient(120% 90% at 12% -8%, color-mix(in srgb, var(--color-accent, #2D7FF9) 16%, transparent), transparent 55%),
     radial-gradient(110% 85% at 108% 112%, rgba(20,196,174,0.15), transparent 52%),
     linear-gradient(160deg, #E9F3FE 0%, #F0F9FB 46%, #FBFAF7 100%);
   --o-grad-ocean:linear-gradient(135deg, var(--o-aqua-400) 0%, var(--o-ocean-500) 100%);
@@ -38,7 +42,7 @@
   --o-shadow-sm:0 1px 3px rgba(11,42,58,0.08), 0 1px 2px rgba(11,42,58,0.04);
   --o-shadow-md:0 6px 18px rgba(11,42,58,0.09), 0 2px 6px rgba(11,42,58,0.05);
   --o-shadow-xl:0 28px 64px rgba(11,42,58,0.16);
-  --o-glow-mango:0 8px 20px rgba(255,159,28,0.22);
+  --o-glow-mango:0 8px 20px color-mix(in srgb, var(--color-accent, #FF9F1C) 24%, transparent);
   --o-blur:blur(16px) saturate(1.4);
   --o-ease-out:cubic-bezier(0.22,1,0.36,1);
   --o-ease-bounce:cubic-bezier(0.34,1.56,0.64,1);
@@ -47,6 +51,27 @@
 
   font-family: var(--o-font);
   color: var(--o-ink-700);
+}
+
+/* ── Dark mode ─────────────────────────────────────────────
+   Re-point surface/ink/glass/border tokens to a deep "ocean-night" palette so
+   the tasks island follows the app's dark theme. Accent (mango/ocean →
+   --color-accent) is theme-aware. Scoped to .tl-scope too so the shared task
+   controls (used in rooms/calendar) theme correctly wherever they render. */
+.dark .tl-ocean, .dark .tl-scope {
+  --o-surface-page:
+    radial-gradient(120% 90% at 12% -8%, color-mix(in srgb, var(--color-accent, #2D7FF9) 14%, transparent), transparent 55%),
+    radial-gradient(110% 85% at 108% 112%, rgba(20,196,174,0.10), transparent 52%),
+    linear-gradient(160deg, #0A1620 0%, #0C1A22 46%, #0B141B 100%);
+  --o-ink-900:#EAF1F5; --o-ink-800:#D6E1E8; --o-ink-700:#BCCDD6; --o-ink-600:#98AAB5; --o-ink-500:#7E919D; --o-ink-400:#647783; --o-ink-300:#4E5F6A;
+  --o-sand-50:#0E1A22; --o-sand-100:#14232C; --o-sand-200:#1B2C36; --o-sand-300:#243743; --o-sand-400:#2E4450; --o-white:#16242D;
+  --o-glass:rgba(18,32,41,0.55);
+  --o-glass-strong:rgba(15,27,35,0.80);
+  --o-glass-border:rgba(255,255,255,0.08);
+  --o-border-subtle:rgba(255,255,255,0.07); --o-border-default:rgba(255,255,255,0.11); --o-border-strong:rgba(255,255,255,0.16);
+  --o-shadow-sm:0 1px 3px rgba(0,0,0,0.40);
+  --o-shadow-md:0 6px 18px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.35);
+  --o-shadow-xl:0 28px 64px rgba(0,0,0,0.60);
 }
 .tl-ocean {
   background: var(--o-surface-page);
@@ -100,7 +125,7 @@
   display: flex; align-items: center; gap: 20px; padding: 16px 20px;
   border-radius: var(--o-radius-xl); background: var(--o-glass-mango);
   backdrop-filter: var(--o-blur); -webkit-backdrop-filter: var(--o-blur);
-  border: 1px solid rgba(255,159,28,.28); box-shadow: var(--o-shadow-sm);
+  border: 1px solid color-mix(in srgb, var(--color-accent, #FF9F1C) 34%, transparent); box-shadow: var(--o-shadow-sm);
 }
 .tl-ring { position: relative; width: 60px; height: 60px; flex: none; border-radius: 999px; display: flex; align-items: center; justify-content: center; }
 .tl-ring > .inner { width: 48px; height: 48px; border-radius: 999px; background: var(--o-white); display: flex; align-items: center; justify-content: center; font-family: var(--o-mono); font-size: 13px; font-weight: 700; color: var(--o-mango-700); }
