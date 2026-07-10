@@ -2311,8 +2311,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         // Hold to pan with a left-drag: Space everywhere; in laser/brush mode
         // also ⌘/Ctrl so you can move the canvas while the left button draws.
         panActivationKeyCode={tool === "laser" || tool === "brush" ? ["Space", "Control", "Meta"] : "Space"}
-        fitView
-        fitViewOptions={{ padding: 0.15 }}
+        // NB: no `fitView` prop — React Flow re-fits when nodes re-initialize
+        // (which finishing a pen stroke triggers), yanking the viewport mid-draw.
+        // Initial fit / saved-viewport restore is done explicitly in
+        // useWhiteboardPersistence after load.
         proOptions={{ hideAttribution: true }}
         style={{ background: dark ? "#0f172a" : "#fbf6ee" }}
       >
