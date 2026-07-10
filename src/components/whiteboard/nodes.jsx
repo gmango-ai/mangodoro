@@ -1244,10 +1244,12 @@ export const ImageNode = memo(function ImageNode({ id, data, selected }) {
       <div
         style={{
           width: "100%", height: "100%",
-          borderRadius: 6, overflow: "hidden", background: "#0b1020",
-          boxShadow: selected
-            ? `0 0 0 2px ${SELECT}, 0 16px 28px -12px rgba(0,0,0,.5)`
-            : "0 14px 26px -12px rgba(0,0,0,.4), 0 3px 7px -3px rgba(0,0,0,.18)",
+          // Transparent surface so PNG/WebP alpha shows the board through (not a
+          // dark box); opaque photos are unaffected. The selection ring stays,
+          // but the resting drop-shadow is dropped so a cut-out image doesn't get
+          // a shadow rectangle around its transparent bounds.
+          borderRadius: 6, overflow: "hidden", background: "transparent",
+          boxShadow: selected ? `0 0 0 2px ${SELECT}, 0 16px 28px -12px rgba(0,0,0,.5)` : "none",
         }}
       >
         {src ? (
