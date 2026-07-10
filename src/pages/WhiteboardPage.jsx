@@ -429,6 +429,20 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     ro.observe(el);
     toolbarRO.current = ro;
   }, []);
+  // Measure the floating top-left title card (1 row on desktop, wraps to 2 on
+  // narrow phones) → `--wb-topbar-offset`, the top inset that keeps top-center
+  // overlays (align bar, follow banner…) clear of it. top-3 (12px) + card + gap.
+  const topbarRO = useRef(null);
+  const topbarRef = useCallback((el) => {
+    topbarRO.current?.disconnect();
+    topbarRO.current = null;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      document.documentElement.style.setProperty("--wb-topbar-offset", `${12 + (el.offsetHeight || 44) + 10}px`);
+    });
+    ro.observe(el);
+    topbarRO.current = ro;
+  }, []);
   const touchInspectorRO = useRef(null);
   const [touchInspectorH, setTouchInspectorH] = useState(TOUCH_INSPECTOR_FALLBACK_H);
   const touchInspectorRef = useCallback((el) => {
@@ -2656,6 +2670,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             </ViewportPortal>
             <Panel
               position="top-center"
+              style={{ marginTop: "var(--wb-topbar-offset, 66px)" }}
               className={`flex items-center gap-1.5 px-2 py-1.5 rounded-2xl border shadow-lg ${
                 dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
               }`}
@@ -2759,6 +2774,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {multiCount >= 2 && (
           <Panel
             position="top-center"
+            style={{ marginTop: "var(--wb-topbar-offset, 66px)" }}
             className={`flex items-center gap-0.5 px-1.5 py-1 rounded-xl border shadow-lg ${
               dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
             }`}
@@ -3103,6 +3119,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             below) so it folds to two rows instead of overflowing. */}
       <div className="absolute left-3 top-3 z-40 flex flex-col gap-2 items-start max-w-[calc(100%-24px)] touch-none">
         <div
+          ref={topbarRef}
           // flex-wrap so the toolbar folds onto a second row on narrow phones
           // instead of overflowing the canvas (every child is shrink-0). The
           // outer max-w-[calc(100%-24px)] caps the row width so the wrap fires.
@@ -3420,8 +3437,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             pass through except on the chip itself. */}
       {template?.hasGoal && !compact && (
         <div
-          className="absolute left-1/2 -translate-x-1/2 top-3 z-30 flex items-stretch max-w-[calc(100%-32px)] touch-none"
-          style={{ pointerEvents: "none" }}
+          className="absolute left-1/2 -translate-x-1/2 z-30 flex items-stretch max-w-[calc(100%-32px)] touch-none"
+          style={{ pointerEvents: "none", top: "var(--wb-topbar-offset, 66px)" }}
         >
           <div
             className="flex items-center gap-3 pl-3 pr-4 py-2 rounded-2xl shadow-md min-w-0 max-w-[520px]"
