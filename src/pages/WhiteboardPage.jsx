@@ -220,6 +220,28 @@ function ShapeGhost({ preview, color }) {
   return <rect x={x} y={y} width={w} height={h} rx={6} {...common} />;
 }
 
+// The number/letter "stamp" ghost — the armed node shown under the cursor before
+// a click drops it. Sized to the node's DEFAULTS so it matches exactly. Rendered
+// in FLOW space (inside a ViewportPortal). `at` is the top-left in flow coords.
+function PlacementGhost({ placing, at }) {
+  const { w, h } = DEFAULTS[placing.type] || DEFAULTS.shape;
+  const wrap = { position: "absolute", left: at.x, top: at.y, width: w, height: h, pointerEvents: "none", opacity: 0.85, zIndex: 7 };
+  if (placing.type === "shape") {
+    return (
+      <div style={wrap}>
+        <svg width={w} height={h} style={{ overflow: "visible", display: "block" }}>
+          <ShapeSvg shape={placing.extra?.shape} w={w} h={h} fill="rgba(14,165,233,0.14)" stroke="#0ea5e9" sw={2} dash="6 5" />
+        </svg>
+      </div>
+    );
+  }
+  if (placing.type === "sticky") {
+    return <div style={{ ...wrap, background: placing.extra?.color || "#fde68a", borderRadius: 6, boxShadow: "0 6px 18px -6px rgba(0,0,0,.35)" }} />;
+  }
+  // goal / frame → a dashed accent outline at the node's footprint.
+  return <div style={{ ...wrap, border: "2px dashed #0ea5e9", borderRadius: placing.type === "goal" ? 14 : 8, background: "rgba(14,165,233,0.08)" }} />;
+}
+
 export default function WhiteboardPage() {
   const { whiteboardId } = useParams();
   return <WhiteboardBoard boardId={whiteboardId} />;
@@ -550,14 +572,17 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const connectKeyRef = useRef(null); // keydown handler active during a connect drag
   const [connecting, setConnecting] = useState(false); // a connect drag is in progress
   const [pickedShape, setPickedShape] = useState(null); // shape chosen via 1–9 mid-drag
-  // "Stamp a shape": press 1–9/0 to arm a shape that ghosts under the cursor,
-  // then click to place it. placingShapeRef mirrors the state for the pointer
-  // handlers; placeShapeRef holds the (later-defined) placement fn; ghostFlow is
-  // the ghost's top-left in FLOW coords, tracked live from the cursor.
-  const [placingShape, setPlacingShape] = useState(null);
-  const placingShapeRef = useRef(null);
-  placingShapeRef.current = placingShape;
-  const placeShapeRef = useRef(null);
+  // "Stamp a node": a key arms a node ({type, extra}) that ghosts under the
+  // cursor, then a click places it. 1–9/0 → shapes; N sticky, G goal, F frame.
+  // placingRef mirrors the state for the pointer handlers; placeNodeRef holds
+  // the (later-defined) placement fn; ghostFlow is the ghost's top-left in FLOW
+  // coords, tracked live from the cursor. pendingImageAtRef carries the drop
+  // point for the I-key image picker (async, so it can't ride the ghost).
+  const [placing, setPlacing] = useState(null);
+  const placingRef = useRef(null);
+  placingRef.current = placing;
+  const placeNodeRef = useRef(null);
+  const pendingImageAtRef = useRef(null);
   const [ghostFlow, setGhostFlow] = useState(null);
   const { session, settings } = useApp();
   const myName =
@@ -1582,9 +1607,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     [quickAddConnected, onArrowHover, pickedShape]
   );
 
-  // Number keys 1–9/0 arm a shape to "stamp" (a ghost follows the cursor; a
-  // click places it). Skipped while hovering a connect arrow — there the numbers
-  // pick the shape the arrow will create. Same guards as the other board keys.
+  // A key arms a node to "stamp" (a ghost follows the cursor; a click places it):
+  // 1–9/0 → shapes, N sticky, G goal, F frame, I image (opens the picker, then
+  // drops at the cursor). Skipped while hovering a connect arrow — there the
+  // numbers pick the shape the arrow will create. Same guards as the board keys.
   useEffect(() => {
     const onKey = (ke) => {
       if (hoveringArrow) return;
@@ -1593,22 +1619,42 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
       const board = mainRef.current;
       if (!board || !(board.matches(":hover") || board.contains(el))) return;
-      if (!/^[0-9]$/.test(ke.key)) return;
-      const s = SHAPES[ke.key === "0" ? 9 : Number(ke.key) - 1];
-      if (!s) return;
+      let armed = null;
+      if (/^[0-9]$/.test(ke.key)) {
+        const s = SHAPES[ke.key === "0" ? 9 : Number(ke.key) - 1];
+        if (s) armed = { type: "shape", extra: { shape: s.key } };
+      } else {
+        switch (ke.key.toLowerCase()) {
+          case "n": armed = { type: "sticky", extra: { color: preferredStickyColor() } }; break;
+          case "g": armed = { type: "goal", extra: {} }; break;
+          case "f": armed = { type: "frame", extra: {} }; break;
+          case "i": {
+            // Image needs a file first — remember where the cursor is, then open
+            // the picker; the input's onChange drops it there.
+            ke.preventDefault();
+            const c = lastClientRef.current;
+            try { pendingImageAtRef.current = c ? rf.screenToFlowPosition({ x: c.x, y: c.y }) : null; } catch { pendingImageAtRef.current = null; }
+            fileInputRef.current?.click();
+            return;
+          }
+          default: return;
+        }
+      }
+      if (!armed) return;
       ke.preventDefault();
       setTool("select");
-      setPlacingShape(s.key);
+      setPlacing(armed);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [hoveringArrow]);
 
-  // While a shape is armed: the ghost tracks the cursor (rAF-throttled) and Esc
+  // While a node is armed: the ghost tracks the cursor (rAF-throttled) and Esc
   // cancels. The actual placement happens on pointer-down (see the capture
   // handler on the editor div).
   useEffect(() => {
-    if (!placingShape) { setGhostFlow(null); return undefined; }
+    if (!placing) { setGhostFlow(null); return undefined; }
+    const size = DEFAULTS[placing.type] || DEFAULTS.shape;
     let raf = 0;
     const place = (cx, cy) => {
       if (raf) return;
@@ -1616,12 +1662,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         raf = 0;
         try {
           const f = rf.screenToFlowPosition({ x: cx, y: cy });
-          setGhostFlow({ x: f.x - DEFAULTS.shape.w / 2, y: f.y - DEFAULTS.shape.h / 2 });
+          setGhostFlow({ x: f.x - size.w / 2, y: f.y - size.h / 2 });
         } catch { /* */ }
       });
     };
     const onMove = (e) => { lastClientRef.current = { x: e.clientX, y: e.clientY }; place(e.clientX, e.clientY); };
-    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); setPlacingShape(null); } };
+    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); setPlacing(null); } };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("keydown", onKey);
     const seed = lastClientRef.current;
@@ -1631,7 +1677,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       window.removeEventListener("keydown", onKey);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [placingShape, rf]);
+  }, [placing, rf]);
 
   // Drag an edge endpoint onto a different node to re-route it.
   const onReconnect = useCallback(
@@ -1852,7 +1898,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const addNodeAtCenter = useCallback(
     // `atClient` (optional {x,y} in screen coords) drops the node under the
     // cursor — used by drag-from-toolbar. Omitted → near the visible center.
-    (type, extra = {}, atClient = null) => {
+    // `opts.edit === false` places it WITHOUT opening the inline editor (the
+    // number/letter "stamp" flow — you're placing, not labelling yet).
+    (type, extra = {}, atClient = null, opts = {}) => {
       const size = DEFAULTS[type] || { w: 180, h: 100 };
       // Drop the new node near the visible center so the user sees it
       // appear without having to pan (or at the drop point when dragged).
@@ -1904,7 +1952,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         ...(sized ? { width: size.w, height: size.h } : {}),
         ...(type === "frame" ? { zIndex: -1 } : {}),
       };
-      markNodeForEdit(node.id); // newly placed node opens straight into edit
+      if (opts.edit !== false) markNodeForEdit(node.id); // opens straight into edit unless stamped
       setNodes((nds) =>
         nds
           .map((n) => (n.selected ? { ...n, selected: false } : n))
@@ -1914,17 +1962,17 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     [rf, setNodes, myName]
   );
 
-  // Place the armed "stamp" shape at a screen point, then disarm. Stored in a
-  // ref so the pointer-down capture handler (defined earlier) can call it
-  // without a forward reference.
-  const placePendingShape = useCallback((client) => {
-    const shape = placingShapeRef.current;
-    if (!shape) return false;
-    addNodeAtCenter("shape", { shape }, client);
-    setPlacingShape(null);
+  // Place the armed "stamp" node at a screen point (no auto-edit), then disarm.
+  // Stored in a ref so the pointer-down capture handler (defined earlier) can
+  // call it without a forward reference.
+  const placePendingNode = useCallback((client) => {
+    const p = placingRef.current;
+    if (!p) return false;
+    addNodeAtCenter(p.type, p.extra, client, { edit: false });
+    setPlacing(null);
     return true;
   }, [addNodeAtCenter]);
-  placeShapeRef.current = placePendingShape;
+  placeNodeRef.current = placePendingNode;
 
   // Upload an image to Storage, then drop an image node (sized to the image's
   // aspect ratio, capped) at the visible center. The node holds only the URL,
@@ -2454,7 +2502,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       onPointerMove={onWbPointerMove}
       onPointerDownCapture={(e) => {
         // "Stamp a shape" armed → this click drops it, nothing else.
-        if (placingShapeRef.current) { e.preventDefault(); e.stopPropagation(); placeShapeRef.current?.({ x: e.clientX, y: e.clientY }); return; }
+        if (placingRef.current) { e.preventDefault(); e.stopPropagation(); placeNodeRef.current?.({ x: e.clientX, y: e.clientY }); return; }
         marqueePointerDown(e); onWbPointerDownCapture(e);
       }}
       onPointerMoveCapture={marqueePointerMove}
@@ -2672,18 +2720,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           </ViewportPortal>
         )}
 
-        {/* "Stamp a shape": the armed shape ghosts under the cursor (flow space,
+        {/* "Stamp a node": the armed node ghosts under the cursor (flow space,
             so it's sized/positioned exactly as it'll be placed). Click to drop. */}
-        {placingShape && ghostFlow && (
+        {placing && ghostFlow && (
           <ViewportPortal>
-            <div style={{ position: "absolute", left: ghostFlow.x, top: ghostFlow.y, width: DEFAULTS.shape.w, height: DEFAULTS.shape.h, pointerEvents: "none", opacity: 0.85, zIndex: 7 }}>
-              <svg width={DEFAULTS.shape.w} height={DEFAULTS.shape.h} style={{ overflow: "visible", display: "block" }}>
-                <ShapeSvg shape={placingShape} w={DEFAULTS.shape.w} h={DEFAULTS.shape.h} fill="rgba(14,165,233,0.14)" stroke="#0ea5e9" sw={2} dash="6 5" />
-              </svg>
-            </div>
+            <PlacementGhost placing={placing} at={ghostFlow} />
           </ViewportPortal>
         )}
-        {placingShape && (
+        {placing && (
           <Panel position="bottom-center" className={`pointer-events-none select-none mb-20 rounded-full px-3 py-1 text-xs font-medium shadow-lg ${dark ? "bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)]" : "bg-slate-900 text-white"}`}>
             Click to place · Esc to cancel
           </Panel>
@@ -2820,7 +2864,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             onChange={(e) => {
               const f = e.target.files?.[0];
               e.target.value = ""; // allow re-picking the same file
-              if (f) addImageNode(f);
+              const at = pendingImageAtRef.current; // set by the I-key shortcut
+              pendingImageAtRef.current = null;
+              if (f) addImageNode(f, at || undefined);
             }}
           />
           <ToolbarDivider dark={dark} />
