@@ -858,7 +858,17 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       lastClientRef.current = { x: e.clientX, y: e.clientY };
       if (e.pointerType === "pen") { lastPenTsRef.current = Date.now(); stylusSeenRef.current = true; }
       if (areaDragRef.current && e.pointerId === areaDragRef.current.pid) {
-        setAreaBox((bx) => (bx ? { ...bx, x1: e.clientX, y1: e.clientY } : bx));
+        const d = areaDragRef.current;
+        if (!d.armed) {
+          // Below the threshold it's still a click (which must deselect) — only
+          // a real drag opens the box + captures the pointer.
+          if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 4) return;
+          d.armed = true;
+          setAreaBox({ x0: d.x0, y0: d.y0, x1: e.clientX, y1: e.clientY });
+          try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
+        } else {
+          setAreaBox((bx) => (bx ? { ...bx, x1: e.clientX, y1: e.clientY } : bx));
+        }
         return;
       }
       if (areaMoveRef.current && e.pointerId === areaMoveRef.current.pid) {
@@ -1005,10 +1015,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           at.closest(".react-flow__edge") ||
           at.closest(".react-flow__handle")
         ) return;
-        areaDragRef.current = { pid: e.pointerId, x0: e.clientX, y0: e.clientY };
-        setAreaBox({ x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY });
-        try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
-        e.preventDefault();
+        // ARM a potential region-drag but don't capture / preventDefault yet — a
+        // plain click on the empty pane must fall through to React Flow so it
+        // clears the selection (deselect). The box only opens once the pointer
+        // actually moves past a small threshold (see onWbPointerMove).
+        areaDragRef.current = { pid: e.pointerId, x0: e.clientX, y0: e.clientY, armed: false };
         return;
       }
       if ((mode !== "pen" && mode !== "laser" && mode !== "brush") || e.button !== 0) return;
@@ -1131,6 +1142,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (areaDragRef.current && e.pointerId === areaDragRef.current.pid) {
         const d = areaDragRef.current;
         areaDragRef.current = null;
+        // Never armed = a plain click, not a drag: do nothing so RF's pane click
+        // clears the selection (deselect). We never captured/preventDefault'd it.
+        if (!d.armed) return;
         setAreaBox(null);
         try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
         // via ref — finalizeAreaSelection is defined later in the component; a
