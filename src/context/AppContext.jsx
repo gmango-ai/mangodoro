@@ -93,6 +93,12 @@ export function AppProvider({ session, children }) {
   const [googleToken, setGoogleToken] = useState(null);
   const [googleTokenExpiry, setGoogleTokenExpiry] = useState(0);
   const googleRefreshingRef = useRef(false); // de-dupe concurrent refreshes
+  // Always-current mirrors so a just-refreshed token is visible to an in-flight
+  // API call in the same tick (state updates only land next render).
+  const googleTokenRef = useRef(null);
+  const googleTokenExpiryRef = useRef(0);
+  googleTokenRef.current = googleToken;
+  googleTokenExpiryRef.current = googleTokenExpiry;
 
   // ── Invoice modal ────────────────────────────────────────────
   const [showInvoice, setShowInvoice] = useState(false);
@@ -1277,14 +1283,25 @@ export function AppProvider({ session, children }) {
     try {
       const { data, error } = await supabase.functions.invoke("google-token", { body: {} });
       if (error || !data?.access_token) return null;
+      const exp = data.expiry || (Date.now() + 3500 * 1000);
+      googleTokenRef.current = data.access_token; // visible to callers this tick
+      googleTokenExpiryRef.current = exp;
       setGoogleToken(data.access_token);
-      setGoogleTokenExpiry(data.expiry || (Date.now() + 3500 * 1000));
+      setGoogleTokenExpiry(exp);
       return data.access_token;
     } catch {
       return null;
     } finally {
       googleRefreshingRef.current = false;
     }
+  }
+
+  // Return a currently-valid Google access token — refreshing silently if it's
+  // expired/missing — or null if that fails (caller then does a full re-auth).
+  // Guards call this so an expired token triggers a silent refresh, not a popup.
+  async function ensureGoogleToken() {
+    if (googleTokenRef.current && Date.now() < googleTokenExpiryRef.current) return googleTokenRef.current;
+    return await refreshGoogleToken();
   }
 
   // Keep the Google access token fresh in the background so Calendar/Docs never
@@ -1439,7 +1456,7 @@ export function AppProvider({ session, children }) {
   }
 
   async function exportToGoogleSheets(monthStr, monthEntries) {
-    if (!googleToken || Date.now() > googleTokenExpiry) {
+    if (!(await ensureGoogleToken())) {
       connectGoogle();
       return;
     }
@@ -1580,7 +1597,7 @@ export function AppProvider({ session, children }) {
     // ── Create spreadsheet ──
     const res = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+      headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         properties: { title },
         sheets: [{ properties: { title: "Timesheet" }, data: [{ startRow: 0, startColumn: 0, rowData }] }],
@@ -1603,7 +1620,7 @@ export function AppProvider({ session, children }) {
     const summaryHdrIndex = summary ? rowData.length - 2 : -1;
     fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
       method: "POST",
-      headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+      headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
       body: JSON.stringify({ requests: [
         { mergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: numCols }, mergeType: "MERGE_ALL" } },
         { updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: headerRowIndex + 1 } }, fields: "gridProperties.frozenRowCount" } },
@@ -1624,7 +1641,7 @@ export function AppProvider({ session, children }) {
   // client-side (same token pattern as the Sheets export). Returns
   // { id, htmlLink } or null on failure (and re-prompts consent on 401/403).
   async function createCalendarEvent({ summary, description, start, end, attendees = [], location }) {
-    if (!googleToken || Date.now() > googleTokenExpiry) {
+    if (!(await ensureGoogleToken())) {
       connectGoogle();
       return null;
     }
@@ -1643,7 +1660,7 @@ export function AppProvider({ session, children }) {
         "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all",
         {
           method: "POST",
-          headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+          headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
           body: JSON.stringify(body),
         },
       );
@@ -1665,7 +1682,7 @@ export function AppProvider({ session, children }) {
   // Create a Google Doc and write the summary (then transcript) into it.
   // Foreground / client-side. Returns { documentId, url } or null on failure.
   async function exportToGoogleDoc({ title, summaryMd, transcriptText }) {
-    if (!googleToken || Date.now() > googleTokenExpiry) {
+    if (!(await ensureGoogleToken())) {
       connectGoogle();
       return null;
     }
@@ -1673,7 +1690,7 @@ export function AppProvider({ session, children }) {
     try {
       createRes = await fetch("https://docs.googleapis.com/v1/documents", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
         body: JSON.stringify({ title: title || "Meeting summary" }),
       });
     } catch {
@@ -1698,12 +1715,13 @@ export function AppProvider({ session, children }) {
     const text = parts.join("");
 
     if (text) {
-      // The create round-trip can straddle the ~1h token life — re-check before
-      // the batchUpdate. If it just expired, hand back the (empty) doc + re-auth.
-      if (Date.now() > googleTokenExpiry) { connectGoogle(); return { documentId, url }; }
+      // The create round-trip can straddle the ~1h token life — re-ensure before
+      // the batchUpdate. A silent refresh keeps it going; only a failed refresh
+      // hands back the (empty) doc + re-auth.
+      if (!(await ensureGoogleToken())) { connectGoogle(); return { documentId, url }; }
       await fetch(`https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
         body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text } }] }),
       }).catch(() => {}); // best-effort — the doc already exists
     }
@@ -1718,7 +1736,7 @@ export function AppProvider({ session, children }) {
   // result), or `null` when not connected / the request failed — so callers can
   // tell a real empty window from a desync and avoid clobbering a cache.
   async function listGoogleCalendarEvents({ timeMin, timeMax }) {
-    if (!googleToken || Date.now() > googleTokenExpiry) return null;
+    if (!(await ensureGoogleToken())) return null;
     const params = new URLSearchParams({
       timeMin: new Date(timeMin).toISOString(),
       timeMax: new Date(timeMax).toISOString(),
@@ -1729,7 +1747,7 @@ export function AppProvider({ session, children }) {
     let res;
     try {
       res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
-        headers: { "Authorization": `Bearer ${googleToken}` },
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}` },
       });
     } catch { return null; }
     if (!res.ok) {
@@ -1766,7 +1784,7 @@ export function AppProvider({ session, children }) {
 
   // Patch a Google event we created (write-back on reschedule/edit).
   async function updateCalendarEvent(eventId, { start, end, summary, description } = {}) {
-    if (!googleToken || Date.now() > googleTokenExpiry || !eventId) return { error: { message: "not connected" } };
+    if (!eventId || !(await ensureGoogleToken())) return { error: { message: "not connected" } };
     const toISO = (d) => (d instanceof Date ? d.toISOString() : new Date(d).toISOString());
     const body = {};
     if (start) body.start = { dateTime: toISO(start) };
@@ -1777,7 +1795,7 @@ export function AppProvider({ session, children }) {
     try {
       res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
         method: "PATCH",
-        headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
     } catch { return { error: { message: "network" } }; }
@@ -1790,11 +1808,11 @@ export function AppProvider({ session, children }) {
 
   // Delete a Google event we created (best-effort — silent on failure).
   async function deleteCalendarEvent(eventId) {
-    if (!googleToken || Date.now() > googleTokenExpiry || !eventId) return { error: null };
+    if (!eventId || !(await ensureGoogleToken())) return { error: null };
     try {
       await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
         method: "DELETE",
-        headers: { "Authorization": `Bearer ${googleToken}` },
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}` },
       });
     } catch { /* best-effort */ }
     return { error: null };
