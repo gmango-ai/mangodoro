@@ -1,22 +1,54 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { regionTileKeys } from "./paintTiles";
-import { pointInPolygon, convexHull, padHull } from "./wbUtil";
+import { pointInPolygon, roundedRectPath, roundedPolyPath } from "./wbUtil";
 
-// Build the "envelope" contour (points RELATIVE to the selection rect origin)
-// that hugs the picked nodes — a padded convex hull of their corners, plus the
-// raster region when paint was lifted. Drawn instead of the plain bbox border.
-function selectionHull(rf, picked, rect, hasRaster) {
-  const corners = [];
+// Bounding box of non-transparent pixels in a canvas, as fractions [0..1] of its
+// size (so it maps to rect coords regardless of device-pixel scaling). Sampled
+// for speed; null when fully transparent.
+function opaquePixelBounds(canvas) {
+  try {
+    const cw = canvas.width, ch = canvas.height;
+    if (!cw || !ch) return null;
+    const data = canvas.getContext("2d").getImageData(0, 0, cw, ch).data;
+    const step = Math.max(1, Math.floor(Math.max(cw, ch) / 300));
+    let minX = cw, minY = ch, maxX = -1, maxY = -1;
+    for (let y = 0; y < ch; y += step) {
+      for (let x = 0; x < cw; x += step) {
+        if (data[(y * cw + x) * 4 + 3] > 8) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return null;
+    return { x0: minX / cw, y0: minY / ch, x1: (maxX + step) / cw, y1: (maxY + step) / ch };
+  } catch { return null; }
+}
+
+// Build the selection "envelope": one padded rounded-rect per picked node, plus
+// the tight painted-pixel bounds when brush paint was lifted — so it wraps ONLY
+// drawn content, skipping the blank space BETWEEN items. Returns both a compound
+// SVG path RELATIVE to the rect origin (for drawing/clipping) and the padded
+// rects in ABSOLUTE flow coords (for the drag hit-test — the DOM overlay can't
+// be relied on since clip-path doesn't clip pointer events in the portal).
+function selectionEnvelope(rf, picked, rect, raster) {
+  const PAD = 8, R = 12;
+  const rects = [];
   for (const n of picked) {
     const inode = rf.getInternalNode(n.id);
     const pos = inode?.internals?.positionAbsolute || n.position;
     const w = n.measured?.width ?? n.width ?? 0;
     const h = n.measured?.height ?? n.height ?? 0;
-    corners.push([pos.x, pos.y], [pos.x + w, pos.y], [pos.x + w, pos.y + h], [pos.x, pos.y + h]);
+    rects.push({ x: pos.x - PAD, y: pos.y - PAD, w: w + PAD * 2, h: h + PAD * 2 });
   }
-  if (hasRaster) corners.push([rect.x, rect.y], [rect.x + rect.w, rect.y], [rect.x + rect.w, rect.y + rect.h], [rect.x, rect.y + rect.h]);
-  if (corners.length < 3) return null;
-  return padHull(convexHull(corners), 12).map(([x, y]) => [x - rect.x, y - rect.y]);
+  if (raster) {
+    const b = opaquePixelBounds(raster);
+    if (b) rects.push({ x: rect.x + b.x0 * rect.w - PAD, y: rect.y + b.y0 * rect.h - PAD, w: (b.x1 - b.x0) * rect.w + PAD * 2, h: (b.y1 - b.y0) * rect.h + PAD * 2 });
+    else rects.push({ x: rect.x - PAD, y: rect.y - PAD, w: rect.w + PAD * 2, h: rect.h + PAD * 2 });
+  }
+  if (!rects.length) return { path: null, rects: [] };
+  const path = rects.map((r) => roundedRectPath(r.x - rect.x, r.y - rect.y, r.w, r.h, R)).join(" ");
+  return { path, rects };
 }
 import { WB_TOUCH } from "./wbConstants";
 
@@ -180,8 +212,8 @@ export function useWhiteboardRegionSelect({
     const raster = hadPaint ? paintRef.current?.readRegion(rect) : null;
     if (raster) paintRef.current?.clearRegion(rect);
     if (!picked.length && !raster) return; // empty area
-    const hull = selectionHull(rf, picked, rect, !!raster);
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, hull });
+    const env = selectionEnvelope(rf, picked, rect, raster);
+    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, envPath: env.path, envRects: env.rects });
   }, [rf]);
   finalizeAreaRef.current = finalizeAreaSelection;
 
@@ -208,9 +240,10 @@ export function useWhiteboardRegionSelect({
     const raster = hadPaint ? paintRef.current?.readRegion(rect, poly) : null;
     if (raster) paintRef.current?.clearRegion(rect, poly);
     if (!picked.length && !raster) return;
-    // The lasso's own freehand loop IS the envelope — draw it (relative to rect).
-    const hull = poly.map((p) => [p.x - rect.x, p.y - rect.y]);
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, clip: poly, hull });
+    // The lasso's own freehand loop IS the envelope — draw it (relative to rect);
+    // its bbox is the drag hit area (freeform, so bbox is a fine grab region).
+    const envPath = roundedPolyPath(poly.map((p) => [p.x - rect.x, p.y - rect.y]), 16);
+    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, clip: poly, envPath, envRects: [{ x: rect.x, y: rect.y, w: rect.w, h: rect.h }] });
   }, [rf]);
   finalizeLassoRef.current = finalizeLassoSelection;
 

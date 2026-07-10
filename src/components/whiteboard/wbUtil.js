@@ -60,6 +60,13 @@ export function padHull(hull, pad) {
   });
 }
 
+// A single rounded-rect SVG subpath. Selections union one of these per drawn
+// item, so the envelope hugs content and skips the blank space between items.
+export function roundedRectPath(x, y, w, h, r) {
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+  return `M${x + rr},${y} H${x + w - rr} Q${x + w},${y} ${x + w},${y + rr} V${y + h - rr} Q${x + w},${y + h} ${x + w - rr},${y + h} H${x + rr} Q${x},${y + h} ${x},${y + h - rr} V${y + rr} Q${x},${y} ${x + rr},${y} Z`;
+}
+
 // Closed SVG path for a polygon with rounded corners (radius r). Works for both
 // a few-vertex hull (visible rounding) and a many-point freehand loop (segments
 // too short to round → effectively a smooth polyline).

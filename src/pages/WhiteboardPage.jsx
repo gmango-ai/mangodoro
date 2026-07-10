@@ -998,16 +998,29 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       // (reliable) rather than the overlay itself (which sits in the transformed
       // ViewportPortal). Works for pen + touch.
       if (areaSelRef.current && !areaMoveRef.current && e.button === 0 && e.target instanceof Element) {
-        if (e.target.closest(".wb-area-overlay")) {
-          let p; try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
-          const s = areaSelRef.current;
+        let p = null; try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { /* */ }
+        const s = areaSelRef.current;
+        // Hit-test the actual envelope rects (not the bbox overlay div — clip-path
+        // doesn't clip pointer events in the transformed portal), shifted by the
+        // live move offset. A press INSIDE moves the selection.
+        const inEnvelope = p && (s.envRects || []).some((r) =>
+          p.x >= r.x + s.dx && p.x <= r.x + r.w + s.dx && p.y >= r.y + s.dy && p.y <= r.y + r.h + s.dy);
+        if (inEnvelope) {
           areaMoveRef.current = { pid: e.pointerId, sx: p.x, sy: p.y, baseDx: s.dx, baseDy: s.dy };
           try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
           e.preventDefault();
           return;
         }
-        // Pointer down OFF the selection (and not on a toolbar) → place it.
-        if (!e.target.closest(".react-flow__panel")) { commitAreaRef.current?.(); return; }
+        if (e.target.closest(".react-flow__panel")) return; // toolbar handles its own
+        // Press OFF the selection: drop the old one where it is, and — on the
+        // empty pane — arm a fresh marquee so a drag immediately starts a NEW
+        // selection instead of only clearing the previous one.
+        commitAreaRef.current?.();
+        if (mode === "select" && !WB_TOUCH && e.target.closest(".react-flow__pane") &&
+            !e.target.closest(".react-flow__node") && !e.target.closest(".react-flow__edge") && !e.target.closest(".react-flow__handle")) {
+          areaDragRef.current = { pid: e.pointerId, x0: e.clientX, y0: e.clientY, armed: false };
+        }
+        return;
       }
       // Lasso tool: draw a freeform selection path.
       if (mode === "lasso") {
