@@ -115,6 +115,7 @@ import { useWhiteboardKeyboard } from "../components/whiteboard/useWhiteboardKey
 import { useWhiteboardInspector } from "../components/whiteboard/useWhiteboardInspector";
 import { useWhiteboardRegionSelect } from "../components/whiteboard/useWhiteboardRegionSelect";
 import { usePalmRejection } from "../components/whiteboard/usePalmRejection";
+import { recognizeStroke, SHAPE_KIND_TO_NODE } from "../components/whiteboard/wbShapeRecognition";
 import { uploadWhiteboardImage } from "../lib/whiteboardImage";
 import TextPanel from "../components/whiteboard/TextPanel";
 import {
@@ -609,6 +610,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const drawingRef = useRef(null);
   const drawRafRef = useRef(0);
   const [drawPath, setDrawPath] = useState(null);
+  // Last SIGNIFICANT pen movement (pos + ts) — lets finishStroke detect a
+  // deliberate end-pause ("hold to snap to a shape") vs a stroke still in motion.
+  const penMoveRef = useRef({ pos: null, ts: 0 });
 
   // Ephemeral laser-ink trail (FLOW coords, timestamped) drawn while the laser
   // button is held — fades on its own, persists nothing. See LaserTrail.
@@ -828,6 +832,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             if (!last || Math.abs(q.x - last[0]) + Math.abs(q.y - last[1]) > 1.2) {
               dr.points.push([q.x, q.y, pointerForce(ev)]);
               added = true;
+              const pm = penMoveRef.current;
+              if (!pm.pos || Math.hypot(q.x - pm.pos[0], q.y - pm.pos[1]) > 6) { pm.pos = [q.x, q.y]; pm.ts = Date.now(); }
             }
           }
           if (added && !drawRafRef.current) {
@@ -932,6 +938,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { return; }
       if (mode === "pen") {
         drawingRef.current = { points: [[p.x, p.y, pointerForce(e)]] };
+        penMoveRef.current = { pos: [p.x, p.y], ts: Date.now() };
         setDrawPath(previewPath(drawingRef.current.points));
       } else if (mode === "laser") {
         laserDrawingRef.current = true;
@@ -969,6 +976,61 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // Pen up: commit the stroke as a draw node (bbox-relative points). Tiny taps
   // are dropped. The node carries pointerEvents:none so it's click-through
   // except along the line (see DrawNode).
+  // Snap a recognized stroke to a clean shape / edge / straight line. Returns
+  // true when it consumed the stroke (so finishStroke skips the freehand node).
+  const snapRecognized = useCallback((shape) => {
+    if (shape.kind === "line") {
+      // Line whose ends land on two connectable shapes → an edge; otherwise a
+      // cleaned straight stroke.
+      const M = 12;
+      const hit = (pt) => rf.getNodes().find((n) => {
+        if (NON_CONNECTABLE.has(n.type)) return false;
+        const r = nodeRect(n);
+        return r && pt.x >= r.x - M && pt.x <= r.x + r.w + M && pt.y >= r.y - M && pt.y <= r.y + r.h + M;
+      });
+      const a = hit(shape.from), b = hit(shape.to);
+      if (a && b && a.id !== b.id) {
+        const sa = snappedAnchor(nodeRect(a), shape.from.x, shape.from.y);
+        const ta = snappedAnchor(nodeRect(b), shape.to.x, shape.to.y);
+        setEdges((eds) => addEdge({
+          source: a.id, sourceHandle: ANCHOR_TO_HANDLE[sa.side],
+          target: b.id, targetHandle: ANCHOR_TO_HANDLE[ta.side],
+          data: { sourceAnchor: sa, targetAnchor: ta },
+          ...DEFAULT_EDGE_OPTIONS,
+        }, eds));
+        navigator.vibrate?.(12);
+        return true;
+      }
+      const { color, width, opacity = 1 } = penStyleRef.current;
+      const pad = Math.max(width, 4);
+      const minX = Math.min(shape.from.x, shape.to.x) - pad, minY = Math.min(shape.from.y, shape.to.y) - pad;
+      const maxX = Math.max(shape.from.x, shape.to.x) + pad, maxY = Math.max(shape.from.y, shape.to.y) + pad;
+      const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+      const rel = [[shape.from.x - minX, shape.from.y - minY, 0.5], [shape.to.x - minX, shape.to.y - minY, 0.5]];
+      const node = { id: freshId("draw"), type: "draw", position: { x: minX, y: minY }, width: w, height: h, style: { pointerEvents: "none" }, data: { points: rel, color, strokeWidth: width, w, h, opacity, pressure: false } };
+      setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(node));
+      navigator.vibrate?.(12);
+      return true;
+    }
+    // Closed shape → a clean shape node at the recognised bbox, in the pen colour.
+    const nodeShape = SHAPE_KIND_TO_NODE[shape.kind];
+    if (!nodeShape) return false;
+    const { color } = penStyleRef.current;
+    const r = shape.rect;
+    const node = {
+      id: freshId("shape"),
+      type: "shape",
+      position: { x: r.x, y: r.y },
+      width: Math.max(20, r.w),
+      height: Math.max(20, r.h),
+      selected: true,
+      data: { shape: nodeShape, text: "", stroke: color },
+    };
+    setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(node));
+    navigator.vibrate?.(12);
+    return true;
+  }, [rf, setNodes, setEdges]);
+
   const finishStroke = useCallback(() => {
     const dr = drawingRef.current;
     drawingRef.current = null;
@@ -976,6 +1038,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     setDrawPath(null);
     if (!dr || dr.points.length < 2) return;
     const pts = dr.points;
+    // Auto-shape: a deliberate end-pause ("hold") snaps the stroke to a clean
+    // shape / line / edge. A quick lift keeps it freehand.
+    if (Date.now() - penMoveRef.current.ts > 400) {
+      const shape = recognizeStroke(pts);
+      if (shape && snapRecognized(shape)) return;
+    }
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const [x, y] of pts) {
       if (x < minX) minX = x; if (y < minY) minY = y;
@@ -1001,7 +1069,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     };
     // Don't auto-select — keep the pen flowing for the next stroke.
     setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)).concat(node));
-  }, [setNodes]);
+  }, [setNodes, snapRecognized]);
 
   const onWbPointerUp = useCallback(
     (e) => {
