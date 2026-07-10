@@ -117,6 +117,7 @@ import { useWhiteboardInspector } from "../components/whiteboard/useWhiteboardIn
 import { useWhiteboardRegionSelect } from "../components/whiteboard/useWhiteboardRegionSelect";
 import { usePalmRejection } from "../components/whiteboard/usePalmRejection";
 import { recognizeStroke, SHAPE_KIND_TO_NODE } from "../components/whiteboard/wbShapeRecognition";
+import WhiteboardShortcuts from "../components/whiteboard/WhiteboardShortcuts";
 import { uploadWhiteboardImage } from "../lib/whiteboardImage";
 import TextPanel from "../components/whiteboard/TextPanel";
 import {
@@ -584,6 +585,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const placeNodeRef = useRef(null);
   const pendingImageAtRef = useRef(null);
   const [ghostFlow, setGhostFlow] = useState(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false); // "?" cheatsheet
   const { session, settings } = useApp();
   const myName =
     settings?.name ||
@@ -1678,6 +1680,20 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (raf) cancelAnimationFrame(raf);
     };
   }, [placing, rf]);
+
+  // "?" toggles the keyboard-shortcuts cheatsheet. Not board-hover-gated (so it
+  // also closes while the overlay covers the board); skipped while typing.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "?") return;
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      e.preventDefault();
+      setShortcutsOpen((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Drag an edge endpoint onto a different node to re-route it.
   const onReconnect = useCallback(
@@ -2982,6 +2998,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       </ReactFlow>
       </ConnectShapeContext.Provider>
       </QuickConnectContext.Provider>
+
+      {/* "?" keyboard-shortcuts cheatsheet (top-level overlay). */}
+      <WhiteboardShortcuts open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} dark={dark} />
 
       {/* Shape-number legend — shown while dragging a connector or hovering a
           quick-connect arrow, so people know which number makes which shape.
