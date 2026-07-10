@@ -25,11 +25,52 @@ function opaquePixelBounds(canvas) {
   } catch { return null; }
 }
 
+// Sample an edge's rendered path (flow coords — the path `d` lives in flow
+// space, only the viewport <div> is CSS-transformed, so getPointAtLength returns
+// flow coords directly). Dense enough (~5px spacing) that a thin marquee strip
+// crossing the line still lands a sample inside it. null if the edge isn't in
+// the DOM yet or has no length.
+function edgePathPoints(edgeId) {
+  try {
+    const el = document.querySelector(`.react-flow__edge[data-id="${CSS.escape(edgeId)}"] path.react-flow__edge-path`);
+    if (!el || !el.getTotalLength) return null;
+    const len = el.getTotalLength();
+    if (!len) return null;
+    const n = Math.max(8, Math.min(400, Math.ceil(len / 5)));
+    const pts = [];
+    for (let i = 0; i <= n; i++) { const p = el.getPointAtLength((i / n) * len); pts.push({ x: p.x, y: p.y }); }
+    return pts;
+  } catch { return null; }
+}
+
+// Edges caught by a region: an edge is selected if BOTH its endpoints are picked
+// (moves/deletes with the group) OR its drawn path crosses the region (a strip
+// lassoed straight over the connectors, no nodes enclosed). Also returns the
+// path points to fold into the selection box — the WHOLE path for a fully-caught
+// edge, only the IN-region part for a crossing edge (so the box hugs the strip
+// instead of ballooning across the diagram). `poly` set → lasso; else box `rect`.
+function pickRegionEdges(rf, pickedIds, rect, poly) {
+  const inRegion = (p) => poly
+    ? pointInPolygon(p.x, p.y, poly)
+    : (p.x >= rect.x && p.x <= rect.x + rect.w && p.y >= rect.y && p.y <= rect.y + rect.h);
+  const edges = [], boxPts = [];
+  for (const e of rf.getEdges()) {
+    const both = pickedIds.has(e.source) && pickedIds.has(e.target);
+    const pts = edgePathPoints(e.id);
+    if (both) { edges.push(e); if (pts) boxPts.push(...pts); continue; }
+    if (!pts) continue;
+    const inside = pts.filter(inRegion);
+    if (inside.length) { edges.push(e); boxPts.push(...inside); }
+  }
+  return { edges, boxPts };
+}
+
 // A single bounding box (ABSOLUTE flow coords, padded) tight around the SELECTED
-// CONTENT — the union of the picked nodes' bounds and the lifted paint's actual
-// painted-pixel bounds. This is the selection box + its interactable area; it
-// fits the items, not the (possibly loose) marquee drag rect. null if empty.
-function contentBox(rf, picked, rect, raster) {
+// CONTENT — the union of the picked nodes' bounds, the lifted paint's actual
+// painted-pixel bounds, and any selected-edge path points. This is the selection
+// box + its interactable area; it fits the items, not the (possibly loose)
+// marquee drag rect. null if empty.
+function contentBox(rf, picked, rect, raster, edgePts) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const n of picked) {
     const inode = rf.getInternalNode(n.id);
@@ -38,6 +79,12 @@ function contentBox(rf, picked, rect, raster) {
     const h = n.measured?.height ?? n.height ?? 0;
     minX = Math.min(minX, pos.x); minY = Math.min(minY, pos.y);
     maxX = Math.max(maxX, pos.x + w); maxY = Math.max(maxY, pos.y + h);
+  }
+  if (edgePts) {
+    for (const p of edgePts) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    }
   }
   if (raster) {
     // Expand ONLY for actually-painted pixels. If the lifted region is empty
@@ -222,12 +269,13 @@ export function useWhiteboardRegionSelect({
     // the box to the blank drag rect.
     const raster = raster0 && opaquePixelBounds(raster0) ? raster0 : null;
     if (raster) paintRef.current?.clearRegion(rect);
-    if (!picked.length && !raster) return; // empty area — never select void
-    const box = contentBox(rf, picked, rect, raster);
-    // Edges wholly inside the selection (both ends picked) ride along — so a
-    // group delete removes its connectors too (they auto-follow on move).
+    // Edges caught by the box: both ends picked (ride along, auto-follow on
+    // move) OR the drawn path crosses the box (a strip dragged straight over the
+    // connectors — no nodes enclosed). See pickRegionEdges.
     const pickedIds = new Set(picked.map((n) => n.id));
-    const edges = rf.getEdges().filter((e) => pickedIds.has(e.source) && pickedIds.has(e.target));
+    const { edges, boxPts } = pickRegionEdges(rf, pickedIds, rect, null);
+    if (!picked.length && !raster && !edges.length) return; // empty area — never select void
+    const box = contentBox(rf, picked, rect, raster, boxPts);
     setAreaSel({ rect, raster, nodes: picked, edges, before, dx: 0, dy: 0, box });
   }, [rf]);
   finalizeAreaRef.current = finalizeAreaSelection;
@@ -255,12 +303,14 @@ export function useWhiteboardRegionSelect({
     const raster0 = hadTile ? paintRef.current?.readRegion(rect, poly) : null;
     const raster = raster0 && opaquePixelBounds(raster0) ? raster0 : null; // only real paint
     if (raster) paintRef.current?.clearRegion(rect, poly);
-    if (!picked.length && !raster) return;
+    // Edges caught by the lasso polygon: both ends picked OR the path crosses
+    // the freeform shape (drag the lasso straight over the connectors).
+    const pickedIds = new Set(picked.map((n) => n.id));
+    const { edges, boxPts } = pickRegionEdges(rf, pickedIds, rect, poly);
+    if (!picked.length && !raster && !edges.length) return;
     // Same single content-fitted box as the marquee (the lasso still clips the
     // raster to its freeform shape; the selection box just bounds the result).
-    const box = contentBox(rf, picked, rect, raster);
-    const pickedIds = new Set(picked.map((n) => n.id));
-    const edges = rf.getEdges().filter((e) => pickedIds.has(e.source) && pickedIds.has(e.target));
+    const box = contentBox(rf, picked, rect, raster, boxPts);
     setAreaSel({ rect, raster, nodes: picked, edges, before, dx: 0, dy: 0, clip: poly, box });
   }, [rf]);
   finalizeLassoRef.current = finalizeLassoSelection;
@@ -284,6 +334,9 @@ export function useWhiteboardRegionSelect({
     if (!s) return;
     setAreaSel(null);
     const { rect, raster, nodes, before, dx, dy, clip } = s;
+    // Edges-only selection (crossing edges, no nodes/paint) — edges are anchored
+    // to their nodes and can't move on their own, so there's nothing to commit.
+    if (!nodes.length && !raster) return;
     const destRect = { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h };
     if (dx === 0 && dy === 0) { if (raster) paintRef.current?.stampRegion(raster, rect); return; } // no move → drop back (peers never saw the lift)
     // dst pre-stamp pixels — peers need these to undo the move live.
@@ -318,13 +371,16 @@ export function useWhiteboardRegionSelect({
     const s = areaSelRef.current;
     if (!s) return;
     setAreaSel(null);
-    const { rect, raster, nodes, before, clip } = s;
+    const { rect, raster, nodes, before, clip, edges: selEdges } = s;
     const ids = new Set(nodes.map((n) => n.id));
+    const selEdgeIds = new Set((selEdges || []).map((e) => e.id));
     // Drop edges touching any deleted node (the in-selection connectors + any
-    // that would be left dangling); capture them so undo restores them. Edge
-    // removal syncs to peers automatically via the ops diff.
-    const removedEdges = rf.getEdges().filter((e) => ids.has(e.source) || ids.has(e.target));
-    const dropEdges = (eds) => eds.filter((e) => !ids.has(e.source) && !ids.has(e.target));
+    // that would be left dangling) AND any edge explicitly caught by the region
+    // (a crossing-only edge whose endpoints weren't selected); capture them so
+    // undo restores them. Edge removal syncs to peers via the ops diff.
+    const removedEdges = rf.getEdges().filter((e) => ids.has(e.source) || ids.has(e.target) || selEdgeIds.has(e.id));
+    const removedIds = new Set(removedEdges.map((e) => e.id));
+    const dropEdges = (eds) => eds.filter((e) => !removedIds.has(e.id));
     if (raster) broadcastPaintOps([{ clear: rect, clip }]); // peers clear the lifted (clipped) region
     runSilent(() => {
       setNodes((nds) => nds.filter((n) => !ids.has(n.id)));
