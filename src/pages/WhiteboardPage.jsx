@@ -637,7 +637,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const applyPaintOpsRef = useRef(null);
   const onPaintPatch = useCallback((ops) => applyPaintOpsRef.current?.(ops, false), []);
 
-  const { peers, members, pushCursor, pushPaint, pushPaintPatch, myColor } = useWhiteboardSync({
+  const { peers, members, viewports, pushCursor, pushViewport, pushPaint, pushPaintPatch, myColor } = useWhiteboardSync({
     boardId: board?.id,
     enabled: collabEnabled,
     nodes,
@@ -649,6 +649,29 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     onPaint,
     onPaintPatch,
   });
+
+  // ── Follow / presentation: mirror another person's viewport ──
+  const [followingId, setFollowingId] = useState(null);
+  const followingIdRef = useRef(null);
+  followingIdRef.current = followingId;
+  const followMember = useCallback((id) => setFollowingId((cur) => (cur === id ? null : id)), []);
+  // Apply the followed peer's viewport whenever it changes (smoothly).
+  useEffect(() => {
+    if (!followingId) return;
+    const vp = viewports[followingId];
+    if (!vp) return;
+    try { rf.setViewport({ x: vp.x, y: vp.y, zoom: vp.zoom }, { duration: 120 }); } catch { /* */ }
+  }, [followingId, viewports, rf]);
+  // Auto-stop following if that person leaves.
+  useEffect(() => {
+    if (followingId && !members.some((m) => m.id === followingId)) setFollowingId(null);
+  }, [followingId, members]);
+  // Broadcast my own viewport (throttled in the hook) so others can follow me.
+  const onViewportMove = useCallback((_e, vp) => { pushViewport(vp); }, [pushViewport]);
+  // A user-initiated pan/zoom (event is non-null; programmatic follow passes
+  // null) drops me out of follow mode.
+  const onViewportMoveStart = useCallback((e) => { if (e && followingIdRef.current != null) setFollowingId(null); }, []);
+  const followingMember = followingId ? members.find((m) => m.id === followingId) : null;
 
   // Apply an ordered list of raster region ops to the LOCAL paint layer (used
   // when a peer's patch arrives). Op shapes:
@@ -1708,6 +1731,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     };
   }, [placing, rf]);
 
+  // Esc stops following someone (before the board's other Esc handlers run).
+  useEffect(() => {
+    if (!followingId) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setFollowingId(null); };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [followingId]);
+
   // "?" toggles the keyboard-shortcuts cheatsheet. Not board-hover-gated (so it
   // also closes while the overlay covers the board); skipped while typing.
   useEffect(() => {
@@ -2624,6 +2655,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
+        // Broadcast my viewport so peers can follow me; a user-initiated pan/zoom
+        // (non-null event) drops me out of following someone else.
+        onMove={onViewportMove}
+        onMoveStart={onViewportMoveStart}
         // Laser mode is point-only: no selecting, dragging, or connecting — so
         // you can gesture over the board without disturbing it.
         // Node drag is off while a floating region selection is active — the
@@ -2721,7 +2756,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             tiles keep it (staging enables it there). */}
         {(!compact || embedded) && showMinimap && <MiniMap pannable zoomable position="bottom-right" className="hidden sm:block" />}
         <CollabCursors peers={peers} />
-        <PresenceStack members={members} dark={dark} />
+        <PresenceStack members={members} viewports={viewports} followingId={followingId} onFollow={followMember} dark={dark} />
 
         {/* Dot-voting tally badges (per-node, multiplayer). */}
         <VotesOverlay nodes={nodes} myId={session?.user?.id} onToggle={toggleVote} dark={dark} />
@@ -2774,6 +2809,19 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {placing && (
           <Panel position="bottom-center" className={`pointer-events-none select-none mb-20 rounded-full px-3 py-1 text-xs font-medium shadow-lg ${dark ? "bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)]" : "bg-slate-900 text-white"}`}>
             Click to place · Esc to cancel
+          </Panel>
+        )}
+
+        {/* "Following X" banner — mirroring a collaborator's viewport. */}
+        {followingMember && (
+          <Panel position="bottom-center" className="mb-20">
+            <div className="flex items-center gap-2 rounded-full pl-3 pr-1.5 py-1 text-xs font-medium shadow-lg text-white" style={{ background: followingMember.color || "#0ea5e9" }}>
+              <span className="inline-block w-2 h-2 rounded-full bg-white/90 animate-pulse" />
+              Following {followingMember.name || "Guest"}
+              <button type="button" onClick={() => setFollowingId(null)} className="ml-1 rounded-full bg-black/25 hover:bg-black/40 px-2 py-0.5 text-[11px] font-semibold">
+                Stop · Esc
+              </button>
+            </div>
           </Panel>
         )}
 

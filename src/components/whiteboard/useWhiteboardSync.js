@@ -63,6 +63,7 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
 
   const [peers, setPeers] = useState({});     // id → { x, y, name, color, ts }
   const [members, setMembers] = useState([]);  // [{ id, name, color }] (others)
+  const [viewports, setViewports] = useState({}); // id → { x, y, zoom, ts } (for follow)
 
   // ── outgoing: broadcast local node/edge diffs ──
   const flushOps = useCallback(() => {
@@ -172,6 +173,14 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
       setPeers((prev) => ({ ...prev, [c.id]: { x: c.x, y: c.y, name: c.name, color: c.color, laser: !!c.laser, ink: !!c.ink, laserColor: c.laserColor, ts: Date.now() } }));
     });
 
+    // Live viewport (pan+zoom) of each peer — powers "follow" (mirror someone's
+    // view) and marks who's actively navigating.
+    ch.on("broadcast", { event: "viewport" }, (m) => {
+      const v = m.payload;
+      if (!v || v.id === meId.current) return;
+      setViewports((prev) => ({ ...prev, [v.id]: { x: v.x, y: v.y, zoom: v.zoom, ts: Date.now() } }));
+    });
+
     // Raster paint strokes (tiled paint layer): vectors in, rasterised locally.
     ch.on("broadcast", { event: "paint" }, (m) => {
       const p = m.payload;
@@ -218,8 +227,13 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
       }
       presence.current = ids;
       setMembers(list);
-      // Drop cursors for anyone who left.
+      // Drop cursors + viewports for anyone who left.
       setPeers((prev) => {
+        const next = {};
+        for (const id of Object.keys(prev)) if (ids.has(id)) next[id] = prev[id];
+        return next;
+      });
+      setViewports((prev) => {
         const next = {};
         for (const id of Object.keys(prev)) if (ids.has(id)) next[id] = prev[id];
         return next;
@@ -241,6 +255,7 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
       presence.current = new Set([meId.current]);
       setPeers({});
       setMembers([]);
+      setViewports({});
     };
   }, [enabled, boardId, applyOps, myName, myColor, onPaint, onPaintPatch]);
 
@@ -262,6 +277,21 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
       }
     }, CURSOR_THROTTLE_MS);
   }, [myName, myColor]);
+
+  // ── outgoing viewport (throttled, trailing) — so followers can mirror it ──
+  const vpTimer = useRef(null);
+  const pendingVp = useRef(null);
+  const pushViewport = useCallback((vp) => {
+    pendingVp.current = vp;
+    if (vpTimer.current) return;
+    vpTimer.current = setTimeout(() => {
+      vpTimer.current = null;
+      const ch = chanRef.current, v = pendingVp.current;
+      if (ch && v) {
+        try { ch.send({ type: "broadcast", event: "viewport", payload: { id: meId.current, x: v.x, y: v.y, zoom: v.zoom } }); } catch { /* */ }
+      }
+    }, 70);
+  }, []);
 
   // ── outgoing paint strokes (raster paint layer) ──
   // Fire-and-forget: each chunk carries the brush + the new points, so a
@@ -296,5 +326,5 @@ export function useWhiteboardSync({ boardId, enabled, nodes, edges, setNodes, se
     return () => clearInterval(t);
   }, [enabled]);
 
-  return { peers, members, pushCursor, pushPaint, pushPaintPatch, myColor };
+  return { peers, members, viewports, pushCursor, pushViewport, pushPaint, pushPaintPatch, myColor, meId: meId.current };
 }
