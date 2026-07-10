@@ -862,6 +862,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     deleteAreaSelection,
     commitAreaSelection,
     cancelAreaSelection,
+    augmentNativeSelection,
   } = useWhiteboardRegionSelect({
     rf,
     paintRef,
@@ -880,6 +881,28 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     () => new Set((areaSel?.edges || []).map((e) => e.id)),
     [areaSel],
   );
+  // Start point of a native RF drag-select (desktop select tool, empty pane). We
+  // don't drive the selection — RF does — we just remember the box so that on
+  // release we can fold in crossing edges + lift any brush paint the box covered.
+  const nativeSelDragRef = useRef(null);
+  // RF fires this when a drag-select gesture ends (reliable even though RF owns
+  // the pointer). Rebuild the box from our recorded start + the release point,
+  // then fold crossing edges + lift covered paint into the just-made selection.
+  const onNativeSelectionEnd = useCallback((event) => {
+    const d = nativeSelDragRef.current;
+    nativeSelDragRef.current = null;
+    const cx = event?.clientX, cy = event?.clientY;
+    if (!d || cx == null || Math.hypot(cx - d.x0, cy - d.y0) <= 4) return; // a click, not a box
+    // RF has already committed the selection by the time onSelectionEnd fires, so
+    // run synchronously (no rAF — it's throttled in background tabs).
+    let a, b;
+    try {
+      a = rf.screenToFlowPosition({ x: Math.min(d.x0, cx), y: Math.min(d.y0, cy) });
+      b = rf.screenToFlowPosition({ x: Math.max(d.x0, cx), y: Math.max(d.y0, cy) });
+    } catch { return; }
+    const rect = { x: a.x, y: a.y, w: Math.max(1, b.x - a.x), h: Math.max(1, b.y - a.y) };
+    augmentNativeSelection(rect, rf.getNodes().filter((n) => n.selected));
+  }, [rf, augmentNativeSelection]);
 
   const cancelActiveStroke = useCallback(() => {
     strokePidRef.current = null;
@@ -1078,9 +1101,19 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         return;
       }
       // Desktop select uses React Flow's native drag-select now (see
-      // selectionOnDrag) — no custom region box is armed here; the pane press
-      // falls through to RF for select + drag + deselect. TOUCH select still uses
-      // the long-press marquee (marqueePointerDown, handled separately).
+      // selectionOnDrag). We don't intercept it — but record the press point on
+      // the EMPTY pane so onWbPointerUp can fold crossing edges + lift paint into
+      // the box RF just drew. Node/edge/handle presses (a node drag) are skipped.
+      // TOUCH select still uses the long-press marquee (marqueePointerDown).
+      if (mode === "select" && !WB_TOUCH && e.button === 0) {
+        const at = e.target;
+        nativeSelDragRef.current =
+          at instanceof Element && at.closest(".react-flow__pane") &&
+          !at.closest(".react-flow__node") && !at.closest(".react-flow__edge") && !at.closest(".react-flow__handle")
+            ? { x0: e.clientX, y0: e.clientY, pid: e.pointerId }
+            : null;
+        return;
+      }
       if ((mode !== "pen" && mode !== "laser" && mode !== "brush") || e.button !== 0) return;
       const t = e.target;
       if (!(t instanceof Element) || !t.closest(".react-flow") || t.closest(".react-flow__panel")) return;
@@ -1244,6 +1277,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   const onWbPointerUp = useCallback(
     (e) => {
+      // A native RF drag-select is folded in via onSelectionEnd (fires reliably
+      // even though RF captures the pointer). Here we only clear a stale start
+      // ref left by a press that never became a selection drag (a plain click).
+      if (nativeSelDragRef.current && e.pointerId === nativeSelDragRef.current.pid) {
+        nativeSelDragRef.current = null;
+      }
       // Floating-selection move finished.
       if (areaMoveRef.current && e.pointerId === areaMoveRef.current.pid) {
         areaMoveRef.current = null;
@@ -1313,7 +1352,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
       finishStroke();
     },
-    [finishStroke, pushCursor, pushPaint, pushExternalStep]
+    [finishStroke, pushCursor, pushPaint, pushExternalStep, rf, augmentNativeSelection]
   );
 
   // On a tool switch, push one cursor update reflecting the new mode so peers
@@ -2677,6 +2716,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         // lift) and for TOUCH (long-press marquee). So enable RF drag-select only
         // for the desktop select tool — the custom path is disabled there.
         selectionOnDrag={tool === "select" && !WB_TOUCH}
+        onSelectionEnd={onNativeSelectionEnd}
         selectionMode={SelectionMode.Partial}
         // Shift adds to selection, freeing ⌘/Ctrl for the click-to-clone quick action.
         multiSelectionKeyCode="Shift"

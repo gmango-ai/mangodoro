@@ -315,6 +315,39 @@ export function useWhiteboardRegionSelect({
   }, [rf]);
   finalizeLassoRef.current = finalizeLassoSelection;
 
+  // Augment a just-finished NATIVE React Flow drag-select whose box is `rect`
+  // (flow coords) and whose already-selected nodes are `selectedNodes`:
+  //  • fold in EDGES the box crosses (RF only auto-selects edges with BOTH ends
+  //    inside — this adds the ones dragged straight over), and
+  //  • if the box covers real brush PAINT, lift that paint and CONVERT the whole
+  //    thing into a unified floating selection (so paint + nodes + edges move and
+  //    delete together — RF can't carry raster paint). Paint-free selections stay
+  //    native and just gain the crossing edges.
+  const augmentNativeSelection = useCallback((rect, selectedNodes) => {
+    if (!rect || rect.w < 2 || rect.h < 2) return;
+    const nodes = (selectedNodes || []).filter((n) => n.type !== "zone");
+    const pickedIds = new Set(nodes.map((n) => n.id));
+    const { edges, boxPts } = pickRegionEdges(rf, pickedIds, rect, null);
+    const before = paintRef.current?.snapshot(regionTileKeys(rect), new Map()) || new Map();
+    const hadTile = [...before.values()].some((v) => v);
+    const raster0 = hadTile ? paintRef.current?.readRegion(rect) : null;
+    const raster = raster0 && opaquePixelBounds(raster0) ? raster0 : null;
+    if (raster) {
+      // Convert: lift the paint, drop the native selection, and hand everything
+      // to the floating selection (which owns paint + node move/delete/undo).
+      paintRef.current?.clearRegion(rect);
+      const box = contentBox(rf, nodes, rect, raster, boxPts);
+      runSilent(() => setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n))));
+      setAreaSel({ rect, raster, nodes, edges, before, dx: 0, dy: 0, box });
+      return;
+    }
+    // No paint → keep it native, just mark the crossing edges selected too.
+    if (edges.length) {
+      const ids = new Set(edges.map((e) => e.id));
+      setEdges?.((eds) => eds.map((e) => (ids.has(e.id) && !e.selected ? { ...e, selected: true } : e)));
+    }
+  }, [rf, setNodes, setEdges, runSilent]);
+
   // Live-move the floating selection: raster overlay + the picked nodes together.
   const moveAreaSelection = useCallback((dx, dy) => {
     const s = areaSelRef.current;
@@ -449,5 +482,7 @@ export function useWhiteboardRegionSelect({
     deleteAreaSelection,
     commitAreaSelection,
     cancelAreaSelection,
+    // augment a native RF drag-select (crossing edges + paint lift)
+    augmentNativeSelection,
   };
 }
