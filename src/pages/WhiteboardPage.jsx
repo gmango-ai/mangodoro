@@ -539,6 +539,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const connectKeyRef = useRef(null); // keydown handler active during a connect drag
   const [connecting, setConnecting] = useState(false); // a connect drag is in progress
   const [pickedShape, setPickedShape] = useState(null); // shape chosen via 1–9 mid-drag
+  // "Stamp a shape": press 1–9/0 to arm a shape that ghosts under the cursor,
+  // then click to place it. placingShapeRef mirrors the state for the pointer
+  // handlers; placeShapeRef holds the (later-defined) placement fn; ghostFlow is
+  // the ghost's top-left in FLOW coords, tracked live from the cursor.
+  const [placingShape, setPlacingShape] = useState(null);
+  const placingShapeRef = useRef(null);
+  placingShapeRef.current = placingShape;
+  const placeShapeRef = useRef(null);
+  const [ghostFlow, setGhostFlow] = useState(null);
   const { session, settings } = useApp();
   const myName =
     settings?.name ||
@@ -1562,6 +1571,57 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     [quickAddConnected, onArrowHover, pickedShape]
   );
 
+  // Number keys 1–9/0 arm a shape to "stamp" (a ghost follows the cursor; a
+  // click places it). Skipped while hovering a connect arrow — there the numbers
+  // pick the shape the arrow will create. Same guards as the other board keys.
+  useEffect(() => {
+    const onKey = (ke) => {
+      if (hoveringArrow) return;
+      if (ke.metaKey || ke.ctrlKey || ke.altKey) return;
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      const board = mainRef.current;
+      if (!board || !(board.matches(":hover") || board.contains(el))) return;
+      if (!/^[0-9]$/.test(ke.key)) return;
+      const s = SHAPES[ke.key === "0" ? 9 : Number(ke.key) - 1];
+      if (!s) return;
+      ke.preventDefault();
+      setTool("select");
+      setPlacingShape(s.key);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hoveringArrow]);
+
+  // While a shape is armed: the ghost tracks the cursor (rAF-throttled) and Esc
+  // cancels. The actual placement happens on pointer-down (see the capture
+  // handler on the editor div).
+  useEffect(() => {
+    if (!placingShape) { setGhostFlow(null); return undefined; }
+    let raf = 0;
+    const place = (cx, cy) => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        try {
+          const f = rf.screenToFlowPosition({ x: cx, y: cy });
+          setGhostFlow({ x: f.x - DEFAULTS.shape.w / 2, y: f.y - DEFAULTS.shape.h / 2 });
+        } catch { /* */ }
+      });
+    };
+    const onMove = (e) => { lastClientRef.current = { x: e.clientX, y: e.clientY }; place(e.clientX, e.clientY); };
+    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); setPlacingShape(null); } };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("keydown", onKey);
+    const seed = lastClientRef.current;
+    if (seed) place(seed.x, seed.y);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("keydown", onKey);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [placingShape, rf]);
+
   // Drag an edge endpoint onto a different node to re-route it.
   const onReconnect = useCallback(
     (oldEdge, newConnection) => {
@@ -1842,6 +1902,18 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     },
     [rf, setNodes, myName]
   );
+
+  // Place the armed "stamp" shape at a screen point, then disarm. Stored in a
+  // ref so the pointer-down capture handler (defined earlier) can call it
+  // without a forward reference.
+  const placePendingShape = useCallback((client) => {
+    const shape = placingShapeRef.current;
+    if (!shape) return false;
+    addNodeAtCenter("shape", { shape }, client);
+    setPlacingShape(null);
+    return true;
+  }, [addNodeAtCenter]);
+  placeShapeRef.current = placePendingShape;
 
   // Upload an image to Storage, then drop an image node (sized to the image's
   // aspect ratio, capped) at the visible center. The node holds only the URL,
@@ -2348,7 +2420,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           : "h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))]"
       }`}
       onPointerMove={onWbPointerMove}
-      onPointerDownCapture={(e) => { marqueePointerDown(e); onWbPointerDownCapture(e); }}
+      onPointerDownCapture={(e) => {
+        // "Stamp a shape" armed → this click drops it, nothing else.
+        if (placingShapeRef.current) { e.preventDefault(); e.stopPropagation(); placeShapeRef.current?.({ x: e.clientX, y: e.clientY }); return; }
+        marqueePointerDown(e); onWbPointerDownCapture(e);
+      }}
       onPointerMoveCapture={marqueePointerMove}
       onPointerUpCapture={marqueePointerUp}
       onPointerCancelCapture={marqueePointerUp}
@@ -2562,6 +2638,23 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
               <ShapeGhost preview={shapePreview} color={penStyle.color} />
             </svg>
           </ViewportPortal>
+        )}
+
+        {/* "Stamp a shape": the armed shape ghosts under the cursor (flow space,
+            so it's sized/positioned exactly as it'll be placed). Click to drop. */}
+        {placingShape && ghostFlow && (
+          <ViewportPortal>
+            <div style={{ position: "absolute", left: ghostFlow.x, top: ghostFlow.y, width: DEFAULTS.shape.w, height: DEFAULTS.shape.h, pointerEvents: "none", opacity: 0.85, zIndex: 7 }}>
+              <svg width={DEFAULTS.shape.w} height={DEFAULTS.shape.h} style={{ overflow: "visible", display: "block" }}>
+                <ShapeSvg shape={placingShape} w={DEFAULTS.shape.w} h={DEFAULTS.shape.h} fill="rgba(14,165,233,0.14)" stroke="#0ea5e9" sw={2} dash="6 5" />
+              </svg>
+            </div>
+          </ViewportPortal>
+        )}
+        {placingShape && (
+          <Panel position="bottom-center" className={`pointer-events-none select-none mb-20 rounded-full px-3 py-1 text-xs font-medium shadow-lg ${dark ? "bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)]" : "bg-slate-900 text-white"}`}>
+            Click to place · Esc to cancel
+          </Panel>
         )}
 
         {/* Paint toolbar — brush/eraser, colour, size, opacity (brush mode). */}
