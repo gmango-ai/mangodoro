@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { requestNodeEdit } from "./nodes";
 
 // Whiteboard keyboard shortcuts:
 // • Tool switch (single letter, Figma-style): V/S select, P pen, B brush,
@@ -38,6 +39,13 @@ export function useWhiteboardKeyboard({
       if (areaSelRef.current) {
         if (e.key === "Escape") { e.preventDefault(); cancelAreaSelection(); setTool("select"); return; }
         if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteAreaSelection(); return; }
+      }
+      // Enter opens text edit on the SINGLE selected node (edit-on-create is off,
+      // so this is how you start typing). The input guard above means Enter while
+      // already editing types a newline instead of reaching here.
+      if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const sel = rf.getNodes().filter((n) => n.selected && n.type !== "zone");
+        if (sel.length === 1) { e.preventDefault(); requestNodeEdit(sel[0].id); return; }
       }
       // Escape drops back to the select tool (exit laser mode).
       if (e.key === "Escape") { setTool("select"); return; }

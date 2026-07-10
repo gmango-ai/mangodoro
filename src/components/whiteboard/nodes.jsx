@@ -138,7 +138,15 @@ function vAlignFlex(v) {
 // toolbar or a quick-add pull). Tracked outside node data so the flag
 // never persists to the snapshot or syncs to peers.
 const PENDING_EDIT = new Set();
-export function markNodeForEdit(id) { if (id) PENDING_EDIT.add(id); }
+// Edit-on-create is DISABLED (user preference): newly created nodes no longer
+// open straight into text edit. This is a no-op so the create sites don't need
+// touching; use requestNodeEdit (Enter on a selected node) to start typing.
+export function markNodeForEdit(_id) { /* disabled — see requestNodeEdit */ }
+// Ask an ALREADY-MOUNTED node to open text edit (Enter on a selected node). A
+// window event because the target EditableText owns its own `editing` state.
+export function requestNodeEdit(id) {
+  if (id) window.dispatchEvent(new CustomEvent("wb:edit-node", { detail: { id } }));
+}
 
 // The textarea currently being edited registers a "wrap the selection in
 // markdown" handler here, so a toolbar button (Inspector B / I) can format the
@@ -182,6 +190,15 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
   // effect is StrictMode-safe (state survives its simulated remount).
   useEffect(() => {
     if (nodeId && PENDING_EDIT.has(nodeId)) { PENDING_EDIT.delete(nodeId); setEditing(true); }
+  }, [nodeId]);
+
+  // Enter on a selected node (requestNodeEdit) opens edit — edit-on-create is off,
+  // so this is how you start typing in an existing node.
+  useEffect(() => {
+    if (!nodeId) return;
+    const onReq = (e) => { if (e.detail?.id === nodeId) setEditing(true); };
+    window.addEventListener("wb:edit-node", onReq);
+    return () => window.removeEventListener("wb:edit-node", onReq);
   }, [nodeId]);
 
   // Mirror external value into the draft ONLY when not editing — while editing,
