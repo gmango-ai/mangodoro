@@ -31,6 +31,8 @@ export default function GettingStartedChecklist() {
     messagedTeammate: !!cl.message,
   };
   const items = deriveChecklist(facts);
+  // Respect the master "onboarding hints" switch (Settings → About).
+  if (settings?.onboarding?.hintsDisabled) return null;
   if (cl._hidden || !items.length || checklistComplete(facts)) return null;
 
   const doneCount = items.filter((i) => i.done).length;

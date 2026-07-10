@@ -1805,9 +1805,11 @@ function NotificationsSection({ dark }) {
 
 function AboutSection({ dark }) {
   const latest = latestEntryId();
+  const { settings, setHintsDisabled } = useApp();
+  const hintsOn = !settings?.onboarding?.hintsDisabled;
   return (
     <SectionCard title="About" hint="App version and recent changes." dark={dark}>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div className="text-sm">
           <div className={`font-semibold ${dark ? "text-slate-200" : "text-slate-800"}`}>Mangodoro</div>
           <div className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>
@@ -1821,6 +1823,28 @@ function AboutSection({ dark }) {
           <Button onClick={openHelpCenter} variant="outline" size="sm">
             <GraduationCap className="w-3.5 h-3.5 mr-1.5" /> Learn Mangodoro
           </Button>
+        </div>
+
+        {/* Master switch for the proactive onboarding hints. Off silences the
+            welcome modal, "take a tour?" offers, new-feature nudges, and the
+            getting-started checklist — the tutorials above stay available. */}
+        <div className={`flex items-start gap-3 pt-1 border-t ${dark ? "border-[var(--color-border-light)]" : "border-slate-100"}`}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={hintsOn}
+            aria-label="Show onboarding hints"
+            onClick={() => setHintsDisabled(hintsOn)}
+            className={`relative shrink-0 mt-3 w-10 h-6 rounded-full transition-colors ${hintsOn ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${hintsOn ? "translate-x-4" : ""}`} />
+          </button>
+          <div className="pt-1.5">
+            <div className={`text-sm font-medium ${dark ? "text-slate-200" : "text-slate-700"}`}>Show onboarding hints &amp; tips</div>
+            <div className={`text-xs mt-0.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              The welcome tour offer, feature nudges, and the getting-started checklist. Turn off for a quieter app — you can still replay any tutorial from Learn Mangodoro.
+            </div>
+          </div>
         </div>
       </div>
     </SectionCard>

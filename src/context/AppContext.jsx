@@ -1374,6 +1374,7 @@ export function AppProvider({ session, children }) {
       const next = { ...cur };
       if ("welcomeDone" in patch) next.welcomeDone = patch.welcomeDone;
       if ("seenTourMarker" in patch) next.seenTourMarker = patch.seenTourMarker;
+      if ("hintsDisabled" in patch) next.hintsDisabled = patch.hintsDisabled;
       if (patch.checklist) next.checklist = { ...(cur.checklist || {}), ...patch.checklist };
       if (patch.completedTours) next.completedTours = patch.completedTours.reduce(addToSet, cur.completedTours || []);
       if (patch.dismissedTours) next.dismissedTours = patch.dismissedTours.reduce(addToSet, cur.dismissedTours || []);
@@ -1390,6 +1391,10 @@ export function AppProvider({ session, children }) {
   const setChecklistItem = useCallback((id, val = true) => mergeOnboarding({ checklist: { [id]: val } }), [mergeOnboarding]);
   const setWelcomeDone = useCallback(() => mergeOnboarding({ welcomeDone: true }), [mergeOnboarding]);
   const setSeenTourMarker = useCallback((marker) => mergeOnboarding({ seenTourMarker: marker }), [mergeOnboarding]);
+  // Master switch for the proactive onboarding hints (welcome modal, tour offers
+  // + new-feature announcements, getting-started checklist). Help center stays
+  // reachable regardless — this only silences the unprompted nudges.
+  const setHintsDisabled = useCallback((val = true) => mergeOnboarding({ hintsDisabled: val }), [mergeOnboarding]);
 
   // ── Custom sounds (user) ─────────────────────────────────────
   // Stored as a JSONB array on user_settings.custom_sounds. We round-trip
@@ -1846,7 +1851,7 @@ export function AppProvider({ session, children }) {
     hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage, stickyColor, setStickyColor,
     setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget, updateSettingsField,
     // onboarding / tutorial state setters (settings.onboarding jsonb)
-    markTourComplete, dismissTour, setChecklistItem, setWelcomeDone, setSeenTourMarker,
+    markTourComplete, dismissTour, setChecklistItem, setWelcomeDone, setSeenTourMarker, setHintsDisabled,
     // setters used by the SettingsPage's immediate-save flow
     setTemplates, setProjects,
     setDeepseekKey, setReminderTime, setTimeRounding,

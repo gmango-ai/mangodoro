@@ -19,14 +19,15 @@ const markOffered = (id) => { try { localStorage.setItem(OFFERED_PREFIX + id, "1
 export default function TourOfferToast() {
   const { pathname } = useLocation();
   const { theme } = useTheme();
-  const { dismissTour } = useApp();
+  const { dismissTour, settings } = useApp();
   const { active, startTour, tourStatus, announcement, ackAnnouncement } = useTour();
   const dark = theme === "dark";
+  const hintsDisabled = !!settings?.onboarding?.hintsDisabled;
   const [offer, setOffer] = useState(null);
   const offerRef = useRef(null);
 
   useEffect(() => {
-    if (active) { offerRef.current = null; setOffer(null); return undefined; }
+    if (active || hintsDisabled) { offerRef.current = null; setOffer(null); return undefined; }
     let cancelled = false;
     const evaluate = () => {
       if (cancelled || offerRef.current) return;
@@ -44,10 +45,11 @@ export default function TourOfferToast() {
     evaluate();
     const iv = setInterval(evaluate, 1500);
     return () => { cancelled = true; clearInterval(iv); };
-  }, [pathname, active, tourStatus]);
+  }, [pathname, active, tourStatus, hintsDisabled]);
 
   const close = () => { offerRef.current = null; setOffer(null); };
-  if (active) return null;
+  // Hints turned off in Settings → no surface offers and no new-feature nudges.
+  if (active || hintsDisabled) return null;
 
   // A "new feature" announcement (whole app, WhatsNew-style) takes priority over
   // a surface-specific offer; both render the same toast.

@@ -38,11 +38,12 @@ export default function WelcomeFlow() {
   useEffect(() => {
     if (!hydratedRef.current || !session?.user?.id) return;
     if (seededLegacyRef.current) return;
+    if (settings?.onboarding?.hintsDisabled) return; // hints turned off in Settings
     if (!name || welcomeDone === true) return;
     let seenLocal = false;
     try { seenLocal = localStorage.getItem(SEEN_KEY) === "1"; } catch { /* */ }
     if (!seenLocal) setShow(true);
-  }, [name, welcomeDone, session?.user?.id]);
+  }, [name, welcomeDone, session?.user?.id, settings?.onboarding?.hintsDisabled]);
 
   function finish() {
     try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* */ }
