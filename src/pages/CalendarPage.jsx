@@ -30,7 +30,10 @@ import MiniMonth from "../components/calendar/MiniMonth";
 import EventSlideOver from "../components/calendar/EventSlideOver";
 import MilestoneModal from "../components/calendar/MilestoneModal";
 import NewItemPopover from "../components/calendar/NewItemPopover";
-import TaskEditModal from "../components/calendar/TaskEditModal";
+import TaskDetailSheet from "../components/tasks/TaskDetailSheet";
+import { normalizeTask } from "../lib/tasks/model";
+import { setTaskStatus } from "../lib/tasks/mutations";
+import { StatusControl } from "../components/tasks/TaskControls";
 import ScheduleMeetingModal from "../components/office/ScheduleMeetingModal";
 import { fetchSubtaskCounts } from "../lib/subtasks";
 import "../components/calendar/calendar-ocean.css";
@@ -353,6 +356,7 @@ export default function CalendarPage() {
     reload();
   };
   const toggleTaskDone = async (row) => { await updatePlannerTaskFields(row.id, { done: !row.done }); reloadTasks(); reload(); };
+  const setCardStatus = async (row, status) => { await setTaskStatus({ userId, task: normalizeTask(row, "planner"), status }); reloadTasks(); reload(); };
 
   // ── right-rail agenda: everything from ~now forward, sorted by time, with
   // consecutive same-type items clustered (grouped by type around a similar time). ──
@@ -736,12 +740,10 @@ export default function CalendarPage() {
                 <span className="count">{myTasks.length} open</span>
               </div>
               {myTasks.length === 0 ? (
-                <p className="cal-ocean__empty">No open tasks. <button type="button" onClick={() => navigate("/time-tracker/planner")} style={{ background: "none", border: "none", padding: 0, color: "var(--o-ocean-600)", cursor: "pointer", fontWeight: 600 }}>Open planner</button></p>
+                <p className="cal-ocean__empty">No open tasks. <button type="button" onClick={() => navigate("/tasks")} style={{ background: "none", border: "none", padding: 0, color: "var(--o-ocean-600)", cursor: "pointer", fontWeight: 600 }}>Open Tasks</button></p>
               ) : myTasks.map((t) => (
                 <div key={t.id} className="cal-ocean__row" style={{ cursor: "default" }}>
-                  <button type="button" aria-label="Mark done" onClick={() => toggleTaskDone(t)}
-                    className="cal-ocean__box" style={{ borderColor: "var(--o-ink-300)", background: "transparent" }} />
-                  <button type="button" className="txt" onClick={() => navigate("/time-tracker/planner")}
+                  <button type="button" className="txt" onClick={() => setTaskEdit({ task: t, kind: "planner" })}
                     style={{ background: "none", border: "none", padding: 0, textAlign: "left", cursor: "pointer" }}>
                     {(t.title || "").trim()}
                   </button>
@@ -750,7 +752,7 @@ export default function CalendarPage() {
                       ☑ {subCounts[t.id].done}/{subCounts[t.id].total}
                     </span>
                   )}
-                  {t.planner_date && <span className="due">{new Date(t.planner_date + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}
+                  <StatusControl status={t.status || (t.done ? "done" : "todo")} onChange={(s) => setCardStatus(t, s)} compact />
                 </div>
               ))}
             </div>
@@ -808,7 +810,11 @@ export default function CalendarPage() {
         <ScheduleMeetingModal rooms={rooms} teamId={activeTeamId} dark={dark} initialStart={meetingModal.initialStart} meeting={meetingModal.meeting} onClose={() => setMeetingModal(null)} onCreated={reload} onDeleted={reload} />
       )}
       {taskEdit && (
-        <TaskEditModal task={taskEdit.task} kind={taskEdit.kind} dark={dark} onClose={() => setTaskEdit(null)} onSaved={reload} />
+        <TaskDetailSheet
+          task={normalizeTask(taskEdit.task, taskEdit.kind)}
+          onClose={() => { setTaskEdit(null); reload(); }}
+          onDeleted={() => { setTaskEdit(null); reload(); }}
+        />
       )}
     </div>
   );

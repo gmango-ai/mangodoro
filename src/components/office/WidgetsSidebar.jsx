@@ -11,8 +11,13 @@ import { useApp } from "../../context/AppContext";
 import { Button } from "@/components/ui/button";
 import { unlinkWhiteboardFromSession } from "../../lib/syncSession";
 import {
-  listPersonalTasks, addPersonalTask, setPersonalTaskDone, removePersonalTask,
+  listPersonalTasks, addPersonalTask, removePersonalTask,
 } from "../../lib/personalTasks";
+import { supabase } from "../../supabase";
+import { normalizeTask } from "../../lib/tasks/model";
+import { setTaskStatus } from "../../lib/tasks/mutations";
+import { StatusControl } from "../tasks/TaskControls";
+import TaskDetailSheet from "../tasks/TaskDetailSheet";
 import {
   listSubtasks, addSubtask, addSubtasks, setSubtaskDone, deleteSubtask, subtaskProgress,
 } from "../../lib/subtasks";
@@ -234,11 +239,20 @@ function TasksWidget({ dark }) {
   const [text, setText] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(null);
+
+  // Open the shared task editor (due date, deadline, labels — the parity the
+  // inline row doesn't surface) on the full personal_tasks row.
+  const openEditor = useCallback(async (task) => {
+    const { data } = await supabase.from("personal_tasks").select("*").eq("id", task.id).maybeSingle();
+    setEditing(normalizeTask(data || task, "personal"));
+  }, []);
 
   const reload = useCallback(async () => {
     const { data } = await listPersonalTasks(activeTeamId);
-    setTasks(data);
-    const ids = data.map((t) => t.id);
+    const live = (data || []).filter((t) => !t.archived); // archived tasks hidden from the widget
+    setTasks(live);
+    const ids = live.map((t) => t.id);
     if (ids.length) {
       const { byPersonal } = await listSubtasks({ personalIds: ids });
       setSubsByTask(Object.fromEntries(byPersonal));
@@ -260,11 +274,11 @@ function TasksWidget({ dark }) {
     if (!error && data) { setTasks((ts) => [data, ...ts]); setText(""); }
   };
 
-  const toggle = async (task) => {
-    const done = !task.done;
-    setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, done } : x)));
-    const { error } = await setPersonalTaskDone(task.id, done);
-    if (error) setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, done: !done } : x)));
+  const setStatus = async (task, status) => {
+    const done = status === "done";
+    setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, status, done } : x)));
+    const r = await setTaskStatus({ task: { id: task.id, kind: "personal", done: task.done, status: task.status || (task.done ? "done" : "todo") }, status });
+    if (r?.error) setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, status: task.status, done: task.done } : x)));
   };
 
   const remove = async (task) => {
@@ -304,7 +318,7 @@ function TasksWidget({ dark }) {
 
   const rowBtn = dark ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-slate-600";
 
-  const rowProps = { dark, rowBtn, onToggle: toggle, onRemove: remove, onAddSub: addSub, onAddAiSubs: addAiSubs, onToggleSub: toggleSub, onDeleteSub: deleteSub };
+  const rowProps = { dark, rowBtn, onSetStatus: setStatus, onRemove: remove, onOpen: openEditor, onAddSub: addSub, onAddAiSubs: addAiSubs, onToggleSub: toggleSub, onDeleteSub: deleteSub };
 
   return (
     <WidgetSection id="tasks" icon={ClipboardList} title="Tasks" dark={dark}>
@@ -359,6 +373,13 @@ function TasksWidget({ dark }) {
           </p>
         )}
       </div>
+      {editing && (
+        <TaskDetailSheet
+          task={editing}
+          onClose={() => { setEditing(null); reload(); }}
+          onDeleted={() => { setEditing(null); reload(); }}
+        />
+      )}
     </WidgetSection>
   );
 }
@@ -366,7 +387,7 @@ function TasksWidget({ dark }) {
 // One personal-task row with an expandable subtask checklist (count badge +
 // check/add/delete + AI generate). No progress column here — personal_tasks
 // are a plain checklist — so subtasks show a "2/5" count only.
-function WidgetTaskRow({ task, subs, dark, rowBtn, isDone, onToggle, onRemove, onAddSub, onAddAiSubs, onToggleSub, onDeleteSub }) {
+function WidgetTaskRow({ task, subs, dark, rowBtn, isDone, onSetStatus, onRemove, onOpen, onAddSub, onAddAiSubs, onToggleSub, onDeleteSub }) {
   const { suggestSubtasks, deepseekKey } = useApp();
   const list = subs || [];
   const { done, total } = subtaskProgress(list);
@@ -397,22 +418,13 @@ function WidgetTaskRow({ task, subs, dark, rowBtn, isDone, onToggle, onRemove, o
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => onToggle(task)}
-          aria-label={isDone ? "Mark not done" : "Mark done"}
-          className={
-            isDone
-              ? "shrink-0 w-4 h-4 rounded border flex items-center justify-center bg-[var(--color-accent)] border-[var(--color-accent)] text-white"
-              : `shrink-0 w-4 h-4 rounded border flex items-center justify-center ${dark ? "border-[var(--color-border)] hover:border-[var(--color-accent)]" : "border-slate-300 hover:border-[var(--color-accent)]"}`
-          }
-        >
-          {isDone && <Check className="w-3 h-3" />}
-        </button>
-        <span
-          className={`flex-1 min-w-0 truncate text-xs ${isDone ? `line-through ${dark ? "text-slate-500" : "text-slate-400"}` : dark ? "text-slate-200" : "text-slate-700"}`}
-          title={task.title}
+          onClick={() => onOpen?.(task)}
+          className={`flex-1 min-w-0 truncate text-left text-xs hover:underline ${isDone ? `line-through ${dark ? "text-slate-500" : "text-slate-400"}` : dark ? "text-slate-200" : "text-slate-700"}`}
+          title={`${task.title} — open`}
         >
           {task.title}
-        </span>
+        </button>
+        <StatusControl status={task.status || (task.done ? "done" : "todo")} onChange={(s) => onSetStatus(task, s)} compact />
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}

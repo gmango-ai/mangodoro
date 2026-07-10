@@ -23,6 +23,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import {
   ArrowLeft,
+  Loader2,
   Maximize,
   Target,
   Pencil,
@@ -321,6 +322,16 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const [board, setBoard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Keep the loading UI up for a minimum window so the spinner doesn't flicker
+  // on very fast fetches. Only gates the visual — data-ready logic still uses
+  // the real `loading` flag.
+  const [minLoadElapsed, setMinLoadElapsed] = useState(false);
+  useEffect(() => {
+    setMinLoadElapsed(false);
+    const t = setTimeout(() => setMinLoadElapsed(true), 350);
+    return () => clearTimeout(t);
+  }, [boardId]);
+  const showLoading = loading || !minLoadElapsed;
   // When embedded in a small room tile, shed the heavier chrome (minimap,
   // goal banner, badges) so the canvas stays usable.
   const mainRef = useRef(null);
@@ -2366,12 +2377,33 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     // padding overflows below the canvas as a dead band / pushes content
     // under the tab bar. The card look starts at sm.
     : "max-w-[1400px] mx-auto sm:px-4 sm:pt-6 sm:pb-6 sm:space-y-3";
-  if (loading) {
+  if (showLoading) {
+    // Fill the same viewport the loaded canvas will occupy (no jump from a
+    // narrow framed skeleton to a full-screen board), with a canvas-like dotted
+    // backdrop + a centered spinner so it clearly reads as "loading the board".
+    const dotColor = dark ? "rgba(148,163,184,0.16)" : "rgba(15,23,42,0.07)";
     return (
-      <main className={frameCls}>
-        <Skeleton className="h-7 w-48" />
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-[640px] w-full" />
+      <main
+        className={`relative w-full overflow-hidden ${
+          embedded ? "h-full" : "h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))]"
+        } ${dark ? "bg-[var(--color-bg)]" : "bg-slate-50"}`}
+        aria-busy="true"
+        aria-label="Loading whiteboard"
+      >
+        <div
+          className="absolute inset-0"
+          style={{ backgroundImage: `radial-gradient(${dotColor} 1.4px, transparent 1.4px)`, backgroundSize: "22px 22px" }}
+        />
+        {!embedded && (
+          <div className="absolute top-4 left-4 right-4 flex items-center gap-3">
+            <Skeleton className="h-8 w-8 rounded-lg" />
+            <Skeleton className="h-6 w-44 rounded-md" />
+          </div>
+        )}
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-7 h-7 animate-spin text-[var(--color-accent)]" />
+          <p className={`text-sm font-medium ${dark ? "text-slate-400" : "text-slate-500"}`}>Loading whiteboard…</p>
+        </div>
       </main>
     );
   }

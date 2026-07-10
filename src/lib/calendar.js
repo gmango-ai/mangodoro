@@ -73,7 +73,7 @@ export async function fetchPlannerTasksInRange(userId, startDate, endDate) {
   if (!userId) return { data: [] };
   return supabase
     .from("planner_tasks")
-    .select("id, planner_date, due_date, start_time, duration_min, title, done, in_progress, priority")
+    .select("id, planner_date, due_date, start_time, duration_min, title, done, status, in_progress, priority, progress, points_awarded_for_task, notes, deadline, labels, focus_sessions")
     .eq("user_id", userId)
     .not("planner_date", "is", null)
     .gte("planner_date", startDate)
@@ -85,7 +85,7 @@ export async function fetchPlannerDueInRange(userId, startDate, endDate) {
   if (!userId) return { data: [] };
   return supabase
     .from("planner_tasks")
-    .select("id, due_date, title, done")
+    .select("id, due_date, planner_date, title, done, status, in_progress, priority, progress, points_awarded_for_task, notes, deadline, labels, focus_sessions")
     .eq("user_id", userId)
     .not("due_date", "is", null)
     .gte("due_date", startDate)
@@ -96,7 +96,7 @@ export async function fetchPersonalDueInRange(userId, startDate, endDate) {
   if (!userId) return { data: [] };
   return supabase
     .from("personal_tasks")
-    .select("id, due_date, title, done")
+    .select("id, due_date, title, done, status, deadline, labels")
     .eq("user_id", userId)
     .not("due_date", "is", null)
     .gte("due_date", startDate)
@@ -446,9 +446,10 @@ export async function fetchOpenPlannerTasks(userId, limit = 20) {
   if (!userId) return { data: [] };
   return supabase
     .from("planner_tasks")
-    .select("id, planner_date, due_date, title, done, in_progress, priority")
+    .select("id, planner_date, due_date, title, done, status, archived, in_progress, priority, progress, points_awarded_for_task, deadline, labels, notes, focus_sessions")
     .eq("user_id", userId)
     .eq("done", false)
+    .eq("archived", false)
     .order("planner_date", { ascending: true, nullsFirst: false })
     .limit(limit);
 }

@@ -51,6 +51,7 @@ import PWAUpdater from "./components/PWAUpdater";
 // so those page imports are gone.
 import PomodoroPage from "./pages/PomodoroPage";
 const TimeTrackerPage = lazy(() => import("./pages/TimeTrackerPage"));
+const TasksPage = lazy(() => import("./pages/TasksPage"));
 const TeamPage = lazy(() => import("./pages/TeamPage"));
 const TeamTimesheetsPage = lazy(() => import("./pages/TeamTimesheetsPage"));
 const WhiteboardsListPage = lazy(() => import("./pages/WhiteboardsListPage"));
@@ -405,7 +406,9 @@ function AppLayout({ session }) {
             {/* Legacy time-tracker URLs redirect into the unified page */}
             <Route path="/log" element={<Navigate to="/time-tracker/log" replace />} />
             <Route path="/overview" element={<Navigate to="/time-tracker/overview" replace />} />
-            <Route path="/planner" element={<Navigate to="/time-tracker/planner" replace />} />
+            {/* Planner retired → the Tasks timeline is the tasks home */}
+            <Route path="/planner" element={<Navigate to="/tasks" replace />} />
+            <Route path="/tasks" element={<TasksPage />} />
             <Route path="/time-tracker" element={<TimeTrackerPage />} />
             <Route path="/time-tracker/:tab" element={<TimeTrackerPage />} />
             <Route path="/team" element={<TeamPage />} />

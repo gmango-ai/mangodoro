@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Timer, Car, Users, Settings as SettingsIcon, Sun, Moon, LogOut, CalendarDays, Video } from "lucide-react";
+import { Timer, Car, Users, Settings as SettingsIcon, Sun, Moon, LogOut, CalendarDays, Video, ListChecks } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
@@ -130,6 +130,10 @@ export default function MoreSheet({
 
           <NavLink to="/team" onClick={onClose} className={itemCls}>
             <Users className="w-5 h-5" /> Org
+          </NavLink>
+
+          <NavLink to="/tasks" onClick={onClose} className={itemCls}>
+            <ListChecks className="w-5 h-5" /> Tasks
           </NavLink>
 
           <NavLink to="/calendar" onClick={onClose} className={itemCls}>
