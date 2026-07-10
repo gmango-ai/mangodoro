@@ -140,6 +140,16 @@ import { segmentTileKeys, regionTileKeys } from "../components/whiteboard/paintT
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import WhiteboardTimer from "../components/whiteboard/WhiteboardTimer";
+import {
+  touchCentroid, touchSpread, pointInPolygon, screenPolyPath,
+  freshId, collectCloneSources, duplicateInternalEdges,
+} from "../components/whiteboard/wbUtil";
+import {
+  readWbClipboard, writeWbClipboard, loadViewport, saveViewport,
+  loadTextStyle, saveTextStyle, loadPenStyle, savePenStyle, PEN_COLORS, PEN_WIDTHS,
+  loadBrushStyle, saveBrushStyle, activeBrushSize, BRUSH_TEXTURES, BRUSH_SIZE_PRESETS,
+  loadLaserColor, saveLaserColor,
+} from "../components/whiteboard/wbStorage";
 
 const SAVE_DEBOUNCE_MS = 1200;
 
@@ -851,33 +861,6 @@ const PEN_GRACE_MS = 900;
 // spread — any real pan/pinch moves those and cancels the gesture.
 const TAP_GESTURE_MS = 300;   // max duration to still count as a tap
 const TAP_GESTURE_SLOP = 12;  // px of centroid/spread drift allowed
-function touchCentroid(touches) {
-  let x = 0, y = 0;
-  const n = touches.length || 1;
-  for (const t of touches) { x += t.clientX; y += t.clientY; }
-  return { x: x / n, y: y / n };
-}
-function touchSpread(touches, c) {
-  if (touches.length < 2) return 0;
-  let s = 0;
-  for (const t of touches) s += Math.hypot(t.clientX - c.x, t.clientY - c.y);
-  return s / touches.length;
-}
-// Ray-casting point-in-polygon (poly = [{x,y},...]). Used by the lasso to test
-// which node centres it encloses.
-function pointInPolygon(px, py, poly) {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
-    if (((yi > py) !== (yj > py)) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-// A screen-space point path → an SVG polyline path string.
-function screenPolyPath(pts) {
-  if (!pts || pts.length < 2) return "";
-  return "M" + pts.map((p) => `${p[0]},${p[1]}`).join(" L");
-}
 const TOOL_BTN_SIZE = WB_TOUCH ? "w-11 h-11" : "w-8 h-8";
 // Tool + its options caret read as one grouped row on touch.
 const TOOL_GROUP_CLS = WB_TOUCH ? "relative flex items-center" : "relative";
@@ -1215,155 +1198,6 @@ function CommentThread({ comments, myId, onAdd, onDelete, onClose, dark }) {
       </div>
     </div>
   );
-}
-
-let _idSeq = 1;
-function freshId(prefix) {
-  // 36ms time + counter is plenty to avoid id collisions inside one
-  // tab without dragging in a uuid dep just for this.
-  return `${prefix}-${Date.now().toString(36)}-${_idSeq++}`;
-}
-
-// Shared by cloneNodes / alt-drag clone: expand the picked ids to any framed
-// children, drop zones, and mint fresh ids for the copies.
-function collectCloneSources(all, ids) {
-  const set = new Set(ids);
-  for (const n of all) if (n.parentId && set.has(n.parentId)) set.add(n.id); // frame children ride along
-  const src = all.filter((n) => set.has(n.id) && n.type !== "zone");
-  const idMap = new Map(src.map((n) => [n.id, freshId(n.type || "dup")]));
-  return { src, idMap };
-}
-
-// Duplicate the edges fully inside a cloned selection onto the fresh ids.
-function duplicateInternalEdges(eds, idMap) {
-  const inside = eds.filter((e) => idMap.has(e.source) && idMap.has(e.target));
-  if (!inside.length) return eds;
-  return eds.concat(
-    inside.map((e) => ({
-      ...e,
-      id: freshId("e"),
-      selected: false,
-      source: idMap.get(e.source),
-      target: idMap.get(e.target),
-      data: e.data ? { ...e.data } : e.data, // anchors are node-relative; route re-bases off the new ends
-    }))
-  );
-}
-
-// In-app clipboard for copy / cut / paste. localStorage so it survives
-// navigation between boards and works across tabs. Holds CLEANED nodes/edges
-// keeping their ORIGINAL ids, so paste can remap them — preserving internal
-// edges and frame parenting. (Not the OS clipboard — staying in-app avoids
-// permission prompts and serialization quirks.)
-const WB_CLIPBOARD_KEY = "ql_wb_clipboard";
-function readWbClipboard() {
-  try {
-    const raw = localStorage.getItem(WB_CLIPBOARD_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-function writeWbClipboard(payload) {
-  try {
-    localStorage.setItem(WB_CLIPBOARD_KEY, JSON.stringify(payload));
-  } catch {
-    /* storage disabled / quota — clipboard just no-ops */
-  }
-}
-
-// Remember each board's pan/zoom so reopening it lands you where you left off
-// (full-page boards only — embedded room boards still fit-to-view each time).
-function loadViewport(boardId) {
-  if (!boardId) return null;
-  try {
-    const v = JSON.parse(localStorage.getItem(`ql_wb_viewport:${boardId}`) || "null");
-    if (v && typeof v.x === "number" && typeof v.y === "number" && typeof v.zoom === "number") return v;
-  } catch { /* */ }
-  return null;
-}
-function saveViewport(boardId, vp) {
-  if (!boardId || !vp) return;
-  try {
-    localStorage.setItem(`ql_wb_viewport:${boardId}`, JSON.stringify({ x: vp.x, y: vp.y, zoom: vp.zoom }));
-  } catch { /* */ }
-}
-
-// Default style (font / size / colour / align) seeded into every new text node,
-// remembered per device — like the sticky tool remembers its colour.
-const TEXT_STYLE_KEY = "ql_wb_text_style";
-function loadTextStyle() {
-  try {
-    const v = JSON.parse(localStorage.getItem(TEXT_STYLE_KEY) || "null");
-    return v && typeof v === "object" ? v : {};
-  } catch { return {}; }
-}
-function saveTextStyle(style) {
-  try { localStorage.setItem(TEXT_STYLE_KEY, JSON.stringify(style || {})); } catch { /* */ }
-}
-
-// Remembered pen colour + width for the freehand tool (per device).
-const PEN_STYLE_KEY = "ql_wb_pen_style";
-const PEN_COLORS = [
-  "#0f172a", "#475569", "#ef4444", "#f97316", "#f59e0b", "#22c55e",
-  "#14b8a6", "#0ea5e9", "#6366f1", "#a855f7", "#ec4899", "#ffffff",
-];
-const PEN_WIDTHS = [["Fine", 2], ["Medium", 4], ["Bold", 8]];
-function loadPenStyle() {
-  try {
-    const v = JSON.parse(localStorage.getItem(PEN_STYLE_KEY) || "null");
-    if (v && typeof v.color === "string") {
-      return { color: v.color, width: v.width || 4, opacity: v.opacity ?? 1, pressure: v.pressure ?? true };
-    }
-  } catch { /* */ }
-  // Default to a mid blue that's visible on BOTH light and dark boards — the old
-  // near-black (#0f172a) was invisible on the dark theme, so the pen looked
-  // broken. Users can still pick black in the pen colour flyout.
-  return { color: "#0ea5e9", width: 4, opacity: 1, pressure: true };
-}
-function savePenStyle(style) {
-  try { localStorage.setItem(PEN_STYLE_KEY, JSON.stringify(style)); } catch { /* */ }
-}
-
-// Remembered raster-brush settings. Brush and eraser keep INDEPENDENT sizes
-// (size vs eraseSize) so switching between them doesn't clobber the other.
-const BRUSH_STYLE_KEY = "ql_wb_brush_style";
-const BRUSH_TEXTURES = [["Smooth", "smooth"], ["Pencil", "pencil"], ["Airbrush", "airbrush"]];
-const BRUSH_SIZE_PRESETS = [["S", 6], ["M", 18], ["L", 42], ["XL", 90]];
-function loadBrushStyle() {
-  try {
-    const v = JSON.parse(localStorage.getItem(BRUSH_STYLE_KEY) || "null");
-    if (v && typeof v.color === "string") {
-      return {
-        color: v.color,
-        size: v.size || 18,
-        eraseSize: v.eraseSize || v.size || 32,
-        opacity: v.opacity ?? 1,
-        texture: v.texture || "smooth",
-        erase: false,
-      };
-    }
-  } catch { /* */ }
-  return { color: "#0ea5e9", size: 18, eraseSize: 32, opacity: 1, texture: "smooth", erase: false };
-}
-function saveBrushStyle(style) {
-  // Eraser is a transient mode, not a saved preference.
-  try {
-    localStorage.setItem(BRUSH_STYLE_KEY, JSON.stringify({
-      color: style.color, size: style.size, eraseSize: style.eraseSize, opacity: style.opacity, texture: style.texture,
-    }));
-  } catch { /* */ }
-}
-// The size that applies right now depends on which mode (brush vs eraser) is on.
-const activeBrushSize = (s) => (s.erase ? (s.eraseSize ?? 32) : s.size);
-
-// Chosen laser colour (per device). null = fall back to my cursor colour.
-const LASER_COLOR_KEY = "ql_wb_laser_color";
-function loadLaserColor() {
-  try { return localStorage.getItem(LASER_COLOR_KEY) || null; } catch { return null; }
-}
-function saveLaserColor(c) {
-  try { if (c) localStorage.setItem(LASER_COLOR_KEY, c); } catch { /* */ }
 }
 
 // Floating raster+node region selection (rendered inside <ViewportPortal>, i.e.
