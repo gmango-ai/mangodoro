@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { regionTileKeys } from "./paintTiles";
-import { pointInPolygon, roundedRectPath, roundedPolyPath } from "./wbUtil";
+import { pointInPolygon } from "./wbUtil";
 
 // Bounding box of non-transparent pixels in a canvas, as fractions [0..1] of its
 // size (so it maps to rect coords regardless of device-pixel scaling). Sampled
@@ -25,30 +25,32 @@ function opaquePixelBounds(canvas) {
   } catch { return null; }
 }
 
-// Build the selection "envelope": one padded rounded-rect per picked node, plus
-// the tight painted-pixel bounds when brush paint was lifted — so it wraps ONLY
-// drawn content, skipping the blank space BETWEEN items. Returns both a compound
-// SVG path RELATIVE to the rect origin (for drawing/clipping) and the padded
-// rects in ABSOLUTE flow coords (for the drag hit-test — the DOM overlay can't
-// be relied on since clip-path doesn't clip pointer events in the portal).
-function selectionEnvelope(rf, picked, rect, raster) {
-  const PAD = 8, R = 12;
-  const rects = [];
+// A single bounding box (ABSOLUTE flow coords, padded) tight around the SELECTED
+// CONTENT — the union of the picked nodes' bounds and the lifted paint's actual
+// painted-pixel bounds. This is the selection box + its interactable area; it
+// fits the items, not the (possibly loose) marquee drag rect. null if empty.
+function contentBox(rf, picked, rect, raster) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const n of picked) {
     const inode = rf.getInternalNode(n.id);
     const pos = inode?.internals?.positionAbsolute || n.position;
     const w = n.measured?.width ?? n.width ?? 0;
     const h = n.measured?.height ?? n.height ?? 0;
-    rects.push({ x: pos.x - PAD, y: pos.y - PAD, w: w + PAD * 2, h: h + PAD * 2 });
+    minX = Math.min(minX, pos.x); minY = Math.min(minY, pos.y);
+    maxX = Math.max(maxX, pos.x + w); maxY = Math.max(maxY, pos.y + h);
   }
   if (raster) {
     const b = opaquePixelBounds(raster);
-    if (b) rects.push({ x: rect.x + b.x0 * rect.w - PAD, y: rect.y + b.y0 * rect.h - PAD, w: (b.x1 - b.x0) * rect.w + PAD * 2, h: (b.y1 - b.y0) * rect.h + PAD * 2 });
-    else rects.push({ x: rect.x - PAD, y: rect.y - PAD, w: rect.w + PAD * 2, h: rect.h + PAD * 2 });
+    const x0 = b ? rect.x + b.x0 * rect.w : rect.x;
+    const y0 = b ? rect.y + b.y0 * rect.h : rect.y;
+    const x1 = b ? rect.x + b.x1 * rect.w : rect.x + rect.w;
+    const y1 = b ? rect.y + b.y1 * rect.h : rect.y + rect.h;
+    minX = Math.min(minX, x0); minY = Math.min(minY, y0);
+    maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1);
   }
-  if (!rects.length) return { path: null, rects: [] };
-  const path = rects.map((r) => roundedRectPath(r.x - rect.x, r.y - rect.y, r.w, r.h, R)).join(" ");
-  return { path, rects };
+  if (!Number.isFinite(minX)) return null;
+  const PAD = 8;
+  return { x: minX - PAD, y: minY - PAD, w: (maxX - minX) + PAD * 2, h: (maxY - minY) + PAD * 2 };
 }
 import { WB_TOUCH } from "./wbConstants";
 
@@ -200,7 +202,10 @@ export function useWhiteboardRegionSelect({
     const rect = { x: a.x, y: a.y, w: Math.max(1, b.x - a.x), h: Math.max(1, b.y - a.y) };
     const picked = [];
     for (const n of rf.getNodes()) {
-      if (n.type === "zone") continue; // grab strokes, notes, shapes, images — not zones
+      // Grab strokes, notes, shapes, images — but NOT container backdrops
+      // (zones/frames): their large empty bounds would select blank space. A
+      // frame's actual content is picked on its own; move a frame by its header.
+      if (n.type === "zone" || n.type === "frame") continue;
       const inode = rf.getInternalNode(n.id);
       const pos = inode?.internals?.positionAbsolute || n.position;
       const w = n.measured?.width ?? n.width ?? 0;
@@ -211,9 +216,9 @@ export function useWhiteboardRegionSelect({
     const hadPaint = [...before.values()].some((v) => v); // a tile exists in the region
     const raster = hadPaint ? paintRef.current?.readRegion(rect) : null;
     if (raster) paintRef.current?.clearRegion(rect);
-    if (!picked.length && !raster) return; // empty area
-    const env = selectionEnvelope(rf, picked, rect, raster);
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, envPath: env.path, envRects: env.rects });
+    if (!picked.length && !raster) return; // empty area — never select void
+    const box = contentBox(rf, picked, rect, raster);
+    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, box });
   }, [rf]);
   finalizeAreaRef.current = finalizeAreaSelection;
 
@@ -228,7 +233,7 @@ export function useWhiteboardRegionSelect({
     if (rect.w < 4 && rect.h < 4) return;
     const picked = [];
     for (const n of rf.getNodes()) {
-      if (n.type === "zone") continue;
+      if (n.type === "zone" || n.type === "frame") continue; // skip empty container backdrops
       const inode = rf.getInternalNode(n.id);
       const pos = inode?.internals?.positionAbsolute || n.position;
       const w = n.measured?.width ?? n.width ?? 0;
@@ -240,10 +245,10 @@ export function useWhiteboardRegionSelect({
     const raster = hadPaint ? paintRef.current?.readRegion(rect, poly) : null;
     if (raster) paintRef.current?.clearRegion(rect, poly);
     if (!picked.length && !raster) return;
-    // The lasso's own freehand loop IS the envelope — draw it (relative to rect);
-    // its bbox is the drag hit area (freeform, so bbox is a fine grab region).
-    const envPath = roundedPolyPath(poly.map((p) => [p.x - rect.x, p.y - rect.y]), 16);
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, clip: poly, envPath, envRects: [{ x: rect.x, y: rect.y, w: rect.w, h: rect.h }] });
+    // Same single content-fitted box as the marquee (the lasso still clips the
+    // raster to its freeform shape; the selection box just bounds the result).
+    const box = contentBox(rf, picked, rect, raster);
+    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, clip: poly, box });
   }, [rf]);
   finalizeLassoRef.current = finalizeLassoSelection;
 

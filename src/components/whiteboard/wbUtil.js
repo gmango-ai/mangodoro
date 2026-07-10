@@ -32,61 +32,6 @@ export function screenPolyPath(pts) {
   return "M" + pts.map((p) => `${p[0]},${p[1]}`).join(" L");
 }
 
-// ── Selection "envelope" geometry ─────────────────────────────────────────
-// Andrew's monotone-chain convex hull. pts = [[x,y],...] → hull vertices CCW.
-// Used to wrap a box selection's picked items in a contour (like a lasso).
-export function convexHull(pts) {
-  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  if (p.length < 3) return p;
-  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-  const lower = [];
-  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
-  const upper = [];
-  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
-  lower.pop(); upper.pop();
-  return lower.concat(upper);
-}
-
-// Push each hull vertex `pad` px outward from the centroid, so the contour sits
-// a margin OUTSIDE the items it wraps.
-export function padHull(hull, pad) {
-  if (hull.length < 3) return hull;
-  let cx = 0, cy = 0;
-  for (const [x, y] of hull) { cx += x; cy += y; }
-  cx /= hull.length; cy /= hull.length;
-  return hull.map(([x, y]) => {
-    const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy) || 1;
-    return [x + (dx / d) * pad, y + (dy / d) * pad];
-  });
-}
-
-// A single rounded-rect SVG subpath. Selections union one of these per drawn
-// item, so the envelope hugs content and skips the blank space between items.
-export function roundedRectPath(x, y, w, h, r) {
-  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
-  return `M${x + rr},${y} H${x + w - rr} Q${x + w},${y} ${x + w},${y + rr} V${y + h - rr} Q${x + w},${y + h} ${x + w - rr},${y + h} H${x + rr} Q${x},${y + h} ${x},${y + h - rr} V${y + rr} Q${x},${y} ${x + rr},${y} Z`;
-}
-
-// Closed SVG path for a polygon with rounded corners (radius r). Works for both
-// a few-vertex hull (visible rounding) and a many-point freehand loop (segments
-// too short to round → effectively a smooth polyline).
-export function roundedPolyPath(pts, r) {
-  const n = pts.length;
-  if (n < 3) return screenPolyPath(pts);
-  let d = "";
-  for (let i = 0; i < n; i++) {
-    const prev = pts[(i - 1 + n) % n], cur = pts[i], next = pts[(i + 1) % n];
-    const v1x = cur[0] - prev[0], v1y = cur[1] - prev[1];
-    const v2x = next[0] - cur[0], v2y = next[1] - cur[1];
-    const l1 = Math.hypot(v1x, v1y) || 1, l2 = Math.hypot(v2x, v2y) || 1;
-    const rr = Math.min(r, l1 / 2, l2 / 2);
-    const ax = cur[0] - (v1x / l1) * rr, ay = cur[1] - (v1y / l1) * rr;
-    const bx = cur[0] + (v2x / l2) * rr, by = cur[1] + (v2y / l2) * rr;
-    d += (i === 0 ? `M${ax},${ay}` : ` L${ax},${ay}`) + ` Q${cur[0]},${cur[1]} ${bx},${by}`;
-  }
-  return d + " Z";
-}
-
 // ── Ids + clone helpers ───────────────────────────────────────────────────
 let _idSeq = 1;
 export function freshId(prefix) {

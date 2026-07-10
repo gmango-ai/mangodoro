@@ -187,24 +187,15 @@ export function CommentThread({ comments, myId, onAdd, onDelete, onClose, dark }
 // border; dragging it moves the whole selection (raster + picked pen strokes).
 // The Delete/Done controls live in a separate screen-space panel.
 export function AreaSelectionFloating({ sel }) {
-  const { rect, raster, dx, dy, envPath } = sel;
-  const hullPath = envPath || null;
-  const pos = { position: "absolute", left: rect.x + dx, top: rect.y + dy };
-  // The drag is handled on <main> (see onWbPointerDownCapture) keyed off the
-  // .wb-area-overlay class. The hit target is clipped to the SAME contour that's
-  // drawn, so the selectable/draggable area matches what you see — clicks
-  // outside the envelope fall through (clip-path clips pointer events too).
+  const { rect, raster, dx, dy, box } = sel;
+  const b = box || rect; // the single selection box, tight to the content
   return (
     <>
-      <div
-        className="wb-area-overlay"
-        // pointerEvents:auto is REQUIRED — .react-flow__viewport (our portal host)
-        // sets pointer-events:none, which children inherit; without this the
-        // overlay isn't a hit target and drag/click fall through to the pane.
-        style={{ ...pos, width: rect.w, height: rect.h, cursor: "move", touchAction: "none", pointerEvents: "auto", clipPath: hullPath ? `path('${hullPath}')` : undefined }}
-      >
+      {/* Lifted paint pixels render at the region they were read from; the box
+          below bounds them + any picked nodes. */}
+      {raster && (
         <div
-          style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+          style={{ position: "absolute", left: rect.x + dx, top: rect.y + dy, width: rect.w, height: rect.h, pointerEvents: "none" }}
           ref={(el) => {
             if (el && raster && raster.parentNode !== el) {
               raster.style.width = "100%";
@@ -214,17 +205,14 @@ export function AreaSelectionFloating({ sel }) {
             }
           }}
         />
-      </div>
-      {/* Visual contour drawn OUTSIDE the clipped hit target so the dashed
-          stroke isn't cut. Box → padded convex hull, lasso → the freehand loop;
-          non-scaling stroke keeps a constant on-screen dash at any zoom. */}
-      {hullPath ? (
-        <svg style={{ ...pos, overflow: "visible", pointerEvents: "none" }}>
-          <path d={hullPath} fill="color-mix(in srgb, var(--color-accent) 8%, transparent)" stroke="var(--color-accent)" strokeWidth={1.5} strokeDasharray="6 4" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-        </svg>
-      ) : (
-        <div style={{ ...pos, width: rect.w, height: rect.h, border: "1.5px dashed var(--color-accent)", background: "color-mix(in srgb, var(--color-accent) 8%, transparent)", borderRadius: 4, pointerEvents: "none" }} />
       )}
+      {/* Single selection box — the visual border AND the drag hit target, so the
+          interactable area matches exactly what you see. pointerEvents:auto is
+          REQUIRED (the .react-flow__viewport portal host sets it to none). */}
+      <div
+        className="wb-area-overlay"
+        style={{ position: "absolute", left: b.x + dx, top: b.y + dy, width: b.w, height: b.h, cursor: "move", touchAction: "none", pointerEvents: "auto", border: "1.5px dashed var(--color-accent)", background: "color-mix(in srgb, var(--color-accent) 8%, transparent)", borderRadius: 10 }}
+      />
     </>
   );
 }

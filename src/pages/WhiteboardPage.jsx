@@ -1000,12 +1000,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (areaSelRef.current && !areaMoveRef.current && e.button === 0 && e.target instanceof Element) {
         let p = null; try { p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }); } catch { /* */ }
         const s = areaSelRef.current;
-        // Hit-test the actual envelope rects (not the bbox overlay div — clip-path
-        // doesn't clip pointer events in the transformed portal), shifted by the
-        // live move offset. A press INSIDE moves the selection.
-        const inEnvelope = p && (s.envRects || []).some((r) =>
-          p.x >= r.x + s.dx && p.x <= r.x + r.w + s.dx && p.y >= r.y + s.dy && p.y <= r.y + r.h + s.dy);
-        if (inEnvelope) {
+        // Hit-test the selection box directly (not the DOM overlay — this runs in
+        // capture phase before it), shifted by the live move offset. A press
+        // INSIDE the box moves the selection.
+        const r = s.box || s.rect;
+        const inBox = p && r && p.x >= r.x + s.dx && p.x <= r.x + r.w + s.dx && p.y >= r.y + s.dy && p.y <= r.y + r.h + s.dy;
+        if (inBox) {
           areaMoveRef.current = { pid: e.pointerId, sx: p.x, sy: p.y, baseDx: s.dx, baseDy: s.dy };
           try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
           e.preventDefault();
