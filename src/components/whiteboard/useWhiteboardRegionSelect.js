@@ -40,13 +40,14 @@ function contentBox(rf, picked, rect, raster) {
     maxX = Math.max(maxX, pos.x + w); maxY = Math.max(maxY, pos.y + h);
   }
   if (raster) {
+    // Expand ONLY for actually-painted pixels. If the lifted region is empty
+    // (an allocated-but-transparent paint tile — common where you START a
+    // marquee drag), contribute nothing — never pull the blank drag rect in.
     const b = opaquePixelBounds(raster);
-    const x0 = b ? rect.x + b.x0 * rect.w : rect.x;
-    const y0 = b ? rect.y + b.y0 * rect.h : rect.y;
-    const x1 = b ? rect.x + b.x1 * rect.w : rect.x + rect.w;
-    const y1 = b ? rect.y + b.y1 * rect.h : rect.y + rect.h;
-    minX = Math.min(minX, x0); minY = Math.min(minY, y0);
-    maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1);
+    if (b) {
+      minX = Math.min(minX, rect.x + b.x0 * rect.w); minY = Math.min(minY, rect.y + b.y0 * rect.h);
+      maxX = Math.max(maxX, rect.x + b.x1 * rect.w); maxY = Math.max(maxY, rect.y + b.y1 * rect.h);
+    }
   }
   if (!Number.isFinite(minX)) return null;
   const PAD = 8;
@@ -202,10 +203,7 @@ export function useWhiteboardRegionSelect({
     const rect = { x: a.x, y: a.y, w: Math.max(1, b.x - a.x), h: Math.max(1, b.y - a.y) };
     const picked = [];
     for (const n of rf.getNodes()) {
-      // Grab strokes, notes, shapes, images — but NOT container backdrops
-      // (zones/frames): their large empty bounds would select blank space. A
-      // frame's actual content is picked on its own; move a frame by its header.
-      if (n.type === "zone" || n.type === "frame") continue;
+      if (n.type === "zone") continue; // grab strokes, notes, shapes, images, frames — not zones
       const inode = rf.getInternalNode(n.id);
       const pos = inode?.internals?.positionAbsolute || n.position;
       const w = n.measured?.width ?? n.width ?? 0;
@@ -213,8 +211,12 @@ export function useWhiteboardRegionSelect({
       if (pos.x < rect.x + rect.w && pos.x + w > rect.x && pos.y < rect.y + rect.h && pos.y + h > rect.y) picked.push(n);
     }
     const before = paintRef.current?.snapshot(regionTileKeys(rect), new Map()) || new Map();
-    const hadPaint = [...before.values()].some((v) => v); // a tile exists in the region
-    const raster = hadPaint ? paintRef.current?.readRegion(rect) : null;
+    const hadTile = [...before.values()].some((v) => v); // a paint tile EXISTS here
+    const raster0 = hadTile ? paintRef.current?.readRegion(rect) : null;
+    // Only real (opaque) paint counts — an allocated-but-transparent tile (common
+    // where a marquee drag STARTS) must not create an empty selection or expand
+    // the box to the blank drag rect.
+    const raster = raster0 && opaquePixelBounds(raster0) ? raster0 : null;
     if (raster) paintRef.current?.clearRegion(rect);
     if (!picked.length && !raster) return; // empty area — never select void
     const box = contentBox(rf, picked, rect, raster);
@@ -233,7 +235,7 @@ export function useWhiteboardRegionSelect({
     if (rect.w < 4 && rect.h < 4) return;
     const picked = [];
     for (const n of rf.getNodes()) {
-      if (n.type === "zone" || n.type === "frame") continue; // skip empty container backdrops
+      if (n.type === "zone") continue;
       const inode = rf.getInternalNode(n.id);
       const pos = inode?.internals?.positionAbsolute || n.position;
       const w = n.measured?.width ?? n.width ?? 0;
@@ -241,8 +243,9 @@ export function useWhiteboardRegionSelect({
       if (pointInPolygon(pos.x + w / 2, pos.y + h / 2, poly)) picked.push(n);
     }
     const before = paintRef.current?.snapshot(regionTileKeys(rect), new Map()) || new Map();
-    const hadPaint = [...before.values()].some((v) => v);
-    const raster = hadPaint ? paintRef.current?.readRegion(rect, poly) : null;
+    const hadTile = [...before.values()].some((v) => v);
+    const raster0 = hadTile ? paintRef.current?.readRegion(rect, poly) : null;
+    const raster = raster0 && opaquePixelBounds(raster0) ? raster0 : null; // only real paint
     if (raster) paintRef.current?.clearRegion(rect, poly);
     if (!picked.length && !raster) return;
     // Same single content-fitted box as the marquee (the lasso still clips the
