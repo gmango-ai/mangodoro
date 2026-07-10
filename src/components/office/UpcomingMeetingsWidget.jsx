@@ -19,7 +19,7 @@ function fmtWhen(iso) {
   return `${d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} ${time}`;
 }
 
-export default function UpcomingMeetingsWidget({ dark }) {
+export default function UpcomingMeetingsWidget({ dark, bare = false }) {
   const { activeTeamId, rooms } = useTeam();
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
@@ -41,7 +41,7 @@ export default function UpcomingMeetingsWidget({ dark }) {
   const roomName = (id) => (rooms || []).find((r) => r.id === id)?.name || "Meeting room";
 
   return (
-    <WidgetSection id="upcoming-meetings" icon={CalendarDays} title="Upcoming meetings" dark={dark}>
+    <WidgetSection id="upcoming-meetings" icon={CalendarDays} title="Upcoming meetings" dark={dark} bare={bare}>
       {rows.length > 0 ? (
         <ul className="space-y-1.5">
           {rows.map((m) => {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, LayoutGrid, RotateCcw, Move, Globe, Plus, Check } from "lucide-react";
+import { ChevronDown, LayoutGrid, RotateCcw, Globe, Plus, Check } from "lucide-react";
 import { PRESETS } from "./presets";
 
 // Room-header control. Two trailing-control modes:
@@ -11,8 +11,8 @@ import { PRESETS } from "./presets";
 //     kiosk keeps its presets unchanged.
 // The "quick view" toggle buttons (the pinned panels) are shown in both modes.
 export default function LayoutBar({
-  presetId, onApply, onReset, accent, dark, arranging, onToggleArrange,
-  panels, activePanels, badges, onTogglePanel, onAddWeb, presets = PRESETS,
+  presetId, onApply, onReset, accent, dark,
+  panels, addPanels, activePanels, badges, onTogglePanel, onAddWeb, presets = PRESETS,
   addMenu = false,
 }) {
   const [open, setOpen] = useState(false);
@@ -103,19 +103,6 @@ export default function LayoutBar({
         <span className={`w-px h-4 mx-0.5 ${dark ? "bg-[var(--color-border)]" : "bg-slate-200"}`} />
       )}
       </div>
-      <button
-        type="button"
-        onClick={onToggleArrange}
-        title={arranging ? "Done arranging" : "Rearrange panels"}
-        aria-pressed={arranging}
-        className={`${arranging ? "inline-flex" : "hidden sm:inline-flex"} items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors ${
-          arranging ? "text-white" : dark ? "bg-[var(--color-surface-raised)] text-slate-300 hover:text-slate-100" : "bg-slate-100 text-slate-600 hover:text-slate-800"
-        }`}
-        style={arranging ? { background: accent } : {}}
-      >
-        <Move className="w-3.5 h-3.5" />
-        <span className={arranging ? "inline" : "hidden lg:inline"}>{arranging ? "Done" : "Arrange"}</span>
-      </button>
 
       <div className="relative">
         {addMenu ? (
@@ -156,7 +143,7 @@ export default function LayoutBar({
                   </p>
                   {/* Every panel type — a checkmark shows what's already open;
                       click toggles it. Menu stays open so you can add several. */}
-                  {(panels || []).map(({ id, title, Icon }) => {
+                  {(addPanels || panels || []).map(({ id, title, Icon }) => {
                     const on = (activePanels || []).includes(id);
                     return (
                       <button

@@ -15,7 +15,7 @@ import WidgetSection from "./WidgetSection";
 // admins edit it via the cog → modal, everyone sees it. The time rows + city
 // picker are shared with the nav dropdown (../worldclock/clockShared).
 
-export default function WorldClockWidget({ dark }) {
+export default function WorldClockWidget({ dark, bare = false }) {
   const { activeTeamId, isAdmin } = useTeam();
   const [locations, setLocations] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -54,7 +54,7 @@ export default function WorldClockWidget({ dark }) {
   ) : null;
 
   return (
-    <WidgetSection id="world-clock" icon={Globe} title="World Clock" dark={dark} action={action}>
+    <WidgetSection id="world-clock" icon={Globe} title="World Clock" dark={dark} action={action} bare={bare}>
       {locations.length > 0 ? (
         <ul className="-my-0.5 divide-y divide-transparent">
           {locations.map((loc) => <ClockRow key={loc.id} loc={loc} dark={dark} />)}
