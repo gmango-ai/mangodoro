@@ -29,6 +29,19 @@ export function useWhiteboardInspector({ nodes, edges, setNodes }) {
     () => nodes.filter((n) => n.selected && n.type !== "zone" && !n.parentId).length,
     [nodes]
   );
+  // Bulk edit: 2+ selected nodes that share ONE editable family (all shapes, all
+  // stickies, …) → surface the same Inspector as a single node, but every edit
+  // applies to the whole selection (patchNodeData & friends already fan out over
+  // n.selected). `rep` is the first, read for the displayed values. Mixed types
+  // → null (no shared control set). Framed children count — colour/font edits
+  // don't care about parentId.
+  const bulkSelection = useMemo(() => {
+    const fam = (n) => (["shape", "rect", "ellipse", "diamond"].includes(n.type) ? "shape" : n.type);
+    const sel = nodes.filter((n) => n.selected && n.type !== "zone");
+    if (sel.length < 2) return null;
+    const f = fam(sel[0]);
+    return sel.every((n) => fam(n) === f) ? { family: f, rep: sel[0], count: sel.length } : null;
+  }, [nodes]);
   const touchInspectorVisible = !!(selectedNode && singleSelection && WB_TOUCH);
 
   // Align / distribute the selected top-level nodes by their bounding boxes.
@@ -171,6 +184,7 @@ export function useWhiteboardInspector({ nodes, edges, setNodes }) {
     singleSelection,
     selectedEdge,
     multiCount,
+    bulkSelection,
     touchInspectorVisible,
     arrange,
     patchNodeData,

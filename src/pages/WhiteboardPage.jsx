@@ -2376,6 +2376,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     singleSelection,
     selectedEdge,
     multiCount,
+    bulkSelection,
     touchInspectorVisible,
     arrange,
     patchNodeData,
@@ -2837,15 +2838,28 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {/* (Undo/redo live in the top-bar group; 2/3-finger tap gestures still
             work via onWbTouch*.) */}
 
-        {/* Align / distribute toolbar — only with 2+ top-level nodes selected. */}
-        {multiCount >= 2 && (
+        {/* Multi-select toolbar: bulk same-type editor (top, edits the whole
+            selection at once) + align/distribute (below, needs 2+ TOP-LEVEL
+            nodes for their bounding boxes). */}
+        {(multiCount >= 2 || bulkSelection) && (
           <Panel
             position="top-center"
             style={{ marginTop: "var(--wb-topbar-offset, 66px)" }}
-            className={`flex items-center gap-0.5 px-1.5 py-1 rounded-xl border shadow-lg ${
-              dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-            }`}
+            className="flex flex-col items-center gap-1"
           >
+            {/* Bulk editor: same controls as a single node, applied to every
+                selected node of the shared family (patchNodeData fans out). */}
+            {bulkSelection && !WB_TOUCH && (
+              <div className="wb-scroll-x overflow-x-auto max-w-[calc(100vw-24px)] rounded-xl">
+                <Inspector wrapBar node={bulkSelection.rep} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
+              </div>
+            )}
+            {multiCount >= 2 && (
+            <div
+              className={`flex items-center gap-0.5 px-1.5 py-1 rounded-xl border shadow-lg ${
+                dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
+              }`}
+            >
             {[
               ["left", AlignStartVertical, "Align left"],
               ["centerH", AlignCenterVertical, "Align centers (horizontal)"],
@@ -2877,6 +2891,8 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
                 </button>
               );
             })}
+            </div>
+            )}
           </Panel>
         )}
 
