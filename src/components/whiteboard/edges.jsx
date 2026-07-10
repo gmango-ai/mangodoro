@@ -875,8 +875,10 @@ const EditableEdge = memo(function EditableEdge({
         {endMId && endMId !== startMId && capMarker(endCap, endMId, capColor)}
       </defs>
       {/* Marquee/lasso highlight: a soft accent halo behind the line so a group
-          selection visibly includes its edges (matches the selection box). */}
-      {areaSelected && (
+          selection visibly includes its edges. Shows whenever the edge is
+          `selected` (RF flag — how the marquee now marks caught edges) or is in a
+          floating paint selection (areaSelected). */}
+      {(selected || areaSelected) && (
         <path d={path} fill="none" stroke="var(--color-accent)" strokeOpacity={0.35}
           strokeWidth={sw + 8} strokeLinecap="round" strokeLinejoin="round"
           style={{ pointerEvents: "none" }} />

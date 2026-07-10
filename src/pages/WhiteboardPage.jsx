@@ -862,7 +862,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     deleteAreaSelection,
     commitAreaSelection,
     cancelAreaSelection,
-    augmentNativeSelection,
   } = useWhiteboardRegionSelect({
     rf,
     paintRef,
@@ -881,28 +880,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     () => new Set((areaSel?.edges || []).map((e) => e.id)),
     [areaSel],
   );
-  // Start point of a native RF drag-select (desktop select tool, empty pane). We
-  // don't drive the selection — RF does — we just remember the box so that on
-  // release we can fold in crossing edges + lift any brush paint the box covered.
-  const nativeSelDragRef = useRef(null);
-  // RF fires this when a drag-select gesture ends (reliable even though RF owns
-  // the pointer). Rebuild the box from our recorded start + the release point,
-  // then fold crossing edges + lift covered paint into the just-made selection.
-  const onNativeSelectionEnd = useCallback((event) => {
-    const d = nativeSelDragRef.current;
-    nativeSelDragRef.current = null;
-    const cx = event?.clientX, cy = event?.clientY;
-    if (!d || cx == null || Math.hypot(cx - d.x0, cy - d.y0) <= 4) return; // a click, not a box
-    // RF has already committed the selection by the time onSelectionEnd fires, so
-    // run synchronously (no rAF — it's throttled in background tabs).
-    let a, b;
-    try {
-      a = rf.screenToFlowPosition({ x: Math.min(d.x0, cx), y: Math.min(d.y0, cy) });
-      b = rf.screenToFlowPosition({ x: Math.max(d.x0, cx), y: Math.max(d.y0, cy) });
-    } catch { return; }
-    const rect = { x: a.x, y: a.y, w: Math.max(1, b.x - a.x), h: Math.max(1, b.y - a.y) };
-    augmentNativeSelection(rect, rf.getNodes().filter((n) => n.selected));
-  }, [rf, augmentNativeSelection]);
 
   const cancelActiveStroke = useCallback(() => {
     strokePidRef.current = null;
@@ -941,6 +918,36 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     return ps.pressure ? strokeOutlinePath(pts, { width: ps.width, last: false }) : strokePath(pts);
   }, []);
 
+  // Live marquee highlight: as the region box grows, mark the nodes it currently
+  // covers `selected` so they light up in real time (the "responsive" feel) — and
+  // the align + bulk-edit toolbars, both keyed off `selected`, come alive too.
+  // Only re-issues setNodes when the covered SET changes (cheap on big boards).
+  const marqueeHiliteRef = useRef("");
+  const liveHighlightMarquee = useCallback((sx0, sy0, sx1, sy1, base) => {
+    let a, b;
+    try {
+      a = rf.screenToFlowPosition({ x: Math.min(sx0, sx1), y: Math.min(sy0, sy1) });
+      b = rf.screenToFlowPosition({ x: Math.max(sx0, sx1), y: Math.max(sy0, sy1) });
+    } catch { return; }
+    const rx = a.x, ry = a.y, rw = Math.max(1, b.x - a.x), rh = Math.max(1, b.y - a.y);
+    const hit = new Set(base || []); // Shift → keep the pre-drag selection, union on
+    for (const n of rf.getNodes()) {
+      if (n.type === "zone") continue;
+      const inode = rf.getInternalNode(n.id);
+      const pos = inode?.internals?.positionAbsolute || n.position;
+      const w = n.measured?.width ?? n.width ?? 0;
+      const h = n.measured?.height ?? n.height ?? 0;
+      if (pos.x < rx + rw && pos.x + w > rx && pos.y < ry + rh && pos.y + h > ry) hit.add(n.id);
+    }
+    const key = [...hit].sort().join(",");
+    if (key === marqueeHiliteRef.current) return; // covered set unchanged
+    marqueeHiliteRef.current = key;
+    setNodes((nds) => nds.map((n) => {
+      const sel = hit.has(n.id);
+      return n.selected === sel ? n : { ...n, selected: sel };
+    }));
+  }, [rf, setNodes]);
+
   const onWbPointerMove = useCallback(
     (e) => {
       lastClientRef.current = { x: e.clientX, y: e.clientY };
@@ -957,6 +964,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         } else {
           setAreaBox((bx) => (bx ? { ...bx, x1: e.clientX, y1: e.clientY } : bx));
         }
+        liveHighlightMarquee(d.x0, d.y0, e.clientX, e.clientY, d.base);
         return;
       }
       if (areaMoveRef.current && e.pointerId === areaMoveRef.current.pid) {
@@ -1054,7 +1062,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         /* */
       }
     },
-    [rf, pushCursor, flushPaint, previewPath, pointerForce, armShapePreview]
+    [rf, pushCursor, flushPaint, previewPath, pointerForce, armShapePreview, liveHighlightMarquee]
   );
 
   // Pen down: begin a stroke. Capture-phase so it wins over the (disabled in
@@ -1083,10 +1091,14 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           return;
         }
         if (e.target.closest(".react-flow__panel")) return; // toolbar handles its own
-        // Press OFF the floating selection: drop it where it is. (Desktop select
-        // uses RF's native drag-select now, so a fresh drag starts a native box;
-        // no custom marquee to re-arm here.)
+        // Press OFF the selection: drop the old one where it is, and — on the
+        // empty pane — arm a fresh marquee so a drag immediately starts a NEW
+        // selection instead of only clearing the previous one.
         commitAreaRef.current?.();
+        if (mode === "select" && !WB_TOUCH && e.target.closest(".react-flow__pane") &&
+            !e.target.closest(".react-flow__node") && !e.target.closest(".react-flow__edge") && !e.target.closest(".react-flow__handle")) {
+          areaDragRef.current = { pid: e.pointerId, x0: e.clientX, y0: e.clientY, armed: false };
+        }
         return;
       }
       // Lasso tool: draw a freeform selection path.
@@ -1100,18 +1112,34 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         e.preventDefault();
         return;
       }
-      // Desktop select uses React Flow's native drag-select now (see
-      // selectionOnDrag). We don't intercept it — but record the press point on
-      // the EMPTY pane so onWbPointerUp can fold crossing edges + lift paint into
-      // the box RF just drew. Node/edge/handle presses (a node drag) are skipped.
-      // TOUCH select still uses the long-press marquee (marqueePointerDown).
-      if (mode === "select" && !WB_TOUCH && e.button === 0) {
+      // Select tool on DESKTOP: dragging the empty pane draws our region box. It
+      // marks the nodes it covers `selected` live (see onWbPointerMove) + lifts
+      // brush paint on release. Only start on the EMPTY pane; node/edge/handle
+      // presses fall through to RF (select + drag). Touch uses the long-press
+      // marquee (marqueePointerDown, handled separately).
+      if (mode === "select" && !WB_TOUCH) {
+        if (areaSelRef.current || e.button !== 0) return;
         const at = e.target;
-        nativeSelDragRef.current =
-          at instanceof Element && at.closest(".react-flow__pane") &&
-          !at.closest(".react-flow__node") && !at.closest(".react-flow__edge") && !at.closest(".react-flow__handle")
-            ? { x0: e.clientX, y0: e.clientY, pid: e.pointerId }
-            : null;
+        if (
+          !(at instanceof Element) ||
+          !at.closest(".react-flow__pane") ||
+          at.closest(".react-flow__node") ||
+          at.closest(".react-flow__edge") ||
+          at.closest(".react-flow__handle")
+        ) return;
+        // ARM a potential region-drag but don't capture / preventDefault yet — a
+        // plain click on the empty pane must fall through to RF so it clears the
+        // selection (deselect). The box opens once the pointer moves past a small
+        // threshold (see onWbPointerMove).
+        // Shift → ADD to the current selection: snapshot what's already selected
+        // so the marquee unions onto it (nodes + edges) instead of replacing.
+        const additive = e.shiftKey;
+        areaDragRef.current = {
+          pid: e.pointerId, x0: e.clientX, y0: e.clientY, armed: false,
+          base: additive ? new Set(rf.getNodes().filter((n) => n.selected).map((n) => n.id)) : null,
+          baseEdges: additive ? new Set(rf.getEdges().filter((ed) => ed.selected).map((ed) => ed.id)) : null,
+        };
+        marqueeHiliteRef.current = ""; // fresh drag → recompute the live highlight
         return;
       }
       if ((mode !== "pen" && mode !== "laser" && mode !== "brush") || e.button !== 0) return;
@@ -1277,12 +1305,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   const onWbPointerUp = useCallback(
     (e) => {
-      // A native RF drag-select is folded in via onSelectionEnd (fires reliably
-      // even though RF captures the pointer). Here we only clear a stale start
-      // ref left by a press that never became a selection drag (a plain click).
-      if (nativeSelDragRef.current && e.pointerId === nativeSelDragRef.current.pid) {
-        nativeSelDragRef.current = null;
-      }
       // Floating-selection move finished.
       if (areaMoveRef.current && e.pointerId === areaMoveRef.current.pid) {
         areaMoveRef.current = null;
@@ -1309,7 +1331,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
         // via ref — finalizeAreaSelection is defined later in the component; a
         // direct dep here would be a render-time TDZ (blank screen).
-        finalizeAreaRef.current?.(d.x0, d.y0, e.clientX, e.clientY);
+        finalizeAreaRef.current?.(d.x0, d.y0, e.clientX, e.clientY, d.base, d.baseEdges);
         return;
       }
       // Only the stroke-owning pointer ends it.
@@ -1352,7 +1374,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
       finishStroke();
     },
-    [finishStroke, pushCursor, pushPaint, pushExternalStep, rf, augmentNativeSelection]
+    [finishStroke, pushCursor, pushPaint, pushExternalStep]
   );
 
   // On a tool switch, push one cursor update reflecting the new mode so peers
@@ -2710,16 +2732,19 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         nodesDraggable={tool === "select" && !areaSel}
         nodesConnectable={tool === "select"}
         elementsSelectable={tool === "select"}
-        // DESKTOP select uses React Flow's own drag-select (responsive, additive
-        // with Shift, feeds the align/distribute + bulk-edit toolbars). The custom
-        // floating marquee is reserved for the LASSO tool (freeform + brush-paint
-        // lift) and for TOUCH (long-press marquee). So enable RF drag-select only
-        // for the desktop select tool — the custom path is disabled there.
-        selectionOnDrag={tool === "select" && !WB_TOUCH}
-        onSelectionEnd={onNativeSelectionEnd}
+        // Region select is folded into the select tool: desktop left-drag on the
+        // pane draws OUR box (onWbPointerDownCapture), which now marks the nodes it
+        // covers `selected` LIVE (so they highlight as it passes, and the align +
+        // bulk-edit toolbars — both keyed off `selected` — light up), and lifts any
+        // brush paint into a floating selection on release. Touch uses the
+        // long-press marquee. So RF's own drag-select stays OFF (it would double up).
+        selectionOnDrag={false}
         selectionMode={SelectionMode.Partial}
         // Shift adds to selection, freeing ⌘/Ctrl for the click-to-clone quick action.
         multiSelectionKeyCode="Shift"
+        // Disable RF's own Shift-drag box-select — our custom marquee owns the
+        // drag (incl. Shift-to-ADD), so RF's native selector must not double up.
+        selectionKeyCode={null}
         // Zoom way out for big boards (default floor is 0.5); a bit more in too.
         minZoom={0.1}
         maxZoom={3}
@@ -2881,7 +2906,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {/* Multi-select toolbar: bulk same-type editor (top, edits the whole
             selection at once) + align/distribute (below, needs 2+ TOP-LEVEL
             nodes for their bounding boxes). */}
-        {(multiCount >= 2 || bulkSelection) && (
+        {(multiCount >= 2 || bulkSelection) && !areaBox && (
           <Panel
             position="top-center"
             style={{ marginTop: "var(--wb-topbar-offset, 66px)" }}
@@ -3073,7 +3098,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {/* Node inspector (shape/fill/border/text) hovers above the
               selected node, like the edge toolbar. Edges use their own
               floating contextual toolbar (rendered on the edge itself). */}
-        {selectedNode && singleSelection && !WB_TOUCH && (
+        {selectedNode && singleSelection && !WB_TOUCH && !areaBox && (
           <NodeToolbar
             nodeId={selectedNode.id}
             isVisible
