@@ -993,7 +993,18 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (mode === "select" && !WB_TOUCH) {
         if (areaSelRef.current || e.button !== 0) return;
         const at = e.target;
-        if (!(at instanceof Element) || !at.closest(".react-flow__pane")) return;
+        // Nodes/edges/handles render INSIDE .react-flow__pane, so matching the
+        // pane alone also matches clicks ON them — which made every select-tool
+        // pointer-down start a region box, capturing the event before React Flow
+        // could select or drag the node. Only start the box on the EMPTY pane;
+        // let node/edge/handle presses fall through to RF (select + drag).
+        if (
+          !(at instanceof Element) ||
+          !at.closest(".react-flow__pane") ||
+          at.closest(".react-flow__node") ||
+          at.closest(".react-flow__edge") ||
+          at.closest(".react-flow__handle")
+        ) return;
         areaDragRef.current = { pid: e.pointerId, x0: e.clientX, y0: e.clientY };
         setAreaBox({ x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY });
         try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
