@@ -19,6 +19,8 @@ const WEIGHTS = [
   [600, "Semibold"], [700, "Bold"], [800, "Extrabold"],
 ];
 
+const RAINBOW = "conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red)";
+
 // Toggle a markdown marker around the WHOLE text — fallback when nothing is
 // being edited (so B / I work on a selected-but-not-editing node too).
 function toggleWhole(text, marker) {
@@ -29,30 +31,23 @@ function toggleWhole(text, marker) {
   return marker + t + marker;
 }
 
-// Compact inline label — sits to the LEFT of a control row (not a tall block
-// header), so the panel stays short and reads like a conventional format bar.
-function Row({ label, children }) {
-  return (
-    <div className="flex items-center gap-2 pt-1.5">
-      <span className="text-[10px] uppercase tracking-wide text-white/40 w-11 shrink-0">{label}</span>
-      <div className="flex items-center gap-1 min-w-0 flex-1">{children}</div>
-    </div>
-  );
-}
-
-// The single, merged text-editing panel. Lives inside the Inspector's "Text"
-// dropdown. Grouped top→bottom: FONT (family) · SIZE & WEIGHT · ALIGNMENT ·
-// EMPHASIS · COLOUR. Google font rows preview in their own font, loaded lazily
-// on hover so opening the list stays cheap.
+// The single, merged text-editing panel — a compact format bar. Top→bottom:
+// ALIGN + STYLE · FONT FAMILY (searchable dropdown) · SIZE + WEIGHT · COLOUR
+// (button → swatch submenu). Everything that used to be always-open (the font
+// list, the swatch grid) now lives behind a dropdown, so the panel stays short.
 export default function TextPanel({ node, patchNodeData, forDefaults }) {
   const { theme } = useTheme();
-  // Nested flyouts (size / weight) set their bg inline, so theme them here —
-  // the .wb-toolpill--light CSS only remaps utility classes, not inline styles.
-  const menuBg = theme === "dark" ? "#1f2937" : "#ffffff";
-  const menuBorder = theme === "dark" ? "1px solid rgba(255,255,255,.1)" : "1px solid rgb(226, 232, 240)";
-  const menuStyle = { background: menuBg, border: menuBorder };
+  // Nested submenus set their bg inline, so theme them here (the
+  // .wb-toolpill--light CSS only remaps utility classes, not inline styles).
+  const menuStyle = {
+    background: theme === "dark" ? "#1f2937" : "#ffffff",
+    border: theme === "dark" ? "1px solid rgba(255,255,255,.1)" : "1px solid rgb(226, 232, 240)",
+  };
 
   const [q, setQ] = useState("");
+  const [open, setOpen] = useState(null); // "font" | "size" | "weight" | "colour" | null
+  const toggle = (k) => setOpen((o) => (o === k ? null : k));
+
   const data = node.data || {};
   const isText = node.type === "text";
   const withVAlign = node.type === "sticky" || ["shape", "rect", "ellipse", "diamond"].includes(node.type);
@@ -63,17 +58,14 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
   const curAlign = data.textAlign || (isText ? "left" : "center");
   const curV = data.vAlign || "middle";
 
-  // Size is a type-or-pick field: keep a local draft, commit on blur / Enter /
-  // an exact preset pick (a datalist selection lands on an exact value).
   const [sizeInput, setSizeInput] = useState(String(curSize));
-  const [sizeOpen, setSizeOpen] = useState(false);
-  const [weightOpen, setWeightOpen] = useState(false);
   useEffect(() => { setSizeInput(String(curSize)); }, [curSize]);
   const commitSize = (v) => {
     const n = Math.max(4, Math.min(400, Math.round(Number(v) || 0)));
     if (n) patchNodeData({ fontSize: n });
   };
   const weightLabel = WEIGHTS.find(([v]) => v === curWeight)?.[1] || `${curWeight}`;
+  const fontLabel = PRESET_OPTIONS.find(([, v]) => v === curFamily)?.[0] || curFamily;
 
   const fonts = useMemo(() => {
     const ql = q.trim().toLowerCase();
@@ -85,7 +77,7 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
       key={val}
       type="button"
       onMouseEnter={() => ensureGoogleFont(val)}
-      onClick={() => patchNodeData({ fontFamily: val === "sans" ? null : val })}
+      onClick={() => { patchNodeData({ fontFamily: val === "sans" ? null : val }); setOpen(null); }}
       style={{ fontFamily: fontStack(val) }}
       className={`block w-full text-left px-2 py-1 rounded text-[12px] truncate ${
         curFamily === val ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10"
@@ -100,7 +92,7 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
       type="button"
       title={title}
       onMouseDown={(e) => { e.preventDefault(); if (!wrapActiveSelection(marker)) patchNodeData({ text: toggleWhole(data.text, marker) }); }}
-      className="h-7 w-7 rounded-md flex items-center justify-center text-white/75 hover:bg-white/10"
+      className="h-7 w-7 rounded-md flex items-center justify-center text-white/75 hover:bg-white/10 shrink-0"
     >
       <Icon className="w-4 h-4" />
     </button>
@@ -110,8 +102,9 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
     <button
       key={v}
       type="button"
+      title={`Align ${v}`}
       onClick={() => patchNodeData({ textAlign: v })}
-      className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors ${
+      className={`h-7 w-7 rounded-md flex items-center justify-center shrink-0 transition-colors ${
         curAlign === v ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
       }`}
     >
@@ -120,24 +113,62 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
   );
 
   return (
-    <div className="p-1.5" style={{ width: 246 }}>
-      {/* ── FONT ── family search + compact preview list ── */}
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search fonts…"
-        className="w-full px-2 py-1 rounded-md bg-white/10 text-white text-[12px] placeholder:text-white/40 outline-none"
-      />
-      <div className="nowheel mt-1" style={{ maxHeight: 108, overflowY: "auto" }}>
-        {!q && PRESET_OPTIONS.map(([label, val]) => fontRow(label, val))}
-        {!q && <div className="h-px my-1 bg-white/10" />}
-        {fonts.map((f) => fontRow(f, f))}
-        {!fonts.length && <div className="px-2 py-1 text-[12px] text-white/40">No match</div>}
+    <div className="p-1.5" style={{ width: 252 }}>
+      {/* ── ALIGN + STYLE (top) ── */}
+      <div className="flex items-center gap-1">
+        {alignBtn("left", AlignLeft)}
+        {alignBtn("center", AlignCenter)}
+        {alignBtn("right", AlignRight)}
+        {withVAlign && <div className="w-px h-5 bg-white/10 mx-0.5 shrink-0" />}
+        {withVAlign && [["top", "T"], ["middle", "M"], ["bottom", "B"]].map(([v, l]) => (
+          <button
+            key={v}
+            type="button"
+            title={`Vertical ${v}`}
+            onClick={() => patchNodeData({ vAlign: v })}
+            className={`h-7 w-6 rounded-md text-[11px] font-bold shrink-0 transition-colors ${
+              curV === v ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+            }`}
+          >{l}</button>
+        ))}
+        {!forDefaults && <div className="w-px h-5 bg-white/10 mx-0.5 shrink-0" />}
+        {!forDefaults && mdBtn(Bold, "**", "Bold (selection, or whole text)")}
+        {!forDefaults && mdBtn(Italic, "_", "Italic (selection, or whole text)")}
       </div>
 
-      {/* ── SIZE + WEIGHT (one row) ── */}
-      <Row label="Size">
-        <div className="relative" style={{ flex: "0 0 92px" }}>
+      {/* ── FONT FAMILY (searchable dropdown) ── */}
+      <div className="relative pt-1.5">
+        <button
+          type="button"
+          title="Font"
+          onClick={() => toggle("font")}
+          className="w-full flex items-center rounded-md bg-white/10 px-2 py-1.5 text-white text-[12px]"
+        >
+          <span className="truncate" style={{ fontFamily: fontStack(curFamily) }}>{fontLabel}</span>
+          <ChevronDown className="ml-auto w-3.5 h-3.5 text-white/55 shrink-0" />
+        </button>
+        {open === "font" && (
+          <div className="absolute left-0 top-full mt-1 z-20 rounded-md p-1.5" style={{ width: 236, ...menuStyle }}>
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search fonts…"
+              className="w-full px-2 py-1 rounded-md bg-white/10 text-white text-[12px] placeholder:text-white/40 outline-none"
+            />
+            <div className="nowheel mt-1" style={{ maxHeight: 200, overflowY: "auto" }}>
+              {!q && PRESET_OPTIONS.map(([label, val]) => fontRow(label, val))}
+              {!q && <div className="h-px my-1 bg-white/10" />}
+              {fonts.map((f) => fontRow(f, f))}
+              {!fonts.length && <div className="px-2 py-1 text-[12px] text-white/40">No match</div>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── SIZE + WEIGHT (under the font dropdown) ── */}
+      <div className="flex items-start gap-1.5 pt-1.5">
+        <div className="relative" style={{ flex: "0 0 96px" }}>
           <div className="flex items-center rounded-md bg-white/10">
             <input
               type="text"
@@ -149,22 +180,14 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
               className="w-9 bg-transparent px-2 py-1 text-white text-[12px] outline-none"
             />
             <span className="text-[11px] text-white/40">px</span>
-            <button
-              type="button"
-              title="Preset sizes"
-              onClick={() => { setSizeOpen((o) => !o); setWeightOpen(false); }}
-              className="ml-auto px-1.5 py-1 text-white/55 hover:text-white"
-            >
+            <button type="button" title="Preset sizes" onClick={() => toggle("size")} className="ml-auto px-1.5 py-1 text-white/55 hover:text-white">
               <ChevronDown className="w-3.5 h-3.5" />
             </button>
           </div>
-          {sizeOpen && (
-            <div
-              className="absolute left-0 top-full mt-1 z-10 rounded-md py-1 nowheel"
-              style={{ minWidth: 132, maxHeight: 220, overflowY: "auto", ...menuStyle }}
-            >
+          {open === "size" && (
+            <div className="absolute left-0 top-full mt-1 z-20 rounded-md py-1 nowheel" style={{ minWidth: 132, maxHeight: 220, overflowY: "auto", ...menuStyle }}>
               {NAMED_SIZES.map((f) => (
-                <Opt key={f.v} active={curSize === f.v} onClick={() => { commitSize(f.v); setSizeOpen(false); }}>
+                <Opt key={f.v} active={curSize === f.v} onClick={() => { commitSize(f.v); setOpen(null); }}>
                   <span className="inline-flex items-baseline gap-2">
                     <span>{f.v}px</span>
                     {f.label && <span className="text-white/45 text-[11px]">{f.label}</span>}
@@ -175,68 +198,36 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
           )}
         </div>
         <div className="relative flex-1">
-          <button
-            type="button"
-            title="Font weight"
-            onClick={() => { setWeightOpen((o) => !o); setSizeOpen(false); }}
-            className="w-full flex items-center rounded-md bg-white/10 px-2 py-1 text-white text-[12px]"
-          >
+          <button type="button" title="Font weight" onClick={() => toggle("weight")} className="w-full flex items-center rounded-md bg-white/10 px-2 py-1 text-white text-[12px]">
             <span style={{ fontWeight: curWeight }} className="truncate">{weightLabel}</span>
             <ChevronDown className="ml-auto w-3.5 h-3.5 text-white/55 shrink-0" />
           </button>
-          {weightOpen && (
-            <div
-              className="absolute right-0 top-full mt-1 z-10 rounded-md py-1 nowheel"
-              style={{ minWidth: 128, maxHeight: 220, overflowY: "auto", ...menuStyle }}
-            >
+          {open === "weight" && (
+            <div className="absolute right-0 top-full mt-1 z-20 rounded-md py-1 nowheel" style={{ minWidth: 128, maxHeight: 220, overflowY: "auto", ...menuStyle }}>
               {WEIGHTS.map(([v, l]) => (
-                <Opt key={v} active={curWeight === v} onClick={() => { patchNodeData({ fontWeight: v }); setWeightOpen(false); }}>
+                <Opt key={v} active={curWeight === v} onClick={() => { patchNodeData({ fontWeight: v }); setOpen(null); }}>
                   <span style={{ fontWeight: v }}>{l}</span>
                 </Opt>
               ))}
             </div>
           )}
         </div>
-      </Row>
+      </div>
 
-      {/* ── ALIGN (horizontal + vertical, one row) ── */}
-      <Row label="Align">
-        {alignBtn("left", AlignLeft)}
-        {alignBtn("center", AlignCenter)}
-        {alignBtn("right", AlignRight)}
-        {withVAlign && <div className="w-px h-5 bg-white/10 mx-0.5" />}
-        {withVAlign && [["top", "Top"], ["middle", "Mid"], ["bottom", "Bot"]].map(([v, l]) => (
-          <button
-            key={v}
-            type="button"
-            title={`Vertical ${l}`}
-            onClick={() => patchNodeData({ vAlign: v })}
-            className={`h-7 px-1.5 rounded-md text-[11px] font-semibold transition-colors ${
-              curV === v ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
-            }`}
-          >{l}</button>
-        ))}
-      </Row>
-
-      {/* ── STYLE (markdown bold / italic on the selection) ── */}
-      {!forDefaults && (
-        <Row label="Style">
-          {mdBtn(Bold, "**", "Bold (selection, or whole text)")}
-          {mdBtn(Italic, "_", "Italic (selection, or whole text)")}
-        </Row>
-      )}
-
-      {/* ── COLOUR (Auto toggle inline; swatches below) ── */}
-      <Row label="Colour">
-        <button
-          type="button"
-          onClick={() => patchNodeData({ textColor: null })}
-          className={`h-7 px-2 rounded-md text-[11px] transition-colors ${
-            !curColor ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
-          }`}
-        >Auto</button>
-      </Row>
-      <SwatchGrid value={curColor} onPick={(c) => patchNodeData({ textColor: c })} onLive={(c) => patchNodeData({ textColor: c })} />
+      {/* ── COLOUR (single button → swatch submenu) ── */}
+      <div className="relative pt-1.5">
+        <button type="button" title="Text colour" onClick={() => toggle("colour")} className="w-full flex items-center gap-2 rounded-md bg-white/10 px-2 py-1.5 text-white text-[12px]">
+          <span className="w-4 h-4 rounded-full border border-white/30 shrink-0" style={{ background: curColor || RAINBOW }} />
+          <span className="truncate">{curColor ? curColor.toUpperCase() : "Auto (contrast)"}</span>
+          <ChevronDown className="ml-auto w-3.5 h-3.5 text-white/55 shrink-0" />
+        </button>
+        {open === "colour" && (
+          <div className="absolute left-0 top-full mt-1 z-20 rounded-md p-1" style={{ minWidth: 210, ...menuStyle }}>
+            <Opt active={!curColor} onClick={() => { patchNodeData({ textColor: null }); setOpen(null); }}>Auto (contrast)</Opt>
+            <SwatchGrid value={curColor} onPick={(c) => { patchNodeData({ textColor: c }); }} onLive={(c) => patchNodeData({ textColor: c })} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
