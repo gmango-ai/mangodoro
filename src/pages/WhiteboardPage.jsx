@@ -2913,11 +2913,11 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
             className="flex flex-col items-center gap-1"
           >
             {/* Bulk editor: same controls as a single node, applied to every
-                selected node of the shared family (patchNodeData fans out). */}
+                selected node of the shared family (patchNodeData fans out). NO
+                overflow wrapper — it would clip the Dropdown flyouts, which open
+                downward outside the bar (the "popovers don't show" bug). */}
             {bulkSelection && !WB_TOUCH && (
-              <div className="wb-scroll-x overflow-x-auto max-w-[calc(100vw-24px)] rounded-xl">
-                <Inspector wrapBar node={bulkSelection.rep} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
-              </div>
+              <Inspector wrapBar node={bulkSelection.rep} patchNodeData={patchNodeData} setLocked={setSelectedLocked} onReorder={reorderSelected} setOpacity={setSelectedOpacity} />
             )}
             {multiCount >= 2 && (
             <div
