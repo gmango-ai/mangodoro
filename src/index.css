@@ -498,6 +498,28 @@ html.electron-popover body::before {
   -webkit-touch-callout: none;
 }
 
+/* Contextual toolbars (node / edge / bulk-edit "dark pill") follow the app theme.
+ * In LIGHT mode the Pill tags itself .wb-toolpill--light and its dropdown flyouts
+ * (portaled to <body>) carry the class too; these rules remap the dark-pill
+ * utility colours to light equivalents. Descendant selectors so they also catch
+ * the Inspector / EdgeToolbar inline classes. The Pill/flyout SHELL bg + border
+ * are set inline in JS (useTheme). */
+.wb-toolpill--light .text-white,
+.wb-toolpill--light .text-white\/90,
+.wb-toolpill--light .text-white\/80,
+.wb-toolpill--light .text-white\/70 { color: #334155 !important; }
+.wb-toolpill--light .text-white\/60,
+.wb-toolpill--light .text-white\/50,
+.wb-toolpill--light .text-white\/40,
+.wb-toolpill--light .text-white\/30 { color: #64748b !important; }
+.wb-toolpill--light .bg-white\/20 { background-color: rgba(15, 23, 42, .1) !important; }
+.wb-toolpill--light .bg-white\/10 { background-color: rgba(15, 23, 42, .07) !important; }
+.wb-toolpill--light .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, .06) !important; }
+.wb-toolpill--light .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, .04) !important; }
+.wb-toolpill--light .border-white\/10 { border-color: rgba(15, 23, 42, .1) !important; }
+.wb-toolpill--light .border-white\/20 { border-color: rgba(15, 23, 42, .15) !important; }
+.wb-toolpill--light .border-white\/30 { border-color: rgba(15, 23, 42, .2) !important; }
+
 /* Markdown rendered inside a node (sticky / text). Compact the default block
  * spacing so it reads tight in a small box; everything inherits the node's
  * font + colour. Neutral semi-transparent greys work on light stickies and
