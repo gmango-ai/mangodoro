@@ -114,6 +114,7 @@ import { useWhiteboardPersistence } from "../components/whiteboard/useWhiteboard
 import { useWhiteboardKeyboard } from "../components/whiteboard/useWhiteboardKeyboard";
 import { useWhiteboardInspector } from "../components/whiteboard/useWhiteboardInspector";
 import { useWhiteboardRegionSelect } from "../components/whiteboard/useWhiteboardRegionSelect";
+import { usePalmRejection } from "../components/whiteboard/usePalmRejection";
 import { uploadWhiteboardImage } from "../lib/whiteboardImage";
 import TextPanel from "../components/whiteboard/TextPanel";
 import {
@@ -150,7 +151,7 @@ import {
   loadLaserColor, saveLaserColor,
 } from "../components/whiteboard/wbStorage";
 import {
-  WB_TOUCH, PEN_GRACE_MS, TAP_GESTURE_MS, TAP_GESTURE_SLOP,
+  WB_TOUCH, TAP_GESTURE_MS, TAP_GESTURE_SLOP,
   TOOL_BTN_SIZE, TOOL_GROUP_CLS, BOTTOM_PANEL_GAP, PAINT_TOOLBAR_STACK_H,
   TOUCH_INSPECTOR_FALLBACK_H, CARET_CLS, DEFAULTS,
 } from "../components/whiteboard/wbConstants";
@@ -654,57 +655,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // "pen" | "touch" | "mouse" of the pointer that owns the active stroke — lets
   // us tell a resting palm (touch) apart from the drawing Pencil.
   const strokeTypeRef = useRef(null);
-  // Timestamp of the most recent stylus contact (grace window for marquee).
-  const lastPenTsRef = useRef(0);
-  // Native Apple Pencil detection via WebKit TouchEvents. PointerEvent's
-  // `pointerType:"pen"` is unreliable inside the iOS WKWebView, but every touch
-  // carries `Touch.touchType` ("stylus" | "direct") + `Touch.force` — the real
-  // native pen API. We mirror the live touches here so a pointerdown (which
-  // lacks touchType) can be classified by matching its position to a touch.
-  const touchMapRef = useRef(new Map()); // identifier → { type, x, y, force }
-  // Sticky: once a stylus has touched this board, adopt the Procreate model —
-  // the Pencil draws, fingers pan/gesture (they never draw). This is what makes
-  // palm rejection + two-finger-undo actually work.
-  const stylusSeenRef = useRef(false);
-  const trackTouches = useCallback((e) => {
-    const m = touchMapRef.current;
-    m.clear();
-    let stylus = false;
-    for (const t of e.touches) {
-      const type = t.touchType || "direct"; // non-WebKit → treat as finger
-      const radius = Math.max(t.radiusX || 0, t.radiusY || 0);
-      m.set(t.identifier, { type, x: t.clientX, y: t.clientY, force: t.force, radius });
-      if (type === "stylus") stylus = true;
-    }
-    if (stylus) { stylusSeenRef.current = true; lastPenTsRef.current = Date.now(); }
-  }, []);
-  // Classify a pointer as pen/touch/mouse, preferring the WebKit stylus signal
-  // (by nearest touch position) over the unreliable pointerType.
-  const classifyPointer = useCallback((e) => {
-    if (e.pointerType === "pen") return "pen";
-    if (e.pointerType === "mouse") return "mouse";
-    let best = null, bestD = Infinity;
-    for (const t of touchMapRef.current.values()) {
-      const d = Math.abs(t.x - e.clientX) + Math.abs(t.y - e.clientY);
-      if (d < bestD) { bestD = d; best = t; }
-    }
-    if (best && bestD <= 14) return best.type === "stylus" ? "pen" : "touch";
-    return "touch";
-  }, []);
-  // Force (0..1) for the matching stylus touch, else the pointer's pressure.
-  const pointerForce = useCallback((e) => {
-    let best = null, bestD = Infinity;
-    for (const t of touchMapRef.current.values()) {
-      const d = Math.abs(t.x - e.clientX) + Math.abs(t.y - e.clientY);
-      if (d < bestD) { bestD = d; best = t; }
-    }
-    if (best && bestD <= 14 && best.force > 0) return best.force;
-    return e.pressure > 0 ? e.pressure : 0.5;
-  }, []);
-  const penActive = useCallback(
-    () => strokeTypeRef.current === "pen" || Date.now() - lastPenTsRef.current < PEN_GRACE_MS,
-    [],
-  );
+  // Pointer classification + palm rejection (Apple-Pencil-first). Owns the
+  // touch-map + stylus refs; reads the shared strokeTypeRef for penActive.
+  const { trackTouches, classifyPointer, pointerForce, penActive, lastPenTsRef, stylusSeenRef } =
+    usePalmRejection({ strokeTypeRef });
 
   // ── Region select (marquee / lasso / floating selection) ──
   // Extracted into useWhiteboardRegionSelect. Called here — above the pen/brush
