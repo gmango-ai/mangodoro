@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ViewportPortal } from "@xyflow/react";
 import { MessageSquare, X } from "lucide-react";
 import { nodeAbsPos } from "./frame";
+import { roundedPolyPath } from "./wbUtil";
 
 // Dot-voting: a tally badge floating above each node's top-right corner. Shown
 // on any node that has votes, plus the selected node (as a "vote" affordance so
@@ -187,7 +188,8 @@ export function CommentThread({ comments, myId, onAdd, onDelete, onClose, dark }
 // border; dragging it moves the whole selection (raster + picked pen strokes).
 // The Delete/Done controls live in a separate screen-space panel.
 export function AreaSelectionFloating({ sel }) {
-  const { rect, raster, dx, dy } = sel;
+  const { rect, raster, dx, dy, hull } = sel;
+  const hullPath = hull && hull.length >= 3 ? roundedPolyPath(hull, 16) : null;
   // The drag is handled on <main> (see onWbPointerDownCapture) keyed off the
   // .wb-area-overlay class, so this just renders the lifted pixels + border.
   return (
@@ -209,7 +211,17 @@ export function AreaSelectionFloating({ sel }) {
           }
         }}
       />
-      <div style={{ position: "absolute", inset: 0, border: "1.5px dashed var(--color-accent)", background: "color-mix(in srgb, var(--color-accent) 8%, transparent)", borderRadius: 4, pointerEvents: "none" }} />
+      {hullPath ? (
+        // Contour that envelopes the picked items (box → padded convex hull,
+        // lasso → the freehand loop). overflow:visible so the padded hull can
+        // sit outside the rect container; non-scaling stroke keeps a constant
+        // on-screen dash at any zoom.
+        <svg style={{ position: "absolute", inset: 0, overflow: "visible", pointerEvents: "none" }}>
+          <path d={hullPath} fill="color-mix(in srgb, var(--color-accent) 8%, transparent)" stroke="var(--color-accent)" strokeWidth={1.5} strokeDasharray="6 4" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        </svg>
+      ) : (
+        <div style={{ position: "absolute", inset: 0, border: "1.5px dashed var(--color-accent)", background: "color-mix(in srgb, var(--color-accent) 8%, transparent)", borderRadius: 4, pointerEvents: "none" }} />
+      )}
     </div>
   );
 }

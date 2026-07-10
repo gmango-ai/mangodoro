@@ -1,6 +1,23 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { regionTileKeys } from "./paintTiles";
-import { pointInPolygon } from "./wbUtil";
+import { pointInPolygon, convexHull, padHull } from "./wbUtil";
+
+// Build the "envelope" contour (points RELATIVE to the selection rect origin)
+// that hugs the picked nodes — a padded convex hull of their corners, plus the
+// raster region when paint was lifted. Drawn instead of the plain bbox border.
+function selectionHull(rf, picked, rect, hasRaster) {
+  const corners = [];
+  for (const n of picked) {
+    const inode = rf.getInternalNode(n.id);
+    const pos = inode?.internals?.positionAbsolute || n.position;
+    const w = n.measured?.width ?? n.width ?? 0;
+    const h = n.measured?.height ?? n.height ?? 0;
+    corners.push([pos.x, pos.y], [pos.x + w, pos.y], [pos.x + w, pos.y + h], [pos.x, pos.y + h]);
+  }
+  if (hasRaster) corners.push([rect.x, rect.y], [rect.x + rect.w, rect.y], [rect.x + rect.w, rect.y + rect.h], [rect.x, rect.y + rect.h]);
+  if (corners.length < 3) return null;
+  return padHull(convexHull(corners), 12).map(([x, y]) => [x - rect.x, y - rect.y]);
+}
 import { WB_TOUCH } from "./wbConstants";
 
 // ── Region select (folded into the SELECT tool) ──────────────────────────────
@@ -163,7 +180,8 @@ export function useWhiteboardRegionSelect({
     const raster = hadPaint ? paintRef.current?.readRegion(rect) : null;
     if (raster) paintRef.current?.clearRegion(rect);
     if (!picked.length && !raster) return; // empty area
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0 });
+    const hull = selectionHull(rf, picked, rect, !!raster);
+    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, hull });
   }, [rf]);
   finalizeAreaRef.current = finalizeAreaSelection;
 
@@ -190,7 +208,9 @@ export function useWhiteboardRegionSelect({
     const raster = hadPaint ? paintRef.current?.readRegion(rect, poly) : null;
     if (raster) paintRef.current?.clearRegion(rect, poly);
     if (!picked.length && !raster) return;
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, clip: poly });
+    // The lasso's own freehand loop IS the envelope — draw it (relative to rect).
+    const hull = poly.map((p) => [p.x - rect.x, p.y - rect.y]);
+    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, clip: poly, hull });
   }, [rf]);
   finalizeLassoRef.current = finalizeLassoSelection;
 
