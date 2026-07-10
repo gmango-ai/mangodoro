@@ -4,6 +4,7 @@ import { useApp } from "../context/AppContext";
 import { useTheme } from "../context/ThemeContext";
 import { emitSelfNotification } from "../lib/notifications";
 import { applyStatusOverride, clearStatusOverride } from "../lib/statusActions";
+import { readOverride } from "../lib/statusOverride";
 
 // "Out to lunch" auto-status.
 //
@@ -73,9 +74,9 @@ export default function LunchReminder() {
     if (s.clockIn && !s.clockIn.activeBreak) s.startClockBreak?.({ unpaid: !s.lunchPaid, kind: "lunch" });
     put(`lunch_until:${s.userId}`, String(until));
   };
-  const backFromLunch = async () => {
+  const backFromLunch = async ({ clearOverride = true } = {}) => {
     const s = ref.current;
-    clearStatusOverride({ userId: s.userId });
+    if (clearOverride) clearStatusOverride({ userId: s.userId });
     if (s.clockIn?.activeBreak?.kind === "lunch") s.endClockBreak?.();
     del(`lunch_until:${s.userId}`);
   };
@@ -88,11 +89,16 @@ export default function LunchReminder() {
     const tick = () => {
       const s = ref.current;
       if (!s.userId) return;
-      // Auto-return when the lunch window elapses. The lunch_until key only
-      // exists while on lunch (set in goToLunch, cleared in backFromLunch), so
-      // its presence + elapsed time is the "still at lunch" signal.
-      const until = Number(get(`lunch_until:${s.userId}`) || 0);
-      if (until && Date.now() >= until) s.backFromLunch();
+      // Auto-return when the lunch window elapses, but don't let a stale
+      // lunch_until key clear a newer manual status override.
+      const lunchKey = `lunch_until:${s.userId}`;
+      const until = Number(get(lunchKey) || 0);
+      if (until && Date.now() >= until) {
+        const onLunchOverride = readOverride()?.availability === "lunch";
+        const onLunchBreak = s.clockIn?.activeBreak?.kind === "lunch";
+        if (onLunchOverride || onLunchBreak) s.backFromLunch({ clearOverride: onLunchOverride });
+        else del(lunchKey);
+      }
       // Fire the lunch trigger once per day, within a short window after the time.
       if (s.mode === "off" || !s.lunchTime) return;
       const firedKey = `lunch_fired:${s.userId}:${todayKey()}`;
