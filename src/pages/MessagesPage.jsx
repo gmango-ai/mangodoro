@@ -663,7 +663,7 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
                 <div className="min-w-0 flex-1">
                   {!grouped && (
                     <div className="flex items-baseline gap-2">
-                      <button type="button" onClick={(e) => { e.stopPropagation(); openProfile?.(m.sender_id, e.currentTarget.getBoundingClientRect()); }} className={`text-sm font-bold hover:underline ${mine ? "text-[var(--color-accent)]" : dark ? "text-slate-100" : "text-slate-800"}`}>{mine ? "You" : (author?.name || "Member")}</button>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openProfile?.(m.sender_id, e.currentTarget.getBoundingClientRect()); }} className={`select-none text-sm font-bold hover:underline ${mine ? "text-[var(--color-accent)]" : dark ? "text-slate-100" : "text-slate-800"}`}>{mine ? "You" : (author?.name || "Member")}</button>
                       <span className="text-[11px] text-slate-400">{clockTime(m.created_at)}</span>
                     </div>
                   )}
