@@ -517,7 +517,17 @@ const EditableEdge = memo(function EditableEdge({
   sourcePosition, targetPosition,
   style, data, selected,
 }) {
-  const { setEdges, screenToFlowPosition, getNode, getNodes } = useReactFlow();
+  const { setEdges, screenToFlowPosition, getNode, getNodes, getInternalNode } = useReactFlow();
+  // Absolute node lookup. A node INSIDE a frame carries a frame-RELATIVE position
+  // in getNode()/getNodes(); only the INTERNAL node's positionAbsolute is right.
+  // Edges must resolve rects through this, or an edge to a framed node draws to
+  // the wrong spot and looks like it never connected. Stable (RF fns are stable),
+  // so it's safe in the memo/callback deps below.
+  const absNode = useCallback((idOrNode) => {
+    if (!idOrNode) return null;
+    const nid = typeof idOrNode === "string" ? idOrNode : idOrNode.id;
+    return getInternalNode(nid) || (typeof idOrNode === "object" ? idOrNode : getNode(nid));
+  }, [getInternalNode, getNode]);
   // Part of a floating marquee/lasso selection? Draw a highlight underlay so the
   // group selection visibly includes this connector (context is local-only).
   const areaSelIds = useContext(AreaSelectedEdgesContext);
@@ -538,8 +548,8 @@ const EditableEdge = memo(function EditableEdge({
   //   2. otherwise FLOAT to the side facing the other node's centre, so the
   //      edge always leaves from the near side and re-picks as nodes move.
   //   3. xyflow's connected handle only as a fallback before nodes measure.
-  const sRect = nodeRect(source ? getNode(source) : null);
-  const tRect = nodeRect(target ? getNode(target) : null);
+  const sRect = nodeRect(source ? absNode(source) : null);
+  const tRect = nodeRect(target ? absNode(target) : null);
   const sCenter = sRect && { x: sRect.x + sRect.w / 2, y: sRect.y + sRect.h / 2 };
   const tCenter = tRect && { x: tRect.x + tRect.w / 2, y: tRect.y + tRect.h / 2 };
   // Decide each end's SIDE — the balance of "smart" and "what you asked for":
@@ -616,7 +626,7 @@ const EditableEdge = memo(function EditableEdge({
     // with no other obstacles — otherwise the naive elbow draws a line
     // straight THROUGH the nodes. This is what makes opposite-ends connections
     // (outer side → outer side) route cleanly up and over.
-    const sR = nodeRect(getNode(source)), tR = nodeRect(getNode(target));
+    const sR = nodeRect(absNode(source)), tR = nodeRect(absNode(target));
     let wraps = false;
     if (sR && tR) {
       const sC = { x: sR.x + sR.w / 2, y: sR.y + sR.h / 2 };
@@ -631,7 +641,7 @@ const EditableEdge = memo(function EditableEdge({
     const others = [];
     for (const n of getNodes()) {
       if (n.type === "zone" || n.type === "frame" || n.id === source || n.id === target) continue;
-      const r = nodeRect(n);
+      const r = nodeRect(absNode(n.id));
       if (r) others.push(r);
     }
     if (!others.length && !wraps) return null;
@@ -639,11 +649,11 @@ const EditableEdge = memo(function EditableEdge({
     // rather than cutting across (the 22px stub > 16px margin keeps the
     // start/goal valid). Curves get extra clearance for their bow.
     const obstacles = others;
-    for (const nid of [source, target]) { const r = nodeRect(getNode(nid)); if (r) obstacles.push(r); }
+    for (const nid of [source, target]) { const r = nodeRect(absNode(nid)); if (r) obstacles.push(r); }
     const isCurve = (data?.routing || "elbow") === "curve";
     const margin = isCurve ? MARGIN + Math.min(data?.curviness ?? 18, 30) : MARGIN;
     return routeAround({ x: sX, y: sY }, sideNormal(sPos), { x: tX, y: tY }, sideNormal(tPos), obstacles, margin);
-  }, [manual, data?.routing, data?.curviness, source, target, sX, sY, sPos, tX, tY, tPos, getNode, getNodes]);
+  }, [manual, data?.routing, data?.curviness, source, target, sX, sY, sPos, tX, tY, tPos, absNode, getNodes]);
 
   const routing = data?.routing || "elbow";
   const curviness = data?.curviness ?? 18;
@@ -803,7 +813,7 @@ const EditableEdge = memo(function EditableEdge({
       let hit = null;
       for (const n of getNodes()) {
         if (NON_CONNECTABLE.has(n.type)) continue;
-        const r = nodeRect(n);
+        const r = nodeRect(absNode(n.id)); // absolute — framed nodes carry a relative position
         if (r && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) { hit = n; break; }
       }
       if (!hit) {
@@ -816,7 +826,7 @@ const EditableEdge = memo(function EditableEdge({
       // Over a node → attach there, loosely snapped to the side's tidy points
       // (a snapped/centred end is flagged `auto` so it re-floats as nodes move).
       setDragEnd(null);
-      const hitRect = nodeRect(hit);
+      const hitRect = nodeRect(absNode(hit.id)); // absolute rect for framed targets
       const anchor = snappedAnchor(hitRect, p.x, p.y);
       setSnapHint({ rect: hitRect, side: anchor.side, t: anchor.t, snapped: anchor.auto });
       setEdges((eds) => eds.map((edge) => {
@@ -829,7 +839,7 @@ const EditableEdge = memo(function EditableEdge({
     const onUp = () => { setDragEnd(null); setSnapHint(null); window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [id, getNodes, screenToFlowPosition, setEdges]);
+  }, [id, getNodes, screenToFlowPosition, setEdges, absNode]);
 
   const onEdgeDblClick = useCallback((e) => {
     e.stopPropagation();
@@ -1026,17 +1036,19 @@ function perimeterSnapPoints(rect) {
 }
 
 export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode }) {
-  const { getNodes } = useReactFlow();
+  const { getNodes, getInternalNode } = useReactFlow();
   const pickedShape = useContext(ConnectShapeContext);
   const fp = fromPosition || "right";
   const sRect = nodeRect(fromNode);
 
-  // Cursor over an existing (connectable) node?
+  // Cursor over an existing (connectable) node? Resolve the ABSOLUTE rect via the
+  // internal node — a framed node's getNodes() position is frame-relative, so the
+  // raw rect would miss it and the preview wouldn't snap to framed targets.
   let over = null;
   for (const n of getNodes()) {
     if (NON_CONNECTABLE.has(n.type)) continue;
     if (fromNode && n.id === fromNode.id) continue;
-    const r = nodeRect(n);
+    const r = nodeRect(getInternalNode(n.id) || n);
     if (r && toX >= r.x && toX <= r.x + r.w && toY >= r.y && toY <= r.y + r.h) { over = r; break; }
   }
 
