@@ -92,6 +92,7 @@ export function AppProvider({ session, children }) {
   // ── Google Sheets ────────────────────────────────────────────
   const [googleToken, setGoogleToken] = useState(null);
   const [googleTokenExpiry, setGoogleTokenExpiry] = useState(0);
+  const googleRefreshingRef = useRef(false); // de-dupe concurrent refreshes
 
   // ── Invoice modal ────────────────────────────────────────────
   const [showInvoice, setShowInvoice] = useState(false);
@@ -221,6 +222,18 @@ export function AppProvider({ session, children }) {
           google_access_token: session.provider_token,
           google_token_expiry: expiry,
         }, { onConflict: "user_id" });
+        // Capture the long-lived refresh token (offline access) so we can mint
+        // fresh access tokens server-side (google-token edge fn) instead of
+        // making the user re-consent every hour. Stored write-only (RLS).
+        if (session.provider_refresh_token) {
+          supabase.from("google_oauth_tokens").upsert({
+            user_id: session.user.id,
+            refresh_token: session.provider_refresh_token,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "user_id" }).then(({ error }) => {
+            if (error) console.warn("store google refresh token:", error.message);
+          });
+        }
       } else {
         setGoogleToken(settingsRes.data?.google_access_token ?? null);
         setGoogleTokenExpiry(settingsRes.data?.google_token_expiry ?? 0);
@@ -1254,6 +1267,37 @@ export function AppProvider({ session, children }) {
       },
     });
   }
+
+  // Silently mint a fresh Google access token from the stored refresh token
+  // (via the google-token edge fn) — no OAuth popup. Returns the new token, or
+  // null if there's no refresh token / it was revoked (caller then re-auths).
+  async function refreshGoogleToken() {
+    if (googleRefreshingRef.current) return null;
+    googleRefreshingRef.current = true;
+    try {
+      const { data, error } = await supabase.functions.invoke("google-token", { body: {} });
+      if (error || !data?.access_token) return null;
+      setGoogleToken(data.access_token);
+      setGoogleTokenExpiry(data.expiry || (Date.now() + 3500 * 1000));
+      return data.access_token;
+    } catch {
+      return null;
+    } finally {
+      googleRefreshingRef.current = false;
+    }
+  }
+
+  // Keep the Google access token fresh in the background so Calendar/Docs never
+  // hit an expired token: refresh ~2 min before expiry (or immediately if it's
+  // already past — e.g. reopening the app after a while). Updating the token
+  // re-runs this effect, scheduling the next refresh. Silent no-op when there's
+  // no refresh token yet (older connections re-auth once to capture one).
+  useEffect(() => {
+    if (!googleToken || !googleTokenExpiry) return undefined;
+    const delay = Math.max(0, googleTokenExpiry - Date.now() - 120000);
+    const id = setTimeout(() => { refreshGoogleToken(); }, delay);
+    return () => clearTimeout(id);
+  }, [googleToken, googleTokenExpiry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Direct save for a single field — used by the new SettingsPage so
   // pickers (theme, accent, etc.) commit on click without a Save step.
