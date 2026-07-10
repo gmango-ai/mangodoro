@@ -597,7 +597,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
             nodeId={id}
             selected={selected}
             markdown
-            style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily) }}
+            style={{ fontSize: data?.fontSize ?? 16, fontWeight: data?.fontWeight ?? 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily) }}
           />
         </div>
       </div>
@@ -764,7 +764,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
           selected={selected}
           markdown
           wrap={fixedW || fixedH}
-          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
+          style={{ fontSize: data?.fontSize ?? 16, fontWeight: data?.fontWeight ?? 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
         />
       </div>
       {/* Clipped-overflow affordance: a "…" while idle, a "show all" (releases
@@ -966,7 +966,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
             nodeId={id}
             selected={selected}
             markdown
-            style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor, fontFamily: fontStack(data?.fontFamily) }}
+            style={{ fontSize: data?.fontSize ?? 13, fontWeight: data?.fontWeight ?? 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor, fontFamily: fontStack(data?.fontFamily) }}
           />
         </div>
       </div>
@@ -1053,7 +1053,7 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
         </span>
       </div>
       <div style={{ flex: 1, padding: 10, minHeight: 0 }}>
-        <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }} />
+        <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: data?.fontWeight ?? 600, lineHeight: 1.3 }} />
       </div>
       <div className="nodrag" style={{ position: "relative", padding: "6px 10px", borderTop: `1px solid ${divider}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} onPointerDown={(e) => e.stopPropagation()}>
         <button
