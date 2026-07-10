@@ -86,6 +86,9 @@ export function useWhiteboardRegionSelect({
     if (!WB_TOUCH || e.pointerType !== "touch" || tool !== "select") return;
     // A palm resting while the Pencil selects/annotates must not start a marquee.
     if (penActive()) return;
+    // A floating selection is active → this touch moves it or (tapping off it)
+    // deselects; both are handled by onWbPointerDownCapture. Don't arm a marquee.
+    if (areaSelRef.current) return;
     const st = marqueeRef.current;
     if (st) {
       // Second finger — it's a pinch, not a marquee.

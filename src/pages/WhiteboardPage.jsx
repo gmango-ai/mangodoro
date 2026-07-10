@@ -19,6 +19,7 @@ import {
   Position,
   getNodesBounds,
   ViewportPortal,
+  useViewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -243,6 +244,19 @@ function PlacementGhost({ placing, at }) {
   return <div style={{ ...wrap, border: "2px dashed #0ea5e9", borderRadius: placing.type === "goal" ? 14 : 8, background: "rgba(14,165,233,0.08)" }} />;
 }
 
+// Broadcasts the live viewport (throttled by `push`) on ANY change — user
+// pan/zoom AND programmatic zoom (⌘ +/−/0, fit) that ReactFlow's onMove doesn't
+// report — so followers mirror everything. Paused while I'm FOLLOWING someone
+// (I'm mirroring, not leading, so I don't echo their viewport back). A leaf
+// component: only IT re-renders per frame, not the whole editor.
+function ViewportBroadcaster({ push, paused }) {
+  const { x, y, zoom } = useViewport();
+  useEffect(() => {
+    if (!paused) push({ x, y, zoom });
+  }, [x, y, zoom, paused, push]);
+  return null;
+}
+
 export default function WhiteboardPage() {
   const { whiteboardId } = useParams();
   return <WhiteboardBoard boardId={whiteboardId} />;
@@ -464,7 +478,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   // the pen/brush/laser handlers use POINTER events, which are unaffected.
   const blockSingleTouchInDraw = (e) => {
     if (!WB_TOUCH) return;
-    if (tool !== "pen" && tool !== "brush" && tool !== "laser" && tool !== "lasso") return;
+    const drawMode = tool === "pen" || tool === "brush" || tool === "laser" || tool === "lasso";
+    // Also block one-finger pan while a floating selection is active, so a
+    // finger-drag MOVES the selection (handled by the pointer handlers) and a
+    // tap deselects — instead of d3-zoom stealing the touch to pan the canvas.
+    // Two-finger touches still pass through for pinch-zoom/pan.
+    if (!drawMode && !areaSelRef.current) return;
     if (e.touches.length === 1) e.stopPropagation();
   };
 
@@ -666,8 +685,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   useEffect(() => {
     if (followingId && !members.some((m) => m.id === followingId)) setFollowingId(null);
   }, [followingId, members]);
-  // Broadcast my own viewport (throttled in the hook) so others can follow me.
-  const onViewportMove = useCallback((_e, vp) => { pushViewport(vp); }, [pushViewport]);
   // A user-initiated pan/zoom (event is non-null; programmatic follow passes
   // null) drops me out of follow mode.
   const onViewportMoveStart = useCallback((e) => { if (e && followingIdRef.current != null) setFollowingId(null); }, []);
@@ -2655,9 +2672,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
-        // Broadcast my viewport so peers can follow me; a user-initiated pan/zoom
-        // (non-null event) drops me out of following someone else.
-        onMove={onViewportMove}
+        // A user-initiated pan/zoom (non-null event) drops me out of following
+        // someone else. (My own viewport is broadcast by ViewportBroadcaster,
+        // which also catches programmatic keyboard zoom that onMove misses.)
         onMoveStart={onViewportMoveStart}
         // Laser mode is point-only: no selecting, dragging, or connecting — so
         // you can gesture over the board without disturbing it.
@@ -2757,6 +2774,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         {(!compact || embedded) && showMinimap && <MiniMap pannable zoomable position="bottom-right" className="hidden sm:block" />}
         <CollabCursors peers={peers} />
         <PresenceStack members={members} viewports={viewports} followingId={followingId} onFollow={followMember} dark={dark} />
+        {collabEnabled && <ViewportBroadcaster push={pushViewport} paused={!!followingId} />}
 
         {/* Dot-voting tally badges (per-node, multiplayer). */}
         <VotesOverlay nodes={nodes} myId={session?.user?.id} onToggle={toggleVote} dark={dark} />
