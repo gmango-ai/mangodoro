@@ -148,6 +148,20 @@ export function requestNodeEdit(id) {
   if (id) window.dispatchEvent(new CustomEvent("wb:edit-node", { detail: { id } }));
 }
 
+// Node-level rich-text styling (whole-node, not per-selection markdown). Spread
+// into a node's text style so italic / underline / strikethrough / kerning /
+// line-height follow the data. Undefined keys are omitted so they don't clobber
+// a node's own defaults (e.g. its base lineHeight when data.lineHeight is unset).
+export function richTextStyle(data) {
+  const deco = [data?.underline && "underline", data?.strikethrough && "line-through"].filter(Boolean).join(" ");
+  const s = {};
+  if (data?.italic) s.fontStyle = "italic";
+  if (deco) s.textDecoration = deco;
+  if (data?.lineHeight != null) s.lineHeight = data.lineHeight;
+  if (data?.letterSpacing != null) s.letterSpacing = `${data.letterSpacing}px`;
+  return s;
+}
+
 // The textarea currently being edited registers a "wrap the selection in
 // markdown" handler here, so a toolbar button (Inspector B / I) can format the
 // LIVE selection without stealing focus. Returns false when nothing is being
@@ -597,7 +611,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
             nodeId={id}
             selected={selected}
             markdown
-            style={{ fontSize: data?.fontSize ?? 16, fontWeight: data?.fontWeight ?? 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily) }}
+            style={{ fontSize: data?.fontSize ?? 16, fontWeight: data?.fontWeight ?? 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily), ...richTextStyle(data) }}
           />
         </div>
       </div>
@@ -764,7 +778,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
           selected={selected}
           markdown
           wrap={fixedW || fixedH}
-          style={{ fontSize: data?.fontSize ?? 16, fontWeight: data?.fontWeight ?? 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
+          style={{ fontSize: data?.fontSize ?? 16, fontWeight: data?.fontWeight ?? 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily), ...richTextStyle(data) }}
         />
       </div>
       {/* Clipped-overflow affordance: a "…" while idle, a "show all" (releases
@@ -966,7 +980,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
             nodeId={id}
             selected={selected}
             markdown
-            style={{ fontSize: data?.fontSize ?? 13, fontWeight: data?.fontWeight ?? 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor, fontFamily: fontStack(data?.fontFamily) }}
+            style={{ fontSize: data?.fontSize ?? 13, fontWeight: data?.fontWeight ?? 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor, fontFamily: fontStack(data?.fontFamily), ...richTextStyle(data) }}
           />
         </div>
       </div>
@@ -1053,7 +1067,7 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
         </span>
       </div>
       <div style={{ flex: 1, padding: 10, minHeight: 0 }}>
-        <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: data?.fontWeight ?? 600, lineHeight: 1.3 }} />
+        <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: data?.fontWeight ?? 600, lineHeight: 1.3, ...richTextStyle(data) }} />
       </div>
       <div className="nodrag" style={{ position: "relative", padding: "6px 10px", borderTop: `1px solid ${divider}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} onPointerDown={(e) => e.stopPropagation()}>
         <button

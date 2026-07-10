@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlignLeft, AlignCenter, AlignRight, Bold, Italic, ChevronDown } from "lucide-react";
+import { AlignLeft, AlignCenter, AlignRight, Italic, Underline, Strikethrough, ChevronDown } from "lucide-react";
 import { SwatchGrid, Opt } from "./toolbarUI";
-import { wrapActiveSelection } from "./nodes";
 import { GOOGLE_FONTS, PRESET_OPTIONS, fontStack, ensureGoogleFont } from "../../lib/whiteboardFonts";
 import { useTheme } from "../../context/ThemeContext";
 
@@ -20,21 +19,27 @@ const WEIGHTS = [
 ];
 
 const RAINBOW = "conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red)";
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-// Toggle a markdown marker around the WHOLE text — fallback when nothing is
-// being edited (so B / I work on a selected-but-not-editing node too).
-function toggleWhole(text, marker) {
-  const t = text || "";
-  if (!t.trim()) return t;
-  const ml = marker.length;
-  if (t.length >= 2 * ml && t.startsWith(marker) && t.endsWith(marker)) return t.slice(ml, t.length - ml);
-  return marker + t + marker;
+// A compact −value+ stepper for the advanced numeric controls (line height, kern).
+function Stepper({ label, value, display, dec, inc }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] uppercase tracking-wide text-white/40 w-9 shrink-0">{label}</span>
+      <div className="flex items-center rounded-md bg-white/10 flex-1">
+        <button type="button" onClick={dec} className="px-2.5 py-1 text-white/60 hover:text-white leading-none">−</button>
+        <span className="flex-1 text-center text-white text-[12px] tabular-nums">{display}</span>
+        <button type="button" onClick={inc} className="px-2.5 py-1 text-white/60 hover:text-white leading-none">+</button>
+      </div>
+    </div>
+  );
 }
 
 // The single, merged text-editing panel — a compact format bar. Top→bottom:
-// ALIGN + STYLE · FONT FAMILY (searchable dropdown) · SIZE + WEIGHT · COLOUR
-// (button → swatch submenu). Everything that used to be always-open (the font
-// list, the swatch grid) now lives behind a dropdown, so the panel stays short.
+// ALIGN · FONT FAMILY (searchable dropdown) · SIZE + WEIGHT · STYLE (italic /
+// underline / strike) + Advanced (line-height, kerning) · COLOUR (button →
+// swatch submenu). The tall always-open sections live behind dropdowns so the
+// panel stays short.
 export default function TextPanel({ node, patchNodeData, forDefaults }) {
   const { theme } = useTheme();
   // Nested submenus set their bg inline, so theme them here (the
@@ -46,6 +51,7 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
 
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null); // "font" | "size" | "weight" | "colour" | null
+  const [adv, setAdv] = useState(false);
   const toggle = (k) => setOpen((o) => (o === k ? null : k));
 
   const data = node.data || {};
@@ -57,6 +63,8 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
   const curColor = data.textColor || null;
   const curAlign = data.textAlign || (isText ? "left" : "center");
   const curV = data.vAlign || "middle";
+  const curLine = data.lineHeight ?? 1.3;
+  const curKern = data.letterSpacing ?? 0;
 
   const [sizeInput, setSizeInput] = useState(String(curSize));
   useEffect(() => { setSizeInput(String(curSize)); }, [curSize]);
@@ -87,17 +95,6 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
     </button>
   );
 
-  const mdBtn = (Icon, marker, title) => (
-    <button
-      type="button"
-      title={title}
-      onMouseDown={(e) => { e.preventDefault(); if (!wrapActiveSelection(marker)) patchNodeData({ text: toggleWhole(data.text, marker) }); }}
-      className="h-7 w-7 rounded-md flex items-center justify-center text-white/75 hover:bg-white/10 shrink-0"
-    >
-      <Icon className="w-4 h-4" />
-    </button>
-  );
-
   const alignBtn = (v, Icon) => (
     <button
       key={v}
@@ -112,9 +109,23 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
     </button>
   );
 
+  const styleBtn = (key, Icon, title) => (
+    <button
+      key={key}
+      type="button"
+      title={title}
+      onClick={() => patchNodeData({ [key]: !data[key] })}
+      className={`h-7 w-7 rounded-md flex items-center justify-center shrink-0 transition-colors ${
+        data[key] ? "bg-white/20 text-white" : "text-white/70 hover:bg-white/10"
+      }`}
+    >
+      <Icon className="w-4 h-4" />
+    </button>
+  );
+
   return (
     <div className="p-1.5" style={{ width: 252 }}>
-      {/* ── ALIGN + STYLE (top) ── */}
+      {/* ── ALIGNMENT (top) ── */}
       <div className="flex items-center gap-1">
         {alignBtn("left", AlignLeft)}
         {alignBtn("center", AlignCenter)}
@@ -131,9 +142,6 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
             }`}
           >{l}</button>
         ))}
-        {!forDefaults && <div className="w-px h-5 bg-white/10 mx-0.5 shrink-0" />}
-        {!forDefaults && mdBtn(Bold, "**", "Bold (selection, or whole text)")}
-        {!forDefaults && mdBtn(Italic, "_", "Italic (selection, or whole text)")}
       </div>
 
       {/* ── FONT FAMILY (searchable dropdown) ── */}
@@ -166,7 +174,7 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
         )}
       </div>
 
-      {/* ── SIZE + WEIGHT (under the font dropdown) ── */}
+      {/* ── SIZE + WEIGHT ── */}
       <div className="flex items-start gap-1.5 pt-1.5">
         <div className="relative" style={{ flex: "0 0 96px" }}>
           <div className="flex items-center rounded-md bg-white/10">
@@ -213,6 +221,38 @@ export default function TextPanel({ node, patchNodeData, forDefaults }) {
           )}
         </div>
       </div>
+
+      {/* ── STYLE (italic / underline / strike) + Advanced toggle ── */}
+      <div className="flex items-center gap-1 pt-1.5">
+        {styleBtn("italic", Italic, "Italic")}
+        {styleBtn("underline", Underline, "Underline")}
+        {styleBtn("strikethrough", Strikethrough, "Strikethrough")}
+        <button
+          type="button"
+          onClick={() => setAdv((a) => !a)}
+          className="ml-auto flex items-center gap-0.5 text-[11px] text-white/55 hover:text-white pr-0.5"
+        >
+          Advanced <ChevronDown className={`w-3 h-3 transition-transform ${adv ? "rotate-180" : ""}`} />
+        </button>
+      </div>
+
+      {/* ── ADVANCED (line height + kerning) ── */}
+      {adv && (
+        <div className="pt-1.5 space-y-1.5">
+          <Stepper
+            label="Line"
+            display={curLine.toFixed(2)}
+            dec={() => patchNodeData({ lineHeight: clamp(Math.round((curLine - 0.1) * 100) / 100, 0.6, 3) })}
+            inc={() => patchNodeData({ lineHeight: clamp(Math.round((curLine + 0.1) * 100) / 100, 0.6, 3) })}
+          />
+          <Stepper
+            label="Kern"
+            display={`${curKern}px`}
+            dec={() => patchNodeData({ letterSpacing: clamp(Math.round((curKern - 0.5) * 10) / 10, -3, 20) })}
+            inc={() => patchNodeData({ letterSpacing: clamp(Math.round((curKern + 0.5) * 10) / 10, -3, 20) })}
+          />
+        </div>
+      )}
 
       {/* ── COLOUR (single button → swatch submenu) ── */}
       <div className="relative pt-1.5">
