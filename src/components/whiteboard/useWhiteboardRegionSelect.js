@@ -69,6 +69,7 @@ export function useWhiteboardRegionSelect({
   rf,
   paintRef,
   setNodes,
+  setEdges,
   runSilent,
   pushExternalStep,
   broadcastPaintOps,
@@ -223,7 +224,11 @@ export function useWhiteboardRegionSelect({
     if (raster) paintRef.current?.clearRegion(rect);
     if (!picked.length && !raster) return; // empty area — never select void
     const box = contentBox(rf, picked, rect, raster);
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, box });
+    // Edges wholly inside the selection (both ends picked) ride along — so a
+    // group delete removes its connectors too (they auto-follow on move).
+    const pickedIds = new Set(picked.map((n) => n.id));
+    const edges = rf.getEdges().filter((e) => pickedIds.has(e.source) && pickedIds.has(e.target));
+    setAreaSel({ rect, raster, nodes: picked, edges, before, dx: 0, dy: 0, box });
   }, [rf]);
   finalizeAreaRef.current = finalizeAreaSelection;
 
@@ -254,7 +259,9 @@ export function useWhiteboardRegionSelect({
     // Same single content-fitted box as the marquee (the lasso still clips the
     // raster to its freeform shape; the selection box just bounds the result).
     const box = contentBox(rf, picked, rect, raster);
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, clip: poly, box });
+    const pickedIds = new Set(picked.map((n) => n.id));
+    const edges = rf.getEdges().filter((e) => pickedIds.has(e.source) && pickedIds.has(e.target));
+    setAreaSel({ rect, raster, nodes: picked, edges, before, dx: 0, dy: 0, clip: poly, box });
   }, [rf]);
   finalizeLassoRef.current = finalizeLassoSelection;
 
@@ -313,21 +320,31 @@ export function useWhiteboardRegionSelect({
     setAreaSel(null);
     const { rect, raster, nodes, before, clip } = s;
     const ids = new Set(nodes.map((n) => n.id));
+    // Drop edges touching any deleted node (the in-selection connectors + any
+    // that would be left dangling); capture them so undo restores them. Edge
+    // removal syncs to peers automatically via the ops diff.
+    const removedEdges = rf.getEdges().filter((e) => ids.has(e.source) || ids.has(e.target));
+    const dropEdges = (eds) => eds.filter((e) => !ids.has(e.source) && !ids.has(e.target));
     if (raster) broadcastPaintOps([{ clear: rect, clip }]); // peers clear the lifted (clipped) region
-    runSilent(() => setNodes((nds) => nds.filter((n) => !ids.has(n.id))));
+    runSilent(() => {
+      setNodes((nds) => nds.filter((n) => !ids.has(n.id)));
+      if (removedEdges.length) setEdges?.(dropEdges);
+    });
     pushExternalStep({
       undo: () => runSilent(() => {
         if (before) paintRef.current?.restore(before);
         if (raster) broadcastPaintOps([{ stamp: { rect, canvas: raster } }]); // peers stamp it back (canvas is already clipped)
         setNodes((nds) => nds.filter((n) => !ids.has(n.id)).concat(nodes));
+        if (removedEdges.length) setEdges?.((eds) => eds.concat(removedEdges));
       }),
       redo: () => runSilent(() => {
         paintRef.current?.clearRegion(rect, clip);
         broadcastPaintOps([{ clear: rect, clip }]);
         setNodes((nds) => nds.filter((n) => !ids.has(n.id)));
+        if (removedEdges.length) setEdges?.(dropEdges);
       }),
     });
-  }, [pushExternalStep, runSilent, setNodes, broadcastPaintOps]);
+  }, [pushExternalStep, runSilent, setNodes, setEdges, broadcastPaintOps]);
 
   // Cancel (Escape): put raster + nodes back where they were, no undo step.
   const cancelAreaSelection = useCallback(() => {

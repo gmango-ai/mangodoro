@@ -411,24 +411,6 @@ function QuickConnectArrows({ id, color }) {
   );
 }
 
-function FourHandles() {
-  // Visibility + pointer-events are driven by CSS (.wb-conn-handle) so the
-  // dots only appear/intercept on node hover or selection — the body stays
-  // grabbable for moving. zIndex keeps them above the resizer edge lines.
-  const base = {
-    width: NODE_TOUCH ? 20 : 12, height: NODE_TOUCH ? 20 : 12, background: "#0ea5e9",
-    border: "2px solid #fff", borderRadius: 9999,
-    zIndex: 12,
-  };
-  return (
-    <>
-      <Handle type="source" position={Position.Top}    id="t" className="wb-conn-handle" style={base} />
-      <Handle type="source" position={Position.Right}  id="r" className="wb-conn-handle" style={base} />
-      <Handle type="source" position={Position.Bottom} id="b" className="wb-conn-handle" style={base} />
-      <Handle type="source" position={Position.Left}   id="l" className="wb-conn-handle" style={base} />
-    </>
-  );
-}
 
 // ─── StickyNote ───────────────────────────────────────────────────
 
@@ -1266,7 +1248,7 @@ export const ImageNode = memo(function ImageNode({ id, data, selected }) {
         )}
       </div>
       <NodeResizer isVisible={selected && !data?.locked} minWidth={48} minHeight={48} keepAspectRatio {...resizer(SELECT)} />
-      <FourHandles />
+      {/* No connection handles — images aren't edge endpoints (NON_CONNECTABLE). */}
       {selected && (
         <button
           type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete"

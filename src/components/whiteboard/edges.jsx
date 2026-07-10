@@ -10,6 +10,12 @@ import { ShapeSvg } from "./nodes";
 // Provided by WhiteboardPage: the shape the current connect-drag will create
 // (picked via number keys), so the live ghost matches. Null → mirror the parent.
 export const ConnectShapeContext = createContext(null);
+
+// Provided by WhiteboardPage: a Set of edge ids caught in the current floating
+// marquee/lasso selection. Those edges draw a highlight underlay so a group
+// selection VISIBLY includes its connectors (they move/delete with the group).
+// Local-only (never synced) — it's a UI affordance, not edge state.
+export const AreaSelectedEdgesContext = createContext(null);
 const LEGACY_GHOST = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
@@ -49,7 +55,7 @@ const STUB = 22; // min distance an edge travels perpendicular before bending
 
 // Edges only attach to flowchart shapes. Containers and content nodes —
 // frames, zones, sticky notes, goals — are never edge endpoints.
-export const NON_CONNECTABLE = new Set(["frame", "zone", "sticky", "goal", "draw"]);
+export const NON_CONNECTABLE = new Set(["frame", "zone", "sticky", "goal", "draw", "image"]);
 
 function stubDir(pos) {
   return pos === "left" ? [-1, 0] : pos === "right" ? [1, 0] : pos === "top" ? [0, -1] : [0, 1];
@@ -228,6 +234,29 @@ function capUrl(kind) {
     case "dot": return "url(#wb-dot)";
     case "diamond": return "url(#wb-diamond)";
     default: return undefined; // "none"
+  }
+}
+
+// A PER-EDGE end-cap <marker> with the edge's actual colour baked in (fill via
+// `style` so a CSS var resolves). Rendered in the edge's own <defs> instead of
+// the shared context-stroke markers — iOS Safari lacks context-stroke and paints
+// those black (invisible on a dark board), so end-caps vanished on mobile.
+function capMarkerId(kind, edgeId) {
+  return kind && kind !== "none" ? `wbm-${kind}-${edgeId}` : null;
+}
+function capMarker(kind, id, color) {
+  const attrs = { id, markerUnits: "strokeWidth", orient: "auto-start-reverse" };
+  switch (kind) {
+    case "arrow":
+      return <marker {...attrs} markerWidth="10" markerHeight="10" refX="7" refY="5"><path d="M1.5 1.5 L9 5 L1.5 8.5 Z" style={{ fill: color }} /></marker>;
+    case "open":
+      return <marker {...attrs} markerWidth="10" markerHeight="10" refX="7" refY="5"><path d="M2 1.5 L9 5 L2 8.5" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ fill: "none", stroke: color }} /></marker>;
+    case "dot":
+      return <marker {...attrs} markerWidth="8" markerHeight="8" refX="4" refY="4"><circle cx="4" cy="4" r="3" style={{ fill: color }} /></marker>;
+    case "diamond":
+      return <marker {...attrs} markerWidth="11" markerHeight="11" refX="5.5" refY="5.5"><path d="M5.5 1 L10 5.5 L5.5 10 L1 5.5 Z" style={{ fill: color }} /></marker>;
+    default:
+      return null;
   }
 }
 
@@ -489,10 +518,19 @@ const EditableEdge = memo(function EditableEdge({
   style, data, selected,
 }) {
   const { setEdges, screenToFlowPosition, getNode, getNodes } = useReactFlow();
+  // Part of a floating marquee/lasso selection? Draw a highlight underlay so the
+  // group selection visibly includes this connector (context is local-only).
+  const areaSelIds = useContext(AreaSelectedEdgesContext);
+  const areaSelected = !!areaSelIds?.has?.(id);
   // End-caps come from data (both ends independently). Default: a target arrow,
-  // no source cap. Custom markers → reliable dot/diamond + start-end support.
-  const markerStart = capUrl(data?.startCap ?? "none");
-  const markerEnd = capUrl(data?.endCap ?? "arrow");
+  // no source cap. Per-edge markers (colour baked in) so they render on mobile.
+  const startCap = data?.startCap ?? "none";
+  const endCap = data?.endCap ?? "arrow";
+  const capColor = style?.stroke || "var(--color-accent)";
+  const startMId = capMarkerId(startCap, id);
+  const endMId = capMarkerId(endCap, id);
+  const markerStart = startMId ? `url(#${startMId})` : undefined;
+  const markerEnd = endMId ? `url(#${endMId})` : undefined;
 
   // Endpoint resolution, recomputed live from the node rects so a dragged
   // node's edges re-anchor in real time:
@@ -822,6 +860,17 @@ const EditableEdge = memo(function EditableEdge({
 
   return (
     <>
+      <defs>
+        {startMId && capMarker(startCap, startMId, capColor)}
+        {endMId && endMId !== startMId && capMarker(endCap, endMId, capColor)}
+      </defs>
+      {/* Marquee/lasso highlight: a soft accent halo behind the line so a group
+          selection visibly includes its edges (matches the selection box). */}
+      {areaSelected && (
+        <path d={path} fill="none" stroke="var(--color-accent)" strokeOpacity={0.35}
+          strokeWidth={sw + 8} strokeLinecap="round" strokeLinejoin="round"
+          style={{ pointerEvents: "none" }} />
+      )}
       <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} style={style} />
       {/* Wide invisible hit-path: double-click anywhere to label; hover
           surfaces the endpoint handles so you can grab an end to re-route. */}

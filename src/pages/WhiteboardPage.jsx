@@ -99,6 +99,7 @@ import { useApp } from "../context/AppContext";
 import {
   EDGE_TYPES,
   ConnectShapeContext,
+  AreaSelectedEdgesContext,
   EdgeMarkerDefs,
   ConnectionLine,
   connectedNodePlacement,
@@ -771,7 +772,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         const M = 12;
         const hit = (pt) => rf.getNodes().find((n) => {
           if (NON_CONNECTABLE.has(n.type)) return false;
-          const r = nodeRect(n);
+          const r = nodeRect(rf.getInternalNode(n.id) || n); // absolute rect (framed shapes)
           return r && pt.x >= r.x - M && pt.x <= r.x + r.w + M && pt.y >= r.y - M && pt.y <= r.y + r.h + M;
         });
         const a = hit(shape.from), b = hit(shape.to);
@@ -865,6 +866,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     rf,
     paintRef,
     setNodes,
+    setEdges,
     runSilent,
     pushExternalStep,
     broadcastPaintOps,
@@ -872,6 +874,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     toolRef,
     penActive,
   });
+  // Edge ids inside the current floating selection → highlighted via context so
+  // marquee/lasso'd connectors visibly join the group (local-only, no sync).
+  const areaSelEdgeIds = useMemo(
+    () => new Set((areaSel?.edges || []).map((e) => e.id)),
+    [areaSel],
+  );
 
   const cancelActiveStroke = useCallback(() => {
     strokePidRef.current = null;
@@ -1175,7 +1183,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       const M = 12;
       const hit = (pt) => rf.getNodes().find((n) => {
         if (NON_CONNECTABLE.has(n.type)) return false;
-        const r = nodeRect(n);
+        const r = nodeRect(rf.getInternalNode(n.id) || n); // absolute rect (framed shapes)
         return r && pt.x >= r.x - M && pt.x <= r.x + r.w + M && pt.y >= r.y - M && pt.y <= r.y + r.h + M;
       });
       const a = hit(shape.from), b = hit(shape.to);
@@ -1423,11 +1431,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       }
 
       // What node did we release over? (skip containers; small margin so a
-      // drop right on the border still counts.)
+      // drop right on the border still counts.) Use the INTERNAL node for the
+      // absolute rect — a getNodes() node inside a frame carries a position
+      // RELATIVE to its frame, so nodeRect(n) would place it wrong and the drop
+      // would never land on a framed shape.
       const M2 = 8;
+      const absRect = (n) => nodeRect(rf.getInternalNode(n.id) || n);
       const overNode = rf.getNodes().find((n) => {
         if (NON_CONNECTABLE.has(n.type)) return false;
-        const r = nodeRect(n);
+        const r = absRect(n);
         return (
           r &&
           pos.x >= r.x - M2 &&
@@ -1444,7 +1456,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       if (overNode && overNode.id !== fromNodeId) {
         const sSide = SIDE_POS[sourceHandle] || "right"; // the side you pulled from
         const sourceAnchor = { side: sSide, t: 0.5, auto: true };
-        const targetAnchor = snappedAnchor(nodeRect(overNode), pos.x, pos.y);
+        const targetAnchor = snappedAnchor(absRect(overNode), pos.x, pos.y);
         setEdges((eds) =>
           addEdge(
             {
@@ -1523,7 +1535,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       };
       const nearby = rf.getNodes().find((n) => {
         if (n.id === fromNodeId || NON_CONNECTABLE.has(n.type)) return false;
-        const r = nodeRect(n);
+        const r = nodeRect(rf.getInternalNode(n.id) || n); // absolute rect (framed shapes)
         return r && r.x < zone.x + zone.w && r.x + r.w > zone.x && r.y < zone.y + zone.h && r.y + r.h > zone.y;
       });
       if (nearby) {
@@ -1613,7 +1625,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     };
     const existing = rf.getNodes().find((n) => {
       if (n.id === fromNodeId || NON_CONNECTABLE.has(n.type)) return false;
-      const r = nodeRect(n);
+      const r = nodeRect(rf.getInternalNode(n.id) || n); // absolute rect (framed shapes)
       return r && r.x < zone.x + zone.w && r.x + r.w > zone.x && r.y < zone.y + zone.h && r.y + r.h > zone.y;
     });
     if (existing) {
@@ -2649,6 +2661,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           full page — so the old standalone top-right PNG button is gone. */}
       <QuickConnectContext.Provider value={quickConnectApi}>
       <ConnectShapeContext.Provider value={pickedShape}>
+      <AreaSelectedEdgesContext.Provider value={areaSelEdgeIds}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -3091,6 +3104,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           );
         })()}
       </ReactFlow>
+      </AreaSelectedEdgesContext.Provider>
       </ConnectShapeContext.Provider>
       </QuickConnectContext.Provider>
 
