@@ -101,7 +101,12 @@ export function runTour(tour, ctx, { onComplete, onDismiss } = {}) {
     steps,
     onNextClick: () => { advance(d); },
     onPrevClick: () => { d.movePrevious(); },
-    onCloseClick: () => { d.destroy(); },
+    // The final step's button is "Done" and fires its OWN hook (onDoneClick) —
+    // NOT onNextClick — in driver.js v1.6. Handling it here is what records a
+    // tour as completed; without it, finishing a tour fell through to onDismiss
+    // and never persisted to onboarding.completedTours.
+    onDoneClick: () => { finishedNaturally = true; d.destroy(); },
+    onCloseClick: () => { d.destroy(); }, // X / early close → dismiss
     onDestroyed: () => { (finishedNaturally ? onComplete : onDismiss)?.(); },
   });
 

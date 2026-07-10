@@ -1358,31 +1358,38 @@ export function AppProvider({ session, children }) {
   }
 
   // ── Onboarding / tutorial state ──────────────────────────────
-  // A single jsonb blob (settings.onboarding). All mutations read-modify-write
-  // off the LATEST settings via the functional setter, then persist the merged
-  // object, so concurrent flag flips (e.g. finishing a tour while a checklist
-  // item ticks) can't clobber each other. Cross-device sync rides the existing
-  // user_settings realtime UPDATE handler below.
-  const patchOnboarding = useCallback((mutate) => {
+  // onboarding (a jsonb blob on user_settings) is written from several
+  // independent places — tour completion, checklist facts, the welcome flow, the
+  // seen-marker seed. Writing the whole blob from a stale in-memory copy let
+  // concurrent writers clobber each other (which is why completedTours never
+  // stuck). Instead each setter sends a MINIMAL patch to the `onboarding_merge`
+  // RPC, which merges server-side (scalars overwrite, checklist shallow-merges,
+  // tour-id arrays union) so no writer ever drops another's keys. The optimistic
+  // local merge keeps the UI instant; realtime + refetch reconcile from the DB.
+  const addToSet = (arr, id) => (Array.isArray(arr) && arr.includes(id) ? arr : [...(arr || []), id]);
+  const mergeOnboarding = useCallback((patch) => {
     if (!session?.user?.id) return;
     setSettings((prev) => {
       const cur = prev.onboarding && typeof prev.onboarding === "object" ? prev.onboarding : {};
-      const next = mutate(cur) || cur;
-      // NOTE: postgrest builders are lazy — without .then() the request
-      // never fires, so this .then() is what actually executes the write.
-      supabase.from("user_settings").update({ onboarding: next }).eq("user_id", session.user.id).then(({ error }) => {
-        if (error) console.warn("save onboarding:", error.message);
-      });
+      const next = { ...cur };
+      if ("welcomeDone" in patch) next.welcomeDone = patch.welcomeDone;
+      if ("seenTourMarker" in patch) next.seenTourMarker = patch.seenTourMarker;
+      if (patch.checklist) next.checklist = { ...(cur.checklist || {}), ...patch.checklist };
+      if (patch.completedTours) next.completedTours = patch.completedTours.reduce(addToSet, cur.completedTours || []);
+      if (patch.dismissedTours) next.dismissedTours = patch.dismissedTours.reduce(addToSet, cur.dismissedTours || []);
       return { ...prev, onboarding: next };
+    });
+    // Authoritative, merge-safe DB write (never clobbers other keys / writers).
+    supabase.rpc("onboarding_merge", { p: patch }).then(({ error }) => {
+      if (error) console.warn("save onboarding:", error.message);
     });
   }, [session?.user?.id]);
 
-  const addToSet = (arr, id) => (Array.isArray(arr) && arr.includes(id) ? arr : [...(arr || []), id]);
-  const markTourComplete = useCallback((id) => patchOnboarding((o) => ({ ...o, completedTours: addToSet(o.completedTours, id) })), [patchOnboarding]);
-  const dismissTour = useCallback((id) => patchOnboarding((o) => ({ ...o, dismissedTours: addToSet(o.dismissedTours, id) })), [patchOnboarding]);
-  const setChecklistItem = useCallback((id, val = true) => patchOnboarding((o) => ({ ...o, checklist: { ...(o.checklist || {}), [id]: val } })), [patchOnboarding]);
-  const setWelcomeDone = useCallback(() => patchOnboarding((o) => ({ ...o, welcomeDone: true })), [patchOnboarding]);
-  const setSeenTourMarker = useCallback((marker) => patchOnboarding((o) => ({ ...o, seenTourMarker: marker })), [patchOnboarding]);
+  const markTourComplete = useCallback((id) => mergeOnboarding({ completedTours: [id] }), [mergeOnboarding]);
+  const dismissTour = useCallback((id) => mergeOnboarding({ dismissedTours: [id] }), [mergeOnboarding]);
+  const setChecklistItem = useCallback((id, val = true) => mergeOnboarding({ checklist: { [id]: val } }), [mergeOnboarding]);
+  const setWelcomeDone = useCallback(() => mergeOnboarding({ welcomeDone: true }), [mergeOnboarding]);
+  const setSeenTourMarker = useCallback((marker) => mergeOnboarding({ seenTourMarker: marker }), [mergeOnboarding]);
 
   // ── Custom sounds (user) ─────────────────────────────────────
   // Stored as a JSONB array on user_settings.custom_sounds. We round-trip

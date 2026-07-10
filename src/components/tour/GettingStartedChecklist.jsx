@@ -37,7 +37,7 @@ export default function GettingStartedChecklist() {
   // Each item's action: prefer starting its tutorial when one is registered +
   // available, otherwise deep-link to where the user does the thing.
   const act = (id) => {
-    const tourId = { room: "room-and-call", focus: "meet-pomodoro" }[id];
+    const tourId = { room: "office-basics", focus: "meet-pomodoro" }[id];
     if (tourId && isTourAvailable?.(tourId)) { startTour(tourId); return; }
     if (id === "name") navigate("/settings");
     else if (id === "org") navigate("/team");
