@@ -166,18 +166,22 @@ export default function ScheduleMeetingModal({ room, rooms, teamId, dark, initia
     <Modal open onClose={onClose} labelledBy="schedule-meeting-title">
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-md rounded-2xl border shadow-xl p-5 ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
+        className={`w-full max-w-md flex flex-col overflow-hidden rounded-2xl border shadow-xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-2rem)] ${dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"}`}
       >
-        <div className="flex items-center justify-between mb-4">
-          <h2 id="schedule-meeting-title" className={`flex items-center gap-2 text-base font-bold ${dark ? "text-slate-100" : "text-slate-900"}`}>
-            <CalendarPlus className="w-4 h-4" /> {editing ? "Edit meeting" : "Schedule a meeting"}
-          </h2>
-          <button type="button" onClick={onClose} aria-label="Close" className={`p-1 rounded ${dark ? "text-slate-400 hover:text-slate-200" : "text-slate-400 hover:text-slate-600"}`}>
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          {/* Sticky header — always visible so the dialog reads clearly. */}
+          <div className={`shrink-0 flex items-center justify-between gap-2 px-5 py-4 border-b ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+            <h2 id="schedule-meeting-title" className={`flex items-center gap-2 text-base font-bold ${dark ? "text-slate-100" : "text-slate-900"}`}>
+              <CalendarPlus className="w-4 h-4 text-[var(--color-accent)]" /> {editing ? "Edit meeting" : "Schedule a meeting"}
+            </h2>
+            <button type="button" onClick={onClose} aria-label="Close" className={`p-1.5 rounded-lg ${dark ? "text-slate-400 hover:text-slate-200 hover:bg-white/5" : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"}`}>
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-        <form onSubmit={submit} className="space-y-3">
+          {/* Scrollable body — the form fields grow here, never clipping the
+              header/footer on short or mobile viewports. */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           {!room && (
             <div>
               <label className={labelCls}>Room</label>
@@ -289,20 +293,24 @@ export default function ScheduleMeetingModal({ room, rooms, teamId, dark, initia
             Add to my Google Calendar {hasGoogle ? "" : "(connect Google in Settings)"}
           </label>
 
-          {error && <p className={`text-xs font-medium ${dark ? "text-red-400" : "text-red-600"}`}>{error}</p>}
+          </div>
 
-          <div className="flex items-center justify-between gap-2 pt-1">
-            {editing ? (
-              <Button type="button" variant="ghost" onClick={remove} disabled={busy} className={dark ? "text-red-400" : "text-red-600"}>
-                <Trash2 className="w-4 h-4 mr-1.5" /> Delete
-              </Button>
-            ) : <span />}
-            <div className="flex gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-              <Button type="submit" disabled={busy}>
-                {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <CalendarPlus className="w-4 h-4 mr-1.5" />}
-                {editing ? "Save changes" : "Schedule"}
-              </Button>
+          {/* Sticky footer — primary actions stay pinned and reachable. */}
+          <div className={`shrink-0 border-t px-5 py-3 space-y-2 ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+            {error && <p className={`text-xs font-medium ${dark ? "text-red-400" : "text-red-600"}`}>{error}</p>}
+            <div className="flex items-center justify-between gap-2">
+              {editing ? (
+                <Button type="button" variant="ghost" onClick={remove} disabled={busy} className={dark ? "text-red-400" : "text-red-600"}>
+                  <Trash2 className="w-4 h-4 mr-1.5" /> Delete
+                </Button>
+              ) : <span />}
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                <Button type="submit" disabled={busy}>
+                  {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <CalendarPlus className="w-4 h-4 mr-1.5" />}
+                  {editing ? "Save changes" : "Schedule"}
+                </Button>
+              </div>
             </div>
           </div>
         </form>
