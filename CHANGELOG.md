@@ -4,6 +4,120 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-10
+
+### New & improved
+
+- Guard stale lunch auto-return
+- feat(whiteboard): rich text — italic/underline/strike + line-height + kerning
+- refactor(whiteboard): text panel as a compact format bar
+- feat(whiteboard): font-weight selector + compact, themed text panel
+- feat(whiteboard): disable edit-on-create; Enter edits the selected node
+- feat(whiteboard): custom marquee with live highlight, align + bulk-edit, additive Shift
+- feat(whiteboard): fold crossing edges + brush paint into native selection
+- feat(whiteboard): bulk-edit multiple same-type selected nodes
+- feat(whiteboard): native React Flow multi-select as the primary select gesture
+- feat(whiteboard): marquee/lasso selects edges by crossing them
+- feat(whiteboard): propagate keyboard zoom to followers; fix mobile selection drag/deselect
+- feat(whiteboard): follow a collaborator's view + hover-for-names
+- feat(calendar): theme-aware calendar & tasks + week width levels
+- feat(onboarding): add a switch to disable onboarding hints
+- feat(whiteboard): selection envelopes its items instead of a bbox rectangle
+- feat(whiteboard): bigger toolbar buttons (48px touch / 40px mouse)
+- feat(whiteboard): keyboard-shortcuts cheatsheet (press ?)
+- feat(whiteboard): support image transparency
+- feat(whiteboard): stamp sticky/goal/frame/image + no auto-edit on placement
+- feat(onboarding): guided welcome tour + full-app tour coverage
+- feat(tasks): timeline overview + unified task editor across all surfaces
+- feat(whiteboard): stamp a shape — number keys place a shape at the cursor
+- feat(whiteboard): single-key tool shortcuts + font-size & z-order keys
+- feat(whiteboard): live auto-shape preview + fewer false ellipses
+- feat(whiteboard): pen auto-shape — draw & hold to snap to shapes/edges
+- refactor(whiteboard): extract usePalmRejection (version 3 foundation)
+- refactor(whiteboard): extract useWhiteboardInspector + useWhiteboardRegionSelect
+- feat(google): refresh the token on-demand at API guards, not just in the timer
+- refactor(whiteboard): extract useWhiteboardKeyboard
+- feat(google): silent token refresh so Calendar/Docs stay connected
+- refactor(whiteboard): extract useWhiteboardPersistence
+- refactor(whiteboard): extract useWhiteboardClipboard
+- refactor(whiteboard): extract toolbar + overlay components
+- refactor(whiteboard): extract pure utils + storage helpers
+- feat(office): widgets as room views + drop Arrange, move Leave
+- **chore** — room type setter, OAuth account chooser, nav + widget fixes
+- feat(status): drop legacy presence_state, unify on user_presence
+- feat(calendar): responsive rails, icon views, name-first chips + Google cache
+- feat(status): P4 (2/2) — drop the resolver's per-tick legacy write-through
+- feat(status): P4 (1/2) — occupant surfaces read user_presence, not presence_state
+- feat(whiteboard): :emoji: shortcodes in sticky notes + text nodes
+- feat(chat): back :emoji: shortcodes with the full Unicode set (~3.9k names)
+- feat(chat): apply EmojiTextField across free-text inputs + show all matches
+- feat(chat): reusable EmojiTextField — :emoji: shortcodes on any input, with arrow-key nav
+- **Whiteboard** — speed up the airbrush (and all wet-layer strokes) on mobile
+- feat(chat): Discord-style :emoji: shortcodes
+- **Profile** — browse previous focus notes with their Result status
+- refactor(status): remove the Status setter from Settings
+- feat(status): P5 — unified manual status UI (message, emoji, expiry, pin, invisible)
+- feat(status): P3 — server-side offline sweep (pg_cron)
+- feat(status): team status roster (combined in-room + team view)
+- **Whiteboard** — raster brush strokes read as one mark (wet-layer opacity)
+- feat(status): P2 — single leader-owned presence writer + heartbeat
+- feat(status): P1 — resolver emits 7 states + new precedence
+- **Whiteboard** — clamp toolbar popovers to viewport + tighten gap to the bar
+- **Whiteboard** — lasso select + unify all toolbar popovers to portal above trigger
+- feat(status): P0 — 7-state vocabulary + one shared presence map
+- **docs** — status-system rewrite plan (targeted, 7-state)
+- **Whiteboard** — fix inert region selection (pointer-events + click-off to place)
+- **Whiteboard** — fold region-select into the select tool + fix color popover & drag
+- refactor(planner): declutter the expanded task panel
+- feat(pomodoro): focus-task subtasks + task→status link
+- feat(calendar): surface subtask counts on task chips + Tasks card
+- feat(planner): redesign task rows with progressive disclosure
+- **Whiteboard/App** — fix startup crash, add route error boundary + mobile nav
+- feat(tasks): subtasks in the office Tasks widget
+- feat(tasks): subtasks + AI generation + subtask-driven progress (planner)
+- **Calendar** — expanded view = full month grid (no +more), not a list
+- **Calendar** — work-location conflict resolution + expanded month view
+- **Calendar** — goal grouping/collapse, work-location merge, agenda structure, tasks card
+- **Whiteboard** — Apple Pencil overhaul + region select, clear-all, live raster sync
+- **Meetings** — show record toggle to team admins, not just the session leader
+- **Calendar** — render weekly goals & OOO as full-span bars
+- Remove deprecated retros feature (whiteboards replaced it)
+- **Calendar** — restore a visible Google Calendar connect/sync control
+- **Calendar** — day hierarchy, meeting priority, work-hours band, unified agenda
+- **Calendar** — Mangodoro ocean reskin + type-distinct chips, priority, editing
+- Calendar (Phase 3): team scope, Google two-way, attendees & timezones
+- Calendar (Phase 2): deadlines, milestones, drag-to-schedule, list view
+- Calendar (Phase 1): read-only command-center overview
+- **Meetings** — AI summaries, room scheduling, Google Calendar/Docs
+- Retire Jitsi/JaaS; standardize video on LiveKit
+
+### Fixes
+
+- (db): resolve migration version collision on 20260709150000
+- (whiteboard): bulk-edit dropdowns no longer clipped
+- (whiteboard): contextual toolbars follow the app theme
+- (whiteboard): connect edges to nodes inside a frame (absolute rects)
+- (whiteboard): marquee-select edges, connect to framed shapes, mobile endcaps
+- (whiteboard): block iOS long-press callout/magnifier on the canvas pane
+- (whiteboard): Shift+number no longer arms a shape stamp (Shift+1 = fit view)
+- (whiteboard): frames are selectable again; empty paint tiles don't inflate the box
+- (whiteboard): single content-fitted selection box; ignore empty frames
+- (whiteboard): selection wraps only drawn items; hit area matches; re-marquee works
+- (whiteboard): keep top-center overlays clear of the title card
+- (onboarding): tours now persist completion (stop re-offering finished tours)
+- (whiteboard): stop auto-zoom on draw (drop the fitView prop)
+- (chat): select-none on the clickable author name
+- (chat): click a message avatar/name to open the profile popover
+- (whiteboard): click empty canvas deselects (region-drag only on move)
+- (whiteboard): don't start a region box on node clicks (broke selection)
+- (meetings): make the schedule-meeting dialog fit any viewport
+- (presence): heartbeat-based liveness, Away<12h before Offline
+- (milestones): default created_by to auth.uid()
+- (notifications): clearing didn't persist — add recipient DELETE policy
+- (chat): @mentions highlight + open profile in the /messages view
+- (status): P6 — repair focus-aware notification DND for the 7-state vocab
+- Repeating 'set your working hours' nudge
+
 ## 2026-07-07
 
 ### New & improved
