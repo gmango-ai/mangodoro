@@ -445,6 +445,7 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
   const isChannel = kind === "channel";
   const showAuthors = kind === "group" || isChannel;
   const canManageChannel = isChannel && (isAdmin || myOrgTeamLeadIds?.has(conversation?.org_team_id));
+  const { openProfile } = useProfileCard();
   // Name → user_id for rendering @mentions, from everyone we can see.
   const mentionNames = useMemo(() => {
     const m = new Map();
@@ -654,13 +655,15 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
               >
                 <div className="w-9 shrink-0">
                   {!grouped
-                    ? <UserAvatar url={author?.avatar_url || ""} name={author?.name || "Member"} size={36} />
+                    ? <button type="button" className="rounded-full" title="View profile" onClick={(e) => { e.stopPropagation(); openProfile?.(m.sender_id, e.currentTarget.getBoundingClientRect()); }}>
+                        <UserAvatar url={author?.avatar_url || ""} name={author?.name || "Member"} size={36} />
+                      </button>
                     : <span className="hidden group-hover:block pt-1 text-right pr-1 text-[10px] text-slate-400 tabular-nums">{clockTime(m.created_at)}</span>}
                 </div>
                 <div className="min-w-0 flex-1">
                   {!grouped && (
                     <div className="flex items-baseline gap-2">
-                      <span className={`text-sm font-bold ${mine ? "text-[var(--color-accent)]" : dark ? "text-slate-100" : "text-slate-800"}`}>{mine ? "You" : (author?.name || "Member")}</span>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openProfile?.(m.sender_id, e.currentTarget.getBoundingClientRect()); }} className={`text-sm font-bold hover:underline ${mine ? "text-[var(--color-accent)]" : dark ? "text-slate-100" : "text-slate-800"}`}>{mine ? "You" : (author?.name || "Member")}</button>
                       <span className="text-[11px] text-slate-400">{clockTime(m.created_at)}</span>
                     </div>
                   )}
