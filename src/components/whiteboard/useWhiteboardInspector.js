@@ -102,6 +102,23 @@ export function useWhiteboardInspector({ nodes, edges, setNodes }) {
     [setNodes]
   );
 
+  // Nudge the font size of every selected text/shape/sticky by `delta` px,
+  // clamped, each from its OWN current size (so a mixed selection stays
+  // proportional). Defaults match TextPanel: 16 for text/sticky, 13 for shapes.
+  const bumpSelectedFontSize = useCallback(
+    (delta) => {
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (!n.selected || !["text", "sticky", "shape"].includes(n.type)) return n;
+          const base = n.data?.fontSize ?? (n.type === "shape" ? 13 : 16);
+          const next = Math.max(8, Math.min(200, base + delta));
+          return next === n.data?.fontSize ? n : { ...n, data: { ...n.data, fontSize: next } };
+        })
+      );
+    },
+    [setNodes]
+  );
+
   // Lock / unlock the selected node(s). React Flow's per-node `draggable:false`
   // stops the move; the resizer is hidden via data.locked in each node. Both
   // persist (snapshot + sync), so a lock is shared with everyone on the board.
@@ -157,6 +174,7 @@ export function useWhiteboardInspector({ nodes, edges, setNodes }) {
     touchInspectorVisible,
     arrange,
     patchNodeData,
+    bumpSelectedFontSize,
     setSelectedLocked,
     setSelectedOpacity,
     reorderSelected,

@@ -1,18 +1,25 @@
 import { useEffect } from "react";
 
-// Whiteboard keyboard shortcuts, extracted verbatim from WhiteboardPage.jsx:
-// ⌘/Ctrl +/−/0 zoom, Shift+1 fits, arrows pan (when nothing's selected —
-// otherwise React Flow nudges the selected node), undo/redo, copy/cut, ⌘D
-// duplicate, "Q" quick-palette, Esc to drop to select / cancel a region
-// selection, and Delete on a floating region selection. Gated to when the board
-// is hovered/focused and you're not typing, so it doesn't hijack keys for the
-// rest of the app (e.g. an embedded room). The dependency array is intentionally
-// [rf, undo, redo] (the changing callbacks are read through refs), matching the
-// original.
+// Whiteboard keyboard shortcuts:
+// • Tool switch (single letter, Figma-style): V/S select, P pen, B brush,
+//   L laser, O lasso — press the active tool's key again (or Esc) to drop back
+//   to select.
+// • ⌘/Ctrl +/−/0 zoom, Shift+1 fits, arrows pan (when nothing's selected —
+//   otherwise React Flow nudges the selected node), undo/redo, copy/cut, ⌘D
+//   duplicate, "Q" quick-palette.
+// • ⌘] / ⌘[ bring the selection to front / send to back.
+// • ⌘⇧. / ⌘⇧, grow / shrink the selected text/shape/sticky font.
+// • Esc drops to select / cancels a region selection; Delete on a floating
+//   region selection.
+// Gated to when the board is hovered/focused and you're not typing, so it
+// doesn't hijack keys for the rest of the app (e.g. an embedded room). The
+// dependency array is intentionally [rf, undo, redo] (the other callbacks are
+// stable or read through refs).
 export function useWhiteboardKeyboard({
-  rf, undo, redo, setTool, setPalette,
+  rf, undo, redo, toolRef, setTool, setPalette,
   copyRef, cutRef, cloneRef,
   cancelAreaSelection, deleteAreaSelection, areaSelRef,
+  reorderSelected, bumpSelectedFontSize,
   mainRef, lastClientRef,
 }) {
   useEffect(() => {
@@ -44,6 +51,16 @@ export function useWhiteboardKeyboard({
         setPalette((p) => (p ? null : at));
         return;
       }
+      // Single-key tool switch (Figma-style). Pressing the active tool's own key
+      // again toggles back to select, so one key both picks AND drops a tool.
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        const t = { v: "select", s: "select", p: "pen", b: "brush", l: "laser", o: "lasso" }[e.key.toLowerCase()];
+        if (t) {
+          e.preventDefault();
+          setTool(toolRef.current === t && t !== "select" ? "select" : t);
+          return;
+        }
+      }
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       if (mod && k === "z" && !e.shiftKey) {
@@ -58,6 +75,18 @@ export function useWhiteboardKeyboard({
         if (copyRef.current?.()) e.preventDefault();
       } else if (mod && k === "x") {
         if (cutRef.current?.()) e.preventDefault();
+      } else if (mod && e.key === "]") {
+        e.preventDefault(); // (also suppresses browser fwd-nav)
+        reorderSelected?.(true); // bring to front
+      } else if (mod && e.key === "[") {
+        e.preventDefault(); // (also suppresses browser back-nav)
+        reorderSelected?.(false); // send to back
+      } else if (mod && (e.key === ">" || (e.shiftKey && e.key === "."))) {
+        e.preventDefault();
+        bumpSelectedFontSize?.(2);
+      } else if (mod && (e.key === "<" || (e.shiftKey && e.key === ","))) {
+        e.preventDefault();
+        bumpSelectedFontSize?.(-2);
       } else if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
         rf.zoomIn({ duration: 150 });

@@ -2145,13 +2145,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   // Keyboard shortcuts — placed here so copy/cut/clone refs already exist
   // (registers a global keydown listener; call position is behavior-neutral).
-  useWhiteboardKeyboard({
-    rf, undo, redo, setTool, setPalette,
-    copyRef, cutRef, cloneRef,
-    cancelAreaSelection, deleteAreaSelection, areaSelRef,
-    mainRef, lastClientRef,
-  });
-
   // ⌘/Ctrl-click a node to drop a clone of it right next to it.
   const onNodeClick = useCallback((e, node) => {
     if ((e.metaKey || e.ctrlKey) && node.type !== "zone") {
@@ -2178,10 +2171,22 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     touchInspectorVisible,
     arrange,
     patchNodeData,
+    bumpSelectedFontSize,
     setSelectedLocked,
     setSelectedOpacity,
     reorderSelected,
   } = useWhiteboardInspector({ nodes, edges, setNodes });
+
+  // Keyboard shortcuts. Placed BELOW the inspector so its callbacks
+  // (reorderSelected / bumpSelectedFontSize) are declared before this hook reads
+  // them (see the TDZ-on-hook-extraction lesson). Effect-only, so position-safe.
+  useWhiteboardKeyboard({
+    rf, undo, redo, toolRef, setTool, setPalette,
+    copyRef, cutRef, cloneRef,
+    cancelAreaSelection, deleteAreaSelection, areaSelRef,
+    reorderSelected, bumpSelectedFontSize,
+    mainRef, lastClientRef,
+  });
   const bottomStackOffset = 15 + toolbarH + BOTTOM_PANEL_GAP;
   const brushStackH = tool === "brush" ? PAINT_TOOLBAR_STACK_H : 0;
   const touchInspectorBottom = bottomStackOffset + brushStackH;
