@@ -54,10 +54,12 @@ export const availabilityLight = (a) => availabilityMeta(a).light;
 
 // The availability to SHOW for an occupant/participant: the canonical
 // user_presence value (from a userId->availability map, e.g. usePresenceById).
-// A missing row OR a lagging 'offline' falls back to `fallback` (default
-// 'online') — an occupant is definitionally present, so it shouldn't be hidden
-// by a not-yet-written or stale-offline snapshot.
+// TRUST it — including 'offline'. That map already folds in realtime liveness
+// (mergeOfficePresence forces 'offline' when the socket is gone), so a ghost
+// participant whose row lingers must read the same 'offline' here as it does in
+// the team roster. `fallback` (default 'online') is used ONLY when there's no
+// row at all — a present participant we simply have no snapshot for yet.
 export function shownAvailability(userId, presenceById, fallback = "online") {
   const a = presenceById && typeof presenceById.get === "function" ? presenceById.get(userId)?.availability : null;
-  return a && a !== "offline" ? a : fallback;
+  return a || fallback;
 }

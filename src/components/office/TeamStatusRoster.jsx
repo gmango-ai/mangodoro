@@ -63,9 +63,13 @@ export default function TeamStatusRoster({ dark }) {
   const groups = useMemo(() => {
     const roomsG = new Map(); // roomId -> people[]
     const around = [];
-    const offline = [];
+    const awayList = []; // heartbeat stopped < 12h
+    const offline = []; // absent ≥ 12h (or appearing offline)
     for (const p of people) {
-      if (!p.online) { offline.push(p); continue; }
+      if (!p.online) {
+        (p.availability === "offline" ? offline : awayList).push(p);
+        continue;
+      }
       if (p.locationKind === "room" && p.locationRoomId) {
         if (!roomsG.has(p.locationRoomId)) roomsG.set(p.locationRoomId, []);
         roomsG.get(p.locationRoomId).push(p);
@@ -84,6 +88,7 @@ export default function TeamStatusRoster({ dark }) {
       .sort((a, b) => (roomName[a[0]] || "").localeCompare(roomName[b[0]] || ""))
       .forEach(([rid, list]) => out.push({ key: `room:${rid}`, label: roomName[rid] || "A room", people: list.sort(byName) }));
     if (around.length) out.push({ key: "around", label: "In the hallway", people: around.sort(byName) });
+    if (awayList.length) out.push({ key: "away", label: "Away", people: awayList.sort(byName) });
     if (offline.length) out.push({ key: "offline", label: "Offline", people: offline.sort(byName), muted: true });
     return out;
   }, [people, roomName, currentRoomId]);
