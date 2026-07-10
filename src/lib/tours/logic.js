@@ -74,6 +74,7 @@ export function deriveChecklist(facts = {}) {
   const items = [
     { id: "name", label: "Set your name & avatar", done: !!facts.name },
     { id: "org", label: "Join or create an org", done: !!facts.hasOrg },
+    { id: "task", label: "Add your first task", done: !!facts.madeTask },
     { id: "room", label: "Enter a room", done: !!facts.enteredRoom, requiresOrg: true },
     { id: "focus", label: "Start a focus session", done: !!facts.startedFocus },
     { id: "goal", label: "Set a goal", done: !!facts.hasGoal, requiresOrg: true },

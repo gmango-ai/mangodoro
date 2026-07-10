@@ -40,9 +40,9 @@ describe("buildSignals", () => {
   });
 
   // Composition: buildSignals → resolveStatus end-to-end.
-  it("end-to-end: meeting room resolves to in_meeting", () => {
+  it("end-to-end: meeting room resolves to meeting", () => {
     const sig = buildSignals({ room: { id: "r", name: "Standup", kind: "meeting" }, online: true, now: NOW });
-    expect(resolveStatus(sig).availability).toBe("in_meeting");
+    expect(resolveStatus(sig).availability).toBe("meeting");
   });
 
   it("end-to-end: pomodoro work sprint in a general room resolves to focusing", () => {

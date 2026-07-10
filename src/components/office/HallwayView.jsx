@@ -10,8 +10,10 @@ import {
 import { Button } from "@/components/ui/button";
 import OfficeLayoutEditor from "../OfficeLayoutEditor";
 import OfficePresenceBar from "./OfficePresenceBar";
+import TeamStatusRoster from "./TeamStatusRoster";
 import UserAvatar from "../UserAvatar";
-import { presenceRing } from "../../lib/presence";
+import { availabilityRing, shownAvailability } from "../../lib/presence";
+import { usePresenceById } from "../../hooks/usePresenceById";
 
 const KIND_ICON = {
   general: Hash,
@@ -272,6 +274,20 @@ export default function HallwayView({
           />
         )}
       </div>
+
+      {/* Whole-team status list — who's in which room, who's around, who's
+          offline. Reads the same single source as the in-room roster. */}
+      <div className={`mt-6 rounded-2xl border p-4 ${
+        dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-white"
+      }`}>
+        <div className="flex items-center gap-1.5 mb-3">
+          <Users className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+          <h2 className={`text-[11px] font-bold uppercase tracking-wider ${dark ? "text-slate-300" : "text-slate-600"}`}>
+            Team status
+          </h2>
+        </div>
+        <TeamStatusRoster dark={dark} />
+      </div>
     </div>
   );
 }
@@ -284,6 +300,7 @@ export default function HallwayView({
 // Locked rooms render with the same dim+lock affordance as in the
 // floor view so the gating cue stays consistent across views.
 function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, onEnterRoom, dark }) {
+  const presenceById = usePresenceById();
   if (!grouped.length) {
     return (
       <p className={`text-sm text-center py-10 ${dark ? "text-slate-500" : "text-slate-400"}`}>
@@ -359,7 +376,7 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                                     url={o.avatar_url}
                                     name={o.name}
                                     size={20}
-                                    className={`ring-2 ${presenceRing(o.presence_state)}`}
+                                    className={`ring-2 ${availabilityRing(shownAvailability(o.user_id, presenceById))}`}
                                   />
                                 </span>
                               ))}

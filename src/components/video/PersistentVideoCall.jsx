@@ -5,24 +5,22 @@ import { useNavigate } from "react-router-dom";
 import { useVideoCall } from "../../context/VideoCallContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTheme } from "../../context/ThemeContext";
-import { resolveVideoProvider, VIDEO } from "../../lib/videoProvider";
 import { cloneDocStyles, copyRootCustomProps } from "../pomodoro/PomodoroPipParts";
 import VideoCall from "./VideoCall";
 
 // Persistent container for the active room call. Lives at the AppLayout level so
 // it never unmounts when the user navigates — the LiveKit connection stays up.
 //
-// Positioning (LiveKit): we portal the call into a STABLE host <div> that we
-// physically move between two parents:
+// Positioning: we portal the call into a STABLE host <div> that we physically
+// move between two parents:
 //   • Stage mode — appended INSIDE the page's stageEl (RoomVideoStage's tile),
 //     position:absolute inset-0, so the call fills that tile and SCROLLS NATIVELY
 //     with the page.
 //   • PiP mode  — appended to <body>, position:fixed bottom-right, a floating
 //     window with a back-to-room + leave-call header.
 //
-// Re-parenting the host node is safe for LiveKit <video> elements. Jitsi still
-// embeds an <iframe> that reloads when re-parented, so the Jitsi fallback keeps
-// a single fixed-position container and syncs its rect to the stage instead.
+// Re-parenting the host node is safe for LiveKit <video> elements — moving the
+// node keeps the RTC + <video> live.
 
 const PIP_CSS =
   "position:fixed;bottom:16px;right:16px;width:320px;height:200px;z-index:120;" +
@@ -43,61 +41,42 @@ const MAX_CSS =
   "position:fixed;inset:0;z-index:130;background:#0f172a;box-sizing:border-box;" +
   "padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);";
 
-const PIP_WIDTH = 320;
-const PIP_HEIGHT = 200;
-const PIP_MARGIN = 16;
-
-function pipRect() {
-  if (typeof window === "undefined") return null;
-  return {
-    top: window.innerHeight - PIP_HEIGHT - PIP_MARGIN,
-    left: window.innerWidth - PIP_WIDTH - PIP_MARGIN,
-    width: PIP_WIDTH,
-    height: PIP_HEIGHT,
-  };
-}
-
 export default function PersistentVideoCall() {
   const { call, startCall, endCall, updateCall, stageEl, poppedOut, setPoppedOut, setCanPopOut, registerPopout, maximized, hideChrome } = useVideoCall();
   const { syncSession } = useSyncSession();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
-  const reparentSafe = resolveVideoProvider() === VIDEO.LIVEKIT;
   const inPiP = !stageEl && !maximized;
 
-  // Pop-out: move the (re-parentable) call host into an OS-level Document
-  // Picture-in-Picture window that floats above other apps. Chromium/Electron
-  // only (same API the pomodoro pop-out uses) — and LiveKit only, since moving a
-  // Jitsi <iframe> reloads it. Moving the host node keeps the RTC + <video> live.
+  // Pop-out: move the call host into an OS-level Document Picture-in-Picture
+  // window that floats above other apps. Chromium/Electron only (same API the
+  // pomodoro pop-out uses). Moving the host node keeps the RTC + <video> live.
   // `poppedOut` lives in VideoCallContext so the (deeply-nested) call control bar
   // can drive it; we register the open/close implementation there below.
   const pipWinRef = useRef(null);
   const canPopOut =
-    reparentSafe &&
     typeof window !== "undefined" &&
     "documentPictureInPicture" in window;
 
-  // Stable host node (LiveKit only): created once, moved between parents, never
-  // unmounted — so the portaled <VideoCall> survives navigation.
+  // Stable host node: created once, moved between parents, never unmounted — so
+  // the portaled <VideoCall> survives navigation.
   const hostRef = useRef(null);
-  if (reparentSafe && hostRef.current === null && typeof document !== "undefined") {
+  if (hostRef.current === null && typeof document !== "undefined") {
     hostRef.current = document.createElement("div");
   }
-  const [jitsiRect, setJitsiRect] = useState(null);
 
   // Collapse the call UI to compact when it's rendered in a tight area — PiP, or
   // the shrunk "others" corner of the pre-join — so the toolbar never overflows.
   const [small, setSmall] = useState(false);
   useEffect(() => {
-    if (!reparentSafe) return undefined;
     const host = hostRef.current;
     if (!host || typeof ResizeObserver === "undefined") return undefined;
     const ro = new ResizeObserver(() => setSmall(host.clientWidth > 0 && host.clientWidth < 380));
     ro.observe(host);
     return () => ro.disconnect();
-  }, [reparentSafe]);
-  const compact = inPiP || small || (!reparentSafe && !!jitsiRect && jitsiRect.width < 380);
+  }, []);
+  const compact = inPiP || small;
 
   // Bind the call's lifetime to the room's sync session, and handle carry-over:
   // when you move from one room to another while in a call, the call FOLLOWS you
@@ -121,11 +100,11 @@ export default function PersistentVideoCall() {
     }
   }, [syncSession?.room_id, call, startCall, endCall]);
 
-  // LiveKit: place the host inside the stage (scrolls natively) or floating PiP.
-  // Skipped while popped out — the pop-out window owns the host node then, and
-  // this effect re-claims it when the window closes (poppedOut flips false).
+  // Place the host inside the stage (scrolls natively) or floating PiP. Skipped
+  // while popped out — the pop-out window owns the host node then, and this
+  // effect re-claims it when the window closes (poppedOut flips false).
   useLayoutEffect(() => {
-    if (!reparentSafe || poppedOut) return undefined;
+    if (poppedOut) return undefined;
     const host = hostRef.current;
     if (!host) return undefined;
     // Call ended: detach the host. In maximized mode it's a position:fixed
@@ -149,7 +128,7 @@ export default function PersistentVideoCall() {
     }
     try { host.querySelectorAll("video").forEach((v) => v.play?.().catch(() => {})); } catch { /* */ }
     return undefined;
-  }, [stageEl, call, reparentSafe, poppedOut, maximized]);
+  }, [stageEl, call, poppedOut, maximized]);
 
   // Detach the host only when this component truly unmounts (sign-out).
   useEffect(() => () => { try { hostRef.current?.remove(); } catch { /* */ } }, []);
@@ -207,44 +186,8 @@ export default function PersistentVideoCall() {
   }, [registerPopout]);
   useEffect(() => { setCanPopOut(canPopOut); }, [canPopOut, setCanPopOut]);
 
-  // Jitsi: keep one fixed container — moving an iframe between parents reloads it.
-  useLayoutEffect(() => {
-    if (reparentSafe) {
-      setJitsiRect(null);
-      return undefined;
-    }
-    if (!call) {
-      setJitsiRect(null);
-      return undefined;
-    }
-    let cancelled = false;
-    function update() {
-      if (cancelled) return;
-      if (stageEl) {
-        const r = stageEl.getBoundingClientRect();
-        setJitsiRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-      } else {
-        setJitsiRect(pipRect());
-      }
-    }
-    update();
-
-    const ro = stageEl ? new ResizeObserver(update) : null;
-    if (stageEl && ro) ro.observe(stageEl);
-    window.addEventListener("resize", update);
-    if (stageEl) window.addEventListener("scroll", update, true);
-
-    return () => {
-      cancelled = true;
-      if (ro) ro.disconnect();
-      window.removeEventListener("resize", update);
-      if (stageEl) window.removeEventListener("scroll", update, true);
-    };
-  }, [stageEl, call, reparentSafe]);
-
   if (!call) return null;
-  if (reparentSafe && !hostRef.current) return null;
-  if (!reparentSafe && !jitsiRect) return null;
+  if (!hostRef.current) return null;
 
   const content = (
     <>
@@ -301,83 +244,64 @@ export default function PersistentVideoCall() {
     </>
   );
 
-  if (reparentSafe) {
-    return (
-      <>
-        {createPortal(content, hostRef.current)}
-        {/* Mobile stand-in for the hidden floating window: the call is
-            audio-only in the background; this pill is how you get back to it
-            (room stage / drive mode) or hang up. */}
-        {inPiP && !poppedOut && IS_TOUCH && (
-          <div
-            className="fixed inset-x-3 z-[120]"
-            style={{ bottom: "calc(var(--bottom-inset) + 5.5rem)" }}
-          >
-            <div className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900/95 text-white shadow-2xl px-4 py-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" aria-hidden />
-              <span className="flex-1 min-w-0 text-sm font-semibold truncate">In call</span>
-              <button
-                type="button"
-                onClick={() => navigate("/drive")}
-                aria-label="Drive mode"
-                className="flex items-center justify-center w-11 h-11 rounded-xl active:bg-white/10"
-              >
-                <Car className="w-5 h-5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate(`/office/r/${call.roomId}`)}
-                aria-label="Back to room"
-                className="flex items-center justify-center w-11 h-11 rounded-xl active:bg-white/10"
-              >
-                <Maximize2 className="w-5 h-5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => endCall("user-leave-pip")}
-                aria-label="Leave call"
-                className="flex items-center justify-center w-11 h-11 rounded-xl text-red-400 active:bg-red-500/20"
-              >
-                <PhoneOff className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-        )}
-        {/* While popped out the host lives in the OS window, so the app's slot is
-            empty — leave a small card to bring it back. */}
-        {poppedOut && (
-          <div className="fixed bottom-4 right-4 z-[120] w-[220px] rounded-xl border border-slate-700 bg-slate-900/95 text-white shadow-2xl p-3">
-            <div className="flex items-center gap-1.5 text-xs font-semibold mb-1">
-              <PictureInPicture2 className="w-3.5 h-3.5" /> Call popped out
-            </div>
-            <p className="text-[11px] text-slate-400 mb-2">Your call is in a floating window.</p>
+  return (
+    <>
+      {createPortal(content, hostRef.current)}
+      {/* Mobile stand-in for the hidden floating window: the call is
+          audio-only in the background; this pill is how you get back to it
+          (room stage / drive mode) or hang up. */}
+      {inPiP && !poppedOut && IS_TOUCH && (
+        <div
+          className="fixed inset-x-3 z-[120]"
+          style={{ bottom: "calc(var(--bottom-inset) + 5.5rem)" }}
+        >
+          <div className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900/95 text-white shadow-2xl px-4 py-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" aria-hidden />
+            <span className="flex-1 min-w-0 text-sm font-semibold truncate">In call</span>
             <button
               type="button"
-              onClick={closePopOut}
-              className="w-full px-2 py-1.5 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs font-semibold"
+              onClick={() => navigate("/drive")}
+              aria-label="Drive mode"
+              className="flex items-center justify-center w-11 h-11 rounded-xl active:bg-white/10"
             >
-              Return to app
+              <Car className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(`/office/r/${call.roomId}`)}
+              aria-label="Back to room"
+              className="flex items-center justify-center w-11 h-11 rounded-xl active:bg-white/10"
+            >
+              <Maximize2 className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => endCall("user-leave-pip")}
+              aria-label="Leave call"
+              className="flex items-center justify-center w-11 h-11 rounded-xl text-red-400 active:bg-red-500/20"
+            >
+              <PhoneOff className="w-5 h-5" />
             </button>
           </div>
-        )}
-      </>
-    );
-  }
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top: jitsiRect.top,
-        left: jitsiRect.left,
-        width: jitsiRect.width,
-        height: jitsiRect.height,
-        zIndex: inPiP ? 120 : 20,
-        transition: inPiP ? "top 0.18s ease, left 0.18s ease" : "none",
-      }}
-      className={inPiP ? "rounded-xl shadow-2xl overflow-hidden bg-slate-900 border border-slate-700" : ""}
-    >
-      {content}
-    </div>
+        </div>
+      )}
+      {/* While popped out the host lives in the OS window, so the app's slot is
+          empty — leave a small card to bring it back. */}
+      {poppedOut && (
+        <div className="fixed bottom-4 right-4 z-[120] w-[220px] rounded-xl border border-slate-700 bg-slate-900/95 text-white shadow-2xl p-3">
+          <div className="flex items-center gap-1.5 text-xs font-semibold mb-1">
+            <PictureInPicture2 className="w-3.5 h-3.5" /> Call popped out
+          </div>
+          <p className="text-[11px] text-slate-400 mb-2">Your call is in a floating window.</p>
+          <button
+            type="button"
+            onClick={closePopOut}
+            className="w-full px-2 py-1.5 rounded-lg bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs font-semibold"
+          >
+            Return to app
+          </button>
+        </div>
+      )}
+    </>
   );
 }

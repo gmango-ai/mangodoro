@@ -1,16 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { Hash, Briefcase, MessageSquare, Lock } from "lucide-react";
+import { availabilityDot, shownAvailability } from "../../lib/presence";
+import { usePresenceById } from "../../hooks/usePresenceById";
 
 const COLUMNS = 12;
 const GAP = 4;
-const PRESENCE_DOT = {
-  active: "bg-emerald-500",
-  available: "bg-sky-500",
-  heads_down: "bg-violet-500",
-  in_meeting: "bg-rose-500",
-  away: "bg-amber-500",
-};
 
 const KIND_ICON = {
   general: Hash,
@@ -32,6 +27,7 @@ export default function OfficeMinimap({
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const presenceById = usePresenceById();
   const gridRef = useRef(null);
   const [cellWidth, setCellWidth] = useState(20);
 
@@ -119,7 +115,7 @@ export default function OfficeMinimap({
                 {occupants.slice(0, 5).map((o) => (
                   <span
                     key={o.user_id}
-                    className={`w-1 h-1 rounded-full ${PRESENCE_DOT[o.presence_state] || "bg-emerald-500"}`}
+                    className={`w-1 h-1 rounded-full ${availabilityDot(shownAvailability(o.user_id, presenceById))}`}
                   />
                 ))}
                 {occupants.length > 5 && (

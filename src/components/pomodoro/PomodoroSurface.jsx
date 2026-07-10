@@ -12,6 +12,7 @@ import LeaderBadge from "./LeaderBadge";
 import SyncCodeRow from "./SyncCodeRow";
 import SoundDropdown from "./SoundDropdown";
 import StatusSetter from "./StatusSetter";
+import FocusTaskPanel from "./FocusTaskPanel";
 import ParticipantCards from "./ParticipantCards";
 import ActionButtonsBar from "./ActionButtonsBar";
 import SessionDots from "./SessionDots";
@@ -231,6 +232,10 @@ export default function PomodoroSurface({
       {/* Sound dropdown (variant-gated) */}
       {cfg.showSound && <SoundDropdown />}
 
+      {/* Focused planner task + its subtasks (check off mid-session) with a
+          one-click "Set as status". Self-hides when nothing is focused. */}
+      <FocusTaskPanel />
+
       {/* My status (always renders — works in and out of sync).
           currentTaskHint surfaces the "Use current task" button inside the
           editor when the user is clocked into something. */}
@@ -239,8 +244,8 @@ export default function PomodoroSurface({
       {/* Participants */}
       <ParticipantCards max={cfg.participantsMax} />
 
-      {/* Week goals — small banner showing the goals set in last week's
-          retro that define this week's focus. Hidden when no goal was set. */}
+      {/* Week goals — small banner showing this week's focus goals (set via
+          whiteboard goal nodes). Hidden when no goal was set. */}
       {cfg.showGoals && weekGoals.length > 0 && (
         <div
           className={`rounded-xl border p-3 ${

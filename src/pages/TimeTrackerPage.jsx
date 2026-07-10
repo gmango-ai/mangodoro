@@ -3,12 +3,10 @@ import { useNavigate, useParams, NavLink } from "react-router-dom";
 import { useTheme } from "../context/ThemeContext";
 import LogPage from "./LogPage";
 import OverviewPage from "./OverviewPage";
-import PlannerPage from "./PlannerPage";
 
 const TABS = [
   { key: "log", label: "Log", path: "/time-tracker/log" },
   { key: "overview", label: "Overview", path: "/time-tracker/overview" },
-  { key: "planner", label: "Planner", path: "/time-tracker/planner" },
 ];
 
 export default function TimeTrackerPage() {
@@ -17,9 +15,11 @@ export default function TimeTrackerPage() {
   const { theme } = useTheme();
   const dark = theme === "dark";
 
-  // Default to /log if visiting /time-tracker bare.
+  // Default to /log if visiting /time-tracker bare. The Planner tab was retired
+  // in favor of the Tasks timeline — bounce any legacy /time-tracker/planner link.
   useEffect(() => {
     if (!tab) navigate("/time-tracker/log", { replace: true });
+    else if (tab === "planner") navigate("/tasks", { replace: true });
   }, [tab, navigate]);
 
   const tabCls = ({ isActive }) =>
@@ -42,7 +42,7 @@ export default function TimeTrackerPage() {
         <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-2">
           <div className={`inline-flex rounded-lg p-0.5 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
             {TABS.map((t) => (
-              <NavLink key={t.key} to={t.path} className={tabCls}>
+              <NavLink key={t.key} to={t.path} data-tour={`tt-tab-${t.key}`} className={tabCls}>
                 {t.label}
               </NavLink>
             ))}
@@ -57,7 +57,6 @@ export default function TimeTrackerPage() {
       <div>
         {tab === "log" && <LogPage />}
         {tab === "overview" && <OverviewPage />}
-        {tab === "planner" && <PlannerPage />}
       </div>
     </div>
   );

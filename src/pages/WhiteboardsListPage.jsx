@@ -108,7 +108,7 @@ export default function WhiteboardsListPage() {
             Collaborative canvases for your team. Pick a template, drop in stickies, draw, sketch.
           </p>
         </div>
-        <Button onClick={() => setShowNewModal(true)} disabled={!activeTeamId}>
+        <Button onClick={() => setShowNewModal(true)} disabled={!activeTeamId} data-tour="whiteboards-new">
           <Plus className="w-4 h-4 mr-1.5" />
           New whiteboard
         </Button>

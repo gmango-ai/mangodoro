@@ -3,7 +3,7 @@ import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { setWorkStatus } from "../lib/workStatus";
 import { emitSelfNotification } from "../lib/notifications";
-import { joinTeamPresence, setMyPresenceState, leaveTeamPresence } from "../hooks/useTeamPresence";
+import { joinTeamPresence, leaveTeamPresence } from "../hooks/useTeamPresence";
 
 // Mirrors this user's outward presence signals (no UI):
 //  • auto-detects the browser timezone into user_settings (mirrored to the
@@ -29,7 +29,13 @@ export default function PresenceSync() {
   // your availability. Gated on settings being loaded (timezone present).
   useEffect(() => {
     if (!userId || !settings?.timezone) return; // wait for settings to load
-    if (settings.workStart || settings.workEnd) return; // already set
+    // "Set" means ANY representation: the flat start/end, the per-day work_schedule
+    // (what Settings actually writes), or explicit work days. Checking only the
+    // flat fields nagged users who set a per-day schedule forever.
+    const hasHours = settings.workStart || settings.workEnd
+      || (settings.workSchedule && typeof settings.workSchedule === "object" && Object.keys(settings.workSchedule).length)
+      || (Array.isArray(settings.workDays) && settings.workDays.length);
+    if (hasHours) return; // already set
     const week = Math.floor(Date.now() / (7 * 86400000));
     const k = `whnudge:${userId}:${week}`;
     try { if (localStorage.getItem(k)) return; } catch { return; }
@@ -52,8 +58,6 @@ export default function PresenceSync() {
     joinTeamPresence({ teamId: activeTeamId, user: { id: userId, name: settings?.name || "", avatar_url: settings?.avatarUrl || "" } });
     return () => leaveTeamPresence();
   }, [userId, activeTeamId]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Keep the tracked presence_state fresh (IdlePresence / manual changes).
-  useEffect(() => { setMyPresenceState(settings?.presenceState || "active"); }, [settings?.presenceState]);
 
   // Clock → work_status (debounced, deduped on a signature).
   const lastRef = useRef("");

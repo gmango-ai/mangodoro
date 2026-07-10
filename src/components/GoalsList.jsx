@@ -8,10 +8,10 @@ import { GOAL_HEALTH } from "../lib/goals";
 // { id, body, label, color, href, progress, health }. Goals are GROUPED by
 // owner (PM, SWE, You, …) under a collapsible header — click a header to
 // show/hide that group. A per-goal progress bar + health dot show when set.
-// Items with an href link out (retro page, or the source whiteboard).
+// Items with an href link out (the source whiteboard).
 //
-// `goals` is the normalized list; `retros` is accepted as a back-compat
-// alias. `compact` tightens spacing + font sizes for sidebar embedding.
+// `goals` is the normalized list. `compact` tightens spacing + font sizes
+// for sidebar embedding.
 
 const COLLAPSE_KEY = "mango:goalsCollapsedGroups";
 function loadCollapsed() {
@@ -21,8 +21,8 @@ function loadCollapsed() {
 const tierRank = { company: 0, department: 1, user: 2 };
 const tierLabel = { company: "Company", department: "Teams", user: "Personal" };
 
-export default function GoalsList({ goals, retros, dark, compact = false }) {
-  const allItems = goals ?? retros ?? [];
+export default function GoalsList({ goals, dark, compact = false }) {
+  const allItems = goals ?? [];
   const [collapsed, setCollapsed] = useState(loadCollapsed);
 
   // "This week" goals get their own dedicated section at the top (rolls over
@@ -30,7 +30,7 @@ export default function GoalsList({ goals, retros, dark, compact = false }) {
   // Group by a STABLE owner key (tier:ownerId), not the display name — two
   // owners can share a name. Preserve first-seen order; capture color + tier.
   const { weekItems, groups } = useMemo(() => {
-    const all = goals ?? retros ?? [];
+    const all = goals ?? [];
     const weekItems = all.filter((g) => g.week === "this");
     const items = all.filter((g) => g.week !== "this");
     const groups = [];
@@ -43,7 +43,7 @@ export default function GoalsList({ goals, retros, dark, compact = false }) {
     }
     groups.sort((a, b) => (tierRank[a.tier] ?? 3) - (tierRank[b.tier] ?? 3));
     return { weekItems, groups };
-  }, [goals, retros]);
+  }, [goals]);
 
   if (!allItems.length) return null;
   const barBg = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";

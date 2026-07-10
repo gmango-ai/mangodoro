@@ -17,7 +17,7 @@
 //   • In a general room the room imposes nothing — status falls through a
 //     predictable per-person ladder (no per-room "vibe" knob).
 
-import { availabilityLight, legacyToAvailability } from "./presence";
+import { availabilityLight, normAvailability } from "./presence";
 
 // Idle thresholds. Ambient matches the existing IdlePresence (5m); derived deep
 // work gets a longer leash because reading/thinking looks identical to idle.
@@ -27,8 +27,9 @@ export const FOCUS_IDLE_MS = 18 * 60 * 1000;
 /**
  * @typedef {Object} Signals
  * @property {number} [now]                epoch ms (default Date.now())
- * @property {boolean} [online]            realtime presence says a client is live
+ * @property {boolean} [online]            false = disconnected (network/beacon); undefined = unknown
  * @property {number} [idleMs]             ms since last input activity
+ * @property {number} [autoPinUntil]       epoch ms; while > now, idle→away won't override the intent
  * @property {{availability:string,message?:string,expiresAt?:number}} [override]
  * @property {{title?:string}} [calendar]  a busy event happening now (Phase 3)
  * @property {{id?:string,name?:string,kind?:string}} [room]  kind: general|meeting|private|focus|break|social
@@ -38,12 +39,21 @@ export const FOCUS_IDLE_MS = 18 * 60 * 1000;
  * @property {{name?:string,since?:number}} [pairingWith]   (Phase 2)
  * @property {{id?:string,with?:string}} [huddle]           1:1 direct call (Phase 2)
  * @property {{label?:string,link?:string,since?:number,private?:boolean,kind?:string}} [activity]
- * @property {string} [legacyPresenceState] bridge while old writers still exist
  * @property {number} [since]              truer start of the current availability
  */
 
 /**
  * Collapse all signals into one ResolvedStatus.
+ *
+ * Precedence (highest wins):
+ *   1. Offline — a disconnected client (online === false) always wins; you
+ *      can't be "focusing" with the app closed. Even a pin can't hold it.
+ *   2. Away — idle beyond threshold overrides the manual/derived intent
+ *      UNLESS the user pinned it (autoPinUntil > now).
+ *   3. Manual override — the user's asserted status (until it expires).
+ *   4. Environmental derivation — meeting room / pomodoro / clock / room.
+ *   5. Online / Offline fallthrough.
+ *
  * @param {Signals} sig
  */
 export function resolveStatus(sig = {}) {
@@ -51,89 +61,74 @@ export function resolveStatus(sig = {}) {
   const location = buildLocation(sig);
   const activity = buildActivity(sig);
 
-  // 1) Manual override wins outright — ignored only once expired.
+  // A valid (unexpired) manual override, if any.
   const ov =
-    sig.override && (!sig.override.expiresAt || sig.override.expiresAt > now)
+    sig.override && sig.override.availability &&
+    (!sig.override.expiresAt || sig.override.expiresAt > now)
       ? sig.override
       : null;
-  if (ov) {
-    return finalize({
-      availability: ov.availability,
-      source: "override",
-      override: ov,
-      location,
-      activity,
-      now,
-      since: sig.since,
-    });
+
+  // Effective INTENT = manual override (if set) else environmental derivation.
+  const intent = ov ? normAvailability(ov.availability) : deriveEnvironmental(sig);
+
+  const pinned = sig.autoPinUntil != null && sig.autoPinUntil > now;
+
+  let availability;
+  let source;
+  if (sig.online === false) {
+    availability = "offline"; // disconnected — always wins
+    source = "auto";
+  } else if (!pinned && shouldIdleAway(intent, sig)) {
+    availability = "away"; // idle — overrides intent unless pinned
+    source = "auto";
+  } else {
+    availability = intent;
+    source = ov ? "override" : "derived";
   }
 
-  // 2) Derive from environment (priority stack §3.2, #3..#10).
-  const derived = deriveEnvironmental(sig);
-
-  // 3) Idle overlay — conditional on what we derived.
-  const availability = shouldIdleAway(derived, sig) ? "away" : derived;
-
-  return finalize({
-    availability,
-    source: "derived",
-    override: null,
-    location,
-    activity,
-    now,
-    since: sig.since,
-  });
+  return finalize({ availability, source, override: ov, location, activity, now, since: sig.since });
 }
 
 // The environmental priority stack — highest signal wins. Returns a bare
-// availability string; idle + override are layered on by resolveStatus.
+// 7-state availability; idle + override + offline are layered on by resolveStatus.
 function deriveEnvironmental(sig) {
   const roomKind = sig.room?.kind;
 
   // #3 calendar meeting happening now (Phase 3)
-  if (sig.calendar) return "in_meeting";
+  if (sig.calendar) return "meeting";
   // #4 meeting-mode room — kind='meeting' already exists today
-  if (roomKind === "meeting") return "in_meeting";
+  if (roomKind === "meeting") return "meeting";
   // #5 commuting (car Bluetooth; mobile)
   if (sig.carBluetooth) return "commuting";
-  // #6 clock: lunch / other break / clocked-out
+  // #6 clock: lunch / other break (clocked-out no longer forces a state)
   if (sig.clock?.onBreak) return sig.clock.breakKind === "lunch" ? "lunch" : "away";
-  if (sig.clock?.clockedOut) return "off";
   // #7 focus-mode room OR an active pomodoro work sprint
   if (roomKind === "focus" || (sig.pomodoro?.running && sig.pomodoro.mode === "work"))
     return "focusing";
-  // break / social rooms bias toward chatty-available
-  if (roomKind === "break" || roomKind === "social") return "available";
+  // break / social rooms bias toward chatty-online
+  if (roomKind === "break" || roomKind === "social") return "online";
 
-  // #8 general room / clocked in / at desk — the per-person ladder (Q3).
-  if (sig.pairingWith || sig.huddle) return "pairing";
-  // Honor a legacy *deliberate* busy state during transition; ambient legacy
-  // states fall through so idle can manage them.
-  if (sig.legacyPresenceState) {
-    const mapped = legacyToAvailability(sig.legacyPresenceState);
-    if (mapped === "focusing" || mapped === "in_meeting") return mapped;
-    if (mapped === "lunch" || mapped === "commuting") return mapped;
-  }
-  if (sig.room || sig.clock?.clockedIn || sig.online) return "available";
+  // #8 general room / clocked in / at desk. (Pairing/huddle no longer set a
+  // coarse state — "Pairing with X" rides on activity; availability stays online.)
+  if (sig.room || sig.clock?.clockedIn || sig.online) return "online";
 
   // #10 nothing to go on
   return "offline";
 }
 
-// Idle stickiness scales with how deliberate the derived state is (Q2).
-function shouldIdleAway(derived, sig) {
+// Idle stickiness scales with how deliberate the state is (Q2).
+function shouldIdleAway(state, sig) {
   const idleMs = sig.idleMs;
   if (idleMs == null) return false;
-  switch (derived) {
-    case "in_meeting":
+  switch (state) {
+    case "meeting":
       return false; // committed to being there — never idle away
     case "focusing":
-    case "pairing":
-      return idleMs >= FOCUS_IDLE_MS; // deep/collaborative work has quiet stretches
-    case "available":
+      return idleMs >= FOCUS_IDLE_MS; // deep work has quiet stretches
+    case "online":
       return idleMs >= AMBIENT_IDLE_MS;
     default:
-      return false; // lunch/commuting/off/offline are already grey
+      return false; // lunch/commuting/away/offline are already grey
   }
 }
 
@@ -185,6 +180,7 @@ function finalize({ availability, source, override, location, activity, now, sin
       ? {
           availability: override.availability,
           message: override.message,
+          emoji: override.emoji,
           expiresAt: override.expiresAt,
         }
       : null,

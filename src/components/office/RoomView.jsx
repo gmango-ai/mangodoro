@@ -6,15 +6,16 @@ import { Button } from "@/components/ui/button";
 import {
   Hash, Briefcase, MessageSquare, Lock, Globe,
   LogIn, LogOut, Play, PanelLeftOpen, PanelLeftClose, ChevronDown, Settings,
-  Copy, Check,
+  Copy, Check, CalendarPlus,
 } from "lucide-react";
 import { getRoomAccessCode } from "../../lib/rooms";
+import ScheduleMeetingModal from "./ScheduleMeetingModal";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import KnockRequests from "./KnockRequests";
 import RoomLayout from "./roomLayout/RoomLayout";
 import LayoutBar from "./roomLayout/LayoutBar";
 import { useRoomLayout } from "./roomLayout/useRoomLayout";
-import { PANEL_IDS, ROOM_PANELS } from "./roomLayout/panels";
+import { PANEL_IDS, ROOM_PANELS, QUICK_PANEL_IDS } from "./roomLayout/panels";
 import { panelsIn } from "./roomLayout/layoutTree";
 import { useRoomPanelActivity } from "./roomLayout/useRoomPanelActivity";
 import { useRoomWeb } from "./roomLayout/useRoomWeb";
@@ -69,7 +70,7 @@ export default function RoomView({
   // Modular panel layout (per-user, per-room). Replaces the old fixed
   // view modes — see ./roomLayout. Panels = video, chat, whiteboard.
   const { tree, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
-  const [arranging, setArranging] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   // Access code for a code-gated room — fetched only for managers (RLS on
   // room_secrets returns nothing to anyone else), so it can be grabbed and
@@ -92,7 +93,12 @@ export default function RoomView({
 
   // Quick-toggle data for the header: which panels exist + their icon/title.
   const activePanels = panelsIn(tree);
-  const quickPanels = PANEL_IDS.map((id) => ({
+  // Curated one-click toggles (video/chat/whiteboard); the rest live in "Add".
+  const quickPanels = QUICK_PANEL_IDS.map((id) => ({
+    id, title: ROOM_PANELS[id].title, Icon: ROOM_PANELS[id].icon,
+  }));
+  // Full set for the "Add" menu — every fixed panel incl. the widget views.
+  const addPanels = PANEL_IDS.map((id) => ({
     id, title: ROOM_PANELS[id].title, Icon: ROOM_PANELS[id].icon,
   }));
 
@@ -130,6 +136,7 @@ export default function RoomView({
     dark,
     whiteboardId: linkedWhiteboardId,
     canLink: canLinkWhiteboard,
+    sess: currentSyncSession, // for the Pomodoro view (DeviceTimerPanel)
   };
 
   // ── Shared website views ─────────────────────────────────────
@@ -241,6 +248,25 @@ export default function RoomView({
               </>
             )}
 
+            {/* Leave room — sits right after the widget-rail toggle and before
+                the room name, so it's the first control you reach. */}
+            {onLeaveRoom && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onLeaveRoom}
+                title="Leave room"
+                aria-label="Leave room"
+                className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
+                  dark
+                    ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
+                    : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+                }`}
+              >
+                <LogOut className="w-5 h-5 sm:w-4 sm:h-4" />
+              </Button>
+            )}
+
             {/* Room identity — clickable. Opens the office overlay so
                 the user can switch rooms or leave to the hallway. The button
                 hugs the room name (not the full bar width) so it reads as a
@@ -339,14 +365,27 @@ export default function RoomView({
               onReset={reset}
               accent={accent}
               dark={dark}
-              arranging={arranging}
-              onToggleArrange={() => setArranging((v) => !v)}
               panels={quickPanels}
+              addPanels={addPanels}
               activePanels={activePanels}
               badges={panelBadges}
               onTogglePanel={togglePanel}
               onAddWeb={() => addWeb("")}
             />
+
+            {/* Schedule a meeting into this room (any room can host one). */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setScheduleOpen(true)}
+              title="Schedule a meeting"
+              aria-label="Schedule a meeting"
+              className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
+                dark ? "text-slate-400 hover:text-slate-100" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <CalendarPlus className="w-5 h-5 sm:w-4 sm:h-4" />
+            </Button>
 
             {/* Settings + Leave — pinned to the far right. Larger touch
                 targets on mobile. */}
@@ -364,25 +403,19 @@ export default function RoomView({
                 <Settings className="w-5 h-5 sm:w-4 sm:h-4" />
               </Button>
             )}
-            {onLeaveRoom && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onLeaveRoom}
-                title="Leave room"
-                aria-label="Leave room"
-                className={`h-10 w-10 sm:h-8 sm:w-8 shrink-0 ${
-                  dark
-                    ? "text-slate-400 hover:text-rose-300 hover:bg-rose-500/10"
-                    : "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
-                }`}
-              >
-                <LogOut className="w-5 h-5 sm:w-4 sm:h-4" />
-              </Button>
-            )}
           </div>
         </div>
       </header>
+
+      {scheduleOpen && (
+        <ScheduleMeetingModal
+          room={room}
+          teamId={room.team_id}
+          dark={dark}
+          onClose={() => setScheduleOpen(false)}
+          onCreated={() => setScheduleOpen(false)}
+        />
+      )}
 
       {/* Knock requests — people held at the lock gate asking to be let in.
           Only occupants see these (RLS-scoped); any of them can admit. */}
@@ -398,7 +431,7 @@ export default function RoomView({
           ctx={panelCtx}
           panels={panels}
           onRatioChange={setRatio}
-          arranging={arranging}
+          arranging={false}
           onMove={movePanel}
           onAddAt={addPanelAt}
           onClose={handleClosePanel}

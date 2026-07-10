@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Coffee, LogOut, Play, Undo2, Check } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
 import { listOrgProjects } from "../../lib/orgProjects";
+import { applyStatusOverride, clearStatusOverride } from "../../lib/statusActions";
 import Popover from "../goals/Popover";
 
 // Compact clock-in control for the top bar. Not clocked in → a "Clock in" pill;
@@ -12,10 +12,9 @@ import Popover from "../goals/Popover";
 export default function WorkClockBar({ dark }) {
   const {
     clockIn, clockedTick, handleClockIn, clockOutAndFill,
-    startClockBreak, endClockBreak, clockedElapsed, settings, updateStatus, session,
+    startClockBreak, endClockBreak, clockedElapsed, settings, session,
     updateClockIn, renameCurrentTask,
   } = useApp();
-  const { syncSession, setStatus: setSyncStatus } = useSyncSession();
   const { activeTeamId } = useTeam();
   const userId = session?.user?.id;
   const [open, setOpen] = useState(false);
@@ -47,31 +46,27 @@ export default function WorkClockBar({ dark }) {
     setOpen(false);
   };
 
-  const applyPresence = async (state) => {
-    try {
-      await updateStatus({ presenceState: state });
-      if (syncSession && setSyncStatus) await setSyncStatus({ presenceState: state });
-    } catch { /* best-effort */ }
-  };
-
   const onBreak = !!clockIn?.activeBreak;
   const lunchPaid = settings?.lunchBreakPaid;
-  const goLunch = async () => {
+  // Lunch shows via a manual "On lunch" status override (auto-expiring at the
+  // lunch-end time) alongside the clock break for time-tracking.
+  const goLunch = () => {
     if (!clockIn || onBreak) return;
+    const until = Date.now() + (settings?.lunchDurationMin || 60) * 60000;
     startClockBreak({ unpaid: !lunchPaid, kind: "lunch" });
-    await applyPresence("out_to_lunch");
-    try { localStorage.setItem(`lunch_until:${userId}`, String(Date.now() + (settings?.lunchDurationMin || 60) * 60000)); } catch { /* */ }
+    applyStatusOverride({ availability: "lunch", message: null, expiresAt: until, userId });
+    try { localStorage.setItem(`lunch_until:${userId}`, String(until)); } catch { /* */ }
     setOpen(false);
   };
-  const backFromLunch = async () => {
+  const backFromLunch = () => {
     endClockBreak();
-    await applyPresence("active");
+    clearStatusOverride({ userId });
     try { localStorage.removeItem(`lunch_until:${userId}`); } catch { /* */ }
     setOpen(false);
   };
-  const clockOut = async () => {
-    if (onBreak || settings?.presenceState === "out_to_lunch") {
-      await applyPresence("active");
+  const clockOut = () => {
+    if (onBreak) {
+      clearStatusOverride({ userId });
       try { localStorage.removeItem(`lunch_until:${userId}`); } catch { /* */ }
     }
     clockOutAndFill();

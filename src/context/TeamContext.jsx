@@ -203,7 +203,6 @@ export function TeamProvider({ session, children }) {
               name: row.name || "Team member",
               avatar_url: row.avatar_url || "",
               status: row.status || "",
-              presence_state: row.presence_state || "active",
               status_updated_at: row.status_updated_at ?? null,
               sticky_color: row.sticky_color || "#fde68a",
             };

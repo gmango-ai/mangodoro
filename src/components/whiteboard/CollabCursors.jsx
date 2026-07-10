@@ -290,23 +290,49 @@ export function BrushCursor({ active, size, color = "#0ea5e9", erase }) {
 }
 
 // Stacked avatars of everyone else currently on the board.
-export function PresenceStack({ members, dark }) {
+// Avatar stack of everyone else on the board. Hover an avatar for the name;
+// click to FOLLOW that person's viewport (click again to stop). A green dot
+// marks who's actively navigating; the followed avatar gets an accent ring.
+export function PresenceStack({ members, viewports = {}, followingId, onFollow, dark }) {
+  const [hovered, setHovered] = useState(null);
   if (!members?.length) return null;
   const shown = members.slice(0, 6);
   const extra = members.length - shown.length;
+  const now = Date.now();
   return (
     <Panel position="top-right" className="flex items-center pointer-events-none">
-      <div className="flex items-center -space-x-2">
-        {shown.map((m) => (
-          <div
-            key={m.id}
-            title={m.name || "Guest"}
-            className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold border-2 ${dark ? "border-[var(--color-surface)]" : "border-white"}`}
-            style={{ background: m.color || "#64748b" }}
-          >
-            {(m.name || "?").trim().charAt(0).toUpperCase() || "?"}
-          </div>
-        ))}
+      <div className="flex items-center -space-x-2 pointer-events-auto">
+        {shown.map((m) => {
+          const active = viewports[m.id] && now - viewports[m.id].ts < 8000;
+          const following = followingId === m.id;
+          return (
+            <div
+              key={m.id}
+              className="relative"
+              onMouseEnter={() => setHovered(m.id)}
+              onMouseLeave={() => setHovered((h) => (h === m.id ? null : h))}
+            >
+              <button
+                type="button"
+                onClick={() => onFollow?.(m.id)}
+                aria-label={`${m.name || "Guest"} — click to follow`}
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold border-2 transition-transform hover:scale-110 focus:outline-none ${dark ? "border-[var(--color-surface)]" : "border-white"} ${following ? "ring-2 ring-offset-1 ring-[var(--color-accent)]" : ""}`}
+                style={{ background: m.color || "#64748b" }}
+              >
+                {(m.name || "?").trim().charAt(0).toUpperCase() || "?"}
+              </button>
+              {active && !following && (
+                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-white pointer-events-none" />
+              )}
+              {hovered === m.id && (
+                <div className={`absolute top-full right-0 mt-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-[11px] font-semibold shadow-lg z-10 pointer-events-none ${dark ? "bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)]" : "bg-slate-900 text-white"}`}>
+                  {m.name || "Guest"}
+                  <span className="opacity-60 font-normal"> · {following ? "following" : "click to follow"}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
         {extra > 0 && (
           <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold border-2 ${dark ? "border-[var(--color-surface)] bg-slate-600 text-white" : "border-white bg-slate-200 text-slate-600"}`}>
             +{extra}

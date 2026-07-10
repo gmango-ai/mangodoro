@@ -35,8 +35,10 @@ describe("sortParticipants", () => {
   });
 
   it("groups the rest by presence for mode=presence", () => {
-    const out = sortParticipants([alex, priya, leader, me], { ...ctx, mode: "presence" });
-    // available(1) before away(4); you/leader still pinned.
+    // Availability comes from user_presence via availabilityOf now.
+    const availabilityOf = (uid) => ({ priya: "online", alex: "away" }[uid] || "online");
+    const out = sortParticipants([alex, priya, leader, me], { ...ctx, mode: "presence", availabilityOf });
+    // online(0) before away(4); you/leader still pinned.
     expect(out.map((x) => x.user_id)).toEqual(["me", "lead", "priya", "alex"]);
   });
 

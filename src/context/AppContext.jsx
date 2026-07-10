@@ -92,6 +92,13 @@ export function AppProvider({ session, children }) {
   // ── Google Sheets ────────────────────────────────────────────
   const [googleToken, setGoogleToken] = useState(null);
   const [googleTokenExpiry, setGoogleTokenExpiry] = useState(0);
+  const googleRefreshingRef = useRef(false); // de-dupe concurrent refreshes
+  // Always-current mirrors so a just-refreshed token is visible to an in-flight
+  // API call in the same tick (state updates only land next render).
+  const googleTokenRef = useRef(null);
+  const googleTokenExpiryRef = useRef(0);
+  googleTokenRef.current = googleToken;
+  googleTokenExpiryRef.current = googleTokenExpiry;
 
   // ── Invoice modal ────────────────────────────────────────────
   const [showInvoice, setShowInvoice] = useState(false);
@@ -221,6 +228,18 @@ export function AppProvider({ session, children }) {
           google_access_token: session.provider_token,
           google_token_expiry: expiry,
         }, { onConflict: "user_id" });
+        // Capture the long-lived refresh token (offline access) so we can mint
+        // fresh access tokens server-side (google-token edge fn) instead of
+        // making the user re-consent every hour. Stored write-only (RLS).
+        if (session.provider_refresh_token) {
+          supabase.from("google_oauth_tokens").upsert({
+            user_id: session.user.id,
+            refresh_token: session.provider_refresh_token,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "user_id" }).then(({ error }) => {
+            if (error) console.warn("store google refresh token:", error.message);
+          });
+        }
       } else {
         setGoogleToken(settingsRes.data?.google_access_token ?? null);
         setGoogleTokenExpiry(settingsRes.data?.google_token_expiry ?? 0);
@@ -341,13 +360,12 @@ export function AppProvider({ session, children }) {
         { event: "UPDATE", schema: "public", table: "user_settings", filter: `user_id=eq.${session.user.id}` },
         (payload) => {
           applyRemoteClock(payload.new?.active_clock ?? null);
-          // Also pick up status / presence_state changes from other devices.
+          // Also pick up status-message changes from other devices.
           const row = payload.new;
           if (row && typeof row === "object") {
             setSettings((prev) => ({
               ...prev,
               status: row.status ?? prev.status ?? "",
-              presenceState: row.presence_state ?? prev.presenceState ?? "active",
               statusUpdatedAt: row.status_updated_at ?? prev.statusUpdatedAt ?? null,
               avatarUrl: row.avatar_url ?? prev.avatarUrl ?? "",
               name: row.name ?? prev.name ?? "",
@@ -368,21 +386,19 @@ export function AppProvider({ session, children }) {
     };
   }, [session?.user?.id]);
 
-  // ── Fire-and-forget status setter usable from anywhere in the app ──
-  const updateStatus = useCallback(async ({ status, presenceState } = {}) => {
-    if (!session?.user?.id) return;
+  // ── Fire-and-forget status-MESSAGE setter usable from anywhere in the app ──
+  // Availability lives on user_presence (the resolver); this only carries the
+  // free-text status message shown on org/profile surfaces (user_settings.status).
+  const updateStatus = useCallback(async ({ status } = {}) => {
+    if (!session?.user?.id || status == null) return;
+    const stamp = new Date().toISOString();
     // Optimistic update so the UI reflects the change instantly.
-    setSettings((prev) => ({
-      ...prev,
-      status: status != null ? status : (prev.status ?? ""),
-      presenceState: presenceState ?? prev.presenceState ?? "active",
-      statusUpdatedAt: new Date().toISOString(),
-    }));
-    const { error } = await supabase.rpc("set_user_status", {
-      p_status: status ?? null,
-      p_presence_state: presenceState ?? null,
-    });
-    if (error) console.warn("set_user_status:", error.message);
+    setSettings((prev) => ({ ...prev, status, statusUpdatedAt: stamp }));
+    const { error } = await supabase
+      .from("user_settings")
+      .update({ status, status_updated_at: stamp })
+      .eq("user_id", session.user.id);
+    if (error) console.warn("update status:", error.message);
   }, [session?.user?.id]);
 
   // ── Capture Google provider_token when user was already signed in ──
@@ -754,7 +770,6 @@ export function AppProvider({ session, children }) {
       sticky_color: stickyColorClean,
       avatar_url: rest.avatarUrl || null,
       status: rest.status ?? null,
-      presence_state: rest.presenceState || null,
       pomodoro_sound_url: rest.pomodoroSoundUrl || null,
       pomodoro_sound_name: rest.pomodoroSoundName || null,
       accent_color: rest.accentColor || "teal",
@@ -865,6 +880,25 @@ export function AppProvider({ session, children }) {
         .map((l) => l.replace(/^\s*\d+[\).\s]+/, "").replace(/^\s*[-*•]\s*/, "").trim())
         .filter(Boolean);
       return lines.length ? lines.slice(0, 10) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** AI subtasks for a task: returns concrete subtask titles, or null if unavailable. */
+  async function suggestSubtasks(title, notes = "") {
+    const t = (title || "").trim();
+    if (!t || !deepseekKey) return null;
+    try {
+      const result = await callDeepSeek(
+        "You break a task into 3-6 small, concrete, ordered subtasks. Reply with one subtask per line only — no numbering, bullets, or commentary. Each line under 80 characters.",
+        `Break this task into actionable subtasks:\n\nTask: ${t}${notes ? `\nNotes: ${notes}` : ""}`,
+      );
+      const lines = result
+        .split(/\n/)
+        .map((l) => l.replace(/^\s*\d+[\).\s]+/, "").replace(/^\s*[-*•]\s*/, "").trim())
+        .filter(Boolean);
+      return lines.length ? lines.slice(0, 8) : null;
     } catch {
       return null;
     }
@@ -1219,17 +1253,68 @@ export function AppProvider({ session, children }) {
     };
   }, [entries, hourlyRate, earningsPeriod]);
 
-  // ── Google Sheets ─────────────────────────────────────────────
-  function connectGoogleSheets() {
+  // ── Google (Sheets / Calendar / Docs) ─────────────────────────
+  // One consent covers every Google feature. `prompt: consent` forces the
+  // dialog so already-connected users pick up newly-added scopes on their next
+  // connect (the token is captured from session.provider_token — see the auth
+  // effect above — and persisted to user_settings.google_access_token).
+  function connectGoogle() {
     supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        scopes: "https://www.googleapis.com/auth/spreadsheets",
+        scopes: [
+          "https://www.googleapis.com/auth/spreadsheets",
+          "https://www.googleapis.com/auth/calendar.events",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/drive.file",
+        ].join(" "),
         queryParams: { access_type: "offline", prompt: "consent" },
         redirectTo: window.location.href,
       },
     });
   }
+
+  // Silently mint a fresh Google access token from the stored refresh token
+  // (via the google-token edge fn) — no OAuth popup. Returns the new token, or
+  // null if there's no refresh token / it was revoked (caller then re-auths).
+  async function refreshGoogleToken() {
+    if (googleRefreshingRef.current) return null;
+    googleRefreshingRef.current = true;
+    try {
+      const { data, error } = await supabase.functions.invoke("google-token", { body: {} });
+      if (error || !data?.access_token) return null;
+      const exp = data.expiry || (Date.now() + 3500 * 1000);
+      googleTokenRef.current = data.access_token; // visible to callers this tick
+      googleTokenExpiryRef.current = exp;
+      setGoogleToken(data.access_token);
+      setGoogleTokenExpiry(exp);
+      return data.access_token;
+    } catch {
+      return null;
+    } finally {
+      googleRefreshingRef.current = false;
+    }
+  }
+
+  // Return a currently-valid Google access token — refreshing silently if it's
+  // expired/missing — or null if that fails (caller then does a full re-auth).
+  // Guards call this so an expired token triggers a silent refresh, not a popup.
+  async function ensureGoogleToken() {
+    if (googleTokenRef.current && Date.now() < googleTokenExpiryRef.current) return googleTokenRef.current;
+    return await refreshGoogleToken();
+  }
+
+  // Keep the Google access token fresh in the background so Calendar/Docs never
+  // hit an expired token: refresh ~2 min before expiry (or immediately if it's
+  // already past — e.g. reopening the app after a while). Updating the token
+  // re-runs this effect, scheduling the next refresh. Silent no-op when there's
+  // no refresh token yet (older connections re-auth once to capture one).
+  useEffect(() => {
+    if (!googleToken || !googleTokenExpiry) return undefined;
+    const delay = Math.max(0, googleTokenExpiry - Date.now() - 120000);
+    const id = setTimeout(() => { refreshGoogleToken(); }, delay);
+    return () => clearTimeout(id);
+  }, [googleToken, googleTokenExpiry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Direct save for a single field — used by the new SettingsPage so
   // pickers (theme, accent, etc.) commit on click without a Save step.
@@ -1240,7 +1325,6 @@ export function AppProvider({ session, children }) {
     if ("accentColor" in patch) dbPatch.accent_color = patch.accentColor;
     if ("name" in patch) dbPatch.name = patch.name || null;
     if ("status" in patch) dbPatch.status = patch.status ?? null;
-    if ("presenceState" in patch) dbPatch.presence_state = patch.presenceState || null;
     if ("lunchTime" in patch) dbPatch.lunch_time = patch.lunchTime || null;
     if ("lunchMode" in patch) dbPatch.lunch_mode = patch.lunchMode || "off";
     if ("lunchDurationMin" in patch) dbPatch.lunch_duration_min = patch.lunchDurationMin ?? 60;
@@ -1274,31 +1358,43 @@ export function AppProvider({ session, children }) {
   }
 
   // ── Onboarding / tutorial state ──────────────────────────────
-  // A single jsonb blob (settings.onboarding). All mutations read-modify-write
-  // off the LATEST settings via the functional setter, then persist the merged
-  // object, so concurrent flag flips (e.g. finishing a tour while a checklist
-  // item ticks) can't clobber each other. Cross-device sync rides the existing
-  // user_settings realtime UPDATE handler below.
-  const patchOnboarding = useCallback((mutate) => {
+  // onboarding (a jsonb blob on user_settings) is written from several
+  // independent places — tour completion, checklist facts, the welcome flow, the
+  // seen-marker seed. Writing the whole blob from a stale in-memory copy let
+  // concurrent writers clobber each other (which is why completedTours never
+  // stuck). Instead each setter sends a MINIMAL patch to the `onboarding_merge`
+  // RPC, which merges server-side (scalars overwrite, checklist shallow-merges,
+  // tour-id arrays union) so no writer ever drops another's keys. The optimistic
+  // local merge keeps the UI instant; realtime + refetch reconcile from the DB.
+  const addToSet = (arr, id) => (Array.isArray(arr) && arr.includes(id) ? arr : [...(arr || []), id]);
+  const mergeOnboarding = useCallback((patch) => {
     if (!session?.user?.id) return;
     setSettings((prev) => {
       const cur = prev.onboarding && typeof prev.onboarding === "object" ? prev.onboarding : {};
-      const next = mutate(cur) || cur;
-      // NOTE: postgrest builders are lazy — without .then() the request
-      // never fires, so this .then() is what actually executes the write.
-      supabase.from("user_settings").update({ onboarding: next }).eq("user_id", session.user.id).then(({ error }) => {
-        if (error) console.warn("save onboarding:", error.message);
-      });
+      const next = { ...cur };
+      if ("welcomeDone" in patch) next.welcomeDone = patch.welcomeDone;
+      if ("seenTourMarker" in patch) next.seenTourMarker = patch.seenTourMarker;
+      if ("hintsDisabled" in patch) next.hintsDisabled = patch.hintsDisabled;
+      if (patch.checklist) next.checklist = { ...(cur.checklist || {}), ...patch.checklist };
+      if (patch.completedTours) next.completedTours = patch.completedTours.reduce(addToSet, cur.completedTours || []);
+      if (patch.dismissedTours) next.dismissedTours = patch.dismissedTours.reduce(addToSet, cur.dismissedTours || []);
       return { ...prev, onboarding: next };
+    });
+    // Authoritative, merge-safe DB write (never clobbers other keys / writers).
+    supabase.rpc("onboarding_merge", { p: patch }).then(({ error }) => {
+      if (error) console.warn("save onboarding:", error.message);
     });
   }, [session?.user?.id]);
 
-  const addToSet = (arr, id) => (Array.isArray(arr) && arr.includes(id) ? arr : [...(arr || []), id]);
-  const markTourComplete = useCallback((id) => patchOnboarding((o) => ({ ...o, completedTours: addToSet(o.completedTours, id) })), [patchOnboarding]);
-  const dismissTour = useCallback((id) => patchOnboarding((o) => ({ ...o, dismissedTours: addToSet(o.dismissedTours, id) })), [patchOnboarding]);
-  const setChecklistItem = useCallback((id, val = true) => patchOnboarding((o) => ({ ...o, checklist: { ...(o.checklist || {}), [id]: val } })), [patchOnboarding]);
-  const setWelcomeDone = useCallback(() => patchOnboarding((o) => ({ ...o, welcomeDone: true })), [patchOnboarding]);
-  const setSeenTourMarker = useCallback((marker) => patchOnboarding((o) => ({ ...o, seenTourMarker: marker })), [patchOnboarding]);
+  const markTourComplete = useCallback((id) => mergeOnboarding({ completedTours: [id] }), [mergeOnboarding]);
+  const dismissTour = useCallback((id) => mergeOnboarding({ dismissedTours: [id] }), [mergeOnboarding]);
+  const setChecklistItem = useCallback((id, val = true) => mergeOnboarding({ checklist: { [id]: val } }), [mergeOnboarding]);
+  const setWelcomeDone = useCallback(() => mergeOnboarding({ welcomeDone: true }), [mergeOnboarding]);
+  const setSeenTourMarker = useCallback((marker) => mergeOnboarding({ seenTourMarker: marker }), [mergeOnboarding]);
+  // Master switch for the proactive onboarding hints (welcome modal, tour offers
+  // + new-feature announcements, getting-started checklist). Help center stays
+  // reachable regardless — this only silences the unprompted nudges.
+  const setHintsDisabled = useCallback((val = true) => mergeOnboarding({ hintsDisabled: val }), [mergeOnboarding]);
 
   // ── Custom sounds (user) ─────────────────────────────────────
   // Stored as a JSONB array on user_settings.custom_sounds. We round-trip
@@ -1372,8 +1468,8 @@ export function AppProvider({ session, children }) {
   }
 
   async function exportToGoogleSheets(monthStr, monthEntries) {
-    if (!googleToken || Date.now() > googleTokenExpiry) {
-      connectGoogleSheets();
+    if (!(await ensureGoogleToken())) {
+      connectGoogle();
       return;
     }
 
@@ -1513,7 +1609,7 @@ export function AppProvider({ session, children }) {
     // ── Create spreadsheet ──
     const res = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+      headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         properties: { title },
         sheets: [{ properties: { title: "Timesheet" }, data: [{ startRow: 0, startColumn: 0, rowData }] }],
@@ -1521,7 +1617,7 @@ export function AppProvider({ session, children }) {
     });
 
     if (!res.ok) {
-      if (res.status === 401) { connectGoogleSheets(); return; }
+      if (res.status === 401) { connectGoogle(); return; }
       if (res.status === 403) { flash("✗ Sheets: enable Google Sheets API in your Google Cloud project"); return; }
       flash("✗ Google Sheets export failed");
       return;
@@ -1536,7 +1632,7 @@ export function AppProvider({ session, children }) {
     const summaryHdrIndex = summary ? rowData.length - 2 : -1;
     fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
       method: "POST",
-      headers: { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" },
+      headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
       body: JSON.stringify({ requests: [
         { mergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: numCols }, mergeType: "MERGE_ALL" } },
         { updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: headerRowIndex + 1 } }, fields: "gridProperties.frozenRowCount" } },
@@ -1551,6 +1647,187 @@ export function AppProvider({ session, children }) {
 
     window.open(created.spreadsheetUrl, "_blank");
     flash("✓ Opened in Google Sheets");
+  }
+
+  // Create a Google Calendar event on the user's primary calendar. Foreground /
+  // client-side (same token pattern as the Sheets export). Returns
+  // { id, htmlLink } or null on failure (and re-prompts consent on 401/403).
+  async function createCalendarEvent({ summary, description, start, end, attendees = [], location }) {
+    if (!(await ensureGoogleToken())) {
+      connectGoogle();
+      return null;
+    }
+    const toISO = (d) => (d instanceof Date ? d.toISOString() : new Date(d).toISOString());
+    const body = {
+      summary: summary || "Meeting",
+      ...(description ? { description } : {}),
+      ...(location ? { location } : {}),
+      start: { dateTime: toISO(start) },
+      end: { dateTime: toISO(end) },
+      attendees: (attendees || []).filter(Boolean).map((email) => ({ email })),
+    };
+    let res;
+    try {
+      res = await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all",
+        {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+    } catch {
+      flash("✗ Could not reach Google Calendar");
+      return null;
+    }
+    if (!res.ok) {
+      if (res.status === 401) { connectGoogle(); return null; }
+      // Missing scope surfaces as 403 (not 401) — re-consent to pick up calendar.
+      if (res.status === 403) { connectGoogle(); flash("Reconnect Google to enable Calendar"); return null; }
+      flash("✗ Could not create calendar event");
+      return null;
+    }
+    const created = await res.json();
+    return { id: created.id, htmlLink: created.htmlLink };
+  }
+
+  // Create a Google Doc and write the summary (then transcript) into it.
+  // Foreground / client-side. Returns { documentId, url } or null on failure.
+  async function exportToGoogleDoc({ title, summaryMd, transcriptText }) {
+    if (!(await ensureGoogleToken())) {
+      connectGoogle();
+      return null;
+    }
+    let createRes;
+    try {
+      createRes = await fetch("https://docs.googleapis.com/v1/documents", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title || "Meeting summary" }),
+      });
+    } catch {
+      flash("✗ Could not reach Google Docs");
+      return null;
+    }
+    if (!createRes.ok) {
+      if (createRes.status === 401) { connectGoogle(); return null; }
+      if (createRes.status === 403) { connectGoogle(); flash("Reconnect Google to enable Docs"); return null; }
+      flash("✗ Could not create Google Doc");
+      return null;
+    }
+    const doc = await createRes.json();
+    const documentId = doc.documentId;
+    const url = `https://docs.google.com/document/d/${documentId}/edit`;
+
+    // Assemble the whole body once and insert it in a single request. (Multiple
+    // insertText requests all at index 1 would stack in reverse order.)
+    const parts = [];
+    if (summaryMd) parts.push(summaryMd.trim(), "\n\n");
+    if (transcriptText) parts.push("Transcript\n\n", transcriptText.trim(), "\n");
+    const text = parts.join("");
+
+    if (text) {
+      // The create round-trip can straddle the ~1h token life — re-ensure before
+      // the batchUpdate. A silent refresh keeps it going; only a failed refresh
+      // hands back the (empty) doc + re-auth.
+      if (!(await ensureGoogleToken())) { connectGoogle(); return { documentId, url }; }
+      await fetch(`https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text } }] }),
+      }).catch(() => {}); // best-effort — the doc already exists
+    }
+
+    return { documentId, url };
+  }
+
+  // Read the user's Google Calendar (primary) for a window. Foreground token —
+  // the existing calendar.events scope already permits events.list. Returns a
+  // lean normalized list; stays silent on failure (it's a background layer).
+  // Returns the fetched events on success (an EMPTY array is a valid "no events"
+  // result), or `null` when not connected / the request failed — so callers can
+  // tell a real empty window from a desync and avoid clobbering a cache.
+  async function listGoogleCalendarEvents({ timeMin, timeMax }) {
+    if (!(await ensureGoogleToken())) return null;
+    const params = new URLSearchParams({
+      timeMin: new Date(timeMin).toISOString(),
+      timeMax: new Date(timeMax).toISOString(),
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+    });
+    let res;
+    try {
+      res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}` },
+      });
+    } catch { return null; }
+    if (!res.ok) {
+      // Token expired / lost scope: clear it so callers stop retrying (no 401
+      // storm) and the UI falls back to a "Connect Google" prompt.
+      if (res.status === 401 || res.status === 403) { setGoogleToken(null); setGoogleTokenExpiry(0); }
+      return null;
+    }
+    const data = await res.json().catch(() => ({}));
+    return (data.items || []).map((ev) => {
+      // Working-location events (eventType 'workingLocation') describe where the
+      // person is working that day (home/office/custom) — surface a label so the
+      // calendar can render them as a location badge, not a normal event.
+      const wl = ev.workingLocationProperties;
+      let locationLabel = null;
+      if (ev.eventType === "workingLocation" && wl) {
+        if (wl.type === "homeOffice") locationLabel = "Home";
+        else if (wl.type === "officeLocation") locationLabel = wl.officeLocation?.label || "Office";
+        else if (wl.type === "customLocation") locationLabel = wl.customLocation?.label || "Elsewhere";
+        else locationLabel = "Working";
+      }
+      return {
+        id: ev.id,
+        title: ev.summary || locationLabel || "(busy)",
+        start: ev.start?.dateTime || ev.start?.date,
+        end: ev.end?.dateTime || ev.end?.date,
+        allDay: !ev.start?.dateTime,
+        htmlLink: ev.htmlLink,
+        eventType: ev.eventType || "default",
+        locationLabel,
+      };
+    });
+  }
+
+  // Patch a Google event we created (write-back on reschedule/edit).
+  async function updateCalendarEvent(eventId, { start, end, summary, description } = {}) {
+    if (!eventId || !(await ensureGoogleToken())) return { error: { message: "not connected" } };
+    const toISO = (d) => (d instanceof Date ? d.toISOString() : new Date(d).toISOString());
+    const body = {};
+    if (start) body.start = { dateTime: toISO(start) };
+    if (end) body.end = { dateTime: toISO(end) };
+    if (summary !== undefined) body.summary = summary;
+    if (description !== undefined) body.description = description || "";
+    let res;
+    try {
+      res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
+        method: "PATCH",
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch { return { error: { message: "network" } }; }
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) connectGoogle();
+      return { error: { message: `google ${res.status}` } };
+    }
+    return { error: null };
+  }
+
+  // Delete a Google event we created (best-effort — silent on failure).
+  async function deleteCalendarEvent(eventId) {
+    if (!eventId || !(await ensureGoogleToken())) return { error: null };
+    try {
+      await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}` },
+      });
+    } catch { /* best-effort */ }
+    return { error: null };
   }
 
   async function addProjectQuick(name, color = "#14b8a6") {
@@ -1574,7 +1851,7 @@ export function AppProvider({ session, children }) {
     hourlyRate, deepseekKey, reminderTime, timeRounding, dailyTarget, weeklyTarget, defaultEntryMode, defaultLandingPage, stickyColor, setStickyColor,
     setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget, updateSettingsField,
     // onboarding / tutorial state setters (settings.onboarding jsonb)
-    markTourComplete, dismissTour, setChecklistItem, setWelcomeDone, setSeenTourMarker,
+    markTourComplete, dismissTour, setChecklistItem, setWelcomeDone, setSeenTourMarker, setHintsDisabled,
     // setters used by the SettingsPage's immediate-save flow
     setTemplates, setProjects,
     setDeepseekKey, setReminderTime, setTimeRounding,
@@ -1617,15 +1894,19 @@ export function AppProvider({ session, children }) {
     // ai
     rewritingDesc, rewriteDescription,
     monthSummaries, setMonthSummaries, generateMonthSummary,
-    breakdownPlannerTask,
+    breakdownPlannerTask, suggestSubtasks,
     // invoice
     showInvoice, setShowInvoice,
     // computed
     todayMins, grouped,
     // projects
     addProjectQuick,
-    // google sheets
-    googleToken, googleTokenExpiry, connectGoogleSheets, disconnectGoogleSheets, exportToGoogleSheets,
+    // google (sheets / calendar / docs)
+    googleToken, googleTokenExpiry,
+    connectGoogle, disconnectGoogle: disconnectGoogleSheets,
+    connectGoogleSheets: connectGoogle, disconnectGoogleSheets, // back-compat aliases
+    exportToGoogleSheets, createCalendarEvent, exportToGoogleDoc,
+    listGoogleCalendarEvents, updateCalendarEvent, deleteCalendarEvent,
     // export/import
     exportAllCSV, exportMonthCSV, exportAllXLSX, exportMonthXLSX,
     importFromLocalStorage, importEntriesFromFile, exportProfile, importProfileFromFile,

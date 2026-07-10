@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Timer, Car, Users, Settings as SettingsIcon, Sun, Moon, LogOut } from "lucide-react";
+import { Timer, Car, Users, Settings as SettingsIcon, Sun, Moon, LogOut, CalendarDays, Video, ListChecks } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import LogoMark from "./LogoMark";
 import OrgSwitcher from "./OrgSwitcher";
@@ -99,7 +99,14 @@ export default function MoreSheet({
         </div>
 
         <div className="overflow-y-auto px-3 pb-3 space-y-1">
-          <div className="flex items-center gap-3 px-2 py-2">
+          {/* Tap the header → your profile. */}
+          <NavLink
+            to={session?.user?.id ? `/u/${session.user.id}` : "/settings"}
+            onClick={onClose}
+            className={`flex items-center gap-3 px-2 py-2 rounded-xl transition-colors ${
+              dark ? "hover:bg-[var(--color-surface-raised)]" : "hover:bg-slate-100"
+            }`}
+          >
             {settings.avatarUrl ? (
               <UserAvatar url={settings.avatarUrl} name={settings.name} size={40} className="shrink-0" />
             ) : (
@@ -111,11 +118,11 @@ export default function MoreSheet({
               <p className={`text-sm font-semibold truncate ${dark ? "text-slate-100" : "text-slate-800"}`}>
                 {settings.name || "Mangodoro"}
               </p>
-              {email && (
-                <p className={`text-xs truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>{email}</p>
-              )}
+              <p className={`text-xs truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                {email || "View profile"}
+              </p>
             </div>
-          </div>
+          </NavLink>
 
           <div className="px-2 pb-1">
             <OrgSwitcher />
@@ -123,6 +130,18 @@ export default function MoreSheet({
 
           <NavLink to="/team" onClick={onClose} className={itemCls}>
             <Users className="w-5 h-5" /> Org
+          </NavLink>
+
+          <NavLink to="/tasks" onClick={onClose} className={itemCls}>
+            <ListChecks className="w-5 h-5" /> Tasks
+          </NavLink>
+
+          <NavLink to="/calendar" onClick={onClose} className={itemCls}>
+            <CalendarDays className="w-5 h-5" /> Calendar
+          </NavLink>
+
+          <NavLink to="/meetings" onClick={onClose} className={itemCls}>
+            <Video className="w-5 h-5" /> Meetings
           </NavLink>
 
           <NavLink to="/time-tracker" onClick={onClose} className={itemCls}>

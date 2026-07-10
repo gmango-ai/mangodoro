@@ -77,12 +77,8 @@ export default function RemoveMemberModal({
           </p>
           <ul className={`text-xs space-y-1.5 ${dark ? "text-slate-300" : "text-slate-700"}`}>
             <li className="flex items-start gap-1.5">
-              <span className={dark ? "text-emerald-400" : "text-emerald-600"}>•</span>
-              Their retro cards stay attributed to them.
-            </li>
-            <li className="flex items-start gap-1.5">
               <span className={dark ? "text-rose-400" : "text-rose-600"}>•</span>
-              They lose access to every room, retro, and team in this org.
+              They lose access to every room and team in this org.
             </li>
             <li className="flex items-start gap-1.5">
               <span className={dark ? "text-rose-400" : "text-rose-600"}>•</span>

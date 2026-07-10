@@ -1,0 +1,220 @@
+/* ============================================================
+   Tasks Timeline — "Mangodoro" ocean/beach reskin.
+   ALL tokens + styles are scoped under .tl-ocean so nothing
+   leaks into the rest of the (slate/teal) app — this page is a
+   deliberate light-mode visual island, mirroring calendar-ocean.css.
+   Tokens lifted from the Mangodoro design system.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap');
+
+/* Token carrier — .tl-scope provides the --o-* tokens WITHOUT the page layout,
+   so the shared slide-over editor can render as a fixed portal over any surface
+   (calendar, pomodoro, sidebar) and still resolve its ocean styling. */
+.tl-ocean, .tl-scope {
+  /* palette */
+  /* "mango" is the island's ACCENT role — follow the app's chosen accent color
+     (theme-aware via applyAccent) instead of a fixed orange. Hex kept as fallback. */
+  --o-mango-50:var(--color-accent-light,#FFF6E6); --o-mango-100:var(--color-accent-light,#FFE9C2); --o-mango-300:var(--color-accent,#FFC766); --o-mango-400:var(--color-accent,#FFB23E); --o-mango-500:var(--color-accent,#FF9F1C); --o-mango-600:var(--color-accent-hover,#F2860A); --o-mango-700:var(--color-accent-hover,#C96A05);
+  --o-coral-100:#FFE0DA; --o-coral-400:#FF8472; --o-coral-500:#FB5E4B; --o-coral-600:#E8412D; --o-coral-700:#BE2E1D;
+  /* "ocean" was a secondary blue accent for chrome (spine, active tabs, primary
+     buttons, hovers) — fold it into the app accent so nothing stays blue. */
+  --o-ocean-50:var(--color-accent-light,#EAF3FE); --o-ocean-100:var(--color-accent-light,#D2E6FE); --o-ocean-300:var(--color-accent,#7DB4F8); --o-ocean-400:var(--color-accent,#4F95F4); --o-ocean-500:var(--color-accent,#2D7FF9); --o-ocean-600:var(--color-accent-hover,#1E66DB); --o-ocean-700:var(--color-accent,#1A4FA8);
+  --o-aqua-100:#C7F5EE; --o-aqua-400:#2FD3BD; --o-aqua-500:#14C4AE; --o-aqua-600:#0BA593; --o-aqua-700:#097E71;
+  --o-sun-400:#FFD166; --o-sun-500:#FBC02D;
+  --o-ink-900:#0B2A3A; --o-ink-800:#123749; --o-ink-700:#1C4759; --o-ink-600:#355d6e; --o-ink-500:#557686; --o-ink-400:#7F9AA7; --o-ink-300:#A9BEC8;
+  --o-sand-50:#FBFAF7; --o-sand-100:#F4F2EC; --o-sand-200:#EAE6DD; --o-sand-300:#DFD9CD; --o-sand-400:#CEC6B6; --o-white:#FFFFFF;
+
+  --o-glass:rgba(255,255,255,0.55);
+  --o-glass-strong:rgba(255,255,255,0.74);
+  --o-glass-border:rgba(255,255,255,0.65);
+  --o-glass-mango:linear-gradient(135deg, color-mix(in srgb, var(--color-accent, #FF9F1C) 16%, transparent) 0%, color-mix(in srgb, var(--color-accent, #FF9F1C) 7%, transparent) 55%, var(--o-glass) 100%);
+  --o-border-subtle:#EDEAE2; --o-border-default:#E2DCD0; --o-border-strong:#CEC6B6;
+  --o-spine:color-mix(in srgb, var(--color-accent, #2D7FF9) 26%, transparent);
+
+  --o-surface-page:
+    radial-gradient(120% 90% at 12% -8%, color-mix(in srgb, var(--color-accent, #2D7FF9) 16%, transparent), transparent 55%),
+    radial-gradient(110% 85% at 108% 112%, rgba(20,196,174,0.15), transparent 52%),
+    linear-gradient(160deg, #E9F3FE 0%, #F0F9FB 46%, #FBFAF7 100%);
+  --o-grad-ocean:linear-gradient(135deg, var(--o-aqua-400) 0%, var(--o-ocean-500) 100%);
+
+  --o-radius-sm:10px; --o-radius-md:14px; --o-radius-lg:18px; --o-radius-xl:24px;
+  --o-shadow-sm:0 1px 3px rgba(11,42,58,0.08), 0 1px 2px rgba(11,42,58,0.04);
+  --o-shadow-md:0 6px 18px rgba(11,42,58,0.09), 0 2px 6px rgba(11,42,58,0.05);
+  --o-shadow-xl:0 28px 64px rgba(11,42,58,0.16);
+  --o-glow-mango:0 8px 20px color-mix(in srgb, var(--color-accent, #FF9F1C) 24%, transparent);
+  --o-blur:blur(16px) saturate(1.4);
+  --o-ease-out:cubic-bezier(0.22,1,0.36,1);
+  --o-ease-bounce:cubic-bezier(0.34,1.56,0.64,1);
+  --o-font:'Figtree','Inter',system-ui,sans-serif;
+  --o-mono:'DM Mono',ui-monospace,monospace;
+
+  font-family: var(--o-font);
+  color: var(--o-ink-700);
+}
+
+/* ── Dark mode ─────────────────────────────────────────────
+   Re-point surface/ink/glass/border tokens to a deep "ocean-night" palette so
+   the tasks island follows the app's dark theme. Accent (mango/ocean →
+   --color-accent) is theme-aware. Scoped to .tl-scope too so the shared task
+   controls (used in rooms/calendar) theme correctly wherever they render. */
+.dark .tl-ocean, .dark .tl-scope {
+  --o-surface-page:
+    radial-gradient(120% 90% at 12% -8%, color-mix(in srgb, var(--color-accent, #2D7FF9) 14%, transparent), transparent 55%),
+    radial-gradient(110% 85% at 108% 112%, rgba(20,196,174,0.10), transparent 52%),
+    linear-gradient(160deg, #0A1620 0%, #0C1A22 46%, #0B141B 100%);
+  --o-ink-900:#EAF1F5; --o-ink-800:#D6E1E8; --o-ink-700:#BCCDD6; --o-ink-600:#98AAB5; --o-ink-500:#7E919D; --o-ink-400:#647783; --o-ink-300:#4E5F6A;
+  --o-sand-50:#0E1A22; --o-sand-100:#14232C; --o-sand-200:#1B2C36; --o-sand-300:#243743; --o-sand-400:#2E4450; --o-white:#16242D;
+  --o-glass:rgba(18,32,41,0.55);
+  --o-glass-strong:rgba(15,27,35,0.80);
+  --o-glass-border:rgba(255,255,255,0.08);
+  --o-border-subtle:rgba(255,255,255,0.07); --o-border-default:rgba(255,255,255,0.11); --o-border-strong:rgba(255,255,255,0.16);
+  --o-shadow-sm:0 1px 3px rgba(0,0,0,0.40);
+  --o-shadow-md:0 6px 18px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.35);
+  --o-shadow-xl:0 28px 64px rgba(0,0,0,0.60);
+}
+.tl-ocean {
+  background: var(--o-surface-page);
+  background-attachment: fixed;
+  height: calc(100dvh - var(--nav-h, 4rem) - var(--top-inset, 0px) - var(--bottom-inset, 0px));
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.tl-ocean *, .tl-scope * { box-sizing: border-box; }
+.tl-ocean input:focus, .tl-ocean textarea:focus { outline: none; }
+.tl-ocean ::-webkit-scrollbar { width: 10px; height: 10px; }
+.tl-ocean ::-webkit-scrollbar-thumb { background: rgba(11,42,58,.14); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+
+/* ── topbar ─────────────────────────────────────────────── */
+.tl-topbar {
+  flex: none; display: flex; align-items: center; gap: 16px;
+  padding: 16px 26px; border-bottom: 1px solid var(--o-border-subtle);
+  background: var(--o-glass-strong); backdrop-filter: var(--o-blur); -webkit-backdrop-filter: var(--o-blur);
+}
+.tl-title { font-size: 25px; font-weight: 800; letter-spacing: -.02em; color: var(--o-ink-900); line-height: 1.1; }
+.tl-sub { font-size: 13px; color: var(--o-ink-500); margin-top: 2px; }
+.tl-search {
+  display: flex; align-items: center; gap: 8px; margin-left: auto;
+  background: var(--o-glass); border: 1px solid var(--o-border-default); border-radius: 999px;
+  padding: 7px 13px; width: 220px;
+}
+.tl-search input { border: none; background: none; font-size: 13px; color: var(--o-ink-800); width: 100%; }
+.tl-newbtn {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding: 9px 16px; border: none; border-radius: 999px; cursor: pointer;
+  background: linear-gradient(135deg, var(--o-sun-400) 0%, var(--o-mango-500) 100%);
+  color: #fff; font-weight: 700; font-size: 13px; box-shadow: var(--o-glow-mango);
+}
+.tl-newbtn:hover { filter: brightness(1.03); }
+
+/* view filter — Active / Completed / Archived */
+.tl-seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--o-sand-100); border: 1px solid var(--o-border-subtle); border-radius: 999px; flex: none; }
+.tl-seg button { padding: 6px 13px; border: none; background: transparent; border-radius: 999px; font-weight: 600; font-size: 12.5px; color: var(--o-ink-500); cursor: pointer; font-family: var(--o-font); }
+.tl-seg button:hover { color: var(--o-ink-800); }
+.tl-seg button[aria-pressed="true"] { background: var(--o-white); color: var(--o-ocean-700); box-shadow: 0 1px 2px rgba(11,42,58,.12); }
+
+/* ── body / timeline column ─────────────────────────────── */
+.tl-focuswrap { flex: none; padding: 14px 26px 0; }
+.tl-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 30px 48px; }
+.tl-inner { max-width: 760px; margin: 0 auto; }
+
+/* ── active-focus banner ────────────────────────────────── */
+.tl-banner {
+  display: flex; align-items: center; gap: 20px; padding: 16px 20px;
+  border-radius: var(--o-radius-xl); background: var(--o-glass-mango);
+  backdrop-filter: var(--o-blur); -webkit-backdrop-filter: var(--o-blur);
+  border: 1px solid color-mix(in srgb, var(--color-accent, #FF9F1C) 34%, transparent); box-shadow: var(--o-shadow-sm);
+}
+.tl-ring { position: relative; width: 60px; height: 60px; flex: none; border-radius: 999px; display: flex; align-items: center; justify-content: center; }
+.tl-ring > .inner { width: 48px; height: 48px; border-radius: 999px; background: var(--o-white); display: flex; align-items: center; justify-content: center; font-family: var(--o-mono); font-size: 13px; font-weight: 700; color: var(--o-mango-700); }
+.tl-fbtn { width: 46px; height: 46px; border-radius: 999px; border: none; background: var(--o-mango-500); color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: var(--o-glow-mango); }
+.tl-ibtn { width: 40px; height: 40px; border-radius: 999px; border: none; background: var(--o-glass); color: var(--o-ink-500); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.tl-ibtn:hover { background: var(--o-sand-100); color: var(--o-ink-800); }
+.tl-noFocus { display: flex; align-items: center; gap: 14px; padding: 15px 20px; border-radius: var(--o-radius-xl); background: var(--o-glass); border: 1px dashed var(--o-border-strong); }
+
+/* ── day header + spine ─────────────────────────────────── */
+.tl-daygrid { display: grid; grid-template-columns: 34px 1fr; align-items: center; margin: 24px 0 4px; }
+.tl-daygrid--first { margin-top: 2px; }
+.tl-spinecell { position: relative; height: 40px; }
+.tl-node { transition: transform .16s var(--o-ease-bounce); }
+.tl-dayhd { display: flex; align-items: baseline; gap: 10px; }
+.tl-dayhd .big { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
+.tl-dayhd .small { font-size: 12.5px; font-weight: 600; color: var(--o-ink-400); }
+.tl-dayhd .count { font-family: var(--o-mono); font-size: 11px; color: var(--o-ink-400); }
+.tl-pastdue { font-size: 10.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--o-coral-600); background: rgba(251,94,75,.12); padding: 2px 9px; border-radius: 999px; }
+
+/* ── task row ───────────────────────────────────────────── */
+.tl-taskgrid { display: grid; grid-template-columns: 34px 1fr; align-items: stretch; }
+.tl-spinecol { position: relative; background: linear-gradient(var(--o-spine),var(--o-spine)) center/2px 100% no-repeat; }
+.tl-tail { display: grid; grid-template-columns: 34px 1fr; height: 28px; }
+.tl-tail > .c { position: relative; background: linear-gradient(var(--o-spine),transparent) center/2px 100% no-repeat; }
+.tl-row {
+  position: relative; margin: 5px 0 5px 6px; padding: 12px 15px;
+  border-radius: var(--o-radius-lg); cursor: pointer;
+  transition: background .14s var(--o-ease-out), box-shadow .14s var(--o-ease-out), transform .14s var(--o-ease-out);
+}
+.tl-row:hover { background: var(--o-glass-strong); box-shadow: var(--o-shadow-md); transform: translateX(2px); }
+.tl-row:hover .tl-focusbtn { opacity: 1; }
+.tl-row:hover .tl-node { transform: scale(1.3); }
+.tl-check { margin-top: 1px; width: 20px; height: 20px; border-radius: 7px; border: 2px solid; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; background: transparent; }
+.tl-focusbtn { position: absolute; top: 11px; right: 11px; width: 30px; height: 30px; border-radius: 999px; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: opacity .14s var(--o-ease-out), transform .12s var(--o-ease-out); }
+.tl-focusbtn:hover { transform: scale(1.08); }
+.tl-metachip { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+
+/* ── someday shelf ──────────────────────────────────────── */
+.tl-shelf { margin-top: 12px; padding: 18px; border-radius: var(--o-radius-xl); background: var(--o-glass); border: 1px dashed var(--o-border-default); }
+.tl-shelfgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.shelf-card { position: relative; padding: 12px 14px; border-radius: var(--o-radius-lg); border: 1px solid var(--o-glass-border); background: var(--o-glass-strong); box-shadow: var(--o-shadow-sm); cursor: pointer; transition: transform .14s var(--o-ease-out), box-shadow .14s var(--o-ease-out); }
+.shelf-card:hover { transform: translateY(-2px); box-shadow: var(--o-shadow-md); }
+.shelf-card:hover .tl-focusbtn { opacity: 1; }
+.tl-quick { display: flex; align-items: center; gap: 9px; padding: 11px 14px; border-radius: var(--o-radius-lg); border: 1.5px dashed var(--o-border-default); background: none; }
+.tl-quick input { border: none; background: none; font-size: 13px; color: var(--o-ink-800); width: 100%; }
+
+/* ── shared slide-over editor ───────────────────────────── */
+.tl-backdrop { position: fixed; inset: 0; background: rgba(11,42,58,.28); z-index: 210; animation: tl-fade .18s var(--o-ease-out); }
+.tl-sheet {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 432px; max-width: 94%; z-index: 211;
+  background: var(--o-glass-strong); backdrop-filter: var(--o-blur); -webkit-backdrop-filter: var(--o-blur);
+  border-left: 1px solid var(--o-glass-border); box-shadow: var(--o-shadow-xl);
+  display: flex; flex-direction: column; animation: tl-slidein .24s var(--o-ease-out);
+}
+.tl-sheet-head { padding: 18px 24px 0; flex: none; }
+.tl-sheet-body { padding: 14px 24px 22px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 20px; }
+.tl-sheet-foot { display: flex; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--o-border-subtle); flex: none; background: var(--o-glass); }
+.tl-sheet-title { width: 100%; font-family: var(--o-font); font-size: 22px; font-weight: 800; color: var(--o-ink-900); line-height: 1.2; letter-spacing: -.01em; border: none; background: none; resize: none; padding: 0; overflow: hidden; }
+.tl-editing-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--o-ink-400); background: var(--o-sand-100); padding: 3px 9px; border-radius: 999px; }
+.tl-fieldrow { display: flex; align-items: flex-start; gap: 12px; }
+.tl-fieldlabel { width: 96px; flex: none; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--o-ink-500); padding-top: 4px; }
+.tl-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: 999px; border: 1.5px solid; font-size: 12px; font-weight: 700; cursor: pointer; background: var(--o-glass); }
+.tl-dateinput { width: 100%; padding: 8px 11px; border: 1px solid var(--o-border-default); border-radius: var(--o-radius-sm); font-size: 13px; color: var(--o-ink-800); background: var(--o-glass); font-family: var(--o-font); }
+.tl-preset { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 6px; border-radius: var(--o-radius-sm); border: 1.5px solid; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+.tl-notes { width: 100%; min-height: 96px; padding: 11px 13px; border: 1px solid var(--o-border-default); border-radius: var(--o-radius-md); font-size: 13px; line-height: 1.5; color: var(--o-ink-800); background: var(--o-glass); font-family: var(--o-font); resize: vertical; }
+.tl-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 14px; border-radius: var(--o-radius-sm); font-weight: 700; font-size: 13px; cursor: pointer; border: 1px solid transparent; }
+.tl-btn--primary { flex: 1; background: var(--o-mango-500); color: #fff; box-shadow: var(--o-glow-mango); }
+.tl-btn--primary:hover { filter: brightness(1.03); }
+.tl-btn--secondary { flex: 1; background: var(--o-glass); color: var(--o-ink-700); border-color: var(--o-border-default); }
+.tl-btn--ghost { background: transparent; color: var(--o-coral-600); border-color: var(--o-border-default); }
+.tl-btn--ghost:hover { background: var(--o-coral-100); }
+.tl-icobtn { border: none; background: none; border-radius: 8px; cursor: pointer; color: var(--o-ink-500); display: inline-flex; align-items: center; justify-content: center; }
+.tl-icobtn:hover { background: var(--o-sand-100); color: var(--o-ink-800); }
+.tl-subrow { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--o-radius-sm); }
+.tl-subrow:hover { background: var(--o-sand-100); }
+.tl-divider { height: 1px; background: var(--o-border-subtle); }
+
+/* ── empty state ────────────────────────────────────────── */
+.tl-empty { text-align: center; padding: 60px 20px; color: var(--o-ink-400); }
+
+@keyframes tl-slidein { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes tl-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tl-pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+/* ── responsive ─────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .tl-topbar { padding: 12px 16px; gap: 10px; flex-wrap: wrap; }
+  .tl-search { width: 100%; margin-left: 0; order: 3; }
+  .tl-body { padding: 16px 14px 48px; }
+  .tl-shelfgrid { grid-template-columns: 1fr; }
+  .tl-sheet { width: 100%; }
+}

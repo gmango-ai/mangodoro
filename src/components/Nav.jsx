@@ -211,14 +211,18 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
                 in the collapsible desktop row 2 below. */}
             <div className="hidden xl:flex items-center gap-3 ml-auto">
               <nav className="flex items-center gap-1">
+                <NavLink to="/pomodoro" className={desktopNavLink}>Pomodoro</NavLink>
                 <NavLink to="/office" className={desktopNavLink}>
                   Office
                   {officeActive && (
                     <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse align-middle" />
                   )}
                 </NavLink>
+                <NavLink to="/calendar" className={desktopNavLink}>Calendar</NavLink>
+                <NavLink to="/tasks" className={desktopNavLink}>Tasks</NavLink>
                 <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
                 <NavLink to="/whiteboards" className={desktopNavLink}>Whiteboards</NavLink>
+                <NavLink to="/meetings" className={desktopNavLink}>Meetings</NavLink>
                 <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
               </nav>
 
@@ -361,17 +365,29 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
             <OrgSwitcher />
           </div>
 
+          <NavLink to="/pomodoro" className={sidebarNavLink}>
+            <Timer className="w-5 h-5" /> Pomodoro
+          </NavLink>
           <NavLink to="/office" className={sidebarNavLink}>
             <Building2 className="w-5 h-5" /> Office
             {officeActive && (
               <span className="ml-auto w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             )}
           </NavLink>
+          <NavLink to="/tasks" className={sidebarNavLink}>
+            <span className="w-5 text-center">✅</span> Tasks
+          </NavLink>
+          <NavLink to="/calendar" className={sidebarNavLink}>
+            <span className="w-5 text-center">🗓️</span> Calendar
+          </NavLink>
           <NavLink to="/time-tracker" className={sidebarNavLink}>
             <span className="w-5 text-center">📋</span> Time tracker
           </NavLink>
           <NavLink to="/whiteboards" className={sidebarNavLink}>
             <span className="w-5 text-center">🪧</span> Whiteboards
+          </NavLink>
+          <NavLink to="/meetings" className={sidebarNavLink}>
+            <span className="w-5 text-center">🎥</span> Meetings
           </NavLink>
           <NavLink to="/team" className={sidebarNavLink}>
             <Users className="w-5 h-5" /> Org

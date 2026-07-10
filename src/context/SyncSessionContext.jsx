@@ -15,7 +15,6 @@ import {
   fetchSyncParticipants,
   transferSyncLeader,
   kickSyncParticipant,
-  setSyncParticipantStatus,
   takeSyncControl,
   findMyActiveSyncSession,
   heartbeatSyncSession,
@@ -391,19 +390,6 @@ export function SyncSessionProvider({ session, children }) {
     [syncSession]
   );
 
-  const setStatus = useCallback(
-    async (status) => {
-      if (!syncSession) return;
-      const { error } = await setSyncParticipantStatus(syncSession.id, status);
-      if (error) {
-        console.warn("set status:", error.message);
-        return;
-      }
-      fetchSyncParticipants(syncSession.id).then(({ data: p }) => setSyncParticipants(p || []));
-    },
-    [syncSession]
-  );
-
   const takeControl = useCallback(async (sessionId) => {
     const { data, error } = await takeSyncControl(sessionId);
     if (error) {
@@ -457,7 +443,6 @@ export function SyncSessionProvider({ session, children }) {
       endSession,
       transferLeader,
       kickParticipant,
-      setStatus,
       takeControl,
     }),
     [
@@ -470,7 +455,6 @@ export function SyncSessionProvider({ session, children }) {
       endSession,
       transferLeader,
       kickParticipant,
-      setStatus,
       takeControl,
     ]
   );

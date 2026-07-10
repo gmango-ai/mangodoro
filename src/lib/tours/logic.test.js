@@ -93,22 +93,22 @@ describe("announcements (WhatsNew-style markers)", () => {
 describe("getting-started checklist derivation", () => {
   it("hides org-gated + teammate-gated items until unlocked", () => {
     const ids = deriveChecklist({ name: "Jo" }).map((i) => i.id);
-    // "org" always shows (it's the join/create step); room/goal/message stay hidden.
-    expect(ids).toEqual(["name", "org", "focus"]);
+    // "org" + "task" always show (join/create + make a task); room/goal/message stay hidden.
+    expect(ids).toEqual(["name", "org", "task", "focus"]);
   });
 
   it("shows org items in an org, and teammate items only with teammates", () => {
     const solo = deriveChecklist({ hasOrg: true }).map((i) => i.id);
-    expect(solo).toEqual(["name", "org", "room", "focus", "goal"]); // message hidden (no teammates)
+    expect(solo).toEqual(["name", "org", "task", "room", "focus", "goal"]); // message hidden (no teammates)
     const withMates = deriveChecklist({ hasOrg: true, hasTeammates: true }).map((i) => i.id);
     expect(withMates).toContain("message");
   });
 
   it("marks items done from real facts, and completes only when all visible are done", () => {
-    const facts = { name: "Jo", hasOrg: true, enteredRoom: true, startedFocus: true, hasGoal: true };
+    const facts = { name: "Jo", hasOrg: true, madeTask: true, enteredRoom: true, startedFocus: true, hasGoal: true };
     expect(deriveChecklist(facts).find((i) => i.id === "room").done).toBe(true);
     expect(checklistComplete(facts)).toBe(true); // message hidden (no teammates) ⇒ all visible done
-    expect(checklistComplete({ name: "Jo", hasOrg: true })).toBe(false); // room/focus/goal undone
+    expect(checklistComplete({ name: "Jo", hasOrg: true })).toBe(false); // task/room/focus/goal undone
   });
 
   it("is incomplete when the list is empty", () => {

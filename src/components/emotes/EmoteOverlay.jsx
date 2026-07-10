@@ -60,7 +60,7 @@ const EmoteOverlay = forwardRef(function EmoteOverlay({
   // "bottom-center" (default) renders a horizontal bar at the bottom
   // of the relatively-positioned container we live inside.
   // "right-center" renders a vertical bar pinned to the right edge —
-  // use this over a video call so the bar clears Jitsi's own
+  // use this over a video call so the bar clears the call's own
   // bottom toolbar. "hidden" suppresses the bar entirely — useful
   // when the caller wants its own UI but still wants peers' particles
   // to render.

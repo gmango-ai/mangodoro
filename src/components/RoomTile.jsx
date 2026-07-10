@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { useTeam } from "../context/TeamContext";
 import UserAvatar from "./UserAvatar";
-import { presenceDot, presenceRing } from "../lib/presence";
+import { availabilityDot, availabilityRing, shownAvailability } from "../lib/presence";
+import { usePresenceById } from "../hooks/usePresenceById";
 import { Briefcase, MessageSquare, Lock, LockOpen, Crown, Hash, Star } from "lucide-react";
 
 const KIND_ICON = {
@@ -44,8 +45,8 @@ function pickSize(w, h) {
 // One avatar in the stack — overlapping ring + optional leader crown.
 // Lead users (in any org_team) get a small violet star marker; team
 // names are surfaced in the tooltip for quick "who is this?" scans.
-function OccupantAvatar({ occupant, isLeader, userTeams, size = 28 }) {
-  const ring = presenceRing(occupant.presence_state);
+function OccupantAvatar({ occupant, isLeader, userTeams, size = 28, presenceById }) {
+  const ring = availabilityRing(shownAvailability(occupant.user_id, presenceById));
   const isLead = (userTeams || []).some((t) => t.role === "lead");
   const teamNames = (userTeams || []).map((t) => t.name).join(" · ");
   const title = teamNames ? `${occupant.name} — ${teamNames}` : occupant.name;
@@ -75,6 +76,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
   const { theme } = useTheme();
   const { teamsByUserId, restrictedRoomIds } = useTeam();
   const dark = theme === "dark";
+  const presenceById = usePresenceById();
 
   const size = sizeOverride || pickSize(room.layout_w || 4, room.layout_h || 2);
 
@@ -191,7 +193,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
             {occupants.slice(0, 6).map((o) => (
               <span
                 key={o.user_id}
-                className={`w-1.5 h-1.5 rounded-full ${presenceDot(o.presence_state)}`}
+                className={`w-1.5 h-1.5 rounded-full ${availabilityDot(shownAvailability(o.user_id, presenceById))}`}
                 title={o.name}
               />
             ))}
@@ -284,6 +286,7 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
                 isLeader={o.user_id === activeSession.leader_id}
                 userTeams={teamsByUserId?.get(o.user_id)}
                 size={avatarSize}
+                presenceById={presenceById}
               />
             ))}
             {overflow > 0 && (

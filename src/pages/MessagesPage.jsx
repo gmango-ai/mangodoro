@@ -11,6 +11,7 @@ import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useMessages } from "../context/MessagesContext";
 import { useTheme } from "../context/ThemeContext";
+import { useProfileCard } from "../context/ProfileContext";
 import UserAvatar from "../components/UserAvatar";
 import { EMOTES } from "../components/emotes/presets";
 import FullEmojiPicker from "../components/emotes/FullEmojiPicker";
@@ -20,6 +21,8 @@ import {
   setConversationPinned, setConversationMuted,
 } from "../lib/messages";
 import { attachToMessage, listAttachments, isImage } from "../lib/messageAttachments";
+import { expandEmojiShortcodes } from "../lib/emojiShortcodes";
+import EmojiTextField from "../components/EmojiTextField";
 import { emitMention } from "../lib/notifications";
 import { playMessage } from "../lib/uiSounds";
 import { supabase } from "../supabase";
@@ -84,11 +87,23 @@ export function conversationName(c, memberById) {
 // names first so "@Ann Marie" wins over "@Ann".
 function linkifyMentions(text, mentionNames) {
   if (!text || !text.includes("@") || !mentionNames || mentionNames.size === 0) return text;
-  const present = [...mentionNames.keys()].filter((n) => text.includes(`@${n}`)).sort((a, b) => b.length - a.length);
+  // Match a name as-is AND with its spaces removed — mentions were historically
+  // inserted de-spaced ("@CristianCantu"), which never matched the spaced name.
+  // Both variants resolve to the same id; we always DISPLAY the readable name.
+  const byToken = new Map();
+  for (const [name, id] of mentionNames) {
+    byToken.set(name, { name, id });
+    const nospace = name.replace(/\s+/g, "");
+    if (nospace !== name && !byToken.has(nospace)) byToken.set(nospace, { name, id });
+  }
+  const present = [...byToken.keys()].filter((t) => text.includes(`@${t}`)).sort((a, b) => b.length - a.length);
   if (!present.length) return text;
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(`@(${present.map(esc).join("|")})`, "g");
-  return text.replace(re, (_m, name) => `[@${name}](mention://${mentionNames.get(name)})`);
+  return text.replace(re, (_m, token) => {
+    const v = byToken.get(token);
+    return v ? `[@${v.name}](mention://${v.id})` : _m;
+  });
 }
 // Keep react-markdown's URL safety but let our mention:// scheme (and same-page
 // anchors) through.
@@ -101,11 +116,17 @@ function mdUrl(url) {
 
 // ── light markdown body (bold/italic/code/links + @mentions) ──
 function Body({ text, mentionNames, className = "" }) {
+  const { openProfile } = useProfileCard();
   const src = mentionNames ? linkifyMentions(text, mentionNames) : text;
   return (
     <div className={`text-sm leading-relaxed whitespace-pre-wrap break-words [&_a]:text-[var(--color-accent)] [&_a]:underline [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:bg-black/10 [&_code]:text-[0.85em] [&_p]:m-0 [&_ul]:my-1 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-1 [&_ol]:pl-4 [&_ol]:list-decimal ${className}`}>
       <Markdown urlTransform={mdUrl} components={{ a: ({ node, href, ...p }) => (href || "").startsWith("mention://")
-        ? <span className="font-semibold text-[var(--color-accent)] no-underline" {...p} />
+        ? <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); openProfile?.(href.slice("mention://".length), e.currentTarget.getBoundingClientRect()); }}
+            className="font-semibold text-[var(--color-accent)] no-underline hover:underline align-baseline"
+            {...p}
+          />
         : <a href={href} {...p} target="_blank" rel="noopener noreferrer" /> }}>
         {src || ""}
       </Markdown>
@@ -285,11 +306,14 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message�
 
   const grow = (el) => { if (el) { el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 160)}px`; } };
 
+  // EmojiTextField already live-expanded :codes: and its synthetic event carries
+  // value + selectionStart, so this only handles @-mentions + autogrow.
   const onChange = (e) => {
-    setDraft(e.target.value);
-    grow(e.target);
-    const upto = e.target.value.slice(0, e.target.selectionStart);
-    const m = upto.match(/@([\w]*)$/);
+    const val = e.target.value;
+    setDraft(val);
+    grow(taRef.current);
+    const caret = e.target.selectionStart ?? val.length;
+    const m = val.slice(0, caret).match(/@([\w]*)$/);
     setMentionQ(m ? m[1] : null);
     onTyping?.();
   };
@@ -306,7 +330,7 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message�
   const addFiles = (list) => setFiles((p) => [...p, ...Array.from(list).map((f) => Object.assign(f, { _url: f.type?.startsWith("image/") ? URL.createObjectURL(f) : null }))]);
 
   const submit = async () => {
-    const body = draft.trim();
+    const body = expandEmojiShortcodes(draft.trim()); // catch any unexpanded :code:
     if (!body && files.length === 0) return;
     setDraft(""); setFiles([]); setMentionQ(null);
     if (taRef.current) taRef.current.style.height = "auto";
@@ -351,7 +375,8 @@ function Composer({ onSend, onTyping, candidates, dark, placeholder = "Message�
             <Paperclip className="w-5 h-5 sm:w-[18px] sm:h-[18px]" />
           </button>
         )}
-        <textarea
+        <EmojiTextField
+          multiline
           ref={taRef}
           value={draft}
           onChange={onChange}
@@ -420,6 +445,7 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
   const isChannel = kind === "channel";
   const showAuthors = kind === "group" || isChannel;
   const canManageChannel = isChannel && (isAdmin || myOrgTeamLeadIds?.has(conversation?.org_team_id));
+  const { openProfile } = useProfileCard();
   // Name → user_id for rendering @mentions, from everyone we can see.
   const mentionNames = useMemo(() => {
     const m = new Map();
@@ -629,13 +655,15 @@ export function Thread({ conversation, name, memberById, candidates, userId, isA
               >
                 <div className="w-9 shrink-0">
                   {!grouped
-                    ? <UserAvatar url={author?.avatar_url || ""} name={author?.name || "Member"} size={36} />
+                    ? <button type="button" className="rounded-full" title="View profile" onClick={(e) => { e.stopPropagation(); openProfile?.(m.sender_id, e.currentTarget.getBoundingClientRect()); }}>
+                        <UserAvatar url={author?.avatar_url || ""} name={author?.name || "Member"} size={36} />
+                      </button>
                     : <span className="hidden group-hover:block pt-1 text-right pr-1 text-[10px] text-slate-400 tabular-nums">{clockTime(m.created_at)}</span>}
                 </div>
                 <div className="min-w-0 flex-1">
                   {!grouped && (
                     <div className="flex items-baseline gap-2">
-                      <span className={`text-sm font-bold ${mine ? "text-[var(--color-accent)]" : dark ? "text-slate-100" : "text-slate-800"}`}>{mine ? "You" : (author?.name || "Member")}</span>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); openProfile?.(m.sender_id, e.currentTarget.getBoundingClientRect()); }} className={`select-none text-sm font-bold hover:underline ${mine ? "text-[var(--color-accent)]" : dark ? "text-slate-100" : "text-slate-800"}`}>{mine ? "You" : (author?.name || "Member")}</button>
                       <span className="text-[11px] text-slate-400">{clockTime(m.created_at)}</span>
                     </div>
                   )}

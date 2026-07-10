@@ -35,7 +35,6 @@ export function normalizeSettings(row) {
     defaultEntryMode: row.default_entry_mode || "manual",
     avatarUrl: row.avatar_url || "",
     status: row.status || "",
-    presenceState: row.presence_state || "active",
     statusUpdatedAt: row.status_updated_at || null,
     lunchTime: normalizeTime(row.lunch_time),
     lunchMode: row.lunch_mode || "off",

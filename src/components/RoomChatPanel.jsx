@@ -9,6 +9,8 @@ import { useProfileCard } from "../context/ProfileContext";
 import { useRoomChat } from "../lib/useRoomChat";
 import { Thread, ChannelSettings } from "../pages/MessagesPage";
 import { emitMention } from "../lib/notifications";
+import { expandEmojiShortcodes } from "../lib/emojiShortcodes";
+import EmojiTextField from "./EmojiTextField";
 import { getProfiles } from "../lib/profiles";
 import { availability, isOutOfOfficeAny } from "../lib/timezone";
 import UserAvatar from "./UserAvatar";
@@ -353,6 +355,8 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
 
   // Detect an @token immediately before the caret as the user types.
   const onDraftChange = (e) => {
+    // EmojiTextField already live-expanded :codes:; its synthetic event carries
+    // value + selectionStart.
     const val = e.target.value;
     setDraft(val);
     const caret = e.target.selectionStart ?? val.length;
@@ -388,7 +392,7 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
   }, [messages.length]);
 
   const handleSend = async () => {
-    const body = draft.trim();
+    const body = expandEmojiShortcodes(draft.trim());
     if (!body || sending) return;
     setSending(true);
     setDraft("");
@@ -529,7 +533,8 @@ function LegacyRoomChatPanel({ roomId, userId, fillHeight = false, readOnly = fa
             ))}
           </div>
         )}
-        <textarea
+        <EmojiTextField
+          multiline
           ref={taRef}
           value={draft}
           onChange={onDraftChange}

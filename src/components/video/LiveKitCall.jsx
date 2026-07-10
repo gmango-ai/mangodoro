@@ -22,9 +22,11 @@ import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client
 import "@livekit/components-styles";
 import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, ChevronUp, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, RotateCw, MoreHorizontal } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
+import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTeam } from "../../context/TeamContext";
 import { useVideoCall } from "../../context/VideoCallContext";
+import { useMeetingRecording } from "../../hooks/useMeetingRecording";
 import EmoteBar from "../emotes/EmoteBar";
 import { LIVEKIT_URL, fetchLiveKitToken, liveKitRoomName } from "../../lib/livekit";
 import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "../../lib/livekitModerate";
@@ -75,7 +77,7 @@ const LK_DISCONNECT_REASON = {
   13: "sip_trunk_failure",
 };
 
-// LiveKit provider — the A/B counterpart to <JitsiCall>.
+// LiveKit call — the room's video call UI.
 //
 // We compose LiveKit's primitives (Grid/Focus/Carousel layouts +
 // ParticipantTile + RoomAudioRenderer + a custom ControlBar) rather than the
@@ -1264,6 +1266,7 @@ function CallControlBar({
   deafened, onToggleDeafen,
   peopleOpen, onTogglePeople,
   fullscreenSupported, isFullscreen, onToggleFullscreen,
+  canRecord, recActive, recProcessing, recBusy, onToggleRecord,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -1370,6 +1373,26 @@ function CallControlBar({
       >
         <Smile className="w-5 h-5" />
       </button>
+
+      {/* Record + AI-summarize this meeting (session leader only). */}
+      {canRecord && (
+        <button
+          type="button"
+          className="lk-button"
+          onClick={onToggleRecord}
+          disabled={recBusy || recProcessing}
+          aria-pressed={recActive}
+          title={recActive ? "Stop recording" : recProcessing ? "Finishing up the last recording…" : "Record, transcribe & summarize this meeting"}
+        >
+          {recActive ? (
+            <span className="inline-block w-3.5 h-3.5 rounded-sm bg-red-500 animate-pulse" />
+          ) : recProcessing ? (
+            <span className="inline-block w-3.5 h-3.5 rounded-full bg-amber-400 animate-pulse" />
+          ) : (
+            <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-current" />
+          )}
+        </button>
+      )}
 
       {/* Overflow: the less-frequent utilities live here so the bar stays tidy —
           pop-out (Document PiP, where supported), deafen, and true fullscreen. */}
@@ -2273,6 +2296,34 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   const { maximized, setMaximized } = useVideoCall();
   // Mirror mic/speaker/connection state to the drive-mode bridge (giant car UI).
   useDriveBridge({ micMuted, onToggleMic });
+
+  // Meeting recording (record + transcribe + AI summary). The session LEADER or
+  // a team ADMIN/OWNER may toggle it — this must match start-egress's server-side
+  // authorization, or the button would be hidden for people the server allows
+  // (that's why it appeared in a room you lead but not one you don't). Everyone
+  // sees the REC indicator via Realtime.
+  const { session } = useApp();
+  const { syncSession } = useSyncSession();
+  const { isAdmin, isOwner } = useTeam();
+  const rec = useMeetingRecording(roomId);
+  const isLeader = !!syncSession && syncSession.leader_id === session?.user?.id;
+  const canRecord = publish && !!syncSession && (isLeader || isAdmin || isOwner);
+  const [recNotice, setRecNotice] = useState(null);
+  const prevRecActiveRef = useRef(false);
+  useEffect(() => {
+    if (rec.isActive && !prevRecActiveRef.current) {
+      prevRecActiveRef.current = true;
+      setRecNotice({ kind: "info", text: "This meeting is being recorded and transcribed" });
+      const t = setTimeout(() => setRecNotice(null), 6000);
+      return () => clearTimeout(t);
+    }
+    if (!rec.isActive) prevRecActiveRef.current = false;
+    return undefined;
+  }, [rec.isActive]);
+  const onToggleRecord = async () => {
+    const res = rec.isActive ? await rec.stop() : await rec.start();
+    if (res?.error) setRecNotice({ kind: "error", text: res.error.message || "Recording action failed" });
+  };
   // Collapse the control bar to icon-only below this width so the video can
   // stay small without the toolbar overflowing.
   const rootRef = useRef(null);
@@ -2450,6 +2501,23 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
     >
       <EffectsController bg={bg} customBg={customBg} noiseEnabled={noiseEnabled} />
       <AutoMicController enabled={autoMic} />
+      {/* Recording indicator — shown to EVERY participant (the consent surface),
+          plus a one-time notice when it starts. */}
+      {(rec.isActive || rec.isProcessing || recNotice) && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 pointer-events-none flex flex-col items-center gap-1">
+          {(rec.isActive || rec.isProcessing) && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/80 text-white text-[11px] font-semibold backdrop-blur-sm ring-1 ring-white/10">
+              <span className={`w-2 h-2 rounded-full ${rec.isActive ? "bg-red-500 animate-pulse" : "bg-amber-400 animate-pulse"}`} />
+              {rec.isActive ? "Recording" : "Processing…"}
+            </span>
+          )}
+          {recNotice && (
+            <span className={`px-2.5 py-1 rounded-full text-[11px] font-medium backdrop-blur-sm ${recNotice.kind === "error" ? "bg-red-600/90 text-white" : "bg-slate-900/80 text-slate-100 ring-1 ring-white/10"}`}>
+              {recNotice.text}
+            </span>
+          )}
+        </div>
+      )}
       <SelfViewContext.Provider value={selfView}>
         <LayoutContextProvider>
           <Stage
@@ -2541,6 +2609,11 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               fullscreenSupported={fullscreenSupported}
               isFullscreen={isFullscreen}
               onToggleFullscreen={toggleFullscreen}
+              canRecord={canRecord}
+              recActive={rec.isActive}
+              recProcessing={rec.isProcessing}
+              recBusy={rec.busy}
+              onToggleRecord={onToggleRecord}
             />
           </div>
         </div>

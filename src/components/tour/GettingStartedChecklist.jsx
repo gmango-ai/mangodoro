@@ -24,12 +24,15 @@ export default function GettingStartedChecklist() {
     name: !!settings?.name,
     hasOrg: (teams?.length || 0) > 0,
     hasTeammates: (teamMembers?.length || 0) > 1,
+    madeTask: !!cl.task,
     enteredRoom: !!cl.room,
     startedFocus: !!cl.focus,
     hasGoal: !!cl.goal,
     messagedTeammate: !!cl.message,
   };
   const items = deriveChecklist(facts);
+  // Respect the master "onboarding hints" switch (Settings → About).
+  if (settings?.onboarding?.hintsDisabled) return null;
   if (cl._hidden || !items.length || checklistComplete(facts)) return null;
 
   const doneCount = items.filter((i) => i.done).length;
@@ -37,10 +40,11 @@ export default function GettingStartedChecklist() {
   // Each item's action: prefer starting its tutorial when one is registered +
   // available, otherwise deep-link to where the user does the thing.
   const act = (id) => {
-    const tourId = { room: "room-and-call", focus: "meet-pomodoro" }[id];
+    const tourId = { task: "tasks", room: "office-basics", focus: "meet-pomodoro" }[id];
     if (tourId && isTourAvailable?.(tourId)) { startTour(tourId); return; }
     if (id === "name") navigate("/settings");
     else if (id === "org") navigate("/team");
+    else if (id === "task") navigate("/tasks");
     else if (id === "room") navigate("/office");
     else if (id === "focus") openPomodoroSurface();
     else if (id === "goal") navigate("/team");

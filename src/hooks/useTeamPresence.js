@@ -1,28 +1,21 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
-// Team-wide "who's online RIGHT NOW" via Supabase Realtime Presence.
-//
-// Why not reuse work_status / user_settings.presence_state? Those are DB rows:
-// work_status is only written while clocked in, and presence_state goes STALE
-// when a tab closes ungracefully (it stays "active" forever). Realtime Presence
-// auto-clears when a client's socket drops — the reliable "they're actually
-// here" signal. One shared channel per team (`team-presence:{teamId}`) that every
-// member joins; PresenceSync owns the local track(), any component can read the
-// roster via useTeamPresence(). Drives the hallway's "online but not clocked in".
+// Team-wide "who's online RIGHT NOW" via Supabase Realtime Presence — pure
+// LIVENESS. The resolved status/availability lives in user_presence; this
+// channel only answers "is their socket connected?" (it auto-clears when a
+// client drops, which a DB row can't). One shared channel per team
+// (`team-presence:{teamId}`); PresenceSync owns the local track(); any component
+// reads the roster via useTeamPresence(). Drives the hallway + the office
+// roster's online/offline overlay.
 
 let _channel = null;
 let _teamId = null;
 let _me = null;            // { id, name, avatar_url }
-let _myState = "active";   // local presence_state, tracked into the channel
-let _online = [];          // [{ user_id, presence_state, name, avatar_url }]
+let _online = [];          // [{ user_id, name, avatar_url }]
 const _subs = new Set();
 
 function emit() { for (const fn of _subs) fn(_online); }
-
-// Higher = "more present"; used to collapse a user's multiple tabs to one entry.
-const _ORDER = { active: 5, heads_down: 4, in_meeting: 3, available: 2, commuting: 1, out_to_lunch: 0, away: 0 };
-const rank = (s) => _ORDER[s] ?? 1;
 
 function recompute() {
   if (!_channel) { _online = []; emit(); return; }
@@ -31,15 +24,8 @@ function recompute() {
   const byUser = new Map();
   for (const key of Object.keys(state)) {
     for (const meta of state[key] || []) {
-      if (!meta?.user_id) continue;
-      const cand = {
-        user_id: meta.user_id,
-        presence_state: meta.presence_state || "active",
-        name: meta.name || "",
-        avatar_url: meta.avatar_url || "",
-      };
-      const prev = byUser.get(meta.user_id);
-      if (!prev || rank(cand.presence_state) > rank(prev.presence_state)) byUser.set(meta.user_id, cand);
+      if (!meta?.user_id || byUser.has(meta.user_id)) continue; // one entry per user (any tab)
+      byUser.set(meta.user_id, { user_id: meta.user_id, name: meta.name || "", avatar_url: meta.avatar_url || "" });
     }
   }
   _online = [...byUser.values()];
@@ -48,7 +34,7 @@ function recompute() {
 
 function trackMe() {
   if (!_channel || !_me) return;
-  try { _channel.track({ user_id: _me.id, name: _me.name, avatar_url: _me.avatar_url, presence_state: _myState }); } catch { /* */ }
+  try { _channel.track({ user_id: _me.id, name: _me.name, avatar_url: _me.avatar_url }); } catch { /* */ }
 }
 
 // Join (or re-target) the team channel. Same team → just refresh identity +
@@ -65,11 +51,6 @@ export function joinTeamPresence({ teamId, user }) {
     .on("presence", { event: "join" }, recompute)
     .on("presence", { event: "leave" }, recompute)
     .subscribe((status) => { if (status === "SUBSCRIBED") trackMe(); });
-}
-
-export function setMyPresenceState(state) {
-  _myState = state || "active";
-  trackMe();
 }
 
 export function leaveTeamPresence() {

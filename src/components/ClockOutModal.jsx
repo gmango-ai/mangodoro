@@ -7,6 +7,7 @@ import ProjectPicker from "./ProjectPicker";
 import { calcWorked, formatDuration, toDisplayTime } from "../lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import EmojiTextField from "./EmojiTextField";
 import { Checkbox } from "@/components/ui/checkbox";
 
 // Shown right after you clock out (pendingEntry is set) so you can save + edit
@@ -75,7 +76,7 @@ export default function ClockOutModal() {
         </div>
 
         {/* What did you work on */}
-        <Textarea
+        <EmojiTextField component={Textarea}
           value={pendingEntry.description || ""}
           onChange={(e) => updatePendingEntry({ description: e.target.value })}
           placeholder="What did you work on?"

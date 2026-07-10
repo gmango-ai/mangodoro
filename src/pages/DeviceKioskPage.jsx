@@ -223,7 +223,7 @@ export default function DeviceKioskPage({ session }) {
       if (data) {
         const { data: parts } = await supabase
           .from("sync_session_participants")
-          .select("user_id, display_name, avatar_url, presence_state, joined_at")
+          .select("user_id, display_name, avatar_url, joined_at")
           .eq("session_id", data.id)
           .is("left_at", null)
           .order("joined_at", { ascending: true });

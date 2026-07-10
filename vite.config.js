@@ -136,8 +136,16 @@ export default defineConfig({
           // so app-code changes don't bust the cached vendor bundle. (Checked
           // after the lk-* rules above so those win for the processor packages.)
           if (id.includes("livekit-client") || id.includes("@livekit/")) return "livekit";
-          // Keep the whole React ecosystem in one chunk (single instance).
-          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return "react-vendor";
+          // React CORE (react + jsx-runtime + scheduler) is a LEAF chunk that
+          // everything imports, so it always initialises first. react-dom and
+          // react-router go in a SEPARATE chunk that imports this one. Keeping
+          // react-dom out of one concatenated "react-vendor" blob avoids a
+          // react-dom "Cannot access X before initialization" TDZ that surfaces
+          // on iOS/JSC when a dependency-graph change reorders the blob — strict
+          // cross-chunk ESM eval order guarantees react is ready before react-dom
+          // runs. (Still a single instance of each — just two chunks.)
+          if (/[\\/]node_modules[\\/](react|scheduler)[\\/]/.test(id)) return "react-vendor";
+          if (/[\\/]node_modules[\\/](react-dom|react-router|react-router-dom)[\\/]/.test(id)) return "react-dom";
           if (id.includes("@supabase")) return "supabase";
           if (id.includes("recharts") || /[\\/]d3-/.test(id) || id.includes("victory-vendor") || id.includes("internmap")) return "charts";
           if (id.includes("@codemirror") || id.includes("@uiw") || id.includes("@lezer")) return "codemirror";

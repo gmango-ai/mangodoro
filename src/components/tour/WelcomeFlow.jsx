@@ -38,11 +38,12 @@ export default function WelcomeFlow() {
   useEffect(() => {
     if (!hydratedRef.current || !session?.user?.id) return;
     if (seededLegacyRef.current) return;
+    if (settings?.onboarding?.hintsDisabled) return; // hints turned off in Settings
     if (!name || welcomeDone === true) return;
     let seenLocal = false;
     try { seenLocal = localStorage.getItem(SEEN_KEY) === "1"; } catch { /* */ }
     if (!seenLocal) setShow(true);
-  }, [name, welcomeDone, session?.user?.id]);
+  }, [name, welcomeDone, session?.user?.id, settings?.onboarding?.hintsDisabled]);
 
   function finish() {
     try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* */ }
@@ -88,7 +89,7 @@ export default function WelcomeFlow() {
           </button>
           <button
             type="button"
-            onClick={() => { finish(); startTour?.("meet-pomodoro"); }}
+            onClick={() => { finish(); startTour?.("welcome"); }}
             className="px-4 py-2 rounded-lg text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
           >
             Take a quick tour

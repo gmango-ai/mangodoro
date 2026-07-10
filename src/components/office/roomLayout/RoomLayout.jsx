@@ -105,12 +105,12 @@ function PanelHeader({ dark, icon: Icon, title, narrow, maximized, draggable, on
 // Renders a room layout tree as absolutely-positioned tiles.
 //
 // Tiles are KEYED BY PANEL ID and never change DOM parent, so React never
-// remounts a panel — the Jitsi call and whiteboard survive resize AND
+// remounts a panel — the video call and whiteboard survive resize AND
 // rearrange. Position/size animate via CSS; during the animation we pump
-// resize events so the persistent video iframe stays glued to its tile.
+// resize events so the persistent video host stays glued to its tile.
 //
 // `arranging` flips on a drag layer (portalled to <body> so it floats
-// above the fixed video iframe). In it you can: drag a tile onto another's
+// above the fixed video host). In it you can: drag a tile onto another's
 // edge to split / center to swap; drag a tile into the toolbox to remove
 // it; or drag a panel out of the toolbox onto a tile edge to add it.
 export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioChange, arranging, onMove, onAddAt, onClose }) {

@@ -53,7 +53,7 @@ export default function PomodoroPage({ session, onOpenSync }) {
     )}m left`;
   }
 
-  // Current week's retro goals for the user's tagged departments —
+  // Current week's focus goals for the user's tagged departments —
   // glance-able context above the timer keeps the goal in mind during
   // a focus block.
   const { goals: weekGoals } = useWeekGoals();

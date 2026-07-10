@@ -15,6 +15,10 @@ import { supabase } from "../supabase";
 import PomodoroSurface from "../components/pomodoro/PomodoroSurface";
 import { useVisibilityPausedInterval } from "../hooks/useVisibilityPausedInterval";
 import { usePopoverAutoResize } from "./usePopoverAutoResize";
+import { useResolvedSelf } from "../hooks/useResolvedSelf";
+import { applyStatusOverride } from "../lib/statusActions";
+import { availabilityDot } from "../lib/presence";
+import EmojiTextField from "../components/EmojiTextField";
 
 /**
  * Electron menu-bar popover. Three pages on a tab strip — Pomodoro,
@@ -659,37 +663,35 @@ function minutesFromClockedElapsed(str) {
 // Shared status block — also rendered on the Pomodoro tab
 // ────────────────────────────────────────────────────────────────────
 const PRESENCE_OPTIONS = [
-  { value: "active", label: "Active" },
-  { value: "heads_down", label: "Heads-down" },
-  { value: "in_meeting", label: "In a meeting" },
+  { value: "online", label: "Online" },
+  { value: "focusing", label: "Focusing" },
+  { value: "meeting", label: "In a meeting" },
+  { value: "lunch", label: "On lunch" },
+  { value: "commuting", label: "Commuting" },
   { value: "away", label: "Away" },
+  { value: "offline", label: "Offline" },
 ];
 
+// Unified with the nav StatusChip: writes the manual OVERRIDE (applyStatusOverride)
+// so it propagates everywhere and the resolver's mirror can't overwrite it.
 function StatusBlock({ dark }) {
-  const { settings, updateStatus } = useApp();
-  const [draft, setDraft] = useState(settings?.status || "");
-  const [presence, setPresence] = useState(settings?.presenceState || "active");
+  const { session, updateStatus } = useApp();
+  const { resolved } = useResolvedSelf();
+  const userId = session?.user?.id;
 
-  useEffect(() => setDraft(settings?.status || ""), [settings?.status]);
-  useEffect(() => setPresence(settings?.presenceState || "active"), [settings?.presenceState]);
+  const availability = resolved?.availability || "offline";
+  const overridden = !!resolved?.override;
+  const message = resolved?.override?.message || "";
+  const [draft, setDraft] = useState(message);
+  useEffect(() => setDraft(message), [message]);
 
-  async function commitStatus() {
-    const trimmed = draft.trim();
-    if (trimmed === (settings?.status || "").trim()) return;
-    await updateStatus({ status: trimmed });
+  const write = (avail) =>
+    applyStatusOverride({ availability: avail, message: draft.trim() || null, userId, updateStatus });
+  function commitStatus() {
+    if (draft.trim() === message.trim()) return;
+    write(overridden ? availability : "online");
   }
-  async function pickPresence(next) {
-    if (next === presence) return;
-    setPresence(next);
-    await updateStatus({ presenceState: next });
-  }
-
-  const presenceColor = {
-    active: "#10b981",
-    heads_down: "#8b5cf6",
-    in_meeting: "#ef4444",
-    away: "#f59e0b",
-  }[presence] || "#10b981";
+  const pickPresence = (next) => write(next);
 
   return (
     <div className="space-y-1.5">
@@ -701,9 +703,9 @@ function StatusBlock({ dark }) {
           Status
         </span>
         <div className="relative inline-flex items-center gap-1.5">
-          <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: presenceColor }} />
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${availabilityDot(availability)}`} />
           <select
-            value={presence}
+            value={PRESENCE_OPTIONS.some((o) => o.value === availability) ? availability : "online"}
             onChange={(e) => pickPresence(e.target.value)}
             className={`text-[11px] font-medium rounded-md px-1 py-0.5 outline-none border ${
               dark
@@ -717,7 +719,7 @@ function StatusBlock({ dark }) {
           </select>
         </div>
       </div>
-      <input
+      <EmojiTextField
         type="text"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

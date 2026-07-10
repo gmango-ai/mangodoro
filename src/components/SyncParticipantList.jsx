@@ -6,6 +6,8 @@ import ConfirmRow from "./ConfirmRow";
 import { sortParticipants } from "../lib/participantSort";
 import { useParticipantSort } from "../hooks/useParticipantSort";
 import ParticipantSortPicker from "./pomodoro/ParticipantSortPicker";
+import { availabilityDot, availabilityLabel, shownAvailability } from "../lib/presence";
+import { usePresenceById } from "../hooks/usePresenceById";
 
 // Inline team chip strip — minimal so it fits next to a participant
 // name without inflating row height. Mirror MemberIdentity's chip
@@ -40,18 +42,9 @@ function TeamChips({ teams, dark, max = 3 }) {
   );
 }
 
-const PRESENCE_INFO = {
-  active:     { label: "Active",       light: "bg-emerald-500", dark: "bg-emerald-400" },
-  available:  { label: "Available",    light: "bg-sky-500",     dark: "bg-sky-400"     },
-  heads_down: { label: "Heads-down",   light: "bg-violet-500",  dark: "bg-violet-400"  },
-  in_meeting: { label: "In a meeting", light: "bg-rose-500",    dark: "bg-rose-400"    },
-  away:       { label: "Away",         light: "bg-amber-500",   dark: "bg-amber-400"   },
-  out_to_lunch: { label: "Out to lunch", light: "bg-orange-500", dark: "bg-orange-400" },
-  commuting:  { label: "Commuting",    light: "bg-cyan-500",    dark: "bg-cyan-400"    },
-};
-
-function presenceOf(p) {
-  return PRESENCE_INFO[p?.presence_state] || PRESENCE_INFO.active;
+function presenceOf(p, presenceById) {
+  const a = shownAvailability(p?.user_id, presenceById);
+  return { label: availabilityLabel(a), dot: availabilityDot(a) };
 }
 
 function relativeTime(iso) {
@@ -116,6 +109,7 @@ export default function SyncParticipantList({
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [sortMode] = useParticipantSort();
+  const presenceById = usePresenceById();
   // Surfaces that lead with participants (the redesigned pomodoro
   // surface) pass defaultExpanded; otherwise the saved localStorage
   // preference wins, falling back to collapsed first-time so the
@@ -147,8 +141,8 @@ export default function SyncParticipantList({
 
   // Stable display order (you → leader → rest by the chosen sort).
   const ordered = useMemo(
-    () => sortParticipants(participants, { mode: sortMode, userId: currentUserId, leaderId }),
-    [participants, sortMode, currentUserId, leaderId]
+    () => sortParticipants(participants, { mode: sortMode, userId: currentUserId, leaderId, availabilityOf: (uid) => presenceById.get(uid)?.availability }),
+    [participants, sortMode, currentUserId, leaderId, presenceById]
   );
 
   if (!participants?.length) return null;
@@ -233,6 +227,7 @@ export default function SyncParticipantList({
 
 function ListView({ participants, leaderId, controllerId, presenceMap, currentUserId, selectedId, onSelect, dark }) {
   const { teamsByUserId } = useTeam();
+  const presenceById = usePresenceById();
   return (
     <ul className="max-h-72 overflow-y-auto -mx-0.5 px-0.5 space-y-1">
       {participants.map((p) => {
@@ -240,8 +235,9 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
         const isController = p.user_id === controllerId;
         const isSelf = p.user_id === currentUserId;
         const isOnline = presenceMap?.[p.user_id] ?? false;
-        const presence = presenceOf(p);
-        const dotCls = isOnline ? (dark ? presence.dark : presence.light) : "bg-slate-400";
+        const presence = presenceOf(p, presenceById);
+        const statusMsg = presenceById.get(p.user_id)?.message || p.status;
+        const dotCls = isOnline ? (presence.dot) : "bg-slate-400";
         const isSelected = selectedId === p.user_id;
         return (
           <li key={p.user_id}>
@@ -283,8 +279,8 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
                   <TeamChips teams={teamsByUserId?.get(p.user_id)} dark={dark} />
                 </p>
                 <p className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                  {p.status?.trim()
-                    ? p.status
+                  {statusMsg?.trim()
+                    ? statusMsg
                     : <span className="italic opacity-70">{presence.label}{!isOnline ? " · Offline" : ""}</span>}
                 </p>
               </div>
@@ -297,6 +293,7 @@ function ListView({ participants, leaderId, controllerId, presenceMap, currentUs
 }
 
 function CompactView({ participants, leaderId, controllerId, presenceMap, currentUserId, selectedId, onSelect, dark }) {
+  const presenceById = usePresenceById();
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {participants.map((p) => {
@@ -304,8 +301,9 @@ function CompactView({ participants, leaderId, controllerId, presenceMap, curren
         const isController = p.user_id === controllerId;
         const isSelf = p.user_id === currentUserId;
         const isOnline = presenceMap?.[p.user_id] ?? false;
-        const presence = presenceOf(p);
-        const dotCls = isOnline ? (dark ? presence.dark : presence.light) : "bg-slate-400";
+        const presence = presenceOf(p, presenceById);
+        const statusMsg = presenceById.get(p.user_id)?.message || p.status;
+        const dotCls = isOnline ? (presence.dot) : "bg-slate-400";
         const isSelected = selectedId === p.user_id;
         return (
           <button
@@ -313,7 +311,7 @@ function CompactView({ participants, leaderId, controllerId, presenceMap, curren
             key={p.user_id}
             onClick={() => onSelect(p.user_id)}
             aria-pressed={isSelected}
-            title={`${isSelf ? "You" : (p.display_name || "Member")}${isController ? " · Controls timer" : ""}${p.status?.trim() ? ` — ${p.status}` : ""}`}
+            title={`${isSelf ? "You" : (p.display_name || "Member")}${isController ? " · Controls timer" : ""}${statusMsg?.trim() ? ` — ${statusMsg}` : ""}`}
             className={`relative rounded-full ${isSelected ? "ring-2 ring-offset-1 ring-[var(--color-accent)] " + (dark ? "ring-offset-slate-900" : "ring-offset-white") : ""}`}
           >
             <Avatar participant={p} size={32} dark={dark} isLeader={isLeader} />
@@ -345,7 +343,8 @@ function ParticipantDetail({
   onTransferLeader, onKickParticipant, onEditMyStatus, onClose,
 }) {
   const { teamsByUserId } = useTeam();
-  const presence = presenceOf(p);
+  const presenceById = usePresenceById();
+  const presence = presenceOf(p, presenceById);
   const userTeams = teamsByUserId?.get(p.user_id) || [];
 
   return (
@@ -381,7 +380,7 @@ function ParticipantDetail({
             )}
           </div>
           <div className={`flex items-center gap-1.5 text-[11px] ${dark ? "text-slate-400" : "text-slate-500"}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? (dark ? presence.dark : presence.light) : "bg-slate-400"}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? (presence.dot) : "bg-slate-400"}`} />
             <span>{presence.label}{!isOnline ? " · Offline" : ""}</span>
           </div>
           {p.joined_at && (

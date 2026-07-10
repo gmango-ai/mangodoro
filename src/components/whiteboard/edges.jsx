@@ -10,6 +10,12 @@ import { ShapeSvg } from "./nodes";
 // Provided by WhiteboardPage: the shape the current connect-drag will create
 // (picked via number keys), so the live ghost matches. Null → mirror the parent.
 export const ConnectShapeContext = createContext(null);
+
+// Provided by WhiteboardPage: a Set of edge ids caught in the current floating
+// marquee/lasso selection. Those edges draw a highlight underlay so a group
+// selection VISIBLY includes its connectors (they move/delete with the group).
+// Local-only (never synced) — it's a UI affordance, not edge state.
+export const AreaSelectedEdgesContext = createContext(null);
 const LEGACY_GHOST = { rect: "process", ellipse: "ellipse", diamond: "diamond" };
 
 // Custom end-cap markers (dot + diamond). fill:context-stroke makes them
@@ -49,7 +55,7 @@ const STUB = 22; // min distance an edge travels perpendicular before bending
 
 // Edges only attach to flowchart shapes. Containers and content nodes —
 // frames, zones, sticky notes, goals — are never edge endpoints.
-export const NON_CONNECTABLE = new Set(["frame", "zone", "sticky", "goal", "draw"]);
+export const NON_CONNECTABLE = new Set(["frame", "zone", "sticky", "goal", "draw", "image"]);
 
 function stubDir(pos) {
   return pos === "left" ? [-1, 0] : pos === "right" ? [1, 0] : pos === "top" ? [0, -1] : [0, 1];
@@ -228,6 +234,29 @@ function capUrl(kind) {
     case "dot": return "url(#wb-dot)";
     case "diamond": return "url(#wb-diamond)";
     default: return undefined; // "none"
+  }
+}
+
+// A PER-EDGE end-cap <marker> with the edge's actual colour baked in (fill via
+// `style` so a CSS var resolves). Rendered in the edge's own <defs> instead of
+// the shared context-stroke markers — iOS Safari lacks context-stroke and paints
+// those black (invisible on a dark board), so end-caps vanished on mobile.
+function capMarkerId(kind, edgeId) {
+  return kind && kind !== "none" ? `wbm-${kind}-${edgeId}` : null;
+}
+function capMarker(kind, id, color) {
+  const attrs = { id, markerUnits: "strokeWidth", orient: "auto-start-reverse" };
+  switch (kind) {
+    case "arrow":
+      return <marker {...attrs} markerWidth="10" markerHeight="10" refX="7" refY="5"><path d="M1.5 1.5 L9 5 L1.5 8.5 Z" style={{ fill: color }} /></marker>;
+    case "open":
+      return <marker {...attrs} markerWidth="10" markerHeight="10" refX="7" refY="5"><path d="M2 1.5 L9 5 L2 8.5" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ fill: "none", stroke: color }} /></marker>;
+    case "dot":
+      return <marker {...attrs} markerWidth="8" markerHeight="8" refX="4" refY="4"><circle cx="4" cy="4" r="3" style={{ fill: color }} /></marker>;
+    case "diamond":
+      return <marker {...attrs} markerWidth="11" markerHeight="11" refX="5.5" refY="5.5"><path d="M5.5 1 L10 5.5 L5.5 10 L1 5.5 Z" style={{ fill: color }} /></marker>;
+    default:
+      return null;
   }
 }
 
@@ -488,11 +517,30 @@ const EditableEdge = memo(function EditableEdge({
   sourcePosition, targetPosition,
   style, data, selected,
 }) {
-  const { setEdges, screenToFlowPosition, getNode, getNodes } = useReactFlow();
+  const { setEdges, screenToFlowPosition, getNode, getNodes, getInternalNode } = useReactFlow();
+  // Absolute node lookup. A node INSIDE a frame carries a frame-RELATIVE position
+  // in getNode()/getNodes(); only the INTERNAL node's positionAbsolute is right.
+  // Edges must resolve rects through this, or an edge to a framed node draws to
+  // the wrong spot and looks like it never connected. Stable (RF fns are stable),
+  // so it's safe in the memo/callback deps below.
+  const absNode = useCallback((idOrNode) => {
+    if (!idOrNode) return null;
+    const nid = typeof idOrNode === "string" ? idOrNode : idOrNode.id;
+    return getInternalNode(nid) || (typeof idOrNode === "object" ? idOrNode : getNode(nid));
+  }, [getInternalNode, getNode]);
+  // Part of a floating marquee/lasso selection? Draw a highlight underlay so the
+  // group selection visibly includes this connector (context is local-only).
+  const areaSelIds = useContext(AreaSelectedEdgesContext);
+  const areaSelected = !!areaSelIds?.has?.(id);
   // End-caps come from data (both ends independently). Default: a target arrow,
-  // no source cap. Custom markers → reliable dot/diamond + start-end support.
-  const markerStart = capUrl(data?.startCap ?? "none");
-  const markerEnd = capUrl(data?.endCap ?? "arrow");
+  // no source cap. Per-edge markers (colour baked in) so they render on mobile.
+  const startCap = data?.startCap ?? "none";
+  const endCap = data?.endCap ?? "arrow";
+  const capColor = style?.stroke || "var(--color-accent)";
+  const startMId = capMarkerId(startCap, id);
+  const endMId = capMarkerId(endCap, id);
+  const markerStart = startMId ? `url(#${startMId})` : undefined;
+  const markerEnd = endMId ? `url(#${endMId})` : undefined;
 
   // Endpoint resolution, recomputed live from the node rects so a dragged
   // node's edges re-anchor in real time:
@@ -500,8 +548,8 @@ const EditableEdge = memo(function EditableEdge({
   //   2. otherwise FLOAT to the side facing the other node's centre, so the
   //      edge always leaves from the near side and re-picks as nodes move.
   //   3. xyflow's connected handle only as a fallback before nodes measure.
-  const sRect = nodeRect(source ? getNode(source) : null);
-  const tRect = nodeRect(target ? getNode(target) : null);
+  const sRect = nodeRect(source ? absNode(source) : null);
+  const tRect = nodeRect(target ? absNode(target) : null);
   const sCenter = sRect && { x: sRect.x + sRect.w / 2, y: sRect.y + sRect.h / 2 };
   const tCenter = tRect && { x: tRect.x + tRect.w / 2, y: tRect.y + tRect.h / 2 };
   // Decide each end's SIDE — the balance of "smart" and "what you asked for":
@@ -578,7 +626,7 @@ const EditableEdge = memo(function EditableEdge({
     // with no other obstacles — otherwise the naive elbow draws a line
     // straight THROUGH the nodes. This is what makes opposite-ends connections
     // (outer side → outer side) route cleanly up and over.
-    const sR = nodeRect(getNode(source)), tR = nodeRect(getNode(target));
+    const sR = nodeRect(absNode(source)), tR = nodeRect(absNode(target));
     let wraps = false;
     if (sR && tR) {
       const sC = { x: sR.x + sR.w / 2, y: sR.y + sR.h / 2 };
@@ -593,7 +641,7 @@ const EditableEdge = memo(function EditableEdge({
     const others = [];
     for (const n of getNodes()) {
       if (n.type === "zone" || n.type === "frame" || n.id === source || n.id === target) continue;
-      const r = nodeRect(n);
+      const r = nodeRect(absNode(n.id));
       if (r) others.push(r);
     }
     if (!others.length && !wraps) return null;
@@ -601,11 +649,11 @@ const EditableEdge = memo(function EditableEdge({
     // rather than cutting across (the 22px stub > 16px margin keeps the
     // start/goal valid). Curves get extra clearance for their bow.
     const obstacles = others;
-    for (const nid of [source, target]) { const r = nodeRect(getNode(nid)); if (r) obstacles.push(r); }
+    for (const nid of [source, target]) { const r = nodeRect(absNode(nid)); if (r) obstacles.push(r); }
     const isCurve = (data?.routing || "elbow") === "curve";
     const margin = isCurve ? MARGIN + Math.min(data?.curviness ?? 18, 30) : MARGIN;
     return routeAround({ x: sX, y: sY }, sideNormal(sPos), { x: tX, y: tY }, sideNormal(tPos), obstacles, margin);
-  }, [manual, data?.routing, data?.curviness, source, target, sX, sY, sPos, tX, tY, tPos, getNode, getNodes]);
+  }, [manual, data?.routing, data?.curviness, source, target, sX, sY, sPos, tX, tY, tPos, absNode, getNodes]);
 
   const routing = data?.routing || "elbow";
   const curviness = data?.curviness ?? 18;
@@ -765,7 +813,7 @@ const EditableEdge = memo(function EditableEdge({
       let hit = null;
       for (const n of getNodes()) {
         if (NON_CONNECTABLE.has(n.type)) continue;
-        const r = nodeRect(n);
+        const r = nodeRect(absNode(n.id)); // absolute — framed nodes carry a relative position
         if (r && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) { hit = n; break; }
       }
       if (!hit) {
@@ -778,7 +826,7 @@ const EditableEdge = memo(function EditableEdge({
       // Over a node → attach there, loosely snapped to the side's tidy points
       // (a snapped/centred end is flagged `auto` so it re-floats as nodes move).
       setDragEnd(null);
-      const hitRect = nodeRect(hit);
+      const hitRect = nodeRect(absNode(hit.id)); // absolute rect for framed targets
       const anchor = snappedAnchor(hitRect, p.x, p.y);
       setSnapHint({ rect: hitRect, side: anchor.side, t: anchor.t, snapped: anchor.auto });
       setEdges((eds) => eds.map((edge) => {
@@ -791,7 +839,7 @@ const EditableEdge = memo(function EditableEdge({
     const onUp = () => { setDragEnd(null); setSnapHint(null); window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [id, getNodes, screenToFlowPosition, setEdges]);
+  }, [id, getNodes, screenToFlowPosition, setEdges, absNode]);
 
   const onEdgeDblClick = useCallback((e) => {
     e.stopPropagation();
@@ -822,6 +870,19 @@ const EditableEdge = memo(function EditableEdge({
 
   return (
     <>
+      <defs>
+        {startMId && capMarker(startCap, startMId, capColor)}
+        {endMId && endMId !== startMId && capMarker(endCap, endMId, capColor)}
+      </defs>
+      {/* Marquee/lasso highlight: a soft accent halo behind the line so a group
+          selection visibly includes its edges. Shows whenever the edge is
+          `selected` (RF flag — how the marquee now marks caught edges) or is in a
+          floating paint selection (areaSelected). */}
+      {(selected || areaSelected) && (
+        <path d={path} fill="none" stroke="var(--color-accent)" strokeOpacity={0.35}
+          strokeWidth={sw + 8} strokeLinecap="round" strokeLinejoin="round"
+          style={{ pointerEvents: "none" }} />
+      )}
       <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} style={style} />
       {/* Wide invisible hit-path: double-click anywhere to label; hover
           surfaces the endpoint handles so you can grab an end to re-route. */}
@@ -977,17 +1038,19 @@ function perimeterSnapPoints(rect) {
 }
 
 export function ConnectionLine({ fromX, fromY, toX, toY, fromPosition, fromNode }) {
-  const { getNodes } = useReactFlow();
+  const { getNodes, getInternalNode } = useReactFlow();
   const pickedShape = useContext(ConnectShapeContext);
   const fp = fromPosition || "right";
   const sRect = nodeRect(fromNode);
 
-  // Cursor over an existing (connectable) node?
+  // Cursor over an existing (connectable) node? Resolve the ABSOLUTE rect via the
+  // internal node — a framed node's getNodes() position is frame-relative, so the
+  // raw rect would miss it and the preview wouldn't snap to framed targets.
   let over = null;
   for (const n of getNodes()) {
     if (NON_CONNECTABLE.has(n.type)) continue;
     if (fromNode && n.id === fromNode.id) continue;
-    const r = nodeRect(n);
+    const r = nodeRect(getInternalNode(n.id) || n);
     if (r && toX >= r.x && toX <= r.x + r.w && toY >= r.y && toY <= r.y + r.h) { over = r; break; }
   }
 

@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/mangodoro-design-system-b7e9f357-e8be-4092-aeef-e70d74ac9413/tokens/fonts.css">
+  <link rel="stylesheet" href="_ds/mangodoro-design-system-b7e9f357-e8be-4092-aeef-e70d74ac9413/tokens/colors.css">
+  <link rel="stylesheet" href="_ds/mangodoro-design-system-b7e9f357-e8be-4092-aeef-e70d74ac9413/tokens/typography.css">
+  <link rel="stylesheet" href="_ds/mangodoro-design-system-b7e9f357-e8be-4092-aeef-e70d74ac9413/tokens/spacing.css">
+  <link rel="stylesheet" href="_ds/mangodoro-design-system-b7e9f357-e8be-4092-aeef-e70d74ac9413/tokens/base.css">
+  <link rel="stylesheet" href="_ds/mangodoro-design-system-b7e9f357-e8be-4092-aeef-e70d74ac9413/styles.css">
+  <script src="_ds/mangodoro-design-system-b7e9f357-e8be-4092-aeef-e70d74ac9413/_ds_bundle.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    *{box-sizing:border-box;}
+    html,body{margin:0;height:100%;}
+    :root{--spine:rgba(45,127,249,.22);}
+    a{color:var(--text-link);text-decoration:none;}
+    a:hover{color:var(--ocean-700);}
+    ::-webkit-scrollbar{width:10px;height:10px;}
+    ::-webkit-scrollbar-thumb{background:rgba(11,42,58,.14);border-radius:999px;border:3px solid transparent;background-clip:padding-box;}
+    input,button,textarea,select{font-family:inherit;}
+    input:focus,textarea:focus{outline:none;}
+    .tk-nav:hover{background:var(--sand-100);color:var(--ink-800);}
+    .tk-nav--on{background:rgba(45,127,249,.14)!important;color:var(--ocean-700)!important;}
+    .tl-row{transition:background .14s var(--ease-out),box-shadow .14s var(--ease-out),transform .14s var(--ease-out);}
+    .tl-row:hover{background:var(--glass-white-strong);box-shadow:var(--shadow-md);transform:translateX(2px);}
+    .tl-row:hover .tk-focusbtn{opacity:1;}
+    .tl-row:hover .tl-node{transform:scale(1.3);}
+    .tl-node{transition:transform .16s var(--ease-bounce);}
+    .tk-focusbtn{transition:opacity .14s var(--ease-out),transform .12s var(--ease-out);}
+    .tk-focusbtn:hover{transform:scale(1.08);}
+    .tk-row:hover{background:var(--sand-100);}
+    .tk-icobtn:hover{background:var(--sand-100);color:var(--ink-800);}
+    .shelf-card{transition:transform .14s var(--ease-out),box-shadow .14s var(--ease-out);}
+    .shelf-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);}
+    .shelf-card:hover .tk-focusbtn{opacity:1;}
+    @keyframes slidein{from{transform:translateX(28px);opacity:0;}to{transform:none;opacity:1;}}
+    @keyframes fadein{from{opacity:0;}to{opacity:1;}}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+  </style>
+</helmet>
+<div style="display:flex;height:100vh;width:100%;min-width:1360px;background:var(--surface-page);background-attachment:fixed;font-family:var(--font-sans);color:var(--text-body);">
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside style="width:236px;flex:none;background:var(--glass-white-strong);backdrop-filter:var(--blur-glass);-webkit-backdrop-filter:var(--blur-glass);border-right:1px solid var(--glass-border);display:flex;flex-direction:column;padding:18px 14px;gap:4px;">
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 8px 16px;">
+      <img src="assets/logo-mark-blue.png" alt="" style="width:32px;height:32px;">
+      <b style="font-family:var(--font-logo);font-size:19px;font-weight:800;letter-spacing:-.01em;color:var(--ink-900);">Mangodoro</b>
+    </div>
+    <button class="tk-nav" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--radius-md);font-weight:600;font-size:14px;color:var(--ink-600);cursor:pointer;border:none;background:none;width:100%;text-align:left;"><i data-lucide="users-round" style="width:18px;height:18px;"></i><span>Focus room</span><span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;background:var(--mango-100);color:var(--mango-700);padding:1px 7px;border-radius:999px;font-weight:700;">3</span></button>
+    <button class="tk-nav" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--radius-md);font-weight:600;font-size:14px;color:var(--ink-600);cursor:pointer;border:none;background:none;width:100%;text-align:left;"><i data-lucide="calendar-days" style="width:18px;height:18px;"></i><span>Calendar</span></button>
+    <button class="tk-nav" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--radius-md);font-weight:600;font-size:14px;color:var(--ink-600);cursor:pointer;border:none;background:none;width:100%;text-align:left;"><i data-lucide="layout-dashboard" style="width:18px;height:18px;"></i><span>Dashboard</span></button>
+    <button class="tk-nav tk-nav--on" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--radius-md);font-weight:600;font-size:14px;cursor:pointer;border:none;width:100%;text-align:left;"><i data-lucide="list-checks" style="width:18px;height:18px;color:var(--ocean-600);"></i><span>Tasks</span><span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;background:rgba(45,127,249,.16);color:var(--ocean-700);padding:1px 7px;border-radius:999px;font-weight:700;">{{ openCount }}</span></button>
+    <button class="tk-nav" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--radius-md);font-weight:600;font-size:14px;color:var(--ink-600);cursor:pointer;border:none;background:none;width:100%;text-align:left;"><i data-lucide="bar-chart-3" style="width:18px;height:18px;"></i><span>Reports</span></button>
+    <div style="font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-400);padding:16px 10px 6px;">Your crews</div>
+    <button class="tk-nav" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--radius-md);font-weight:600;font-size:14px;color:var(--ink-600);cursor:pointer;border:none;background:none;width:100%;text-align:left;"><i data-lucide="palmtree" style="width:18px;height:18px;"></i><span>Beachside devs</span><span style="margin-left:auto;width:7px;height:7px;border-radius:999px;background:var(--mango-500);"></span></button>
+    <button class="tk-nav" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--radius-md);font-weight:600;font-size:14px;color:var(--ink-600);cursor:pointer;border:none;background:none;width:100%;text-align:left;"><i data-lucide="coffee" style="width:18px;height:18px;"></i><span>Late-night club</span></button>
+    <div style="margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-radius:var(--radius-md);background:var(--glass-white);border:1px solid var(--glass-border);">
+      <x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.Avatar" name="You Sun" size="sm" status="{{ myStatus }}" hint-size="34px,34px"></x-import>
+      <div><div style="font-size:13px;font-weight:700;color:var(--ink-800);line-height:1.2;">You</div><div style="font-size:11px;color:{{ myStatusColor }};">{{ myStatusLabel }}</div></div>
+    </div>
+  </aside>
+
+  <!-- ===== MAIN ===== -->
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;position:relative;overflow:hidden;">
+
+    <!-- TOPBAR -->
+    <header style="display:flex;align-items:center;gap:16px;padding:16px 26px;border-bottom:1px solid var(--border-subtle);background:var(--glass-white-strong);backdrop-filter:var(--blur-glass-md);-webkit-backdrop-filter:var(--blur-glass-md);flex:none;">
+      <div style="min-width:0;">
+        <div style="font-family:var(--font-display);font-size:25px;font-weight:800;letter-spacing:-.02em;color:var(--ink-900);line-height:1.1;">Everything due, in a line</div>
+        <div style="font-size:13px;color:var(--ink-500);margin-top:2px;">Sorted by when it's due · {{ openCount }} open, {{ doneCount }} done</div>
+      </div>
+      <div style="flex:1;"></div>
+      <div style="display:flex;align-items:center;gap:8px;background:var(--glass-white);border:1px solid var(--border-default);border-radius:999px;padding:7px 13px;width:210px;">
+        <i data-lucide="search" style="width:16px;height:16px;color:var(--ink-400);"></i>
+        <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Search tasks" style="border:none;background:none;font-size:13px;color:var(--ink-800);width:100%;">
+      </div>
+      <x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.Button" variant="accent" leading-icon="{{ icoPlus }}" onClick="{{ focusQuick }}" hint-size="130px,42px">New task</x-import>
+    </header>
+
+    <!-- ===== ACTIVE FOCUS BANNER ===== -->
+    <div style="flex:none;padding:14px 26px 0;">
+      <sc-if value="{{ hasFocus }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:20px;padding:16px 20px;border-radius:var(--radius-xl);background:var(--glass-mango);backdrop-filter:var(--blur-glass);-webkit-backdrop-filter:var(--blur-glass);border:1px solid rgba(255,159,28,.28);box-shadow:var(--shadow-sm);">
+          <div style="position:relative;width:60px;height:60px;flex:none;border-radius:999px;background:conic-gradient(var(--mango-500) {{ focus.pct }}%, rgba(255,159,28,.18) 0);display:flex;align-items:center;justify-content:center;">
+            <div style="width:48px;height:48px;border-radius:999px;background:var(--white);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--mango-700);">{{ focus.clock }}</div>
+          </div>
+          <div style="min-width:0;flex:1;">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:3px;">
+              <span style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mango-700);">Focusing on</span>
+              <x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.SessionTag" mode="focus" running="{{ focus.running }}" hint-size="96px,24px"></x-import>
+              <span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--mango-700);background:rgba(255,159,28,.18);padding:1px 8px;border-radius:999px;">{{ focus.sessionLabel }}</span>
+            </div>
+            <div style="font-family:var(--font-display);font-size:19px;font-weight:800;color:var(--ink-900);letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ focus.title }}</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:7px;max-width:440px;">
+              <div style="flex:1;height:6px;border-radius:999px;background:rgba(255,159,28,.2);overflow:hidden;"><div style="height:100%;width:{{ focus.subPct }}%;background:var(--mango-500);border-radius:999px;"></div></div>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--ink-500);flex:none;">{{ focus.subLabel }}</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex:none;">
+            <button onClick="{{ toggleRun }}" class="tk-focusbtn" style="opacity:1;width:46px;height:46px;border-radius:999px;border:none;background:var(--mango-500);color:#fff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;box-shadow:var(--glow-mango);"><i data-lucide="{{ focus.playIcon }}" style="width:20px;height:20px;"></i></button>
+            <button onClick="{{ resetFocus }}" class="tk-icobtn" title="Restart" style="width:40px;height:40px;border-radius:999px;border:none;background:var(--glass-white);color:var(--ink-500);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;"><i data-lucide="rotate-ccw" style="width:17px;height:17px;"></i></button>
+            <button onClick="{{ endFocus }}" class="tk-icobtn" title="End session" style="width:40px;height:40px;border-radius:999px;border:none;background:var(--glass-white);color:var(--ink-500);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;"><i data-lucide="square" style="width:16px;height:16px;"></i></button>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ noFocus }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:14px;padding:15px 20px;border-radius:var(--radius-xl);background:var(--glass-white);border:1px dashed var(--border-strong);">
+          <div style="width:44px;height:44px;border-radius:999px;background:var(--sand-100);display:flex;align-items:center;justify-content:center;flex:none;"><i data-lucide="timer" style="width:20px;height:20px;color:var(--ink-400);"></i></div>
+          <div style="flex:1;"><div style="font-size:14.5px;font-weight:700;color:var(--ink-800);">No focus set</div><div style="font-size:12.5px;color:var(--ink-500);">Pick a task and hit focus to start a session — your crew will see it light up.</div></div>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- ===== BODY ===== -->
+    <div style="flex:1;min-height:0;display:flex;overflow:hidden;">
+
+      <!-- TIMELINE -->
+      <div style="flex:1;min-width:0;overflow-y:auto;padding:20px 30px 40px;">
+        <div style="max-width:760px;margin:0 auto;">
+          <sc-for list="{{ stream }}" as="it" hint-placeholder-count="6">
+
+            <!-- DAY HEADER -->
+            <sc-if value="{{ it.isDay }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid;grid-template-columns:34px 1fr;align-items:center;margin:{{ it.dayMargin }} 0 4px;">
+                <div style="position:relative;height:40px;{{ it.lineStyle }}">
+                  <span class="tl-node" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:15px;height:15px;border-radius:999px;background:{{ it.accent }};border:3px solid var(--white);box-shadow:0 0 0 1px {{ it.accent }};"></span>
+                </div>
+                <div style="display:flex;align-items:baseline;gap:10px;">
+                  <div style="font-family:var(--font-display);font-size:18px;font-weight:800;color:{{ it.titleColor }};letter-spacing:-.01em;">{{ it.big }}</div>
+                  <div style="font-size:12.5px;font-weight:600;color:var(--ink-400);">{{ it.small }}</div>
+                  <div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-400);">{{ it.count }}</div>
+                  <sc-if value="{{ it.isOverdue }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--coral-600);background:rgba(251,94,75,.12);padding:2px 9px;border-radius:999px;">past due</span></sc-if>
+                </div>
+              </div>
+            </sc-if>
+
+            <!-- TASK ROW -->
+            <sc-if value="{{ it.isTask }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;grid-template-columns:34px 1fr;align-items:stretch;">
+                <div style="position:relative;background:linear-gradient(var(--spine),var(--spine)) center/2px 100% no-repeat;">
+                  <span class="tl-node" style="position:absolute;left:50%;top:24px;transform:translate(-50%,-50%);width:11px;height:11px;border-radius:999px;background:{{ it.nodeColor }};border:2.5px solid var(--white);box-shadow:0 0 0 1px {{ it.nodeRing }};"></span>
+                </div>
+                <div class="tl-row" onClick="{{ it.onOpen }}" style="position:relative;margin:5px 0 5px 6px;padding:12px 15px;border-radius:var(--radius-lg);border:1px solid {{ it.cardBorder }};background:{{ it.cardBg }};cursor:pointer;">
+                  <div style="display:flex;gap:11px;align-items:flex-start;">
+                    <button onClick="{{ it.onToggle }}" style="margin-top:1px;width:20px;height:20px;border-radius:7px;border:2px solid {{ it.boxBorder }};background:{{ it.boxBg }};cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none;"><i data-lucide="check" style="width:13px;height:13px;color:#fff;display:{{ it.checkDisplay }};"></i></button>
+                    <div style="flex:1;min-width:0;">
+                      <div style="display:flex;align-items:flex-start;gap:8px;">
+                        <span style="width:7px;height:7px;border-radius:999px;background:{{ it.priColor }};flex:none;margin-top:6px;"></span>
+                        <div style="font-size:14px;font-weight:600;line-height:1.3;color:{{ it.titleColor }};text-decoration:{{ it.strike }};padding-right:34px;">{{ it.title }}</div>
+                      </div>
+                      <sc-if value="{{ it.hasMeta }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:9px;padding-left:15px;">
+                          <span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:{{ it.dlBg }};color:{{ it.dlFg }};border:{{ it.dlBorder }};"><i data-lucide="{{ it.dlIcon }}" style="width:11px;height:11px;"></i>{{ it.dlLabel }}</span>
+                          <sc-for list="{{ it.labels }}" as="l" hint-placeholder-count="1">
+                            <span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:{{ l.bg }};color:{{ l.fg }};">{{ l.name }}</span>
+                          </sc-for>
+                          <sc-if value="{{ it.hasSubs }}" hint-placeholder-val="{{ false }}">
+                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--sand-100);color:var(--ink-500);"><i data-lucide="check-square" style="width:11px;height:11px;"></i>{{ it.subLabel }}</span>
+                          </sc-if>
+                          <sc-if value="{{ it.hasSessions }}" hint-placeholder-val="{{ false }}">
+                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(255,159,28,.14);color:var(--mango-700);"><i data-lucide="timer" style="width:11px;height:11px;"></i>{{ it.sessLabel }}</span>
+                          </sc-if>
+                          <sc-if value="{{ it.hasEvent }}" hint-placeholder-val="{{ false }}">
+                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(45,127,249,.1);color:var(--ocean-700);"><i data-lucide="calendar-clock" style="width:11px;height:11px;"></i>{{ it.eventTime }}</span>
+                          </sc-if>
+                          <sc-if value="{{ it.hasPeople }}" hint-placeholder-val="{{ false }}">
+                            <x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.AvatarStack" people="{{ it.peopleObjs }}" max="3" size="xs" hint-size="60px,24px"></x-import>
+                          </sc-if>
+                          <sc-if value="{{ it.isFocused }}" hint-placeholder-val="{{ false }}">
+                            <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--mango-700);"><span style="width:6px;height:6px;border-radius:999px;background:var(--mango-500);animation:pulse 1.6s infinite;"></span>In focus now</span>
+                          </sc-if>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                  <button onClick="{{ it.onFocus }}" class="tk-focusbtn" title="Set as focus" style="opacity:{{ it.focusOpacity }};position:absolute;top:11px;right:11px;width:30px;height:30px;border-radius:999px;border:none;background:{{ it.focusBtnBg }};color:{{ it.focusBtnFg }};cursor:pointer;display:inline-flex;align-items:center;justify-content:center;"><i data-lucide="{{ it.focusBtnIcon }}" style="width:15px;height:15px;"></i></button>
+                </div>
+              </div>
+            </sc-if>
+          </sc-for>
+
+          <!-- spine tail -->
+          <div style="display:grid;grid-template-columns:34px 1fr;height:28px;"><div style="position:relative;background:linear-gradient(var(--spine),transparent) center/2px 100% no-repeat;"></div><div></div></div>
+
+          <!-- SOMEDAY SHELF -->
+          <div style="margin-top:12px;padding:18px;border-radius:var(--radius-xl);background:var(--glass-white);border:1px dashed var(--border-default);">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px;">
+              <i data-lucide="anchor" style="width:16px;height:16px;color:var(--aqua-600);"></i>
+              <div style="font-family:var(--font-display);font-size:15px;font-weight:800;color:var(--ink-900);">Someday · no due date</div>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--ink-400);">{{ shelfCount }}</span>
+              <span style="margin-left:auto;font-size:11.5px;color:var(--ink-400);">Give one a due date to drop it onto the line</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <sc-for list="{{ shelf }}" as="it" hint-placeholder-count="3">
+                <div class="shelf-card" onClick="{{ it.onOpen }}" style="position:relative;padding:12px 14px;border-radius:var(--radius-lg);border:1px solid var(--glass-border);background:var(--glass-white-strong);box-shadow:var(--shadow-sm);cursor:pointer;">
+                  <div style="display:flex;gap:10px;align-items:flex-start;">
+                    <button onClick="{{ it.onToggle }}" style="margin-top:1px;width:19px;height:19px;border-radius:6px;border:2px solid {{ it.boxBorder }};background:{{ it.boxBg }};cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none;"><i data-lucide="check" style="width:12px;height:12px;color:#fff;display:{{ it.checkDisplay }};"></i></button>
+                    <div style="flex:1;min-width:0;">
+                      <div style="display:flex;align-items:flex-start;gap:7px;"><span style="width:7px;height:7px;border-radius:999px;background:{{ it.nodeColor }};flex:none;margin-top:5px;"></span><div style="font-size:13.5px;font-weight:600;line-height:1.3;color:{{ it.titleColor }};text-decoration:{{ it.strike }};">{{ it.title }}</div></div>
+                      <sc-if value="{{ it.hasChips }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;padding-left:14px;">
+                          <sc-for list="{{ it.labels }}" as="l" hint-placeholder-count="1">
+                            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;background:{{ l.bg }};color:{{ l.fg }};">{{ l.name }}</span>
+                          </sc-for>
+                          <sc-if value="{{ it.hasSubs }}" hint-placeholder-val="{{ false }}">
+                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--sand-100);color:var(--ink-500);"><i data-lucide="check-square" style="width:10px;height:10px;"></i>{{ it.subLabel }}</span>
+                          </sc-if>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                  <button onClick="{{ it.onFocus }}" class="tk-focusbtn" title="Set as focus" style="opacity:{{ it.focusOpacity }};position:absolute;top:10px;right:10px;width:28px;height:28px;border-radius:999px;border:none;background:{{ it.focusBtnBg }};color:{{ it.focusBtnFg }};cursor:pointer;display:inline-flex;align-items:center;justify-content:center;"><i data-lucide="{{ it.focusBtnIcon }}" style="width:14px;height:14px;"></i></button>
+                </div>
+              </sc-for>
+              <div style="display:flex;align-items:center;gap:9px;padding:11px 14px;border-radius:var(--radius-lg);border:1.5px dashed var(--border-default);background:none;">
+                <i data-lucide="plus" style="width:15px;height:15px;color:var(--ink-400);flex:none;"></i>
+                <input value="{{ shelfQuick }}" onChange="{{ onShelfChange }}" onKeyDown="{{ onShelfKey }}" placeholder="Capture something for later…" style="border:none;background:none;font-size:13px;color:var(--ink-800);width:100%;">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT RAIL: CREW -->
+      <sc-if value="{{ showRail }}" hint-placeholder-val="{{ true }}">
+        <div style="width:324px;flex:none;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:16px;border-left:1px solid var(--border-subtle);">
+          <div style="border-radius:var(--radius-xl);background:var(--grad-ocean);padding:1px;box-shadow:var(--shadow-md);">
+            <div style="border-radius:calc(var(--radius-xl) - 1px);background:var(--glass-white-strong);backdrop-filter:var(--blur-glass);-webkit-backdrop-filter:var(--blur-glass);padding:16px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <div style="display:flex;align-items:center;gap:8px;"><i data-lucide="palmtree" style="width:17px;height:17px;color:var(--aqua-600);"></i><div style="font-family:var(--font-display);font-weight:700;font-size:15px;color:var(--ink-900);">Beachside devs</div></div>
+                <span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--aqua-700);background:rgba(20,196,174,.14);padding:2px 8px;border-radius:999px;">shared</span>
+              </div>
+              <div style="font-size:12.5px;color:var(--ink-500);line-height:1.5;margin-bottom:12px;">You're in a shared pomodoro. Everyone's timer is synced — you can see what each other is working on.</div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.AvatarStack" people="{{ roomPeople }}" max="5" hint-size="150px,34px"></x-import>
+                <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--aqua-700);margin-left:auto;">{{ roomClock }}</span>
+              </div>
+            </div>
+          </div>
+          <x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.Card" pad="md" hint-size="288px,360px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+              <div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-400);">Your crew right now</div>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--mango-700);font-weight:700;">{{ focusingCount }} focusing</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <sc-for list="{{ crew }}" as="p" hint-placeholder-count="4">
+                <div class="tk-row" style="display:flex;gap:11px;align-items:flex-start;padding:9px 8px;border-radius:var(--radius-md);">
+                  <x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.Avatar" name="{{ p.name }}" status="{{ p.status }}" ring="{{ p.ring }}" size="sm" hint-size="34px,34px"></x-import>
+                  <div style="flex:1;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:7px;">
+                      <div style="font-size:13px;font-weight:700;color:var(--ink-800);line-height:1.2;">{{ p.name }}</div>
+                      <span style="font-family:var(--font-mono);font-size:10.5px;font-weight:700;color:{{ p.timeColor }};margin-left:auto;">{{ p.time }}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:5px;margin-top:3px;">
+                      <span style="width:6px;height:6px;border-radius:999px;background:{{ p.dot }};flex:none;"></span>
+                      <div style="font-size:11.5px;color:{{ p.taskColor }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ p.task }}</div>
+                    </div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </x-import>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- ===== TASK DETAIL SLIDE-OVER (the shared, app-wide editor) ===== -->
+    <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ closeDetail }}" style="position:absolute;inset:0;background:rgba(11,42,58,.18);animation:fadein .18s var(--ease-out);z-index:20;"></div>
+      <div style="position:absolute;top:0;right:0;bottom:0;width:432px;background:var(--glass-white-strong);backdrop-filter:var(--blur-glass);-webkit-backdrop-filter:var(--blur-glass);border-left:1px solid var(--glass-border);box-shadow:var(--shadow-xl);z-index:21;display:flex;flex-direction:column;animation:slidein .24s var(--ease-out);">
+        <div style="padding:18px 24px 0;flex:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <button onClick="{{ sel.onToggle }}" style="width:22px;height:22px;border-radius:7px;border:2px solid {{ sel.boxBorder }};background:{{ sel.boxBg }};cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none;"><i data-lucide="check" style="width:14px;height:14px;color:#fff;display:{{ sel.checkDisplay }};"></i></button>
+              <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--ink-400);background:var(--sand-100);padding:3px 9px;border-radius:999px;"><i data-lucide="pencil" style="width:12px;height:12px;"></i>Editing · syncs everywhere</span>
+            </div>
+            <button onClick="{{ closeDetail }}" class="tk-icobtn" style="width:32px;height:32px;border:none;background:none;border-radius:8px;cursor:pointer;color:var(--ink-500);display:inline-flex;align-items:center;justify-content:center;"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
+          </div>
+          <textarea value="{{ sel.title }}" onChange="{{ onEditTitle }}" rows="1" style="width:100%;font-family:var(--font-display);font-size:22px;font-weight:800;color:var(--ink-900);line-height:1.2;letter-spacing:-.01em;border:none;background:none;resize:none;padding:0;overflow:hidden;">{{ sel.title }}</textarea>
+        </div>
+
+        <div style="padding:14px 24px 22px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:20px;">
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:96px;flex:none;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-500);"><i data-lucide="flag" style="width:15px;height:15px;"></i>Priority</div>
+              <div style="display:flex;gap:6px;">
+                <sc-for list="{{ priBtns }}" as="p" hint-placeholder-count="3">
+                  <button onClick="{{ p.onClick }}" style="display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:999px;border:1.5px solid {{ p.border }};background:{{ p.bg }};color:{{ p.fg }};font-size:12px;font-weight:700;cursor:pointer;"><span style="width:7px;height:7px;border-radius:999px;background:{{ p.dot }};"></span>{{ p.label }}</button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:12px;">
+              <div style="width:96px;flex:none;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-500);padding-top:7px;"><i data-lucide="calendar" style="width:15px;height:15px;"></i>Due date</div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+                <input type="date" value="{{ sel.date }}" onChange="{{ onEditDate }}" style="width:100%;padding:8px 11px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:13px;color:var(--ink-800);background:var(--glass-white);">
+                <div style="display:flex;gap:6px;">
+                  <sc-for list="{{ dueBtns }}" as="d" hint-placeholder-count="3">
+                    <button onClick="{{ d.onClick }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:7px 6px;border-radius:var(--radius-sm);border:1.5px solid {{ d.border }};background:{{ d.bg }};color:{{ d.fg }};font-size:11.5px;font-weight:700;cursor:pointer;">{{ d.label }}</button>
+                  </sc-for>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <sc-for list="{{ dlBtns }}" as="d" hint-placeholder-count="2">
+                    <button onClick="{{ d.onClick }}" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:7px 8px;border-radius:var(--radius-sm);border:1.5px solid {{ d.border }};background:{{ d.bg }};color:{{ d.fg }};font-size:12px;font-weight:700;cursor:pointer;"><i data-lucide="{{ d.icon }}" style="width:13px;height:13px;"></i>{{ d.label }}</button>
+                  </sc-for>
+                </div>
+                <div style="font-size:11px;color:var(--ink-400);line-height:1.4;">{{ sel.dlHint }}</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:12px;">
+              <div style="width:96px;flex:none;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-500);padding-top:5px;"><i data-lucide="tag" style="width:15px;height:15px;"></i>Labels</div>
+              <div style="flex:1;display:flex;flex-wrap:wrap;gap:6px;">
+                <sc-for list="{{ sel.labelChips }}" as="l" hint-placeholder-count="2">
+                  <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 6px 3px 9px;border-radius:999px;background:{{ l.bg }};color:{{ l.fg }};">{{ l.name }}<button onClick="{{ l.onRemove }}" style="border:none;background:none;cursor:pointer;color:inherit;opacity:.6;display:inline-flex;padding:0;"><i data-lucide="x" style="width:11px;height:11px;"></i></button></span>
+                </sc-for>
+                <sc-for list="{{ sel.labelAdd }}" as="l" hint-placeholder-count="2">
+                  <button onClick="{{ l.onAdd }}" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:none;border:1px dashed var(--border-default);color:var(--ink-400);cursor:pointer;"><i data-lucide="plus" style="width:11px;height:11px;"></i>{{ l.name }}</button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:96px;flex:none;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-500);"><i data-lucide="timer" style="width:15px;height:15px;"></i>Focus</div>
+              <div style="flex:1;display:flex;align-items:center;gap:9px;">
+                <sc-if value="{{ sel.hasSessions }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;align-items:center;gap:4px;">
+                    <sc-for list="{{ sel.sessDots }}" as="d" hint-placeholder-count="3"><span style="width:9px;height:9px;border-radius:999px;background:var(--mango-500);"></span></sc-for>
+                  </div>
+                  <span style="font-size:12.5px;font-weight:600;color:var(--ink-600);">{{ sel.sessText }}</span>
+                </sc-if>
+                <sc-if value="{{ sel.noSessions }}" hint-placeholder-val="{{ false }}">
+                  <span style="font-size:12.5px;color:var(--ink-400);">No sessions yet — set it as your focus to start one.</span>
+                </sc-if>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:96px;flex:none;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-500);"><i data-lucide="users" style="width:15px;height:15px;"></i>Shared</div>
+              <div style="flex:1;display:flex;align-items:center;gap:8px;">
+                <sc-if value="{{ sel.hasPeople }}" hint-placeholder-val="{{ true }}"><x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.AvatarStack" people="{{ sel.peopleObjs }}" max="5" size="sm" hint-size="120px,34px"></x-import></sc-if>
+                <button onClick="{{ toggleShareMenu }}" style="width:30px;height:30px;border-radius:999px;border:1.5px dashed var(--border-default);background:none;color:var(--ink-400);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;"><i data-lucide="plus" style="width:15px;height:15px;"></i></button>
+                <span style="font-size:12px;color:var(--ink-400);">{{ sel.shareLabel }}</span>
+              </div>
+            </div>
+            <sc-if value="{{ shareMenu }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-left:108px;display:flex;flex-wrap:wrap;gap:6px;padding:10px;border-radius:var(--radius-md);background:var(--sand-100);">
+                <sc-for list="{{ shareOptions }}" as="o" hint-placeholder-count="3">
+                  <button onClick="{{ o.onClick }}" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px 5px 6px;border-radius:999px;border:1px solid var(--border-default);background:var(--white);font-size:12px;font-weight:600;color:var(--ink-700);cursor:pointer;"><x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.Avatar" name="{{ o.name }}" size="xs" hint-size="22px,22px"></x-import>{{ o.name }}</button>
+                </sc-for>
+              </div>
+            </sc-if>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:96px;flex:none;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-500);"><i data-lucide="calendar-clock" style="width:15px;height:15px;"></i>Calendar</div>
+              <div style="flex:1;">
+                <sc-if value="{{ sel.hasEvent }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:var(--radius-md);background:rgba(45,127,249,.08);border:1px solid rgba(45,127,249,.2);">
+                    <span style="width:3px;align-self:stretch;border-radius:999px;background:var(--ocean-500);"></span>
+                    <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;color:var(--ink-800);">{{ sel.eventTitle }}</div><div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-500);">{{ sel.eventWhen }}</div></div>
+                    <button onClick="{{ unlinkEvent }}" class="tk-icobtn" style="width:26px;height:26px;border:none;background:none;border-radius:6px;cursor:pointer;color:var(--ink-400);display:inline-flex;align-items:center;justify-content:center;"><i data-lucide="unlink" style="width:14px;height:14px;"></i></button>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ sel.noEvent }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ toggleLinkMenu }}" style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:var(--radius-sm);border:1px dashed var(--border-default);background:none;color:var(--ink-500);font-size:12.5px;font-weight:600;cursor:pointer;"><i data-lucide="link" style="width:14px;height:14px;"></i>Link a calendar event</button>
+                </sc-if>
+                <sc-if value="{{ linkMenu }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px;padding:8px;border-radius:var(--radius-md);background:var(--sand-100);">
+                    <sc-for list="{{ linkOptions }}" as="o" hint-placeholder-count="3">
+                      <button onClick="{{ o.onClick }}" class="tk-row" style="display:flex;align-items:center;gap:8px;padding:7px 8px;border:none;background:none;border-radius:6px;cursor:pointer;text-align:left;"><span style="width:6px;height:6px;border-radius:999px;background:var(--ocean-500);"></span><span style="flex:1;font-size:12.5px;font-weight:600;color:var(--ink-700);">{{ o.title }}</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--ink-400);">{{ o.when }}</span></button>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </div>
+
+          <div style="height:1px;background:var(--border-subtle);"></div>
+
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:8px;"><i data-lucide="list-checks" style="width:16px;height:16px;color:var(--ocean-600);"></i><div style="font-size:14px;font-weight:700;color:var(--ink-900);">Subtasks</div></div>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--ink-400);">{{ sel.subLabel }}</span>
+            </div>
+            <div style="height:6px;border-radius:999px;background:var(--sand-200);overflow:hidden;margin-bottom:12px;"><div style="height:100%;width:{{ sel.subPct }}%;background:var(--aqua-500);border-radius:999px;transition:width .2s var(--ease-out);"></div></div>
+            <div style="display:flex;flex-direction:column;gap:2px;">
+              <sc-for list="{{ sel.subs }}" as="s" hint-placeholder-count="3">
+                <div class="tk-row" style="display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:var(--radius-sm);">
+                  <button onClick="{{ s.onToggle }}" style="width:18px;height:18px;border-radius:6px;border:2px solid {{ s.boxBorder }};background:{{ s.boxBg }};cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none;"><i data-lucide="check" style="width:12px;height:12px;color:#fff;display:{{ s.checkDisplay }};"></i></button>
+                  <div style="flex:1;font-size:13px;color:{{ s.color }};text-decoration:{{ s.strike }};">{{ s.title }}</div>
+                  <button onClick="{{ s.onRemove }}" class="tk-icobtn" style="width:24px;height:24px;border:none;background:none;border-radius:6px;cursor:pointer;color:var(--ink-300);display:inline-flex;align-items:center;justify-content:center;flex:none;"><i data-lucide="x" style="width:13px;height:13px;"></i></button>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 8px 0;">
+              <i data-lucide="plus" style="width:15px;height:15px;color:var(--ink-400);flex:none;"></i>
+              <input value="{{ newSub }}" onChange="{{ onNewSub }}" onKeyDown="{{ onNewSubKey }}" placeholder="Add a subtask…" style="border:none;background:none;font-size:13px;color:var(--ink-800);width:100%;">
+            </div>
+          </div>
+
+          <div style="height:1px;background:var(--border-subtle);"></div>
+
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;"><i data-lucide="align-left" style="width:16px;height:16px;color:var(--ink-500);"></i><div style="font-size:14px;font-weight:700;color:var(--ink-900);">Notes</div></div>
+            <textarea value="{{ sel.notes }}" onChange="{{ onEditNotes }}" placeholder="Add context, links, acceptance criteria…" style="width:100%;min-height:96px;padding:11px 13px;border:1px solid var(--border-default);border-radius:var(--radius-md);font-size:13px;line-height:1.55;color:var(--ink-800);background:var(--glass-white);resize:vertical;">{{ sel.notes }}</textarea>
+          </div>
+        </div>
+
+        <div style="padding:14px 24px;border-top:1px solid var(--border-subtle);display:flex;gap:10px;flex:none;background:var(--glass-white);">
+          <x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.Button" variant="{{ sel.focusVariant }}" block="{{ true }}" leading-icon="{{ sel.focusIco }}" onClick="{{ focusSelected }}" hint-size="auto,42px">{{ sel.focusLabel }}</x-import>
+          <x-import component-from-global-scope="MangodoroDesignSystem_b7e9f3.Button" variant="ghost" onClick="{{ deleteSelected }}" leading-icon="{{ icoTrash }}" hint-size="auto,42px">Delete</x-import>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;focusMinutes&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:25,&quot;min&quot;:5,&quot;max&quot;:60,&quot;step&quot;:5,&quot;unit&quot;:&quot;min&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Pomodoro&quot;},&quot;showCrewRail&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Layout&quot;}}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.today = '2026-07-09';
+    this.PRI = {
+      high:{ label:'High',   color:'var(--coral-500)', bg:'rgba(251,94,75,.14)',  fg:'var(--coral-700)', border:'var(--coral-500)' },
+      med: { label:'Medium', color:'var(--mango-500)', bg:'rgba(255,159,28,.18)', fg:'var(--mango-700)', border:'var(--mango-500)' },
+      low: { label:'Low',    color:'var(--ocean-500)', bg:'rgba(45,127,249,.14)', fg:'var(--ocean-700)', border:'var(--ocean-500)' },
+    };
+    this.LAB = {
+      design:  { name:'Design',   bg:'rgba(45,127,249,.14)',  fg:'var(--ocean-700)' },
+      research:{ name:'Research',  bg:'rgba(20,196,174,.18)',  fg:'var(--aqua-700)'  },
+      writing: { name:'Writing',   bg:'rgba(255,159,28,.18)',  fg:'var(--mango-700)' },
+      bug:     { name:'Bug',       bg:'rgba(251,94,75,.14)',   fg:'var(--coral-700)' },
+      admin:   { name:'Admin',     bg:'var(--sand-200)',       fg:'var(--ink-600)'   },
+    };
+    this.EVENTS = [
+      { id:'ev1', title:'Design review — Onboarding v3', when:'Today · 10:00am' },
+      { id:'ev2', title:'Sprint planning', when:'Today · 1:00pm' },
+      { id:'ev3', title:'Finalize calendar handoff', when:'Today · 4:00pm' },
+      { id:'ev4', title:'Design system audit', when:'Jul 20 · 10:00am' },
+    ];
+    const T = (o)=>({ notes:'', labels:[], subs:[], people:[], priority:'med', due:null, deadline:'soft', event:null, sessions:0, done:false, ...o });
+    const tasks = [
+      T({ id:'t0', due:'2026-07-08', title:'Ship the weekly digest', priority:'high', deadline:'hard', labels:['writing'], sessions:1,
+          subs:[{title:'Pull highlights',done:true},{title:'Draft copy',done:false}] }),
+      T({ id:'t1', due:'2026-07-09', title:'Finalize calendar handoff', priority:'high', deadline:'hard', labels:['design'], event:'ev3', people:['You Sun'], sessions:2,
+          notes:'Export the month/week/day specs, annotate the slide-over states, and drop the Figma link in #beachside-devs.',
+          subs:[{title:'Export month + week views',done:true},{title:'Annotate slide-over states',done:true},{title:'Write handoff notes',done:false},{title:'Post in channel',done:false}] }),
+      T({ id:'t2', due:'2026-07-09', title:'Review Q3 roadmap draft', priority:'med', deadline:'soft', labels:['admin'], sessions:1,
+          subs:[{title:'Read the doc',done:false},{title:'Leave comments',done:false},{title:'Approve or flag',done:false}] }),
+      T({ id:'t4', due:'2026-07-09', title:'Write design principles', priority:'med', labels:['writing'], people:['You Sun','Maya Lin'], sessions:0,
+          subs:[{title:'Draft the 5 principles',done:true},{title:'Get Maya\u2019s pass',done:false}],
+          notes:'Co-writing with Maya. Keep it to five, each with a do/don\u2019t.' }),
+      T({ id:'t3', due:'2026-07-10', title:'Reply to research findings', priority:'low', deadline:'soft', labels:['research'] }),
+      T({ id:'t8', due:'2026-07-11', title:'Book offsite space', priority:'high', deadline:'soft', labels:['admin'] }),
+      T({ id:'t6', due:'2026-07-14', title:'Prototype QA pass', priority:'med', deadline:'soft', labels:['design'], people:['Theo Reyes'], sessions:0,
+          subs:[{title:'Test all flows',done:false},{title:'Log bugs',done:false}] }),
+      T({ id:'t7', due:'2026-07-20', title:'Design system audit', priority:'high', deadline:'hard', labels:['design'], event:'ev4' }),
+      // undated → someday shelf
+      T({ id:'t9', title:'Fix timer drift on rejoin', priority:'med', labels:['bug'] }),
+      T({ id:'t10', title:'Explore streak celebrations', priority:'low', labels:['design'] }),
+      T({ id:'t11', title:'Read \u201cDeep Work\u201d', priority:'low' }),
+    ];
+    const fm = (props.focusMinutes ?? 25);
+    this.state = {
+      tasks, selectedId:null,
+      focus:{ taskId:'t1', totalSec:fm*60, secLeft:fm*60, running:false },
+      newSub:'', query:'', shelfQuick:'',
+      shareMenu:false, linkMenu:false,
+    };
+  }
+  componentDidMount(){ this._icons(); [0,120,300,700,1400].forEach(t=>setTimeout(()=>{ if(window.lucide) window.lucide.createIcons(); }, t));
+    this._tick=setInterval(()=>{ const f=this.state.focus; if(f.taskId && f.running && f.secLeft>0){
+      const next=Math.max(0,f.secLeft-1); const completed = next===0;
+      this.setState(s=>({ focus:{...s.focus, secLeft:next, running: !completed },
+        tasks: completed? s.tasks.map(t=> t.id===s.focus.taskId? {...t, sessions:t.sessions+1} : t) : s.tasks }));
+    } }, 1000);
+  }
+  componentWillUnmount(){ if(this._tick) clearInterval(this._tick); }
+  componentDidUpdate(){ this._icons(); }
+  _icons(){ requestAnimationFrame(()=>{ if(window.lucide) window.lucide.createIcons(); }); }
+
+  clock(sec){ const m=Math.floor(sec/60), s=sec%60; return m+':'+String(s).padStart(2,'0'); }
+  parse(iso){ return new Date(+iso.slice(0,4),+iso.slice(5,7)-1,+iso.slice(8,10)); }
+  dayDiff(iso){ return Math.round((this.parse(iso)-this.parse(this.today))/86400000); }
+  dueChip(iso){ const diff=this.dayDiff(iso); if(diff===0) return 'Due today'; if(diff===1) return 'Due tomorrow'; if(diff===-1) return 'Due yesterday'; if(diff<0) return Math.abs(diff)+' days late'; if(diff<7) return 'Due '+this.parse(iso).toLocaleDateString('en-US',{weekday:'short'}); return 'Due '+this.parse(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+  dayHeader(iso){
+    const diff=this.dayDiff(iso);
+    const wd=this.parse(iso).toLocaleDateString('en-US',{weekday:'long'});
+    const small=this.parse(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    let big=wd; if(diff===0) big='Today'; else if(diff===1) big='Tomorrow'; else if(diff===-1) big='Yesterday';
+    return { big, small: (Math.abs(diff)<=1)? (wd+' · '+small) : small, isToday:diff===0, isOverdue:diff<0 };
+  }
+
+  updateSel(mut){ this.setState(s=>({ tasks:s.tasks.map(t=> t.id===s.selectedId? mut({...t}) : t) })); }
+  toggleTask(id){ this.setState(s=>({ tasks:s.tasks.map(t=> t.id===id? {...t, done:!t.done} : t) })); }
+  open(id){ this.setState({selectedId:id, shareMenu:false, linkMenu:false}); }
+  setFocus(id){ const fm=this.props.focusMinutes ?? 25; this.setState({ focus:{ taskId:id, totalSec:fm*60, secLeft:fm*60, running:true } }); }
+  toggleRun(){ this.setState(s=>({ focus:{...s.focus, running:!s.focus.running} })); }
+  resetFocus(){ this.setState(s=>({ focus:{...s.focus, secLeft:s.focus.totalSec, running:false} })); }
+  endFocus(){ const fm=this.props.focusMinutes ?? 25; this.setState({ focus:{ taskId:null, totalSec:fm*60, secLeft:fm*60, running:false } }); }
+  addShelf(){ const t=(this.state.shelfQuick||'').trim(); if(!t) return; const id='t'+Date.now();
+    this.setState(s=>({ tasks:[...s.tasks, { id, title:t, priority:'med', notes:'', labels:[], subs:[], people:[], due:null, deadline:'soft', event:null, sessions:0, done:false }], shelfQuick:'' })); }
+  addSub(){ const t=(this.state.newSub||'').trim(); if(!t) return; this.updateSel(x=>({...x, subs:[...x.subs, {title:t, done:false}]})); this.setState({newSub:''}); }
+  toggleSub(i){ this.updateSel(x=>({...x, subs:x.subs.map((s,ix)=> ix===i? {...s,done:!s.done}:s)})); }
+  removeSub(i){ this.updateSel(x=>({...x, subs:x.subs.filter((_,ix)=>ix!==i)})); }
+  setPri(p){ this.updateSel(x=>({...x, priority:p})); }
+  setDl(d){ this.updateSel(x=>({...x, deadline:d})); }
+  setDue(kind){ let d=null; const base=this.parse(this.today);
+    if(kind==='today') d=this.today;
+    else if(kind==='tomorrow'){ const n=new Date(base); n.setDate(n.getDate()+1); d=this.iso(n); }
+    else if(kind==='week'){ const n=new Date(base); n.setDate(n.getDate()+7); d=this.iso(n); }
+    this.updateSel(x=>({...x, due:d})); }
+  iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  addLabel(k){ this.updateSel(x=> x.labels.includes(k)? x : ({...x, labels:[...x.labels,k]}) ); }
+  removeLabel(k){ this.updateSel(x=>({...x, labels:x.labels.filter(l=>l!==k)})); }
+  addPerson(n){ this.updateSel(x=> x.people.includes(n)? x : ({...x, people:[...x.people,n]}) ); this.setState({shareMenu:false}); }
+  linkEvent(id){ this.updateSel(x=>({...x, event:id})); this.setState({linkMenu:false}); }
+  unlinkEvent(){ this.updateSel(x=>({...x, event:null})); }
+  deleteSel(){ const id=this.state.selectedId; this.setState(s=>({ tasks:s.tasks.filter(t=>t.id!==id), selectedId:null,
+    focus: s.focus.taskId===id? {...s.focus, taskId:null, running:false} : s.focus })); }
+
+  rowVals(t){
+    const P=this.PRI[t.priority]||this.PRI.med;
+    const focused=this.state.focus.taskId===t.id;
+    const subDone=t.subs.filter(s=>s.done).length;
+    const ev=t.event? this.EVENTS.find(e=>e.id===t.event):null;
+    const labels=t.labels.map(k=>({ name:this.LAB[k].name, bg:this.LAB[k].bg, fg:this.LAB[k].fg }));
+    const hasSubs=t.subs.length>0, hasPeople=t.people.length>0, hasSessions=t.sessions>0;
+    const diff=this.dayDiff(t.due);
+    const dlHard=t.deadline==='hard';
+    const overdueUnfinished = diff<0 && !t.done;
+    return {
+      isTask:true, isDay:false, id:t.id,
+      title:t.title, titleColor: t.done? 'var(--ink-400)':'var(--ink-800)', strike: t.done? 'line-through':'none',
+      priColor: t.done? 'var(--ink-300)':P.color,
+      nodeColor: t.done? 'var(--aqua-500)': (focused? 'var(--mango-500)': (overdueUnfinished? 'var(--coral-500)': P.color)), nodeRing: focused? 'var(--mango-400)':'transparent',
+      boxBorder: t.done? 'var(--aqua-500)':'var(--border-strong)', boxBg: t.done? 'var(--aqua-500)':'transparent', checkDisplay: t.done? 'block':'none',
+      cardBg: focused? 'var(--glass-mango)':'var(--glass-white)', cardBorder: focused? 'rgba(255,159,28,.4)':'var(--glass-border)',
+      hasMeta:true,
+      dlLabel: t.done? 'Done' : this.dueChip(t.due), dlIcon: dlHard? 'alarm-clock':'calendar',
+      dlBg: overdueUnfinished? 'rgba(251,94,75,.14)' : (dlHard? 'rgba(251,94,75,.1)':'var(--sand-100)'),
+      dlFg: overdueUnfinished? 'var(--coral-700)' : (dlHard? 'var(--coral-700)':'var(--ink-500)'),
+      dlBorder: overdueUnfinished? '1px solid rgba(251,94,75,.35)' : (dlHard? '1px solid rgba(251,94,75,.22)':'1px solid transparent'),
+      labels,
+      hasSubs, subLabel: subDone+'/'+t.subs.length,
+      hasSessions, sessLabel: t.sessions===1? '1 session':(t.sessions+' sessions'),
+      hasEvent:!!ev, eventTime: ev? ev.when.split('· ')[1]:'',
+      hasPeople, peopleObjs: t.people.map(n=>({name:n,status:'online'})),
+      isFocused:focused, focusOpacity: focused?'1':'0',
+      focusBtnBg: focused?'var(--mango-500)':'var(--sand-100)', focusBtnFg: focused?'#fff':'var(--mango-600)', focusBtnIcon: focused?'pause':'play',
+      onOpen:()=>this.open(t.id),
+      onToggle:(e)=>{ if(e&&e.stopPropagation)e.stopPropagation(); this.toggleTask(t.id); },
+      onFocus:(e)=>{ if(e&&e.stopPropagation)e.stopPropagation(); if(this.state.focus.taskId===t.id) this.toggleRun(); else this.setFocus(t.id); },
+    };
+  }
+  shelfVals(t){
+    const P=this.PRI[t.priority]||this.PRI.med;
+    const focused=this.state.focus.taskId===t.id;
+    const subDone=t.subs.filter(s=>s.done).length;
+    const labels=t.labels.map(k=>({ name:this.LAB[k].name, bg:this.LAB[k].bg, fg:this.LAB[k].fg }));
+    const hasSubs=t.subs.length>0;
+    return { id:t.id, title:t.title, titleColor: t.done?'var(--ink-400)':'var(--ink-800)', strike: t.done?'line-through':'none',
+      nodeColor: t.done?'var(--aqua-500)':P.color,
+      boxBorder: t.done?'var(--aqua-500)':'var(--border-strong)', boxBg: t.done?'var(--aqua-500)':'transparent', checkDisplay: t.done?'block':'none',
+      hasChips: labels.length>0||hasSubs, labels, hasSubs, subLabel: subDone+'/'+t.subs.length,
+      focusOpacity: focused?'1':'0', focusBtnBg: focused?'var(--mango-500)':'var(--sand-100)', focusBtnFg: focused?'#fff':'var(--mango-600)', focusBtnIcon: focused?'pause':'play',
+      onOpen:()=>this.open(t.id),
+      onToggle:(e)=>{ if(e&&e.stopPropagation)e.stopPropagation(); this.toggleTask(t.id); },
+      onFocus:(e)=>{ if(e&&e.stopPropagation)e.stopPropagation(); if(this.state.focus.taskId===t.id) this.toggleRun(); else this.setFocus(t.id); },
+    };
+  }
+
+  renderVals(){
+    const s=this.state;
+    const q=(s.query||'').toLowerCase();
+    const match=(t)=> !q || t.title.toLowerCase().includes(q) || t.labels.some(l=>this.LAB[l].name.toLowerCase().includes(q));
+
+    const dated=s.tasks.filter(t=>t.due && match(t));
+    const undated=s.tasks.filter(t=>!t.due && match(t));
+
+    const byDate={};
+    dated.forEach(t=>{ (byDate[t.due]=byDate[t.due]||[]).push(t); });
+    const dates=Object.keys(byDate).sort();
+
+    const stream=[]; let first=true;
+    dates.forEach(iso=>{
+      const h=this.dayHeader(iso);
+      const list=byDate[iso].slice().sort((a,b)=> (a.done-b.done) );
+      const open=list.filter(t=>!t.done).length;
+      stream.push({ isDay:true, isTask:false,
+        big:h.big, small:h.small, count: open+(open===1?' task':' tasks'),
+        titleColor: h.isOverdue? 'var(--coral-700)': 'var(--ink-900)',
+        accent: h.isOverdue? 'var(--coral-500)' : (h.isToday? 'var(--mango-500)':'var(--ocean-500)'),
+        isOverdue: h.isOverdue,
+        dayMargin: first? '2px':'24px',
+        lineStyle: first? 'background:linear-gradient(transparent 50%,var(--spine) 50%) center/2px 100% no-repeat;' : 'background:linear-gradient(var(--spine),var(--spine)) center/2px 100% no-repeat;' });
+      first=false;
+      list.forEach(t=>stream.push(this.rowVals(t)));
+    });
+
+    const shelf=undated.slice().sort((a,b)=>(a.done-b.done)).map(t=>this.shelfVals(t));
+
+    const openCount=s.tasks.filter(t=>!t.done).length;
+    const doneCount=s.tasks.filter(t=>t.done).length;
+
+    const ft = s.focus.taskId? s.tasks.find(t=>t.id===s.focus.taskId) : null;
+    let focus={ pct:0, clock:'25:00', title:'', running:false, subPct:0, subLabel:'', playIcon:'play', sessionLabel:'Session 1' };
+    if(ft){ const done=ft.subs.filter(x=>x.done).length; const tot=ft.subs.length;
+      focus={ pct: Math.round((1 - s.focus.secLeft/s.focus.totalSec)*100), clock:this.clock(s.focus.secLeft),
+        title:ft.title, running:s.focus.running, playIcon: s.focus.running?'pause':'play',
+        subPct: tot? Math.round(done/tot*100):0, subLabel: tot? (done+' of '+tot+' subtasks'):'No subtasks yet',
+        sessionLabel: 'Session '+(ft.sessions+1) }; }
+
+    const CREW=[
+      { name:'Maya Lin',   status:'focus',  ring:true,  time:'18:24', timeColor:'var(--mango-700)', task:'Design review — Onboarding v3', dot:'var(--mango-500)', taskColor:'var(--ink-600)' },
+      { name:'Theo Reyes', status:'focus',  ring:true,  time:'04:11', timeColor:'var(--mango-700)', task:'Prototype QA pass',              dot:'var(--mango-500)', taskColor:'var(--ink-600)' },
+      { name:'Sam Okafor', status:'break',  ring:false, time:'Break', timeColor:'var(--aqua-700)',  task:'Back in 3 min',                  dot:'var(--aqua-500)',  taskColor:'var(--ink-500)' },
+      { name:'Priya Nair', status:'online', ring:false, time:'—',     timeColor:'var(--ink-400)',   task:'Available',                      dot:'var(--ink-300)',   taskColor:'var(--ink-400)' },
+    ];
+
+    let sel=null; const se=s.tasks.find(t=>t.id===s.selectedId);
+    if(se){
+      const subDone=se.subs.filter(x=>x.done).length, subTot=se.subs.length;
+      const ev=se.event? this.EVENTS.find(e=>e.id===se.event):null;
+      const isFocus=s.focus.taskId===se.id;
+      const overdue = se.due && this.dayDiff(se.due)<0 && !se.done;
+      sel={ title:se.title,
+        boxBorder: se.done?'var(--aqua-500)':'var(--border-strong)', boxBg: se.done?'var(--aqua-500)':'transparent', checkDisplay: se.done?'block':'none',
+        onToggle:()=>this.toggleTask(se.id),
+        date:se.due||'',
+        dlHint: !se.due? 'No due date — lives on your Someday shelf.' : (overdue? 'Past due — this is highlighted at the top of your line.' : (se.deadline==='hard'? 'Hard deadline — you\u2019ll be reminded and it can\u2019t slip quietly.' : 'Soft target — a gentle nudge, not a hard stop.')),
+        labelChips: se.labels.map(k=>({ name:this.LAB[k].name, bg:this.LAB[k].bg, fg:this.LAB[k].fg, onRemove:()=>this.removeLabel(k) })),
+        labelAdd: Object.keys(this.LAB).filter(k=>!se.labels.includes(k)).map(k=>({ name:this.LAB[k].name, onAdd:()=>this.addLabel(k) })),
+        hasSessions: se.sessions>0, noSessions: se.sessions===0,
+        sessDots: Array.from({length:Math.min(se.sessions,8)}).map((_,i)=>({i})),
+        sessText: (se.sessions===1?'1 focus session':(se.sessions+' focus sessions'))+' logged',
+        hasPeople: se.people.length>0, peopleObjs: se.people.map(n=>({name:n,status:'online'})),
+        shareLabel: se.people.length? (se.people.length+' on this'):'Just you',
+        hasEvent:!!ev, noEvent:!ev, eventTitle: ev?ev.title:'', eventWhen: ev?ev.when:'',
+        subs: se.subs.map((x,i)=>({ title:x.title, color: x.done?'var(--ink-400)':'var(--ink-800)', strike: x.done?'line-through':'none',
+          boxBorder: x.done?'var(--aqua-500)':'var(--border-strong)', boxBg: x.done?'var(--aqua-500)':'transparent', checkDisplay: x.done?'block':'none',
+          onToggle:()=>this.toggleSub(i), onRemove:()=>this.removeSub(i) })),
+        subLabel: subTot? (subDone+' of '+subTot):'0', subPct: subTot? Math.round(subDone/subTot*100):0,
+        notes:se.notes||'',
+        focusVariant: isFocus?'secondary':'accent', focusLabel: isFocus?'Focusing now':'Set as focus',
+        focusIco: React.createElement('i',{'data-lucide': isFocus?'check':'play'}),
+      };
+    }
+    const priBtns=['high','med','low'].map(k=>{ const P=this.PRI[k]; const on=se&&se.priority===k; return {
+      label:P.label, dot:P.color, onClick:()=>this.setPri(k), bg: on?P.bg:'var(--glass-white)', fg: on?P.fg:'var(--ink-600)', border: on?P.border:'var(--border-default)' }; });
+    const DUE=[{k:'today',label:'Today'},{k:'tomorrow',label:'Tomorrow'},{k:'week',label:'In a week'}];
+    const dueBtns=DUE.map(d=>{ const iso= d.k==='today'? this.today : null; const on = se && se.due && ((d.k==='today'&&this.dayDiff(se.due)===0)||(d.k==='tomorrow'&&this.dayDiff(se.due)===1)||(d.k==='week'&&this.dayDiff(se.due)===7)); return {
+      label:d.label, onClick:()=>this.setDue(d.k), bg: on?'rgba(45,127,249,.12)':'var(--glass-white)', fg: on?'var(--ocean-700)':'var(--ink-600)', border: on?'var(--ocean-500)':'var(--border-default)' }; });
+    const DL=[{k:'soft',label:'Soft deadline',icon:'feather'},{k:'hard',label:'Hard deadline',icon:'alarm-clock'}];
+    const dlBtns=DL.map(d=>{ const on=se&&se.deadline===d.k; const c= d.k==='hard'? this.PRI.high:this.PRI.low; return {
+      label:d.label, icon:d.icon, onClick:()=>this.setDl(d.k), bg: on?c.bg:'var(--glass-white)', fg: on?c.fg:'var(--ink-600)', border: on?c.border:'var(--border-default)' }; });
+    const shareOptions=CREW.map(p=>({ name:p.name, onClick:()=>this.addPerson(p.name) }));
+    const linkOptions=this.EVENTS.map(e=>({ title:e.title, when:e.when, onClick:()=>this.linkEvent(e.id) }));
+
+    const myStatus = ft && s.focus.running? 'focus':'online';
+    const myStatusLabel = ft && s.focus.running? ('Focusing · '+this.clock(s.focus.secLeft)) : 'Available';
+    const myStatusColor = ft && s.focus.running? 'var(--mango-700)':'var(--ink-500)';
+
+    return {
+      stream, shelf, shelfCount: shelf.length,
+      openCount, doneCount, query:s.query, onQuery:(e)=>this.setState({query:e.target.value}),
+      hasFocus:!!ft, noFocus:!ft, focus, toggleRun:()=>this.toggleRun(), resetFocus:()=>this.resetFocus(), endFocus:()=>this.endFocus(),
+      showRail: this.props.showCrewRail ?? true,
+      crew:CREW, focusingCount: CREW.filter(p=>p.status==='focus').length,
+      roomPeople:[{name:'You Sun',status:'focus'},{name:'Maya Lin',status:'focus'},{name:'Theo Reyes',status:'focus'},{name:'Sam Okafor',status:'break'}],
+      roomClock: ft && s.focus.running? this.clock(s.focus.secLeft):'25:00',
+      myStatus, myStatusLabel, myStatusColor,
+      hasSelection:!!sel, sel: sel||{}, priBtns, dueBtns, dlBtns, shareOptions, linkOptions,
+      shareMenu:s.shareMenu, linkMenu:s.linkMenu, newSub:s.newSub,
+      shelfQuick:s.shelfQuick, onShelfChange:(e)=>this.setState({shelfQuick:e.target.value}), onShelfKey:(e)=>{ if(e.key==='Enter') this.addShelf(); },
+      onEditTitle:(e)=>this.updateSel(x=>({...x, title:e.target.value})),
+      onEditDate:(e)=>this.updateSel(x=>({...x, due:e.target.value||null})),
+      onEditNotes:(e)=>this.updateSel(x=>({...x, notes:e.target.value})),
+      onNewSub:(e)=>this.setState({newSub:e.target.value}), onNewSubKey:(e)=>{ if(e.key==='Enter') this.addSub(); },
+      toggleShareMenu:()=>this.setState(st=>({shareMenu:!st.shareMenu})), toggleLinkMenu:()=>this.setState(st=>({linkMenu:!st.linkMenu})),
+      unlinkEvent:()=>this.unlinkEvent(), closeDetail:()=>this.setState({selectedId:null}),
+      focusSelected:()=>{ if(s.selectedId) this.setFocus(s.selectedId); }, deleteSelected:()=>this.deleteSel(),
+      focusQuick:()=>{ const el=document.querySelector('input[placeholder="Capture something for later…"]'); if(el) el.focus(); },
+      icoPlus:React.createElement('i',{'data-lucide':'plus'}),
+      icoTrash:React.createElement('i',{'data-lucide':'trash-2'}),
+    };
+  }
+}
+</script>
+</body>
+</html>

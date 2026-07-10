@@ -1,12 +1,11 @@
 import { useState } from "react";
 import {
-  Timer, Play, Pause, Square, Volume2, VolumeX, Music, Share2, MonitorStop,
+  Timer, Play, Pause, Square, Volume2, VolumeX, Music,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useMeetingTimer, formatRemaining } from "../../hooks/useMeetingTimer";
-import { useShareMusic } from "../../hooks/useShareMusic";
 import {
   TIMER_TRACKS, TIMER_DURATION_PRESETS,
 } from "../../lib/meetingTimerTracks";
@@ -38,18 +37,10 @@ export default function TimerWidget({ dark }) {
   // so the controls actually show up instead of the room being stuck.
   const canLead = inSession && (isLeader || !leaderPresent);
 
-  const share = useShareMusic();
-  const [shareHintDismissed, setShareHintDismissed] = useState(false);
-
   const [duration, setDuration] = useState(TIMER_DURATION_PRESETS[1].seconds);
   const [trackId, setTrackId] = useState(TIMER_TRACKS[1].id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  function handleShareClick() {
-    setShareHintDismissed(true);
-    share.share();
-  }
 
   async function start() {
     if (!syncSession?.id) return;
@@ -236,46 +227,6 @@ export default function TimerWidget({ dark }) {
           <p className={`text-[10px] italic ${dark ? "text-amber-300" : "text-amber-600"}`}>
             Audio file missing — drop {t.track.src} into /public/music/
           </p>
-        )}
-
-        {/* Share music — pipes the user's selected browser tab audio
-            (Spotify / YouTube Music / Apple Music Web / etc) into the
-            room call via Jitsi's screen-share. Chrome/Edge required;
-            on the picker, they must check "Share tab audio". Only
-            available while the user is in the room call. */}
-        {inSession && share.available && (
-          <div className={`pt-2 mt-1 border-t ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
-            {share.sharing ? (
-              <Button
-                onClick={share.stop}
-                size="sm"
-                variant="outline"
-                className="w-full"
-                title="Stop sharing your tab audio"
-              >
-                <MonitorStop className="w-3.5 h-3.5 mr-1.5" />
-                Stop sharing music
-              </Button>
-            ) : (
-              <>
-                <Button
-                  onClick={handleShareClick}
-                  size="sm"
-                  variant="outline"
-                  className="w-full"
-                  title="Share a music tab's audio into the call"
-                >
-                  <Share2 className="w-3.5 h-3.5 mr-1.5" />
-                  Share music tab
-                </Button>
-                {!shareHintDismissed && (
-                  <p className={`text-[10px] leading-snug mt-1.5 ${dark ? "text-slate-500" : "text-slate-500"}`}>
-                    Pick your music tab and <b>check "Share tab audio"</b>. Chrome / Edge only.
-                  </p>
-                )}
-              </>
-            )}
-          </div>
         )}
 
         {error && (

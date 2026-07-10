@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Check, Trash2, Clock, Lock, Globe, Eraser, Pin, PenLine } from "lucide-react";
+import { X, Check, Trash2, Clock, Lock, Globe, Eraser, Pin, PenLine, Home, MessageSquare } from "lucide-react";
 import {
   renameRoomV2, setRoomColor, updateRoomGating, archiveRoomV2,
   setRoomMaxDuration, setRoomEntryPolicy, setRoomAccessCode, getRoomAccessCode,
-  setRoomPinPolicy, setRoomKnockEnabled, setRoomWhiteboardLock,
+  setRoomPinPolicy, setRoomKnockEnabled, setRoomWhiteboardLock, setRoomKind,
 } from "../lib/rooms";
 import { clearRoomChat } from "../lib/chatMessages";
 
@@ -25,6 +25,18 @@ const ROOM_COLORS = [
   "#f43f5e", "#f59e0b", "#84cc16", "#10b981", "#64748b",
 ];
 
+// Room types, mirroring CreateRoomModal. 'general' is org-wide and admin-only;
+// 'meeting' rooms can auto-close after a max duration; 'private' rooms lock
+// behind a shareable code once occupied.
+const KIND_OPTIONS = [
+  { key: "general", label: "General", Icon: Home, adminsOnly: true,
+    hint: "Long-lived shared room anyone in the org can drop into." },
+  { key: "meeting", label: "Meeting", Icon: MessageSquare, adminsOnly: false,
+    hint: "Time-boxed room that can auto-close after a max duration." },
+  { key: "private", label: "Private", Icon: Lock, adminsOnly: false,
+    hint: "Locks behind a shareable code once someone's inside." },
+];
+
 // Combined edit modal for a room. Replaces the inline rename + the
 // separate RoomGatingModal — admins/leads change everything from one
 // screen. Each section saves independently so a partial failure doesn't
@@ -36,6 +48,7 @@ export default function RoomSettingsModal({
   const dark = theme === "dark";
 
   const [name, setName] = useState("");
+  const [kind, setKind] = useState("meeting");
   const [color, setColor] = useState("#14b8a6");
   const [selectedTeamIds, setSelectedTeamIds] = useState([]);
   const [maxDuration, setMaxDuration] = useState(null);   // minutes, or null
@@ -48,7 +61,7 @@ export default function RoomSettingsModal({
   const [knockEnabled, setKnockEnabled] = useState(true);  // accept knocks while occupied
   const [whiteboardLocked, setWhiteboardLocked] = useState(false); // lock board to managers
   const [busy, setBusy] = useState(false);
-  const [dirty, setDirty] = useState({ name: false, color: false, gating: false, duration: false, access: false, pin: false, whiteboard: false });
+  const [dirty, setDirty] = useState({ name: false, kind: false, color: false, gating: false, duration: false, access: false, pin: false, whiteboard: false });
   // Two-step delete: clicking the trash icon flips this to true and the
   // footer swaps in a Confirm / Cancel pair. Avoids needing a separate
   // modal layer for a single destructive action.
@@ -60,6 +73,7 @@ export default function RoomSettingsModal({
   useEffect(() => {
     if (!open || !room) return;
     setName(room.name || "");
+    setKind(room.kind || "meeting");
     setColor(room.color || "#14b8a6");
     setSelectedTeamIds((room.room_teams || []).map((rt) => rt.org_team_id));
     const current = room.max_duration_minutes ?? null;
@@ -129,7 +143,21 @@ export default function RoomSettingsModal({
   async function handleSave() {
     setBusy(true);
     const errs = [];
-    // Run the saves in parallel so the modal closes quickly.
+
+    // Type first, awaited on its own: it rewrites coupled columns server-side
+    // (clears a non-meeting room's max duration, seeds a private room's code),
+    // so the parallel saves below run against the settled row. Bail if it
+    // fails — the rest of the form assumes the new type took.
+    if (dirty.kind && kind !== room.kind) {
+      const { error } = await setRoomKind(room.id, kind);
+      if (error) {
+        setBusy(false);
+        onError?.(error.message || "Could not change room type");
+        return;
+      }
+    }
+
+    // Run the remaining saves in parallel so the modal closes quickly.
     const tasks = [];
     if (dirty.name && name.trim() && name.trim() !== room.name) {
       tasks.push(renameRoomV2(room.id, name.trim()).then((r) => r.error && errs.push(r.error)));
@@ -140,7 +168,7 @@ export default function RoomSettingsModal({
     if (dirty.gating) {
       tasks.push(updateRoomGating(room.id, selectedTeamIds).then((r) => r.error && errs.push(r.error)));
     }
-    if (dirty.duration && room.kind === "meeting") {
+    if (dirty.duration && kind === "meeting") {
       const next = showCustomDuration
         ? (customDuration.trim() === "" ? null : Math.max(1, parseInt(customDuration, 10) || 0))
         : maxDuration;
@@ -237,6 +265,43 @@ export default function RoomSettingsModal({
           />
         </div>
 
+        {/* Type — general / meeting / private. Changing it rewrites coupled
+            server-side state (a non-meeting room loses its duration; a private
+            room gets a shareable code). General is org-wide, so only admins may
+            promote a room to it. */}
+        <div className="mb-4">
+          <label className={labelCls}>Type</label>
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {KIND_OPTIONS.map(({ key, label, Icon, adminsOnly }) => {
+              const active = kind === key;
+              const locked = adminsOnly && !isAdmin && !active;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => { setKind(key); setDirty((d) => ({ ...d, kind: true })); }}
+                  title={locked ? "Only org admins can make a room general" : undefined}
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                    active
+                      ? "bg-[var(--accent-bg)] text-[var(--accent-text)] border-[var(--accent-border)]"
+                      : (dark
+                          ? "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")
+                  } ${locked ? "opacity-40 cursor-not-allowed" : ""}`}
+                  aria-pressed={active}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <p className={`text-[11px] mt-1 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+            {KIND_OPTIONS.find((o) => o.key === kind)?.hint}
+          </p>
+        </div>
+
         {/* Color */}
         <div className="mb-4">
           <label className={labelCls}>Color</label>
@@ -269,8 +334,9 @@ export default function RoomSettingsModal({
           </div>
         </div>
 
-        {/* Meeting duration (meeting rooms only) */}
-        {room?.kind === "meeting" && (
+        {/* Meeting duration (meeting rooms only) — keyed off the currently
+            selected type so it appears the moment you switch to Meeting. */}
+        {kind === "meeting" && (
           <div className="mb-4">
             <label className={labelCls}>
               <span className="inline-flex items-center gap-1.5">
@@ -603,7 +669,7 @@ export default function RoomSettingsModal({
                 <Button
                   type="button"
                   onClick={handleSave}
-                  disabled={busy || !(dirty.name || dirty.color || dirty.gating || dirty.duration || dirty.access || dirty.pin || dirty.whiteboard) || !name.trim()}
+                  disabled={busy || !(dirty.name || dirty.kind || dirty.color || dirty.gating || dirty.duration || dirty.access || dirty.pin || dirty.whiteboard) || !name.trim()}
                 >
                   {busy ? "Saving…" : "Save"}
                 </Button>

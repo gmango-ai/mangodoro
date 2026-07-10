@@ -42,7 +42,9 @@ function stop() {
   }
 }
 
-export function useOfficePresence() {
+// `identity` is an optional { userId: { name, avatar } } map (e.g. team members)
+// so offline teammates still get a name/avatar and the whole team is listed.
+export function useOfficePresence(identity = {}) {
   const [rows, setRows] = useState(_rows);
   const online = useTeamPresence();
 
@@ -53,5 +55,5 @@ export function useOfficePresence() {
     return () => { _subs.delete(setRows); stop(); };
   }, []);
 
-  return mergeOfficePresence(rows, online);
+  return mergeOfficePresence(rows, online, identity);
 }

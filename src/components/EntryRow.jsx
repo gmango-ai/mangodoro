@@ -7,6 +7,7 @@ import { Edit2, Save, X, Trash2, Copy } from "lucide-react";
 import ProjectPicker from "./ProjectPicker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import EmojiTextField from "./EmojiTextField";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
@@ -78,7 +79,7 @@ export default function EntryRow({ entry, index }) {
         </div>
 
         <div className="mb-4">
-          <Textarea
+          <EmojiTextField component={Textarea}
             ref={descRef}
             value={inlineForm.description}
             onChange={(e) => {

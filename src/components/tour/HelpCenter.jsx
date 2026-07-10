@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { GraduationCap, X, Check, Lock, Play } from "lucide-react";
+import { GraduationCap, X, Check, Lock, Play, Sparkles } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useTour } from "../../context/TourContext";
 import { TOUR_CATEGORIES } from "../../lib/tours/registry";
@@ -30,11 +30,14 @@ export default function HelpCenter() {
   }, []);
 
   // Group into the ordered categories; only render categories that have tours.
+  // The `welcome` tour is surfaced on its own as the footer CTA, so exclude it
+  // from the per-category list (it's the guided onboarding, not a surface tour).
   const grouped = useMemo(() => {
     return TOUR_CATEGORIES
-      .map((c) => ({ ...c, items: tours.filter((t) => t.category === c.id) }))
+      .map((c) => ({ ...c, items: tours.filter((t) => t.category === c.id && t.id !== "welcome") }))
       .filter((c) => c.items.length > 0);
   }, [tours]);
+  const hasWelcome = useMemo(() => tours.some((t) => t.id === "welcome"), [tours]);
 
   if (!open) return null;
 
@@ -115,6 +118,19 @@ export default function HelpCenter() {
             </section>
           ))}
         </div>
+
+        {hasWelcome && (
+          <div className={`px-4 py-3 border-t ${dark ? "border-[var(--color-border)]" : "border-slate-200"}`}>
+            <button
+              type="button"
+              onClick={() => launch("welcome")}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
+            >
+              <Sparkles className="w-4 h-4" />
+              Replay the welcome tour
+            </button>
+          </div>
+        )}
       </div>
     </div>,
     document.body,

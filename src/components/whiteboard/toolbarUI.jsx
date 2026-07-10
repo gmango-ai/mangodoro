@@ -1,6 +1,24 @@
 import { createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
+import { useTheme } from "../../context/ThemeContext";
+
+// Toolbar-pill palette per theme. The utility text/bg/border colours are remapped
+// by the .wb-toolpill--light CSS rules (index.css); here we set the inline SHELL
+// bg + border + the few inline colours (open-state, selected swatch outline).
+function usePillTheme() {
+  const { theme } = useTheme();
+  const light = theme !== "dark";
+  return {
+    light,
+    cls: light ? "wb-toolpill--light" : "",
+    bg: light ? "#ffffff" : "#1f2937",
+    border: light ? "1px solid rgb(226, 232, 240)" : "1px solid rgba(255,255,255,.08)",
+    panelBorder: light ? "1px solid rgb(226, 232, 240)" : "1px solid rgba(255,255,255,.1)",
+    openBg: light ? "rgba(15,23,42,.08)" : "rgba(255,255,255,.14)",
+    swatchOutline: light ? "#0f172a" : "#ffffff",
+  };
+}
 
 // Flyout direction for Dropdowns. Bottom-anchored bars (the mobile node
 // inspector) provide `true` so panels open upward instead of off-screen.
@@ -16,12 +34,13 @@ export const PALETTE = [
   "#06b6d4", "#64748b", "#475569", "#0f172a", "#9ca3af", "#ffffff",
 ];
 
-// The dark rounded shell every contextual toolbar sits in.
+// The rounded shell every contextual toolbar sits in (dark, or light in light mode).
 export function Pill({ children, className = "" }) {
+  const t = usePillTheme();
   return (
     <div
-      className={`flex items-center gap-0.5 px-1.5 py-1 rounded-xl shadow-2xl ${className}`}
-      style={{ background: "#1f2937", border: "1px solid rgba(255,255,255,.08)" }}
+      className={`wb-toolpill ${t.cls} flex items-center gap-0.5 px-1.5 py-1 rounded-xl shadow-2xl ${className}`}
+      style={{ background: t.bg, border: t.border }}
     >
       {children}
     </div>
@@ -36,6 +55,7 @@ export function ToolDivider() {
 // dropdown within the toolbar's single `open` state, so only one is open.
 export function Dropdown({ openKey, open, setOpen, icon, title, width, children }) {
   const up = useContext(DropUpContext);
+  const t = usePillTheme();
   return (
     <div className="relative">
       <button
@@ -43,7 +63,7 @@ export function Dropdown({ openKey, open, setOpen, icon, title, width, children 
         title={title}
         onClick={() => setOpen(open === openKey ? null : openKey)}
         className="h-7 px-1 rounded-md flex items-center gap-0.5 text-white/90 hover:bg-white/10"
-        style={{ background: open === openKey ? "rgba(255,255,255,.14)" : "transparent" }}
+        style={{ background: open === openKey ? t.openBg : "transparent" }}
       >
         {icon}
         <ChevronDown className="w-3 h-3 opacity-60" />
@@ -56,11 +76,11 @@ export function Dropdown({ openKey, open, setOpen, icon, title, width, children 
           <>
             <div className="fixed inset-0 z-[85]" onClick={() => setOpen(null)} />
             <div
-              className="fixed left-1/2 -translate-x-1/2 z-[90] rounded-lg shadow-2xl p-1"
+              className={`wb-toolpill ${t.cls} fixed left-1/2 -translate-x-1/2 z-[90] rounded-lg shadow-2xl p-1`}
               style={{
                 minWidth: width || 96,
-                background: "#1f2937",
-                border: "1px solid rgba(255,255,255,.1)",
+                background: t.bg,
+                border: t.panelBorder,
                 bottom: "calc(var(--bottom-inset, 0px) + var(--wb-inspector-clear, 190px))",
               }}
             >
@@ -71,8 +91,8 @@ export function Dropdown({ openKey, open, setOpen, icon, title, width, children 
         )
       ) : (
         <div
-          className="absolute top-8 left-0 z-30 rounded-lg shadow-2xl p-1"
-          style={{ minWidth: width || 96, background: "#1f2937", border: "1px solid rgba(255,255,255,.1)" }}
+          className={`wb-toolpill ${t.cls} absolute top-8 left-0 z-30 rounded-lg shadow-2xl p-1`}
+          style={{ minWidth: width || 96, background: t.bg, border: t.panelBorder }}
         >
           {children}
         </div>
@@ -86,6 +106,7 @@ export function Dropdown({ openKey, open, setOpen, icon, title, width, children 
 // WITHOUT committing/closing — onPick is the final commit (swatch click).
 export function SwatchGrid({ value, onPick, onLive }) {
   const live = onLive || onPick;
+  const t = usePillTheme();
   // Fixed-width tracks (not fractional grid-cols) so swatches keep their full
   // size and gap no matter how the panel sizes itself — no overlap.
   return (
@@ -96,7 +117,7 @@ export function SwatchGrid({ value, onPick, onLive }) {
           type="button"
           onClick={() => onPick(c)}
           className="rounded-full border border-white/20 hover:scale-110 transition-transform"
-          style={{ width: 24, height: 24, background: c, outline: value === c ? "2px solid #fff" : "none", outlineOffset: 2 }}
+          style={{ width: 24, height: 24, background: c, outline: value === c ? `2px solid ${t.swatchOutline}` : "none", outlineOffset: 2 }}
         />
       ))}
       <label

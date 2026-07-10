@@ -8,7 +8,7 @@ import { supabase } from "../supabase";
 export async function listPersonalTasks(teamId) {
   let q = supabase
     .from("personal_tasks")
-    .select("id, title, done, sort_order, created_at, done_at, team_id");
+    .select("id, title, done, status, archived, sort_order, created_at, done_at, team_id");
   if (teamId) q = q.eq("team_id", teamId);
   const { data, error } = await q
     .order("sort_order", { ascending: true })

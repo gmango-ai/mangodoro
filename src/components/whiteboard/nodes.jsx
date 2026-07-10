@@ -1,4 +1,5 @@
 import { memo, createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
+import { getStroke } from "perfect-freehand";
 import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
 import { nodeAbsPos, sortParentsFirst } from "./frame";
 import { Target, ChevronDown, Building2, User, Star, X, Plus, CalendarClock, Check } from "lucide-react";
@@ -9,6 +10,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { setGoal, clearGoalNode, GOAL_TIMEFRAMES, timeframeToParams } from "../../lib/goals";
 import { fontStack } from "../../lib/whiteboardFonts";
 import FullEmojiPicker from "../emotes/FullEmojiPicker";
+import EmojiTextField from "../EmojiTextField";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -136,7 +138,29 @@ function vAlignFlex(v) {
 // toolbar or a quick-add pull). Tracked outside node data so the flag
 // never persists to the snapshot or syncs to peers.
 const PENDING_EDIT = new Set();
-export function markNodeForEdit(id) { if (id) PENDING_EDIT.add(id); }
+// Edit-on-create is DISABLED (user preference): newly created nodes no longer
+// open straight into text edit. This is a no-op so the create sites don't need
+// touching; use requestNodeEdit (Enter on a selected node) to start typing.
+export function markNodeForEdit(_id) { /* disabled — see requestNodeEdit */ }
+// Ask an ALREADY-MOUNTED node to open text edit (Enter on a selected node). A
+// window event because the target EditableText owns its own `editing` state.
+export function requestNodeEdit(id) {
+  if (id) window.dispatchEvent(new CustomEvent("wb:edit-node", { detail: { id } }));
+}
+
+// Node-level rich-text styling (whole-node, not per-selection markdown). Spread
+// into a node's text style so italic / underline / strikethrough / kerning /
+// line-height follow the data. Undefined keys are omitted so they don't clobber
+// a node's own defaults (e.g. its base lineHeight when data.lineHeight is unset).
+export function richTextStyle(data) {
+  const deco = [data?.underline && "underline", data?.strikethrough && "line-through"].filter(Boolean).join(" ");
+  const s = {};
+  if (data?.italic) s.fontStyle = "italic";
+  if (deco) s.textDecoration = deco;
+  if (data?.lineHeight != null) s.lineHeight = data.lineHeight;
+  if (data?.letterSpacing != null) s.letterSpacing = `${data.letterSpacing}px`;
+  return s;
+}
 
 // The textarea currently being edited registers a "wrap the selection in
 // markdown" handler here, so a toolbar button (Inspector B / I) can format the
@@ -180,6 +204,15 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
   // effect is StrictMode-safe (state survives its simulated remount).
   useEffect(() => {
     if (nodeId && PENDING_EDIT.has(nodeId)) { PENDING_EDIT.delete(nodeId); setEditing(true); }
+  }, [nodeId]);
+
+  // Enter on a selected node (requestNodeEdit) opens edit — edit-on-create is off,
+  // so this is how you start typing in an existing node.
+  useEffect(() => {
+    if (!nodeId) return;
+    const onReq = (e) => { if (e.detail?.id === nodeId) setEditing(true); };
+    window.addEventListener("wb:edit-node", onReq);
+    return () => window.removeEventListener("wb:edit-node", onReq);
   }, [nodeId]);
 
   // Mirror external value into the draft ONLY when not editing — while editing,
@@ -288,7 +321,8 @@ function EditableText({ value, onChange, placeholder, className, style, nodeId, 
       >
         {(draft || placeholder || " ") + "​"}
       </div>
-      <textarea
+      <EmojiTextField
+        multiline
         ref={textareaRef}
         value={draft}
         rows={1}
@@ -408,24 +442,6 @@ function QuickConnectArrows({ id, color }) {
   );
 }
 
-function FourHandles() {
-  // Visibility + pointer-events are driven by CSS (.wb-conn-handle) so the
-  // dots only appear/intercept on node hover or selection — the body stays
-  // grabbable for moving. zIndex keeps them above the resizer edge lines.
-  const base = {
-    width: NODE_TOUCH ? 20 : 12, height: NODE_TOUCH ? 20 : 12, background: "#0ea5e9",
-    border: "2px solid #fff", borderRadius: 9999,
-    zIndex: 12,
-  };
-  return (
-    <>
-      <Handle type="source" position={Position.Top}    id="t" className="wb-conn-handle" style={base} />
-      <Handle type="source" position={Position.Right}  id="r" className="wb-conn-handle" style={base} />
-      <Handle type="source" position={Position.Bottom} id="b" className="wb-conn-handle" style={base} />
-      <Handle type="source" position={Position.Left}   id="l" className="wb-conn-handle" style={base} />
-    </>
-  );
-}
 
 // ─── StickyNote ───────────────────────────────────────────────────
 
@@ -595,7 +611,7 @@ export const StickyNode = memo(function StickyNode({ id, data, selected }) {
             nodeId={id}
             selected={selected}
             markdown
-            style={{ fontSize: data?.fontSize ?? 16, fontWeight: 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily) }}
+            style={{ fontSize: data?.fontSize ?? 16, fontWeight: data?.fontWeight ?? 600, lineHeight: 1.25, width: "100%", textAlign: data?.textAlign || "center", color: data?.textColor || ink, fontFamily: fontStack(data?.fontFamily), ...richTextStyle(data) }}
           />
         </div>
       </div>
@@ -762,7 +778,7 @@ export const TextNode = memo(function TextNode({ id, data, selected }) {
           selected={selected}
           markdown
           wrap={fixedW || fixedH}
-          style={{ fontSize: data?.fontSize ?? 16, fontWeight: 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily) }}
+          style={{ fontSize: data?.fontSize ?? 16, fontWeight: data?.fontWeight ?? 700, lineHeight: 1.3, textAlign: data?.textAlign || "left", color: textColor, fontFamily: fontStack(data?.fontFamily), ...richTextStyle(data) }}
         />
       </div>
       {/* Clipped-overflow affordance: a "…" while idle, a "show all" (releases
@@ -964,7 +980,7 @@ export const ShapeNode = memo(function ShapeNode({ id, type, data, selected }) {
             nodeId={id}
             selected={selected}
             markdown
-            style={{ fontSize: data?.fontSize ?? 13, fontWeight: 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor, fontFamily: fontStack(data?.fontFamily) }}
+            style={{ fontSize: data?.fontSize ?? 13, fontWeight: data?.fontWeight ?? 600, textAlign: data?.textAlign || "center", color: data?.textColor || textColor, fontFamily: fontStack(data?.fontFamily), ...richTextStyle(data) }}
           />
         </div>
       </div>
@@ -1051,7 +1067,7 @@ export const GoalNode = memo(function GoalNode({ id, data, selected }) {
         </span>
       </div>
       <div style={{ flex: 1, padding: 10, minHeight: 0 }}>
-        <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3 }} />
+        <EditableText value={data?.text} onChange={setText} placeholder="Write the goal…" nodeId={id} selected={selected} style={{ fontSize: 14, fontWeight: data?.fontWeight ?? 600, lineHeight: 1.3, ...richTextStyle(data) }} />
       </div>
       <div className="nodrag" style={{ position: "relative", padding: "6px 10px", borderTop: `1px solid ${divider}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} onPointerDown={(e) => e.stopPropagation()}>
         <button
@@ -1241,10 +1257,12 @@ export const ImageNode = memo(function ImageNode({ id, data, selected }) {
       <div
         style={{
           width: "100%", height: "100%",
-          borderRadius: 6, overflow: "hidden", background: "#0b1020",
-          boxShadow: selected
-            ? `0 0 0 2px ${SELECT}, 0 16px 28px -12px rgba(0,0,0,.5)`
-            : "0 14px 26px -12px rgba(0,0,0,.4), 0 3px 7px -3px rgba(0,0,0,.18)",
+          // Transparent surface so PNG/WebP alpha shows the board through (not a
+          // dark box); opaque photos are unaffected. The selection ring stays,
+          // but the resting drop-shadow is dropped so a cut-out image doesn't get
+          // a shadow rectangle around its transparent bounds.
+          borderRadius: 6, overflow: "hidden", background: "transparent",
+          boxShadow: selected ? `0 0 0 2px ${SELECT}, 0 16px 28px -12px rgba(0,0,0,.5)` : "none",
         }}
       >
         {src ? (
@@ -1261,7 +1279,7 @@ export const ImageNode = memo(function ImageNode({ id, data, selected }) {
         )}
       </div>
       <NodeResizer isVisible={selected && !data?.locked} minWidth={48} minHeight={48} keepAspectRatio {...resizer(SELECT)} />
-      <FourHandles />
+      {/* No connection handles — images aren't edge endpoints (NON_CONNECTABLE). */}
       {selected && (
         <button
           type="button" className="nodrag" onPointerDown={stop} onClick={remove} title="Delete"
@@ -1301,29 +1319,80 @@ export function strokePath(pts) {
   return `${d} L${last[0]},${last[1]}`;
 }
 
+// perfect-freehand outline points → a filled SVG path (quadratics through the
+// midpoints of the outline polygon). Standard getSvgPathFromStroke helper.
+function outlineToPath(stroke) {
+  if (!stroke.length) return "";
+  const d = stroke.reduce(
+    (acc, [x0, y0], i, arr) => {
+      const [x1, y1] = arr[(i + 1) % arr.length];
+      acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+      return acc;
+    },
+    ["M", ...stroke[0], "Q"],
+  );
+  d.push("Z");
+  return d.join(" ");
+}
+
+// How much the pen "width" preset (2/4/8) scales into a perfect-freehand nib
+// diameter — pressure then thins it down from there.
+export const PEN_NIB_SCALE = 2.2;
+
+// Variable-width freehand outline from pressure points ([x,y,pressure]). Shared
+// by the live preview and the committed DrawNode so they match exactly.
+export function strokeOutlinePath(pts, { width = 4, last = true } = {}) {
+  if (!pts || !pts.length) return "";
+  const stroke = getStroke(pts, {
+    size: Math.max(1, width) * PEN_NIB_SCALE,
+    thinning: 0.6,
+    smoothing: 0.55,
+    streamline: 0.5,
+    simulatePressure: false, // real Pencil pressure rides in the 3rd tuple slot
+    last,
+  });
+  return outlineToPath(stroke);
+}
+
 export const DrawNode = memo(function DrawNode({ id, data, width, height, selected }) {
   const { setNodes } = useReactFlow();
   const remove = () => setNodes((nds) => nds.filter((n) => n.id !== id));
   const pts = data?.points || [];
   const color = data?.color || "#0f172a";
   const sw = data?.strokeWidth ?? 3;
+  const opacity = data?.opacity ?? 1;
+  const pressure = !!data?.pressure;
   const w = width || data?.w || 1;
   const h = height || data?.h || 1;
   const d = strokePath(pts);
   const lineProps = {
     d, fill: "none", strokeLinecap: "round", strokeLinejoin: "round",
   };
+  // Pressure strokes render as a filled variable-width outline; legacy/flat
+  // strokes keep the cheap constant-width stroked path.
+  const outline = pressure ? strokeOutlinePath(pts, { width: sw }) : null;
   return (
     // pointerEvents:none on the box (also set via node.style) → click-through;
     // the stroke paths opt back in so the line stays grabbable/selectable.
     <div style={{ width: "100%", height: "100%", position: "relative", pointerEvents: "none" }}>
       <svg width={w} height={h} style={{ display: "block", overflow: "visible" }}>
-        {selected && (
-          <path {...lineProps} stroke={SELECT} strokeOpacity={0.3} strokeWidth={sw + 8} style={{ pointerEvents: "none" }} />
-        )}
-        {/* Fat invisible hit line so a thin stroke is easy to grab. */}
+        {/* Fat invisible hit line (uses the centerline) so a thin stroke is easy to grab. */}
         <path {...lineProps} stroke="transparent" strokeWidth={Math.max(sw + 14, 18)} style={{ pointerEvents: "stroke", cursor: "move" }} />
-        <path {...lineProps} stroke={color} strokeWidth={sw} style={{ pointerEvents: "stroke", cursor: "move" }} />
+        {outline ? (
+          <>
+            {selected && (
+              <path d={outline} fill="none" stroke={SELECT} strokeOpacity={0.35} strokeWidth={6} strokeLinejoin="round" style={{ pointerEvents: "none" }} />
+            )}
+            <path d={outline} fill={color} fillOpacity={opacity} style={{ pointerEvents: "fill", cursor: "move" }} />
+          </>
+        ) : (
+          <>
+            {selected && (
+              <path {...lineProps} stroke={SELECT} strokeOpacity={0.3} strokeWidth={sw + 8} style={{ pointerEvents: "none" }} />
+            )}
+            <path {...lineProps} stroke={color} strokeWidth={sw} strokeOpacity={opacity} style={{ pointerEvents: "stroke", cursor: "move" }} />
+          </>
+        )}
       </svg>
       {selected && (
         <button

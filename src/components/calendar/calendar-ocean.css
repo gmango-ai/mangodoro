@@ -1,0 +1,520 @@
+/* ============================================================
+   Calendar — "Mangodoro" ocean/beach reskin.
+   ALL tokens + styles are scoped under .cal-ocean so nothing
+   leaks into the rest of the app (this page is a deliberate
+   visual island). Tokens lifted from the Mangodoro design system.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap');
+
+.cal-ocean {
+  /* palette */
+  /* "mango" is the island's ACCENT role — follow the app's chosen accent color
+     (theme-aware via applyAccent) instead of a fixed orange. Hex kept as fallback. */
+  --o-mango-50:var(--color-accent-light,#FFF6E6); --o-mango-100:var(--color-accent-light,#FFE9C2); --o-mango-300:var(--color-accent,#FFC766); --o-mango-500:var(--color-accent,#FF9F1C); --o-mango-600:var(--color-accent-hover,#F2860A); --o-mango-700:var(--color-accent-hover,#C96A05);
+  --o-coral-100:#FFE0DA; --o-coral-500:#FB5E4B; --o-coral-600:#E8412D; --o-coral-700:#BE2E1D;
+  /* "ocean" was a secondary blue accent for chrome (today marker, active tabs,
+     primary buttons, hovers) — fold it into the app accent so nothing stays blue. */
+  --o-ocean-50:var(--color-accent-light,#EAF3FE); --o-ocean-100:var(--color-accent-light,#D2E6FE); --o-ocean-300:var(--color-accent,#7DB4F8); --o-ocean-400:var(--color-accent,#4F95F4); --o-ocean-500:var(--color-accent,#2D7FF9); --o-ocean-600:var(--color-accent-hover,#1E66DB); --o-ocean-700:var(--color-accent,#1A4FA8);
+  --o-aqua-100:#C7F5EE; --o-aqua-500:#14C4AE; --o-aqua-600:#0BA593; --o-aqua-700:#097E71;
+  --o-sun-400:#FFD166; --o-sun-500:#FBC02D;
+  --o-ink-900:#0B2A3A; --o-ink-800:#123749; --o-ink-700:#1C4759; --o-ink-600:#355d6e; --o-ink-500:#557686; --o-ink-400:#7F9AA7; --o-ink-300:#A9BEC8;
+  --o-sand-50:#FBFAF7; --o-sand-100:#F4F2EC; --o-sand-200:#EAE6DD; --o-sand-300:#DFD9CD; --o-sand-400:#CEC6B6; --o-white:#FFFFFF;
+
+  --o-glass:rgba(255,255,255,0.55);
+  --o-glass-strong:rgba(255,255,255,0.74);
+  --o-glass-border:rgba(255,255,255,0.65);
+  --o-border-subtle:#EDEAE2; --o-border-default:#E2DCD0;
+
+  --o-surface-page:
+    radial-gradient(120% 90% at 12% -8%, color-mix(in srgb, var(--color-accent, #2D7FF9) 16%, transparent), transparent 55%),
+    radial-gradient(110% 85% at 108% 112%, rgba(20,196,174,0.15), transparent 52%),
+    linear-gradient(160deg, #E9F3FE 0%, #F0F9FB 46%, #FBFAF7 100%);
+
+  --o-radius-sm:10px; --o-radius-md:14px; --o-radius-lg:18px; --o-radius-xl:24px; --o-radius-2xl:28px;
+  --o-shadow-md:0 6px 18px rgba(11,42,58,0.09), 0 2px 6px rgba(11,42,58,0.05);
+  --o-shadow-xl:0 28px 64px rgba(11,42,58,0.16);
+  --o-blur:blur(16px) saturate(1.4);
+  --o-ease-out:cubic-bezier(0.22,1,0.36,1);
+  --o-ease-bounce:cubic-bezier(0.34,1.56,0.64,1);
+  --o-font:'Figtree','Inter',system-ui,sans-serif;
+  --o-mono:'DM Mono',ui-monospace,monospace;
+
+  font-family: var(--o-font);
+  color: var(--o-ink-700);
+  background: var(--o-surface-page);
+  background-attachment: fixed;
+  /* Match the app's full-height convention (see index.css --nav-h chrome vars). */
+  height: calc(100dvh - var(--nav-h, 4rem) - var(--top-inset, 0px) - var(--bottom-inset, 0px));
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Dark mode ─────────────────────────────────────────────
+   The island is a light "beach" palette by default; in the app's dark theme
+   we re-point the surface/ink/glass/border tokens to a deep "ocean-night"
+   palette so the calendar follows the theme. Accent (mango→--color-accent)
+   and the event category colors are theme-aware / kept as-is. */
+.dark .cal-ocean {
+  --o-surface-page:
+    radial-gradient(120% 90% at 12% -8%, color-mix(in srgb, var(--color-accent, #2D7FF9) 14%, transparent), transparent 55%),
+    radial-gradient(110% 85% at 108% 112%, rgba(20,196,174,0.10), transparent 52%),
+    linear-gradient(160deg, #0A1620 0%, #0C1A22 46%, #0B141B 100%);
+  --o-ink-900:#EAF1F5; --o-ink-800:#D6E1E8; --o-ink-700:#BCCDD6; --o-ink-600:#98AAB5; --o-ink-500:#7E919D; --o-ink-400:#647783; --o-ink-300:#4E5F6A;
+  --o-sand-50:#0E1A22; --o-sand-100:#14232C; --o-sand-200:#1B2C36; --o-sand-300:#243743; --o-sand-400:#2E4450; --o-white:#16242D;
+  --o-glass:rgba(18,32,41,0.55);
+  --o-glass-strong:rgba(15,27,35,0.80);
+  --o-glass-border:rgba(255,255,255,0.08);
+  --o-border-subtle:rgba(255,255,255,0.07); --o-border-default:rgba(255,255,255,0.11);
+  --o-shadow-md:0 6px 18px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.35);
+  --o-shadow-xl:0 28px 64px rgba(0,0,0,0.60);
+}
+/* ── Event category palette ────────────────────────────────
+   Derived from the app accent (relative color syntax) via color-theory hue
+   offsets so the whole calendar harmonizes with the user's accent, tuned for
+   vibrance + contrast. Consumed by src/lib/calendar.js as var(--cal-cat-*). */
+.cal-ocean {
+  --cal-cat-meeting:   hsl(from var(--color-accent) h 80% 55%);
+  --cal-cat-task:      hsl(from var(--color-accent) calc(h + 150) 72% 58%);
+  --cal-cat-due:       hsl(from var(--color-accent) calc(h + 180) 85% 60%);
+  --cal-cat-milestone: hsl(from var(--color-accent) calc(h + 95) 74% 62%);
+  --cal-cat-goal:      hsl(from var(--color-accent) calc(h + 45) 88% 56%);
+  --cal-cat-actual:    hsl(from var(--color-accent) calc(h + 210) 34% 60%);
+  --cal-cat-google:    hsl(from var(--color-accent) calc(h + 120) 70% 58%);
+  --cal-cat-ooo:       hsl(from var(--color-accent) calc(h + 210) 26% 50% / 0.20);
+}
+.dark .cal-ocean {
+  /* a little brighter/punchier on the dark canvas */
+  --cal-cat-meeting:   hsl(from var(--color-accent) h 88% 63%);
+  --cal-cat-task:      hsl(from var(--color-accent) calc(h + 150) 80% 67%);
+  --cal-cat-due:       hsl(from var(--color-accent) calc(h + 180) 92% 68%);
+  --cal-cat-milestone: hsl(from var(--color-accent) calc(h + 95) 82% 69%);
+  --cal-cat-goal:      hsl(from var(--color-accent) calc(h + 45) 94% 65%);
+  --cal-cat-actual:    hsl(from var(--color-accent) calc(h + 210) 42% 68%);
+  --cal-cat-google:    hsl(from var(--color-accent) calc(h + 120) 80% 67%);
+  --cal-cat-ooo:       hsl(from var(--color-accent) calc(h + 210) 32% 56% / 0.26);
+}
+.cal-ocean * { box-sizing: border-box; }
+.cal-ocean h1, .cal-ocean h2, .cal-ocean h3 { margin: 0; }
+
+/* ── 3-panel shell ─────────────────────────────────────── */
+.cal-ocean__shell { display: flex; height: 100%; }
+.cal-ocean__rail {
+  flex: none; height: 100%; overflow-y: auto;
+  background: var(--o-glass-strong);
+  backdrop-filter: var(--o-blur);
+}
+.cal-ocean__rail--left  { width: 236px; border-right: 1px solid var(--o-border-subtle); padding: 18px 16px; }
+.cal-ocean__rail--right { width: 320px; border-left: 1px solid var(--o-border-subtle); padding: 18px 16px; }
+.cal-ocean__main { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; }
+
+/* ── toolbar ───────────────────────────────────────────── */
+.cal-ocean__toolbar {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 14px 22px;
+  background: var(--o-glass-strong);
+  backdrop-filter: var(--o-blur);
+  border-bottom: 1px solid var(--o-border-subtle);
+}
+.cal-ocean__title { font-size: 24px; font-weight: 800; color: var(--o-ink-900); letter-spacing: -0.02em; }
+.cal-ocean__spacer { flex: 1; }
+.cal-ocean__navbtn {
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; border-radius: var(--o-radius-sm); color: var(--o-ink-600); cursor: pointer;
+  transition: background var(--o-dur, 120ms) var(--o-ease-out);
+}
+.cal-ocean__navbtn:hover { background: var(--o-sand-100); color: var(--o-ink-800); }
+.cal-ocean__today {
+  padding: 7px 14px; border-radius: 999px; border: 1px solid var(--o-border-default);
+  background: var(--o-glass); color: var(--o-ink-700); font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.cal-ocean__today:hover { background: var(--o-sand-100); }
+
+/* segmented view switcher */
+.cal-ocean__seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--o-sand-100); border: 1px solid var(--o-border-subtle); border-radius: 999px; }
+.cal-ocean__seg button {
+  padding: 6px 14px; border: none; background: transparent; border-radius: 999px;
+  font-weight: 600; font-size: 13px; color: var(--o-ink-500); cursor: pointer;
+}
+.cal-ocean__seg button[aria-pressed="true"] { background: var(--o-white, #fff); color: var(--o-ocean-700); box-shadow: 0 1px 2px rgba(11,42,58,.12); }
+
+.cal-ocean__new {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 15px; border: none; border-radius: 999px; cursor: pointer;
+  background: linear-gradient(135deg, var(--o-mango-500) 0%, var(--o-mango-600) 100%);
+  color: #fff; font-weight: 700; font-size: 13px; box-shadow: 0 8px 20px color-mix(in srgb, var(--color-accent, #FF9F1C) 26%, transparent);
+}
+.cal-ocean__new:hover { filter: brightness(1.03); }
+/* Icon-only variant (toolbar "New event") — a compact round add-to-calendar button. */
+.cal-ocean__new--icon { padding: 0; width: 38px; height: 38px; justify-content: center; gap: 0; flex: none; }
+
+.cal-ocean__gridwrap { flex: 1; min-height: 0; padding: 18px 22px; overflow: hidden; }
+
+/* Week view width levels (data-weekw on .cal-ocean, set from the toolbar):
+   normal = fit to width (default, no scroll); wide / xwide give day columns more
+   room and scroll horizontally so more event detail fits per column. Month + day
+   views are untouched. Min-width only bites when the viewport is narrower. */
+.cal-ocean[data-weekw="wide"]  .cal-ocean__gridwrap:has(.fc-timeGridWeek-view),
+.cal-ocean[data-weekw="xwide"] .cal-ocean__gridwrap:has(.fc-timeGridWeek-view) { overflow-x: auto; overflow-y: hidden; }
+.cal-ocean[data-weekw="wide"]  .fc-view-harness:has(.fc-timeGridWeek-view) { min-width: 1280px; }
+.cal-ocean[data-weekw="xwide"] .fc-view-harness:has(.fc-timeGridWeek-view) { min-width: 1900px; }
+
+/* ── card + rail sections ──────────────────────────────── */
+.cal-ocean__card {
+  background: var(--o-glass-strong); border: 1px solid var(--o-glass-border);
+  border-radius: var(--o-radius-lg); box-shadow: var(--o-shadow-md); padding: 14px;
+}
+.cal-ocean__card + .cal-ocean__card { margin-top: 16px; }
+.cal-ocean__eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--o-ink-400); margin-bottom: 10px; }
+.cal-ocean__cardhd { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.cal-ocean__cardhd h3 { font-size: 15px; font-weight: 700; color: var(--o-ink-900); }
+.cal-ocean__cardhd .count { margin-left: auto; font-family: var(--o-mono); font-size: 11px; color: var(--o-ink-400); }
+
+/* filters (My calendars) */
+.cal-ocean__filter { display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer; }
+.cal-ocean__box { width: 18px; height: 18px; border-radius: 6px; border: 2px solid; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.cal-ocean__filter .lbl { font-size: 13.5px; font-weight: 600; color: var(--o-ink-700); flex: 1; min-width: 0; }
+.cal-ocean__filter.off .lbl { color: var(--o-ink-400); }
+
+/* list rows (agenda / tasks) */
+.cal-ocean__row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: var(--o-radius-sm); width: 100%; border: none; background: transparent; text-align: left; cursor: pointer; }
+.cal-ocean__row:hover { background: var(--o-sand-100); }
+.cal-ocean__row .time { width: 46px; font-family: var(--o-mono); font-size: 12px; font-weight: 600; color: var(--o-ink-600); flex: none; }
+.cal-ocean__row .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+.cal-ocean__row .txt { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--o-ink-800); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-ocean__row .due { font-size: 11px; font-weight: 600; color: var(--o-ink-400); flex: none; }
+.cal-ocean__empty { font-size: 12px; color: var(--o-ink-400); padding: 4px 2px; }
+
+/* agenda day groups + same-type runs */
+.cal-ocean__aday + .cal-ocean__aday { margin-top: 8px; }
+.cal-ocean__adayhd { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--o-ink-400); padding: 4px 2px 2px; position: sticky; top: 0; background: var(--o-glass-strong); backdrop-filter: var(--o-blur); }
+.cal-ocean__run + .cal-ocean__run { margin-top: 2px; }
+.cal-ocean__runlabel { font-size: 9.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.8; padding: 2px 8px 0; }
+
+/* status strip — work location / OOO / goals, rendered as statuses not events */
+.cal-ocean__statusrow { display: flex; flex-wrap: wrap; gap: 5px; padding: 3px 6px 5px; }
+.cal-ocean__status {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  padding: 2px 8px; border-radius: 999px; border: 1px dashed var(--o-ink-300);
+  background: transparent; color: var(--o-ink-500); cursor: pointer;
+  font-size: 10.5px; font-weight: 700;
+}
+.cal-ocean__status:hover { background: var(--o-sand-100); }
+.cal-ocean__status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-ocean__status svg { flex: none; opacity: 0.75; }
+
+/* all-day (untimed) event rows read differently from timed ones: a square marker
+   + a muted "all-day" tag instead of a time. */
+.cal-ocean__row .sq { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.cal-ocean__row--allday .time { font-size: 9.5px; font-style: italic; opacity: 0.7; }
+
+/* dedicated all-day agenda rows: a bordered pill above the timed events */
+.cal-ocean__allday {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; cursor: pointer;
+  margin: 2px 4px; padding: 4px 8px; border-radius: 8px;
+  border: 1px solid var(--o-border-default); background: var(--o-glass);
+}
+.cal-ocean__allday:hover { background: var(--o-sand-100); }
+.cal-ocean__allday .tag {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--o-ink-400); background: var(--o-sand-100); padding: 1px 5px; border-radius: 4px; flex: none;
+}
+.cal-ocean__allday .sq { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.cal-ocean__allday .txt { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--o-ink-800); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* cap the agenda list so the Tasks card below stays on screen */
+.cal-ocean__agendascroll { max-height: 48vh; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+
+/* Expanded month: the grid grows to show ALL events per day (no +more) and the
+   gridwrap scrolls. Give day cells room so nothing clips. */
+.cal-ocean__gridwrap--expanded { overflow-y: auto; }
+.cal-ocean__gridwrap--expanded .fc .fc-daygrid-day-frame { min-height: 120px; }
+/* Expanded view has the vertical room: give the NAME the full width across up to
+   2 lines, with the time on its own row beneath (≤3 rows total). Scoped to event
+   chips so the "Office/Home" context bands keep their inline icon+label. The
+   leading dot is dropped — the block/border already carries the colour. */
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+}
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) .cdot,
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) .cbox { display: none; }
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) .ctitle {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.cal-ocean__gridwrap--expanded .cal-chip2:not(.cal-chip2--ctx) .ctime { margin-left: 0; }
+
+/* mini-month */
+.cal-ocean__mini { }
+.cal-ocean__mini-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cal-ocean__mini-hd .m { font-weight: 700; font-size: 13px; color: var(--o-ink-900); }
+.cal-ocean__mini-hd button { border: none; background: transparent; color: var(--o-ink-500); cursor: pointer; padding: 2px; border-radius: 6px; }
+.cal-ocean__mini-hd button:hover { background: var(--o-sand-100); }
+.cal-ocean__mini-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.cal-ocean__mini-grid .dow { font-size: 9px; font-weight: 700; color: var(--o-ink-400); text-align: center; padding-bottom: 3px; }
+.cal-ocean__mini-grid .d {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  font-family: var(--o-mono); font-size: 11px; color: var(--o-ink-700);
+  border: none; background: transparent; cursor: pointer; border-radius: 7px;
+}
+.cal-ocean__mini-grid .d:hover { background: color-mix(in srgb, var(--color-accent, #2D7FF9) 12%, transparent); }
+.cal-ocean__mini-grid .d.out { color: var(--o-ink-300); }
+.cal-ocean__mini-grid .d.today { background: var(--o-ocean-500); color: #fff; font-weight: 700; }
+.cal-ocean__mini-grid .d.sel { box-shadow: inset 0 0 0 1.5px var(--o-ocean-400, #4F95F4); }
+
+/* ── FullCalendar month grid overrides ─────────────────── */
+.cal-ocean .fc {
+  height: 100%;
+  --fc-border-color: var(--o-border-subtle);
+  --fc-page-bg-color: transparent;
+  --fc-today-bg-color: color-mix(in srgb, var(--color-accent, #2D7FF9) 10%, transparent);
+  --fc-neutral-bg-color: transparent;
+  font-family: var(--o-font);
+}
+.cal-ocean .fc .fc-scrollgrid {
+  background: var(--o-glass-strong); backdrop-filter: var(--o-blur);
+  border: 1px solid var(--o-glass-border); border-radius: var(--o-radius-xl);
+  box-shadow: var(--o-shadow-md); overflow: hidden;
+}
+.cal-ocean .fc .fc-col-header-cell {
+  padding: 10px 8px; background: transparent;
+}
+.cal-ocean .fc .fc-col-header-cell-cushion {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--o-ink-400);
+}
+.cal-ocean .fc .fc-daygrid-day-number {
+  font-family: var(--o-mono); font-size: 12px; font-weight: 600; color: var(--o-ink-700); padding: 6px 8px;
+}
+.cal-ocean .fc .fc-day-other .fc-daygrid-day-number { color: var(--o-ink-300); }
+.cal-ocean .fc .fc-day-today .fc-daygrid-day-number {
+  background: var(--o-ocean-500); color: #fff; border-radius: 999px;
+  width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+  margin: 4px; padding: 0; font-weight: 700;
+}
+.cal-ocean .fc .fc-daygrid-day-frame { padding: 2px; }
+.cal-ocean .fc .fc-daygrid-day:hover { background: color-mix(in srgb, var(--color-accent, #2D7FF9) 8%, transparent); }
+.cal-ocean .fc .fc-daygrid-day.fc-day-sat, .cal-ocean .fc .fc-daygrid-day.fc-day-sun { background: rgba(20,196,174,0.03); }
+.cal-ocean .fc .fc-daygrid-more-link { font-size: 10.5px; color: var(--o-ink-500); font-weight: 600; }
+/* The "+more" day popover must be SOLID — the grid uses --fc-page-bg-color:
+   transparent (to float over the ocean bg), which otherwise makes the popover
+   see-through and the month cells behind it bleed through. */
+.cal-ocean .fc .fc-popover {
+  z-index: 90 !important;
+  border-radius: var(--o-radius-md);
+  border: 1px solid var(--o-border-default);
+  box-shadow: var(--o-shadow-xl);
+  background: var(--o-sand-50) !important;
+}
+.cal-ocean .fc .fc-popover-body { background: var(--o-sand-50); padding: 6px 8px 8px; }
+.cal-ocean .fc .fc-popover-header { background: var(--o-sand-100); color: var(--o-ink-800); font-weight: 700; }
+.cal-ocean .fc .fc-popover .fc-daygrid-event { margin: 2px 0; }
+
+/* time-grid week/day */
+.cal-ocean .fc .fc-timegrid-slot-label-cushion { font-family: var(--o-mono); font-size: 10.5px; color: var(--o-ink-400); }
+.cal-ocean .fc .fc-timegrid-now-indicator-line { border-color: var(--o-coral-500); }
+
+/* Strip FC's default event chrome so only our chip shows. FullCalendar applies
+   the event's backgroundColor/borderColor as INLINE styles (which beat plain CSS),
+   so these need !important. Background events (.fc-bg-event, used for OOO shading)
+   are intentionally NOT matched here, so their tint survives. */
+.cal-ocean .fc .fc-daygrid-event,
+.cal-ocean .fc .fc-daygrid-event .fc-event-main,
+.cal-ocean .fc .fc-timegrid-event,
+.cal-ocean .fc .fc-timegrid-event .fc-event-main {
+  background: transparent !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.cal-ocean .fc .fc-daygrid-event,
+.cal-ocean .fc .fc-timegrid-event { border: none; padding: 0; margin: 1px 2px; }
+/* Breathing room between back-to-back timed events: the harness keeps the exact
+   time span (labels stay accurate) — only the visible block insets a few px, so
+   consecutive events get a ~4px visual gap. */
+.cal-ocean .fc .fc-timegrid-event { inset: 0.5px 1px 3.5px 0; }
+.cal-ocean .fc .fc-event:focus,
+.cal-ocean .fc .fc-event:focus-visible { outline: none; box-shadow: none !important; }
+/* Timed day-grid events show a colored dot by default — hide it (our chip has one). */
+.cal-ocean .fc .fc-daygrid-event .fc-daygrid-event-dot { display: none; }
+
+/* ── event chip ────────────────────────────────────────── */
+.cal-chip2 {
+  display: flex; align-items: center; gap: 5px;
+  padding: 2px 6px; border-radius: 6px; overflow: hidden; cursor: grab;
+  font-size: 11.5px; font-weight: 600; line-height: 1.35;
+  transition: transform .12s var(--o-ease-out), filter .12s var(--o-ease-out);
+}
+.cal-chip2:hover { transform: translateY(-1px); filter: brightness(0.97); }
+.cal-chip2 .cdot { width: 6px; height: 6px; border-radius: 999px; flex: none; }
+.cal-chip2 .ctime { font-family: var(--o-mono); font-size: 9.5px; opacity: 0.8; flex: none; }
+/* min-width:0 lets the name ellipsise so the trailing time stays visible
+   (the name now leads in every view — see chipContent). */
+.cal-chip2 .ctitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.cal-chip2.done .ctitle { text-decoration: line-through; opacity: 0.6; }
+/* Week/Day blocks lead with the NAME on its own line, time beneath (see
+   chipContent) — the tall time-grid block has the room, and it keeps the title
+   from being squeezed out by the fixed-width time in a narrow column. Title
+   stays a single ellipsised line (stretch → clips to the block width) so a long
+   name can't wrap tall and bleed into overlapping events. */
+.cal-chip2--stack { flex-direction: column; align-items: stretch; gap: 0; justify-content: flex-start; }
+.cal-chip2--stack .ctitle { line-height: 1.25; }
+.cal-chip2--stack .ctime { margin-left: 0; }
+
+/* Tasks read as to-dos, NOT events: outlined chip (transparent fill) + a hollow
+   checkbox glyph instead of a solid dot. */
+.cal-chip2--task { background: transparent !important; border: 1.5px solid; border-radius: 7px; font-weight: 600; }
+.cal-chip2--task .cbox { width: 11px; height: 11px; border-radius: 3px; border: 1.5px solid currentColor; flex: none; opacity: 0.8; }
+.cal-chip2--task.done .cbox { background: currentColor; }
+
+/* Deadlines/due — flag-ish emphasis (a small filled square tab), same weight as meetings. */
+.cal-chip2--due { border: 1.5px solid; }
+.cal-chip2--due .cdot { border-radius: 2px; }
+
+/* Working location (from Google): muted, dashed, home-ish badge — clearly not a meeting. */
+.cal-chip2--loc { background: transparent !important; border: 1px dashed; opacity: 0.9; font-weight: 600; }
+.cal-chip2--loc .cdot { border-radius: 2px; }
+
+/* Day-context strip (work location, goals, OOO): compact, muted, sits at the top
+   of the day above the meeting/task "meat". */
+.cal-chip2--ctx { background: transparent !important; font-size: 10.5px; font-weight: 700; opacity: 0.85; padding: 1px 4px; gap: 4px; }
+.cal-chip2--ctx svg { width: 11px; height: 11px; opacity: 0.8; flex: none; }
+
+/* Work-hours colored band (week/day background events). */
+.cal-ocean .fc .fc-timegrid-bg-harness .fc-bg-event { opacity: 1; }
+.cal-ocean .fc .fc-bg-event { opacity: 0.55; }
+
+/* Multi-day CONTEXT bars (weekly goals, OOO ranges): unlike normal chips, these
+   need a visible fill so they read as a continuous bar across every day they
+   cover — otherwise the transparent-event rule above hides the middle and only
+   the end labels show. `!important` beats that rule. */
+.cal-ocean .fc .fc-daygrid-event.cal-span,
+.cal-ocean .fc .fc-daygrid-event.cal-span .fc-event-main {
+  border-radius: 6px !important;
+}
+.cal-ocean .fc .fc-daygrid-event.cal-span-goal,
+.cal-ocean .fc .fc-daygrid-event.cal-span-goal .fc-event-main {
+  background-color: rgba(251, 192, 45, 0.20) !important;
+}
+.cal-ocean .fc .fc-daygrid-event.cal-span-ooo,
+.cal-ocean .fc .fc-daygrid-event.cal-span-ooo .fc-event-main {
+  background-color: rgba(85, 118, 134, 0.18) !important;
+}
+/* The chip inside a span bar shouldn't paint its own bg — let the bar show. */
+.cal-ocean .fc .cal-span .cal-chip2--ctx { opacity: 1; }
+
+/* Collapsed goals: a thin bar (you see a goal is set, not its text). */
+.cal-ocean .fc .fc-daygrid-event.cal-goal-min { margin: 1px 2px; }
+.cal-ocean .fc .cal-goal-min .fc-event-main { padding: 0; }
+.cal-ocean .cal-goal-minchip { height: 4px; padding: 0; gap: 0; }
+
+/* sidebar goal groups */
+.cal-ocean__goalgroup + .cal-ocean__goalgroup { margin-top: 2px; }
+.cal-ocean__goalgrouphd {
+  display: flex; align-items: center; gap: 5px; width: 100%; border: none; background: transparent;
+  padding: 4px 2px; cursor: pointer; color: var(--o-ink-600);
+}
+.cal-ocean__goalgrouphd:hover { color: var(--o-ink-900); }
+.cal-ocean__goalgrouphd .lbl { font-size: 12px; font-weight: 700; }
+.cal-ocean__goalgrouphd .cnt { margin-left: auto; font-family: var(--o-mono); font-size: 10.5px; color: var(--o-ink-400); }
+.cal-ocean__goalgrouphd svg { flex: none; color: var(--o-ink-400); }
+.cal-ocean__goalitem { display: flex; align-items: flex-start; gap: 8px; padding: 3px 2px 3px 20px; }
+.cal-ocean__goalitem .dot { width: 7px; height: 7px; border-radius: 999px; margin-top: 5px; flex: none; }
+.cal-ocean__goalitem .txt { font-size: 12.5px; font-weight: 600; color: var(--o-ink-700); line-height: 1.35; }
+
+/* ── slide-over event detail ───────────────────────────── */
+.cal-ocean__backdrop { position: absolute; inset: 0; background: rgba(11,42,58,0.18); z-index: 40; animation: cal-fade .18s var(--o-ease-out); }
+.cal-ocean__sheet {
+  position: absolute; top: 0; right: 0; height: 100%; width: 390px; max-width: 92%;
+  background: var(--o-glass-strong); backdrop-filter: var(--o-blur);
+  border-left: 1px solid var(--o-glass-border); box-shadow: var(--o-shadow-xl);
+  z-index: 41; display: flex; flex-direction: column; animation: cal-slidein .24s var(--o-ease-out);
+}
+.cal-ocean__sheet-strip { height: 6px; flex: none; }
+.cal-ocean__sheet-body { padding: 20px 22px; overflow-y: auto; flex: 1; }
+.cal-ocean__sheet-foot { display: flex; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--o-border-subtle); }
+.cal-ocean__badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.cal-ocean__sheet h2 { font-size: 22px; font-weight: 800; color: var(--o-ink-900); line-height: 1.15; letter-spacing: -0.01em; margin: 14px 0 18px; }
+.cal-ocean__meta { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; color: var(--o-ink-700); margin-bottom: 12px; }
+.cal-ocean__meta svg { color: var(--o-ink-400); flex: none; margin-top: 1px; }
+.cal-ocean__meta .sub { font-family: var(--o-mono); font-size: 12px; color: var(--o-ink-500); }
+.cal-ocean__btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 14px; border-radius: var(--o-radius-sm); font-weight: 700; font-size: 13px; cursor: pointer; border: 1px solid transparent; }
+.cal-ocean__btn--primary { flex: 1; background: var(--o-ocean-500); color: #fff; }
+.cal-ocean__btn--primary:hover { background: var(--o-ocean-600); }
+.cal-ocean__btn--ghost { background: transparent; color: var(--o-coral-600); border-color: var(--o-border-default); }
+.cal-ocean__btn--ghost:hover { background: var(--o-coral-100); }
+.cal-ocean__x { border: none; background: transparent; color: var(--o-ink-500); cursor: pointer; padding: 2px; border-radius: 6px; }
+.cal-ocean__x:hover { background: var(--o-sand-100); }
+
+@keyframes cal-slidein { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes cal-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── responsive: drop rails on small screens ───────────── */
+/* Toolbar toggles + in-drawer closes are desktop-hidden; they only appear at the
+   breakpoint where each rail collapses into an overlay drawer (left ≤1180px,
+   right ≤920px). */
+.cal-ocean__railtoggle   { display: none; }
+.cal-ocean__railtoggle-r { display: none; }
+.cal-ocean__railclose    { display: none; }
+.cal-ocean__railclose-r  { display: none; }
+.cal-ocean__railscrim    { display: none; }
+
+@media (max-width: 1180px) {
+  .cal-ocean__rail--left { display: none; }
+  .cal-ocean__railtoggle { display: inline-flex; }
+  /* Revealed as a left overlay drawer (the shell's .cal-ocean is positioned). */
+  .cal-ocean__rail--left.is-open {
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    z-index: 40;
+    width: 292px; max-width: 86vw;
+    background: var(--o-surface-page);
+    box-shadow: 0 14px 44px rgba(11, 42, 58, .28);
+    animation: cal-rail-in 170ms var(--o-ease-out, ease-out);
+    padding-top: 44px; /* room for the close button */
+  }
+  .cal-ocean__railclose {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: absolute; top: 10px; right: 10px; z-index: 1;
+    width: 30px; height: 30px; border: none; border-radius: var(--o-radius-sm);
+    background: var(--o-sand-100); color: var(--o-ink-600); cursor: pointer;
+  }
+  .cal-ocean__railclose:hover { background: var(--o-sand-200, var(--o-sand-100)); color: var(--o-ink-800); }
+  .cal-ocean__railscrim.is-open {
+    display: block; position: absolute; inset: 0; z-index: 39;
+    background: rgba(11, 42, 58, .32); animation: cal-fade 170ms var(--o-ease-out, ease-out);
+  }
+}
+@keyframes cal-rail-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+
+@media (max-width: 920px) {
+  .cal-ocean__rail--right { display: none; }
+  .cal-ocean__gridwrap { padding: 12px; }
+  .cal-ocean__railtoggle-r { display: inline-flex; }
+  /* Revealed as a RIGHT overlay drawer. */
+  .cal-ocean__rail--right.is-open {
+    display: block;
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    z-index: 40;
+    width: 340px; max-width: 88vw;
+    background: var(--o-surface-page);
+    box-shadow: -14px 0 44px rgba(11, 42, 58, .28);
+    animation: cal-rail-in-r 170ms var(--o-ease-out, ease-out);
+    padding-top: 44px;
+  }
+  .cal-ocean__railclose-r {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: absolute; top: 10px; left: 10px; z-index: 1;
+    width: 30px; height: 30px; border: none; border-radius: var(--o-radius-sm);
+    background: var(--o-sand-100); color: var(--o-ink-600); cursor: pointer;
+  }
+  .cal-ocean__railclose-r:hover { background: var(--o-sand-200, var(--o-sand-100)); color: var(--o-ink-800); }
+}
+@keyframes cal-rail-in-r { from { transform: translateX(100%); } to { transform: translateX(0); } }

@@ -52,7 +52,7 @@ const SECTIONS = [
 
 const PROJECT_COLORS = ["#14b8a6", "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#ef4444", "#64748b"];
 
-// Pastel palette for retro sticky notes. Stays light enough that body
+// Pastel palette for whiteboard sticky notes. Stays light enough that body
 // text reads in either theme without needing per-color contrast tweaks.
 const STICKY_COLORS = [
   { hex: "#fde68a", label: "Yellow" },
@@ -214,8 +214,6 @@ function ProfileSection({ dark }) {
 
   const [name, setName] = useState(settings.name || "");
   const [avatarUrl, setAvatarUrl] = useState(settings.avatarUrl || "");
-  const [status, setStatus] = useState(settings.status || "");
-  const [presenceState, setPresenceState] = useState(settings.presenceState || "active");
   const [rateDraft, setRateDraft] = useState(hourlyRate ? String(hourlyRate) : "");
   const [annualDraft, setAnnualDraft] = useState("");
   const [error, setError] = useState("");
@@ -226,8 +224,6 @@ function ProfileSection({ dark }) {
   useEffect(() => { setJobTitle(settings.jobTitle || ""); }, [settings.jobTitle]);
   useEffect(() => { setName(settings.name || ""); }, [settings.name]);
   useEffect(() => { setAvatarUrl(settings.avatarUrl || ""); }, [settings.avatarUrl]);
-  useEffect(() => { setStatus(settings.status || ""); }, [settings.status]);
-  useEffect(() => { setPresenceState(settings.presenceState || "active"); }, [settings.presenceState]);
   useEffect(() => { setRateDraft(hourlyRate ? String(hourlyRate) : ""); }, [hourlyRate]);
   useEffect(() => {
     setAnnualDraft(settings?.annualSalary != null ? String(settings.annualSalary) : (hourlyRate ? String(Math.round(hourlyRate * HOURS_PER_YEAR)) : ""));
@@ -262,19 +258,6 @@ function ProfileSection({ dark }) {
     persist({ name: clean || null });
   }
 
-  function onStatusBlur() {
-    const clean = status.trim().slice(0, 80);
-    if (clean === (settings.status || "")) return;
-    updateSettingsField({ status: clean || null });
-    flashSaved();
-  }
-
-  function pickPresence(key) {
-    if (presenceState === key) return;
-    setPresenceState(key);
-    updateSettingsField({ presenceState: key });
-    flashSaved();
-  }
 
   async function onRateBlur() {
     const rate = parseFloat(rateDraft);
@@ -298,20 +281,12 @@ function ProfileSection({ dark }) {
     flashSaved();
   }
 
-  const PRESENCE = [
-    { key: "active", label: "Active", color: "bg-emerald-500" },
-    { key: "available", label: "Available", color: "bg-sky-500" },
-    { key: "heads_down", label: "Heads-down", color: "bg-violet-500" },
-    { key: "in_meeting", label: "In meeting", color: "bg-rose-500" },
-    { key: "away", label: "Away", color: "bg-amber-500" },
-  ];
-
   return (
     <>
       <Toast message={error} dark={dark} tone="err" />
       <Toast message={savingMsg} dark={dark} />
 
-      <SectionCard title="Your profile" hint="What teammates see in shared sessions and retros." dark={dark}>
+      <SectionCard title="Your profile" hint="What teammates see in shared sessions." dark={dark}>
         <div className="space-y-4">
           <div>
             <FieldLabel dark={dark}>Display name</FieldLabel>
@@ -346,41 +321,6 @@ function ProfileSection({ dark }) {
               onError={(msg) => setError(msg)}
             />
           </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Status" hint="Visible to teammates. Updates instantly." dark={dark}>
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-1.5">
-            {PRESENCE.map((opt) => {
-              const active = presenceState === opt.key;
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => pickPresence(opt.key)}
-                  className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
-                    active
-                      ? "bg-[var(--color-accent)] text-white"
-                      : dark
-                        ? "bg-[var(--color-surface-raised)] text-slate-300 hover:bg-slate-700"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full ${opt.color}`} />
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-          <Input
-            value={status}
-            onChange={(e) => setStatus(e.target.value.slice(0, 80))}
-            onBlur={onStatusBlur}
-            placeholder="What are you working on? (optional)"
-            maxLength={80}
-            className="max-w-md"
-          />
         </div>
       </SectionCard>
 
@@ -683,8 +623,8 @@ function AppearanceSection({ dark }) {
       </SectionCard>
 
       <SectionCard
-        title="Retro sticky-note color"
-        hint="Background tint for the retro cards you write."
+        title="Sticky-note color"
+        hint="Default background tint for sticky notes you add to whiteboards."
         dark={dark}
       >
         <div className="flex flex-wrap gap-2">
@@ -1865,9 +1805,11 @@ function NotificationsSection({ dark }) {
 
 function AboutSection({ dark }) {
   const latest = latestEntryId();
+  const { settings, setHintsDisabled } = useApp();
+  const hintsOn = !settings?.onboarding?.hintsDisabled;
   return (
     <SectionCard title="About" hint="App version and recent changes." dark={dark}>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div className="text-sm">
           <div className={`font-semibold ${dark ? "text-slate-200" : "text-slate-800"}`}>Mangodoro</div>
           <div className={`text-xs ${dark ? "text-slate-500" : "text-slate-400"}`}>
@@ -1881,6 +1823,28 @@ function AboutSection({ dark }) {
           <Button onClick={openHelpCenter} variant="outline" size="sm">
             <GraduationCap className="w-3.5 h-3.5 mr-1.5" /> Learn Mangodoro
           </Button>
+        </div>
+
+        {/* Master switch for the proactive onboarding hints. Off silences the
+            welcome modal, "take a tour?" offers, new-feature nudges, and the
+            getting-started checklist — the tutorials above stay available. */}
+        <div className={`flex items-start gap-3 pt-1 border-t ${dark ? "border-[var(--color-border-light)]" : "border-slate-100"}`}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={hintsOn}
+            aria-label="Show onboarding hints"
+            onClick={() => setHintsDisabled(hintsOn)}
+            className={`relative shrink-0 mt-3 w-10 h-6 rounded-full transition-colors ${hintsOn ? "bg-[var(--color-accent)]" : dark ? "bg-slate-600" : "bg-slate-300"}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${hintsOn ? "translate-x-4" : ""}`} />
+          </button>
+          <div className="pt-1.5">
+            <div className={`text-sm font-medium ${dark ? "text-slate-200" : "text-slate-700"}`}>Show onboarding hints &amp; tips</div>
+            <div className={`text-xs mt-0.5 ${dark ? "text-slate-500" : "text-slate-400"}`}>
+              The welcome tour offer, feature nudges, and the getting-started checklist. Turn off for a quieter app — you can still replay any tutorial from Learn Mangodoro.
+            </div>
+          </div>
         </div>
       </div>
     </SectionCard>

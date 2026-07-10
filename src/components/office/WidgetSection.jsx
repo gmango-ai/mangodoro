@@ -42,6 +42,10 @@ export default function WidgetSection({
   dark,
   action,
   defaultCollapsed = false,
+  // `bare` drops the section card + collapse header and just fills its parent
+  // (scrolling) — used when the widget body is hosted as a room-layout tile,
+  // which supplies its own title bar. See roomLayout/viewPanels.
+  bare = false,
   children,
 }) {
   const [collapsed, setCollapsedRaw] = useState(() => {
@@ -57,6 +61,9 @@ export default function WidgetSection({
 
   const Chevron = collapsed ? ChevronRight : ChevronDown;
   const dragHandle = useContext(DragHandleContext);
+
+  // Hosted as a room-layout tile: no card/header, just fill + scroll.
+  if (bare) return <div className="h-full overflow-y-auto p-3">{children}</div>;
 
   return (
     <section className={`rounded-xl border overflow-hidden ${

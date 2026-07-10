@@ -1,4 +1,5 @@
 import { supabase } from "../supabase";
+import { normAvailability } from "./presence";
 
 // user_presence — read/write layer over the resolved status snapshot (seam ①).
 // The client resolves status (src/lib/statusResolver.js), decides when to write
@@ -11,7 +12,8 @@ const toIso = (v) =>
 const PRESENCE_COLUMNS =
   "user_id, team_id, availability, since, activity_label, activity_link, " +
   "activity_since, activity_private, location_kind, location_room_id, " +
-  "override_availability, override_message, override_expires_at, updated_at";
+  "override_availability, override_message, override_expires_at, invisible, " +
+  "last_seen_at, updated_at";
 
 // Persist my resolved snapshot.
 //
@@ -34,7 +36,7 @@ export async function upsertUserPresence({
     {
       user_id: userId,
       team_id: teamId,
-      availability,
+      availability: normAvailability(availability),
       since: toIso(since),
       activity_label: isPrivate ? null : activity?.label ?? null,
       activity_link: isPrivate ? null : activity?.link ?? null,
@@ -42,8 +44,22 @@ export async function upsertUserPresence({
       activity_private: isPrivate,
       location_kind: location?.kind || "none",
       location_room_id: location?.roomId ?? null,
+      last_seen_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
+    { onConflict: "user_id" }
+  );
+}
+
+// Heartbeat — refresh last_seen_at without recomputing the snapshot, so the
+// server sweep (P3) can flip a row to 'offline' once the beats stop (a dead
+// client can't report its own death). Cheap; the leader tab fires it on a
+// cadence between full snapshot writes.
+export async function touchPresenceHeartbeat(userId) {
+  if (!userId) return { error: { message: "no user" } };
+  const nowIso = new Date().toISOString();
+  return supabase.from("user_presence").upsert(
+    { user_id: userId, last_seen_at: nowIso, updated_at: nowIso },
     { onConflict: "user_id" }
   );
 }
@@ -53,19 +69,40 @@ export async function upsertUserPresence({
 // immediately, so focus-aware routing (_nd_insert_delivery) and the teammate
 // roster (mergeOfficePresence) — which read `availability` — don't show the user
 // as reachable for up to 15s after they set Focusing / In a meeting.
-export async function setPresenceOverride({ userId, availability, message = null, expiresAt = null }) {
+export async function setPresenceOverride({ userId, availability, message = null, emoji = null, expiresAt = null }) {
   if (!userId) return { error: { message: "no user" } };
+  const a = normAvailability(availability);
   return supabase.from("user_presence").upsert(
     {
       user_id: userId,
-      availability,
+      availability: a,
       since: new Date().toISOString(),
-      override_availability: availability,
+      override_availability: a,
       override_message: message,
+      override_emoji: emoji,
       override_expires_at: toIso(expiresAt),
       override_set_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(), // setting a status = active; avoid an instant sweep
       updated_at: new Date().toISOString(),
     },
+    { onConflict: "user_id" }
+  );
+}
+
+// The auto-state pin ("keep my status" through idle). null clears it.
+export async function setPresencePin(userId, until) {
+  if (!userId) return { error: { message: "no user" } };
+  return supabase.from("user_presence").upsert(
+    { user_id: userId, auto_pin_until: toIso(until), last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { onConflict: "user_id" }
+  );
+}
+
+// "Appear offline" — teammates read this and render the person offline.
+export async function setPresenceInvisible(userId, invisible) {
+  if (!userId) return { error: { message: "no user" } };
+  return supabase.from("user_presence").upsert(
+    { user_id: userId, invisible: !!invisible, last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString() },
     { onConflict: "user_id" }
   );
 }
@@ -77,6 +114,7 @@ export async function clearPresenceOverride(userId) {
       user_id: userId,
       override_availability: null,
       override_message: null,
+      override_emoji: null,
       override_expires_at: null,
       override_set_at: null,
       updated_at: new Date().toISOString(),

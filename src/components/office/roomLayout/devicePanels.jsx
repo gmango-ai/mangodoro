@@ -20,7 +20,7 @@ const MODE_LABEL = { work: "Focus", shortBreak: "Short break", longBreak: "Long 
 
 // Self-ticking so the layout doesn't have to re-render every second — the panel
 // owns its countdown from the session's ends_at (running) or remaining_seconds.
-function DeviceTimerPanel({ sess }) {
+export function DeviceTimerPanel({ sess }) {
   const [, force] = useState(0);
   useVisibilityPausedInterval(
     () => force((n) => (n + 1) % 1e9),
@@ -38,15 +38,19 @@ function DeviceTimerPanel({ sess }) {
   const isBreak = sess && sess.mode !== "work";
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950 text-white p-4">
+    <div
+      className="w-full h-full flex flex-col items-center justify-center bg-slate-950 text-white p-4 overflow-hidden"
+      style={{ containerType: "size" }}
+    >
       {sess ? (
         <>
-          <div className={`text-[11px] font-semibold uppercase tracking-[0.25em] mb-2 ${isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]"}`}>
+          <div className={`font-semibold uppercase tracking-[0.25em] mb-2 ${isBreak ? "text-[var(--color-break)]" : "text-[var(--color-accent)]"}`}
+            style={{ fontSize: "clamp(9px, 3.5cqmin, 15px)" }}>
             {MODE_LABEL[sess.mode] || "Focus"}{!sess.is_running ? " · Paused" : ""}
           </div>
           <div
             className="font-bold tabular-nums leading-none"
-            style={{ fontSize: "clamp(2.5rem, 14vw, 9rem)", fontFamily: "'Parkinsans', sans-serif", letterSpacing: "0.01em" }}
+            style={{ fontSize: "min(26cqw, 52cqh)", fontFamily: "'Parkinsans', sans-serif", letterSpacing: "0.01em" }}
           >
             {formatClock(secondsLeft, { padMinutes: true })}
           </div>

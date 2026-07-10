@@ -1,19 +1,16 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
-import { listShownGoals } from "../lib/retro";
 import { listTeamGoals, listGoalRooms, listGoalKeyResults, goalProgress, weekBucket } from "../lib/goals";
 
 // Loads the goals to surface in the office widget + pomodoro, normalized
 // to one shape and scoped to the viewer:
-//   * team-wide retro goals (org_team_id null) — everyone
-//   * department goals (retro or first-class) — members of that org_team
-//   * personal goals (first-class owner_type 'user') — only your own
+//   * team-wide goals (owner_type company) — everyone
+//   * department goals — members of that org_team
+//   * personal goals (owner_type 'user') — only your own
 //
-// Two sources are merged: first-class goals (the `goals` table, written
-// by whiteboard goal nodes) and legacy retro goals (retros.goal flagged
-// shown). A first-class department goal supersedes the legacy retro goal
-// for the same department.
+// Goals come from the first-class `goals` table (written by whiteboard goal
+// nodes). (Legacy retro goals were removed when retros were retired.)
 //
 // Each item is normalized to: { id, body, label, color, href }.
 //
@@ -32,8 +29,7 @@ export function useWeekGoals(roomId = null) {
     async function load() {
       if (!activeTeamId) { setGoals([]); return; }
       setLoading(true);
-      const [retroRes, fcRes, roomsRes, krRes] = await Promise.all([
-        listShownGoals(activeTeamId),
+      const [fcRes, roomsRes, krRes] = await Promise.all([
         listTeamGoals(activeTeamId),
         listGoalRooms(activeTeamId),
         listGoalKeyResults(activeTeamId),
@@ -55,7 +51,6 @@ export function useWeekGoals(roomId = null) {
       }
 
       // First-class goals, scoped to the viewer + pin + room.
-      const fcDeptIds = new Set();
       const firstClass = (fcRes?.data || [])
         .filter((g) => {
           if (g.status === "done") return false; // completed goals don't surface
@@ -72,7 +67,6 @@ export function useWeekGoals(roomId = null) {
           return true;
         })
         .map((g) => {
-          if (g.owner_type === "department") fcDeptIds.add(g.owner_id);
           return {
             id: `goal:${g.id}`,
             body: (g.body || "").trim(),
@@ -88,25 +82,7 @@ export function useWeekGoals(roomId = null) {
         })
         .filter((g) => g.body.length > 0);
 
-      // Legacy retro goals, scoped + deduped against first-class depts.
-      const legacy = (retroRes?.data || [])
-        .filter((r) => {
-          if (r.org_team_id == null) return true;
-          if (!myOrgTeamIds?.has(r.org_team_id)) return false;
-          return !fcDeptIds.has(r.org_team_id); // first-class supersedes
-        })
-        .map((r) => ({
-          id: `retro:${r.id}`,
-          body: (r.goal || "").trim(),
-          label: r.org_team_name || r.department || "Team",
-          color: null,
-          tier: r.org_team_id ? "department" : "company", // org-wide retro goals sort with company
-          ownerId: r.org_team_id || "team",
-          href: `/retros/${r.id}`,
-        }))
-        .filter((r) => r.body.length > 0);
-
-      setGoals([...firstClass, ...legacy]);
+      setGoals(firstClass);
       setLoading(false);
     }
     load();

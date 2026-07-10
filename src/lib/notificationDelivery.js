@@ -9,13 +9,15 @@
 // a client being present); the client re-applies this on receipt as the
 // last-mile authority for the in-app banner + sound, using its freshest status.
 
-const DND = new Set(["focusing", "in_meeting"]);
-const AWAY = new Set(["away", "lunch", "commuting", "off", "offline"]);
+// 7-state vocabulary: focusing + meeting are do-not-disturb (red light);
+// lunch/commuting/away/offline are away; online (or unknown) is free.
+const DND = new Set(["focusing", "meeting"]);
+const AWAY = new Set(["away", "lunch", "commuting", "offline"]);
 
 export function availabilityBucket(availability) {
   if (DND.has(availability)) return "dnd";
   if (AWAY.has(availability)) return "away";
-  return "free"; // available, pairing, or unknown → reachable
+  return "free"; // online or unknown → reachable
 }
 
 export const PRIORITY_RANK = { low: 0, normal: 1, high: 2, urgent: 3 };

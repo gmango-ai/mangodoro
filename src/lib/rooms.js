@@ -165,6 +165,19 @@ export async function setRoomAccessCode(roomId, code) {
   return { error };
 }
 
+// Change a room's type: 'general' | 'meeting' | 'private'. Server enforces the
+// manager check (owner / admin / gating-team lead), requires org admin to make
+// a room 'general', and keeps the coupled columns consistent — clears the
+// meeting-only max duration when leaving 'meeting', and locks + seeds a
+// shareable code when a room becomes 'private'.
+export async function setRoomKind(roomId, kind) {
+  const { error } = await supabase.rpc("set_room_kind", {
+    p_room_id: roomId,
+    p_kind: kind,
+  });
+  return { error };
+}
+
 // Whether a code room accepts knocks while occupied. Server enforces the
 // manager check (owner / admin / gating-team lead).
 export async function setRoomKnockEnabled(roomId, enabled) {
