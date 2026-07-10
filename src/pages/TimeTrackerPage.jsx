@@ -42,7 +42,7 @@ export default function TimeTrackerPage() {
         <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-2">
           <div className={`inline-flex rounded-lg p-0.5 ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"}`}>
             {TABS.map((t) => (
-              <NavLink key={t.key} to={t.path} className={tabCls}>
+              <NavLink key={t.key} to={t.path} data-tour={`tt-tab-${t.key}`} className={tabCls}>
                 {t.label}
               </NavLink>
             ))}

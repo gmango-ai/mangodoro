@@ -91,7 +91,7 @@ export default function LogHoursForm() {
             Log Hours
           </h2>
           
-          <div className={`flex p-1 rounded-lg ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100/80"} border ${dark ? "border-[var(--color-border-light)]" : "border-slate-200/50"}`}>
+          <div data-tour="log-mode" className={`flex p-1 rounded-lg ${dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100/80"} border ${dark ? "border-[var(--color-border-light)]" : "border-slate-200/50"}`}>
             {["manual", "auto"].map((m) => (
               <button
                 key={m}

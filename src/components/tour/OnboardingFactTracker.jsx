@@ -5,6 +5,7 @@ import { useSyncSession } from "../../context/SyncSessionContext";
 import { useMessages } from "../../context/MessagesContext";
 import { usePomodoro } from "../../pomodoro/PomodoroContext";
 import { listTeamGoals } from "../../lib/goals";
+import { supabase } from "../../supabase";
 
 // Invisible, always-mounted observer that flips getting-started checklist flags
 // from REAL app activity — not from tour completion. Mounted inside every app
@@ -35,6 +36,22 @@ export default function OnboardingFactTracker() {
   useEffect(() => {
     if ((conversations?.length || 0) > 0 && !cl.message) setChecklistItem("message");
   }, [conversations?.length, cl.message, setChecklistItem]);
+
+  // Made a task — one-time historical probe (task creation happens on the Tasks
+  // page / room widget / calendar, with no single live signal to piggyback). A
+  // lightweight head count of the user's planner_tasks; runs once once settings
+  // have loaded, then latches via cl.task.
+  const taskProbed = useRef(false);
+  useEffect(() => {
+    if (!dataLoaded || !session?.user?.id) return;
+    if (cl.task || taskProbed.current) return;
+    taskProbed.current = true;
+    supabase
+      .from("planner_tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", session.user.id)
+      .then(({ count }) => { if ((count || 0) > 0) setChecklistItem("task"); }, () => { /* probe is best-effort */ });
+  }, [dataLoaded, session?.user?.id, cl.task, setChecklistItem]);
 
   // Set a goal — one-time historical probe (goal creation happens off the
   // office page, so there's no live signal to piggyback). Any goal owned by me

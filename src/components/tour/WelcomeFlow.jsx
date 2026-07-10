@@ -88,7 +88,7 @@ export default function WelcomeFlow() {
           </button>
           <button
             type="button"
-            onClick={() => { finish(); startTour?.("meet-pomodoro"); }}
+            onClick={() => { finish(); startTour?.("welcome"); }}
             className="px-4 py-2 rounded-lg text-sm font-semibold bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white"
           >
             Take a quick tour

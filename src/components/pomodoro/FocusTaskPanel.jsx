@@ -94,7 +94,7 @@ export default function FocusTaskPanel() {
 
   return (
     <>
-    <div className={`rounded-xl border p-3 space-y-2 ${dark ? "bg-[var(--color-surface-raised)]/40 border-[var(--color-border)]" : "bg-slate-50 border-slate-200"}`}>
+    <div data-tour="pomodoro-focus-task" className={`rounded-xl border p-3 space-y-2 ${dark ? "bg-[var(--color-surface-raised)]/40 border-[var(--color-border)]" : "bg-slate-50 border-slate-200"}`}>
       <div className="flex items-center gap-2">
         <span className={`text-[10px] font-bold uppercase tracking-wider ${dark ? "text-slate-500" : "text-slate-400"}`}>Focus task</span>
         {task && prog.total > 0 && (

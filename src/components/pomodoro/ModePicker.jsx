@@ -23,7 +23,7 @@ export default function ModePicker() {
   const disabled = !canControl || locked || isInTransition;
 
   return (
-    <div className={`inline-flex p-1 rounded-full w-full ${
+    <div data-tour="pomodoro-mode" className={`inline-flex p-1 rounded-full w-full ${
       dark ? "bg-[var(--color-surface-raised)]" : "bg-slate-100"
     }`}>
       {MODES.map(([m, label]) => {

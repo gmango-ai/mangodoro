@@ -64,7 +64,7 @@ export default function TimerClock({ size = "md", slot = "all" }) {
 
   if (slot === "numbers") {
     return (
-      <span className={`${timeCls} font-display font-bold tabular-nums leading-none ${numberColor}`}>
+      <span data-tour="pomodoro-timer" className={`${timeCls} font-display font-bold tabular-nums leading-none ${numberColor}`}>
         {mins}:{secs}
       </span>
     );
@@ -78,7 +78,7 @@ export default function TimerClock({ size = "md", slot = "all" }) {
   }
 
   return (
-    <div className="flex flex-col items-start">
+    <div className="flex flex-col items-start" data-tour="pomodoro-timer">
       <span className={`${timeCls} font-display font-bold tabular-nums leading-none ${numberColor}`}>
         {mins}:{secs}
       </span>

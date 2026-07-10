@@ -15,7 +15,7 @@ import "./tasks-ocean.css"; // ensures the --o-* tokens load wherever these cont
 // focused. One focused task at a time (setFocus clears the rest).
 export function FocusCheckbox({ focused, onToggle, size = 22 }) {
   return (
-    <button className="tl-scope" onClick={(e) => { e.stopPropagation(); onToggle(); }}
+    <button className="tl-scope" data-tour="task-focus" onClick={(e) => { e.stopPropagation(); onToggle(); }}
       title={focused ? "Focusing — click to clear" : "Set as focus"} aria-label={focused ? "Clear focus" : "Set as focus"}
       style={{
         width: size, height: size, marginTop: 1, flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -44,7 +44,7 @@ export function StatusControl({ status, onChange, compact = false }) {
   };
   return (
     <div className="tl-scope" onClick={(e) => e.stopPropagation()} style={{ flex: "none", display: "inline-flex" }}>
-      <button onClick={open} title={`Status: ${meta.label} — change`} aria-label={`Status: ${meta.label}. Change status`}
+      <button onClick={open} data-tour="task-status" title={`Status: ${meta.label} — change`} aria-label={`Status: ${meta.label}. Change status`}
         style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: compact ? "3px 5px" : "3px 6px 3px 8px", borderRadius: 999, border: `1px solid ${meta.border}`, background: meta.bg, color: meta.fg, fontSize: 11, fontWeight: 700, cursor: "pointer", lineHeight: 1, whiteSpace: "nowrap" }}>
         <span style={{ width: 7, height: 7, borderRadius: status === "done" ? 2 : 999, background: meta.color, flex: "none" }} />
         {!compact && meta.label}

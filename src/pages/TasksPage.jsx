@@ -124,7 +124,7 @@ export default function TasksPage() {
           <div className="tl-title">Everything due, in a line</div>
           <div className="tl-sub">Sorted by when it's due · {openCount} open, {doneCount} done</div>
         </div>
-        <div className="tl-seg" role="tablist" aria-label="Task view">
+        <div className="tl-seg" data-tour="tasks-views" role="tablist" aria-label="Task view">
           {[
             { key: "active", label: "Active" },
             { key: "completed", label: `Completed${doneCount ? ` ${doneCount}` : ""}` },
@@ -137,16 +137,16 @@ export default function TasksPage() {
           <Search style={{ width: 16, height: 16, color: "var(--o-ink-400)" }} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks" />
         </div>
-        <button className="tl-newbtn" onClick={() => createAndOpen(null)}><Plus style={{ width: 16, height: 16 }} /> New task</button>
+        <button className="tl-newbtn" data-tour="tasks-new" onClick={() => createAndOpen(null)}><Plus style={{ width: 16, height: 16 }} /> New task</button>
       </header>
 
       {/* focus banner */}
-      <div className="tl-focuswrap">
+      <div className="tl-focuswrap" data-tour="tasks-focus-banner">
         <FocusBanner focusTask={focusTask} subs={focusSubs} onOpen={(t) => setSelectedId(t.id)} onClearFocus={onClearFocus} />
       </div>
 
       {/* timeline */}
-      <div className="tl-body">
+      <div className="tl-body" data-tour="tasks-timeline">
         {loading ? (
           <div className="tl-inner"><div className="tl-empty">Loading your tasks…</div></div>
         ) : view !== "active" && visible.length === 0 ? (

@@ -103,6 +103,7 @@ export default function TimerControls({ size = "md" }) {
           type="button"
           onClick={() => toggleRun()}
           disabled={disabled}
+          data-tour="pomodoro-play"
           className={`${sz.play} rounded-full text-white shadow-lg inline-flex items-center justify-center transition-all ${
             disabled ? "opacity-40 cursor-default" : ""
           } ${playBg}`}
