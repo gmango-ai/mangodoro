@@ -1666,7 +1666,7 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   useEffect(() => {
     const onKey = (ke) => {
       if (hoveringArrow) return;
-      if (ke.metaKey || ke.ctrlKey || ke.altKey) return;
+      if (ke.metaKey || ke.ctrlKey || ke.altKey || ke.shiftKey) return; // Shift+1 = fit view, not a stamp
       const el = document.activeElement;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
       const board = mainRef.current;
