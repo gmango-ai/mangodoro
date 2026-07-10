@@ -111,6 +111,7 @@ import { useWhiteboardSync } from "../components/whiteboard/useWhiteboardSync";
 import { useWhiteboardHistory } from "../components/whiteboard/useWhiteboardHistory";
 import { useWhiteboardClipboard } from "../components/whiteboard/useWhiteboardClipboard";
 import { useWhiteboardPersistence } from "../components/whiteboard/useWhiteboardPersistence";
+import { useWhiteboardKeyboard } from "../components/whiteboard/useWhiteboardKeyboard";
 import { uploadWhiteboardImage } from "../lib/whiteboardImage";
 import TextPanel from "../components/whiteboard/TextPanel";
 import {
@@ -1177,90 +1178,9 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     if (p) pushCursor(p.x, p.y, false, false, laserColorRef.current);
   }, [tool, pushCursor]);
 
-  // Keyboard navigation: ⌘/Ctrl +/−/0 zoom, Shift+1 fits, arrows pan (when
-  // nothing's selected — otherwise React Flow nudges the selected node).
-  // Gated to when the board is hovered/focused and you're not typing, so it
-  // doesn't hijack keys for the rest of the app (e.g. an embedded room).
-  useEffect(() => {
-    function onKey(e) {
-      const el = document.activeElement;
-      if (
-        el &&
-        (el.tagName === "INPUT" ||
-          el.tagName === "TEXTAREA" ||
-          el.isContentEditable)
-      )
-        return;
-      const board = mainRef.current;
-      if (!board || !(board.matches(":hover") || board.contains(el))) return;
-      // A floating region selection intercepts Esc (cancel) + Delete/Backspace.
-      if (areaSelRef.current) {
-        if (e.key === "Escape") { e.preventDefault(); cancelAreaSelection(); setTool("select"); return; }
-        if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteAreaSelection(); return; }
-      }
-      // Escape drops back to the select tool (exit laser mode).
-      if (e.key === "Escape") { setTool("select"); return; }
-      // "Q" pops the quick-tool palette at the cursor (so items spawn where you
-      // are) — works even when the left toolbar is collapsed. Falls back to the
-      // board centre if we haven't seen the pointer yet.
-      if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "q") {
-        e.preventDefault();
-        const r = mainRef.current?.getBoundingClientRect();
-        const at = lastClientRef.current || (r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: 200, y: 200 });
-        setPalette((p) => (p ? null : at));
-        return;
-      }
-      const mod = e.metaKey || e.ctrlKey;
-      const k = e.key.toLowerCase();
-      if (mod && k === "z" && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      } else if (mod && (k === "y" || (k === "z" && e.shiftKey))) {
-        e.preventDefault();
-        redo();
-      } else if (mod && k === "c") {
-        // Only swallow the key if we actually copied nodes — otherwise let
-        // the browser copy selected text as usual.
-        if (copyRef.current?.()) e.preventDefault();
-      } else if (mod && k === "x") {
-        if (cutRef.current?.()) e.preventDefault();
-      } else if (mod && (e.key === "=" || e.key === "+")) {
-        e.preventDefault();
-        rf.zoomIn({ duration: 150 });
-      } else if (mod && e.key === "-") {
-        e.preventDefault();
-        rf.zoomOut({ duration: 150 });
-      } else if (mod && e.key === "0") {
-        e.preventDefault();
-        rf.zoomTo(1, { duration: 150 });
-      } else if (mod && (e.key === "d" || e.key === "D")) {
-        e.preventDefault();
-        const sel = rf
-          .getNodes()
-          .filter((n) => n.selected && n.type !== "zone")
-          .map((n) => n.id);
-        if (sel.length) cloneRef.current?.(sel);
-      } else if (e.shiftKey && e.key === "1") {
-        e.preventDefault();
-        rf.fitView({ padding: 0.15, duration: 200 });
-      } else if (e.key.startsWith("Arrow")) {
-        if (rf.getNodes().some((n) => n.selected)) return; // let RF move the node
-        const step = e.shiftKey ? 200 : 60;
-        const d = {
-          ArrowLeft: [step, 0],
-          ArrowRight: [-step, 0],
-          ArrowUp: [0, step],
-          ArrowDown: [0, -step],
-        }[e.key];
-        if (!d) return;
-        e.preventDefault();
-        const vp = rf.getViewport();
-        rf.setViewport({ x: vp.x + d[0], y: vp.y + d[1], zoom: vp.zoom });
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [rf, undo, redo]);
+  // Keyboard shortcuts are wired below, after copy/cut/clone refs exist
+  // (useWhiteboardKeyboard) — a global keydown listener, so call position is
+  // behavior-neutral.
 
   // ── board persistence: load/seed + debounced save + flush + font-load ──
   useWhiteboardPersistence({
@@ -2319,6 +2239,15 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
 
   // ── copy / cut / paste (in-app clipboard; works across boards/tabs) ──
   const { copyRef, cutRef, pasteRef } = useWhiteboardClipboard({ rf, setNodes, setEdges, deleteSelected });
+
+  // Keyboard shortcuts — placed here so copy/cut/clone refs already exist
+  // (registers a global keydown listener; call position is behavior-neutral).
+  useWhiteboardKeyboard({
+    rf, undo, redo, setTool, setPalette,
+    copyRef, cutRef, cloneRef,
+    cancelAreaSelection, deleteAreaSelection, areaSelRef,
+    mainRef, lastClientRef,
+  });
 
   // ⌘/Ctrl-click a node to drop a clone of it right next to it.
   const onNodeClick = useCallback((e, node) => {
