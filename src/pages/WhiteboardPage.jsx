@@ -112,6 +112,8 @@ import { useWhiteboardHistory } from "../components/whiteboard/useWhiteboardHist
 import { useWhiteboardClipboard } from "../components/whiteboard/useWhiteboardClipboard";
 import { useWhiteboardPersistence } from "../components/whiteboard/useWhiteboardPersistence";
 import { useWhiteboardKeyboard } from "../components/whiteboard/useWhiteboardKeyboard";
+import { useWhiteboardInspector } from "../components/whiteboard/useWhiteboardInspector";
+import { useWhiteboardRegionSelect } from "../components/whiteboard/useWhiteboardRegionSelect";
 import { uploadWhiteboardImage } from "../lib/whiteboardImage";
 import TextPanel from "../components/whiteboard/TextPanel";
 import {
@@ -133,12 +135,12 @@ import Inspector from "../components/whiteboard/Inspector";
 import { DropUpContext } from "../components/whiteboard/toolbarUI";
 import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 import PaintLayer from "../components/whiteboard/PaintLayer";
-import { segmentTileKeys, regionTileKeys } from "../components/whiteboard/paintTiles";
+import { segmentTileKeys } from "../components/whiteboard/paintTiles";
 import SaveTemplateModal from "../components/whiteboard/SaveTemplateModal";
 import EmoteOverlay from "../components/emotes/EmoteOverlay";
 import WhiteboardTimer from "../components/whiteboard/WhiteboardTimer";
 import {
-  touchCentroid, touchSpread, pointInPolygon, screenPolyPath,
+  touchCentroid, touchSpread, screenPolyPath,
   freshId, collectCloneSources, duplicateInternalEdges,
 } from "../components/whiteboard/wbUtil";
 import {
@@ -377,92 +379,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     touchInspectorRO.current = ro;
   }, []);
 
-  // Long-press (350ms) then drag = marquee select on touch. RF's drag-marquee
-  // is desktop-only here (on touch it opened under the first finger of every
-  // pinch), so this owns the gesture: kill the pan d3 opened, draw the rect,
-  // select intersecting nodes on release.
-  const marqueeRef = useRef(null);
-  const suppressPaneClickRef = useRef(0);
-  const [marqueeRect, setMarqueeRect] = useState(null);
-  const marqueePointerDown = (e) => {
-    if (!WB_TOUCH || e.pointerType !== "touch" || tool !== "select") return;
-    // A palm resting while the Pencil selects/annotates must not start a marquee.
-    if (penActive()) return;
-    const st = marqueeRef.current;
-    if (st) {
-      // Second finger — it's a pinch, not a marquee.
-      if (!st.active) { clearTimeout(st.timer); marqueeRef.current = null; }
-      return;
-    }
-    if (!(e.target instanceof Element)) return;
-    const nodeEl = e.target.closest(".react-flow__node");
-    if (nodeEl) {
-      // Select on POINTERDOWN: Safari treats the first tap on nodes with
-      // hover-revealed handles as hover only and eats the click, which made
-      // selection take two taps.
-      const id = nodeEl.getAttribute("data-id");
-      if (id) {
-        setNodes((nds) => {
-          const t = nds.find((n) => n.id === id);
-          if (!t || t.selected || t.type === "zone") return nds;
-          return nds.map((n) => (n.id === id ? { ...n, selected: true } : n.selected ? { ...n, selected: false } : n));
-        });
-      }
-      return; // a node press is never a marquee
-    }
-    if (!e.target.closest(".react-flow__pane")) return;
-    const container = e.currentTarget;
-    const { clientX: x0, clientY: y0, pointerId: id } = e;
-    const timer = setTimeout(() => {
-      const cur = marqueeRef.current;
-      if (!cur || cur.id !== id) return;
-      if (toolRef.current !== "select") {
-        marqueeRef.current = null;
-        return;
-      }
-      cur.active = true;
-      navigator.vibrate?.(10);
-      // End the pan gesture d3-zoom opened on this touch so the canvas
-      // doesn't drift under the marquee.
-      const pane = container.querySelector(".react-flow__pane");
-      try {
-        const touch = new Touch({ identifier: id, target: pane, clientX: x0, clientY: y0 });
-        pane?.dispatchEvent(new TouchEvent("touchcancel", { bubbles: true, changedTouches: [touch] }));
-      } catch { /* Touch() unsupported — worst case the canvas pans slightly */ }
-      setMarqueeRect({ x0, y0, x1: x0, y1: y0 });
-    }, 350);
-    marqueeRef.current = { id, x0, y0, x1: x0, y1: y0, active: false, timer };
-  };
-  const marqueePointerMove = (e) => {
-    const st = marqueeRef.current;
-    if (!st || e.pointerId !== st.id) return;
-    if (!st.active) {
-      // Moved before the hold elapsed — it's a pan; stand down.
-      if (Math.hypot(e.clientX - st.x0, e.clientY - st.y0) > 12) {
-        clearTimeout(st.timer);
-        marqueeRef.current = null;
-      }
-      return;
-    }
-    e.stopPropagation();
-    st.x1 = e.clientX;
-    st.y1 = e.clientY;
-    setMarqueeRect({ x0: st.x0, y0: st.y0, x1: st.x1, y1: st.y1 });
-  };
-  const marqueePointerUp = (e) => {
-    const st = marqueeRef.current;
-    if (!st || e.pointerId !== st.id) return;
-    marqueeRef.current = null;
-    if (!st.active) { clearTimeout(st.timer); return; }
-    e.stopPropagation();
-    // The pane fires a click after release, which would clear the fresh
-    // selection — swallow it (see onClickCapture below).
-    suppressPaneClickRef.current = Date.now() + 500;
-    setMarqueeRect(null);
-    // Region select (folded in): grab strokes/notes/shapes + lift brush paint
-    // into a floating move/delete selection.
-    finalizeAreaRef.current?.(st.x0, st.y0, st.x1, st.y1);
-  };
   // Draw modes: one finger draws, two fingers navigate. Once d3-zoom accepts
   // a touchstart (needed for pinch) it pans on ANY one-finger drag, stealing
   // strokes — so single-touch events are stopped in capture before its pane
@@ -502,12 +418,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     if (g.canceled || Date.now() - g.t > TAP_GESTURE_MS) return;
     if (g.max === 2 && canUndo) { undo(); navigator.vibrate?.(8); }
     else if (g.max === 3 && canRedo) { redo(); navigator.vibrate?.(8); }
-  };
-  const onEditorClickCapture = (e) => {
-    if (Date.now() < suppressPaneClickRef.current) {
-      e.stopPropagation();
-      e.preventDefault();
-    }
   };
 
   // The editor is a fixed-viewport surface — lock body scrolling while it's
@@ -687,28 +597,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   const toolRef = useRef(tool);
   toolRef.current = tool;
 
-  // ── Region select (folded into the SELECT tool): a marquee (desktop
-  // left-drag / mobile long-press-drag) grabs strokes/notes/shapes + lifts
-  // brush paint into a floating move/delete selection.
-  const [areaBox, setAreaBox] = useState(null);   // {x0,y0,x1,y1} SCREEN px while dragging the box
-  const areaDragRef = useRef(null);               // { pid, x0, y0 } during the box drag
-  const [areaSel, setAreaSel] = useState(null);   // floating selection (see finalizeAreaSelection)
-  const areaSelRef = useRef(null);
-  areaSelRef.current = areaSel;
-  // finalizeAreaSelection is defined far below (it needs rf/paintRef); the
-  // pointer-up handler calls it through this ref to avoid a forward-reference
-  // TDZ in its dependency array.
-  const finalizeAreaRef = useRef(null);
-  const moveAreaRef = useRef(null);              // → moveAreaSelection (also forward-defined)
-  const commitAreaRef = useRef(null);            // → commitAreaSelection (forward-defined)
-  const areaMoveRef = useRef(null);              // { pid, sx, sy, baseDx, baseDy } while dragging the floating selection
-  // Lasso tool: draw a freeform path; on release it selects strokes/notes inside
-  // the polygon + lifts the polygon-clipped brush paint into the same floating
-  // selection as the box marquee.
-  const lassoRef = useRef(null);                 // { pid, pts:[[clientX,clientY],...] } while drawing
-  const [lassoPath, setLassoPath] = useState(null); // SVG path (screen coords) for the live preview
-  const finalizeLassoRef = useRef(null);         // → finalizeLassoSelection (forward-defined)
-
   // Pen colour + width (persisted per device). A ref so the pointer handlers
   // read the latest without re-subscribing.
   const [penStyle, setPenStyle] = useState(loadPenStyle);
@@ -817,6 +705,46 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     () => strokeTypeRef.current === "pen" || Date.now() - lastPenTsRef.current < PEN_GRACE_MS,
     [],
   );
+
+  // ── Region select (marquee / lasso / floating selection) ──
+  // Extracted into useWhiteboardRegionSelect. Called here — above the pen/brush
+  // pointer handlers below — so the refs it owns (areaDragRef, lassoRef, …) are
+  // in scope for those (out-of-scope, untouched) handlers, and below penActive
+  // (passed in) so its eager evaluation doesn't hit a TDZ.
+  const {
+    marqueeRect,
+    areaBox,
+    areaSel,
+    lassoPath,
+    areaDragRef,
+    areaMoveRef,
+    lassoRef,
+    areaSelRef,
+    moveAreaRef,
+    commitAreaRef,
+    finalizeAreaRef,
+    finalizeLassoRef,
+    setAreaBox,
+    setLassoPath,
+    marqueePointerDown,
+    marqueePointerMove,
+    marqueePointerUp,
+    onEditorClickCapture,
+    deleteAreaSelection,
+    commitAreaSelection,
+    cancelAreaSelection,
+  } = useWhiteboardRegionSelect({
+    rf,
+    paintRef,
+    setNodes,
+    runSilent,
+    pushExternalStep,
+    broadcastPaintOps,
+    tool,
+    toolRef,
+    penActive,
+  });
+
   const cancelActiveStroke = useCallback(() => {
     strokePidRef.current = null;
     strokeTypeRef.current = null;
@@ -1988,153 +1916,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
     });
   }, [rf, setNodes, pushExternalStep, runSilent, broadcastPaintOps]);
 
-  // ── Region select: finalize the drag-box into a floating selection ──────
-  // Picks the pen strokes (draw nodes) it encloses + LIFTS the raster paint
-  // (reads it into a canvas, clears it from the tiles). The floating selection
-  // can then be dragged (move) or deleted; committed on tool-change / Done.
-  const finalizeAreaSelection = useCallback((sx0, sy0, sx1, sy1) => {
-    const minX = Math.min(sx0, sx1), maxX = Math.max(sx0, sx1);
-    const minY = Math.min(sy0, sy1), maxY = Math.max(sy0, sy1);
-    if (maxX - minX < 6 && maxY - minY < 6) return; // a tap, not a box
-    const a = rf.screenToFlowPosition({ x: minX, y: minY });
-    const b = rf.screenToFlowPosition({ x: maxX, y: maxY });
-    const rect = { x: a.x, y: a.y, w: Math.max(1, b.x - a.x), h: Math.max(1, b.y - a.y) };
-    const picked = [];
-    for (const n of rf.getNodes()) {
-      if (n.type === "zone") continue; // grab strokes, notes, shapes, images — not zones
-      const inode = rf.getInternalNode(n.id);
-      const pos = inode?.internals?.positionAbsolute || n.position;
-      const w = n.measured?.width ?? n.width ?? 0;
-      const h = n.measured?.height ?? n.height ?? 0;
-      if (pos.x < rect.x + rect.w && pos.x + w > rect.x && pos.y < rect.y + rect.h && pos.y + h > rect.y) picked.push(n);
-    }
-    const before = paintRef.current?.snapshot(regionTileKeys(rect), new Map()) || new Map();
-    const hadPaint = [...before.values()].some((v) => v); // a tile exists in the region
-    const raster = hadPaint ? paintRef.current?.readRegion(rect) : null;
-    if (raster) paintRef.current?.clearRegion(rect);
-    if (!picked.length && !raster) return; // empty area
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0 });
-  }, [rf]);
-  finalizeAreaRef.current = finalizeAreaSelection;
-
-  // Lasso: same as the box, but the region is a freeform polygon — nodes are
-  // picked by centre-in-polygon and the paint is lifted clipped to the shape.
-  const finalizeLassoSelection = useCallback((screenPts) => {
-    if (!screenPts || screenPts.length < 3) return;
-    const poly = screenPts.map((p) => rf.screenToFlowPosition({ x: p[0], y: p[1] }));
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of poly) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
-    const rect = { x: minX, y: minY, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) };
-    if (rect.w < 4 && rect.h < 4) return;
-    const picked = [];
-    for (const n of rf.getNodes()) {
-      if (n.type === "zone") continue;
-      const inode = rf.getInternalNode(n.id);
-      const pos = inode?.internals?.positionAbsolute || n.position;
-      const w = n.measured?.width ?? n.width ?? 0;
-      const h = n.measured?.height ?? n.height ?? 0;
-      if (pointInPolygon(pos.x + w / 2, pos.y + h / 2, poly)) picked.push(n);
-    }
-    const before = paintRef.current?.snapshot(regionTileKeys(rect), new Map()) || new Map();
-    const hadPaint = [...before.values()].some((v) => v);
-    const raster = hadPaint ? paintRef.current?.readRegion(rect, poly) : null;
-    if (raster) paintRef.current?.clearRegion(rect, poly);
-    if (!picked.length && !raster) return;
-    setAreaSel({ rect, raster, nodes: picked, before, dx: 0, dy: 0, clip: poly });
-  }, [rf]);
-  finalizeLassoRef.current = finalizeLassoSelection;
-
-  // Live-move the floating selection: raster overlay + the picked nodes together.
-  const moveAreaSelection = useCallback((dx, dy) => {
-    const s = areaSelRef.current;
-    if (!s) return;
-    setAreaSel((cur) => (cur ? { ...cur, dx, dy } : cur));
-    runSilent(() => setNodes((nds) => nds.map((n) => {
-      const o = s.nodes.find((m) => m.id === n.id);
-      return o ? { ...n, position: { x: o.position.x + dx, y: o.position.y + dy } } : n;
-    })));
-  }, [setNodes, runSilent]);
-  moveAreaRef.current = moveAreaSelection;
-
-  // Commit the floating selection at its current position (stamp raster, keep
-  // node positions). One undoable step covers raster + nodes.
-  const commitAreaSelection = useCallback(() => {
-    const s = areaSelRef.current;
-    if (!s) return;
-    setAreaSel(null);
-    const { rect, raster, nodes, before, dx, dy, clip } = s;
-    const destRect = { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h };
-    if (dx === 0 && dy === 0) { if (raster) paintRef.current?.stampRegion(raster, rect); return; } // no move → drop back (peers never saw the lift)
-    // dst pre-stamp pixels — peers need these to undo the move live.
-    const dstBefore = raster ? paintRef.current?.readRegion(destRect) : null;
-    if (raster) {
-      paintRef.current?.snapshot(regionTileKeys(destRect), before);
-      paintRef.current?.stampRegion(raster, destRect);
-      broadcastPaintOps([{ lift: { src: rect, dst: destRect, clip } }]); // peers recompute the (clipped) move from their own tiles
-    }
-    pushExternalStep({
-      undo: () => runSilent(() => {
-        if (before) paintRef.current?.restore(before);
-        if (raster) broadcastPaintOps([{ clear: destRect }, { stamp: { rect: destRect, canvas: dstBefore } }, { stamp: { rect, canvas: raster } }]);
-        setNodes((nds) => nds.map((n) => {
-          const o = nodes.find((m) => m.id === n.id);
-          return o ? { ...n, position: { x: o.position.x, y: o.position.y } } : n;
-        }));
-      }),
-      redo: () => runSilent(() => {
-        if (raster) { paintRef.current?.clearRegion(rect, clip); paintRef.current?.stampRegion(raster, destRect); broadcastPaintOps([{ lift: { src: rect, dst: destRect, clip } }]); }
-        setNodes((nds) => nds.map((n) => {
-          const o = nodes.find((m) => m.id === n.id);
-          return o ? { ...n, position: { x: o.position.x + dx, y: o.position.y + dy } } : n;
-        }));
-      }),
-    });
-  }, [pushExternalStep, runSilent, setNodes, broadcastPaintOps]);
-  commitAreaRef.current = commitAreaSelection;
-
-  // Delete the floating selection (raster already lifted; drop nodes).
-  const deleteAreaSelection = useCallback(() => {
-    const s = areaSelRef.current;
-    if (!s) return;
-    setAreaSel(null);
-    const { rect, raster, nodes, before, clip } = s;
-    const ids = new Set(nodes.map((n) => n.id));
-    if (raster) broadcastPaintOps([{ clear: rect, clip }]); // peers clear the lifted (clipped) region
-    runSilent(() => setNodes((nds) => nds.filter((n) => !ids.has(n.id))));
-    pushExternalStep({
-      undo: () => runSilent(() => {
-        if (before) paintRef.current?.restore(before);
-        if (raster) broadcastPaintOps([{ stamp: { rect, canvas: raster } }]); // peers stamp it back (canvas is already clipped)
-        setNodes((nds) => nds.filter((n) => !ids.has(n.id)).concat(nodes));
-      }),
-      redo: () => runSilent(() => {
-        paintRef.current?.clearRegion(rect, clip);
-        broadcastPaintOps([{ clear: rect, clip }]);
-        setNodes((nds) => nds.filter((n) => !ids.has(n.id)));
-      }),
-    });
-  }, [pushExternalStep, runSilent, setNodes, broadcastPaintOps]);
-
-  // Cancel (Escape): put raster + nodes back where they were, no undo step.
-  const cancelAreaSelection = useCallback(() => {
-    const s = areaSelRef.current;
-    if (!s) return;
-    setAreaSel(null);
-    const { nodes, before } = s;
-    runSilent(() => {
-      if (before) paintRef.current?.restore(before);
-      setNodes((nds) => nds.map((n) => {
-        const o = nodes.find((m) => m.id === n.id);
-        return o ? { ...n, position: { x: o.position.x, y: o.position.y } } : n;
-      }));
-    });
-  }, [runSilent, setNodes]);
-
-  // Leaving the select-area tool commits any floating selection.
-  useEffect(() => {
-    if (tool !== "select" && tool !== "lasso" && areaSelRef.current) commitAreaSelection();
-  }, [tool, commitAreaSelection]);
-
   // Clone nodes (pulling in any framed children + edges fully inside the
   // selection), offset a touch and left selected. Powers ⌘/Ctrl-click on a
   // node and ⌘/Ctrl-D on the selection. Offset is grid-aligned so clones stay
@@ -2290,29 +2071,20 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
   }, [cloneNodes, setNodes]);
 
   // ── selection inspector ──
-  const selectedNode = useMemo(
-    () => nodes.find((n) => n.selected && n.type !== "zone") || null,
-    [nodes]
-  );
-  // Only show the per-item inspector for a SINGLE selection — a marquee
-  // multi-select shouldn't stack toolbars over the canvas.
-  const singleSelection = useMemo(() => {
-    let c = 0;
-    for (const n of nodes) if (n.selected && n.type !== "zone") { if (++c > 1) return false; }
-    for (const e of edges) if (e.selected) { if (++c > 1) return false; }
-    return c === 1;
-  }, [nodes, edges]);
-  const selectedEdge = useMemo(
-    () => (selectedNode ? null : edges.find((e) => e.selected) || null),
-    [edges, selectedNode]
-  );
-  // Top-level selected nodes (framed children skipped — their coords are
-  // parent-relative). 2+ surfaces the align/distribute toolbar.
-  const multiCount = useMemo(
-    () => nodes.filter((n) => n.selected && n.type !== "zone" && !n.parentId).length,
-    [nodes]
-  );
-  const touchInspectorVisible = !!(selectedNode && singleSelection && WB_TOUCH);
+  // Selection-derived state + node-mutating callbacks extracted verbatim into
+  // useWhiteboardInspector; the <Inspector .../> JSX render stays below.
+  const {
+    selectedNode,
+    singleSelection,
+    selectedEdge,
+    multiCount,
+    touchInspectorVisible,
+    arrange,
+    patchNodeData,
+    setSelectedLocked,
+    setSelectedOpacity,
+    reorderSelected,
+  } = useWhiteboardInspector({ nodes, edges, setNodes });
   const bottomStackOffset = 15 + toolbarH + BOTTOM_PANEL_GAP;
   const brushStackH = tool === "brush" ? PAINT_TOOLBAR_STACK_H : 0;
   const touchInspectorBottom = bottomStackOffset + brushStackH;
@@ -2326,124 +2098,6 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
       `${touchInspectorBottom + touchInspectorH + 8}px`,
     );
   }, [touchInspectorVisible, touchInspectorBottom, touchInspectorH]);
-
-  // Align / distribute the selected top-level nodes by their bounding boxes.
-  const arrange = useCallback(
-    (op) => {
-      setNodes((nds) => {
-        const sel = nds.filter((n) => n.selected && n.type !== "zone" && !n.parentId);
-        if (sel.length < 2) return nds;
-        const rs = sel.map((n) => ({
-          id: n.id,
-          x: n.position.x,
-          y: n.position.y,
-          w: n.measured?.width ?? n.width ?? 0,
-          h: n.measured?.height ?? n.height ?? 0,
-        }));
-        const minX = Math.min(...rs.map((r) => r.x));
-        const maxR = Math.max(...rs.map((r) => r.x + r.w));
-        const minY = Math.min(...rs.map((r) => r.y));
-        const maxB = Math.max(...rs.map((r) => r.y + r.h));
-        const cX = (minX + maxR) / 2, cY = (minY + maxB) / 2;
-        const pos = new Map();
-        for (const r of rs) {
-          let { x, y } = r;
-          if (op === "left") x = minX;
-          else if (op === "right") x = maxR - r.w;
-          else if (op === "centerH") x = cX - r.w / 2;
-          else if (op === "top") y = minY;
-          else if (op === "bottom") y = maxB - r.h;
-          else if (op === "middleV") y = cY - r.h / 2;
-          pos.set(r.id, { x, y });
-        }
-        if (op === "distH" || op === "distV") {
-          const horiz = op === "distH";
-          const sorted = [...rs].sort((a, b) => (horiz ? a.x - b.x : a.y - b.y));
-          const span = horiz ? maxR - minX : maxB - minY;
-          const used = sorted.reduce((s, r) => s + (horiz ? r.w : r.h), 0);
-          const gap = (span - used) / (sorted.length - 1);
-          let cursor = horiz ? minX : minY;
-          for (const r of sorted) {
-            pos.set(r.id, horiz ? { x: cursor, y: r.y } : { x: r.x, y: cursor });
-            cursor += (horiz ? r.w : r.h) + gap;
-          }
-        }
-        // Match-size: set every selected node's width / height to the largest.
-        const size = new Map();
-        if (op === "matchW" || op === "matchH") {
-          const dim = op === "matchW" ? "w" : "h";
-          const target = Math.max(...rs.map((r) => r[dim]));
-          for (const r of rs) size.set(r.id, op === "matchW" ? { width: target } : { height: target });
-        }
-        return nds.map((n) => {
-          if (size.has(n.id)) return { ...n, ...size.get(n.id) };
-          if (pos.has(n.id)) return { ...n, position: { ...n.position, ...pos.get(n.id) } };
-          return n;
-        });
-      });
-    },
-    [setNodes]
-  );
-
-  const patchNodeData = useCallback(
-    (patch) => {
-      setNodes((nds) =>
-        nds.map((n) =>
-          n.selected && n.type !== "zone"
-            ? { ...n, data: { ...n.data, ...patch } }
-            : n
-        )
-      );
-    },
-    [setNodes]
-  );
-
-  // Lock / unlock the selected node(s). React Flow's per-node `draggable:false`
-  // stops the move; the resizer is hidden via data.locked in each node. Both
-  // persist (snapshot + sync), so a lock is shared with everyone on the board.
-  const setSelectedLocked = useCallback(
-    (locked) => {
-      setNodes((nds) =>
-        nds.map((n) =>
-          n.selected && n.type !== "zone"
-            ? { ...n, draggable: locked ? false : undefined, data: { ...n.data, locked } }
-            : n
-        )
-      );
-    },
-    [setNodes]
-  );
-
-  // Per-node opacity via React Flow's node.style (persists + syncs). 1 clears it.
-  const setSelectedOpacity = useCallback(
-    (opacity) => {
-      setNodes((nds) =>
-        nds.map((n) =>
-          n.selected && n.type !== "zone"
-            ? { ...n, style: { ...(n.style || {}), opacity: opacity >= 1 ? undefined : opacity } }
-            : n
-        )
-      );
-    },
-    [setNodes]
-  );
-
-  // Z-order: stacking follows array order (later = on top). Move the selection
-  // to the end (front) or start (back); sortParentsFirst is a stable sort so it
-  // only re-pins frames ahead of their children, keeping the new order. Persists
-  // in the snapshot; live-syncs on the next reload (order isn't a per-entity op).
-  const reorderSelected = useCallback(
-    (toFront) => {
-      setNodes((nds) => {
-        const selIds = new Set(nds.filter((n) => n.selected && n.type !== "zone").map((n) => n.id));
-        if (!selIds.size) return nds;
-        const sel = nds.filter((n) => selIds.has(n.id));
-        const rest = nds.filter((n) => !selIds.has(n.id));
-        return sortParentsFirst(toFront ? [...rest, ...sel] : [...sel, ...rest]);
-      });
-    },
-    [setNodes]
-  );
 
   // Title / goal / archive — same flow as the prior page, just leaning
   // on the existing setters in lib/whiteboard.
