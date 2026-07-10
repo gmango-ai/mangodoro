@@ -1060,14 +1060,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
           return;
         }
         if (e.target.closest(".react-flow__panel")) return; // toolbar handles its own
-        // Press OFF the selection: drop the old one where it is, and — on the
-        // empty pane — arm a fresh marquee so a drag immediately starts a NEW
-        // selection instead of only clearing the previous one.
+        // Press OFF the floating selection: drop it where it is. (Desktop select
+        // uses RF's native drag-select now, so a fresh drag starts a native box;
+        // no custom marquee to re-arm here.)
         commitAreaRef.current?.();
-        if (mode === "select" && !WB_TOUCH && e.target.closest(".react-flow__pane") &&
-            !e.target.closest(".react-flow__node") && !e.target.closest(".react-flow__edge") && !e.target.closest(".react-flow__handle")) {
-          areaDragRef.current = { pid: e.pointerId, x0: e.clientX, y0: e.clientY, armed: false };
-        }
         return;
       }
       // Lasso tool: draw a freeform selection path.
@@ -1081,32 +1077,10 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         e.preventDefault();
         return;
       }
-      // Select tool on DESKTOP: dragging the empty pane draws a region-select
-      // box (folded in from the old dedicated tool). It grabs pen strokes/notes
-      // AND lifts brush paint. Only on the pane (a node press = drag that node);
-      // on touch the region box is the long-press marquee (marqueePointerUp).
-      if (mode === "select" && !WB_TOUCH) {
-        if (areaSelRef.current || e.button !== 0) return;
-        const at = e.target;
-        // Nodes/edges/handles render INSIDE .react-flow__pane, so matching the
-        // pane alone also matches clicks ON them — which made every select-tool
-        // pointer-down start a region box, capturing the event before React Flow
-        // could select or drag the node. Only start the box on the EMPTY pane;
-        // let node/edge/handle presses fall through to RF (select + drag).
-        if (
-          !(at instanceof Element) ||
-          !at.closest(".react-flow__pane") ||
-          at.closest(".react-flow__node") ||
-          at.closest(".react-flow__edge") ||
-          at.closest(".react-flow__handle")
-        ) return;
-        // ARM a potential region-drag but don't capture / preventDefault yet — a
-        // plain click on the empty pane must fall through to React Flow so it
-        // clears the selection (deselect). The box only opens once the pointer
-        // actually moves past a small threshold (see onWbPointerMove).
-        areaDragRef.current = { pid: e.pointerId, x0: e.clientX, y0: e.clientY, armed: false };
-        return;
-      }
+      // Desktop select uses React Flow's native drag-select now (see
+      // selectionOnDrag) — no custom region box is armed here; the pane press
+      // falls through to RF for select + drag + deselect. TOUCH select still uses
+      // the long-press marquee (marqueePointerDown, handled separately).
       if ((mode !== "pen" && mode !== "laser" && mode !== "brush") || e.button !== 0) return;
       const t = e.target;
       if (!(t instanceof Element) || !t.closest(".react-flow") || t.closest(".react-flow__panel")) return;
@@ -2696,11 +2670,12 @@ function WhiteboardEditor({ boardId, embedded = false, readOnly = false }) {
         nodesDraggable={tool === "select" && !areaSel}
         nodesConnectable={tool === "select"}
         elementsSelectable={tool === "select"}
-        // Region select is folded into the select tool: desktop left-drag on
-        // the pane draws our box (onWbPointerDownCapture), touch uses the
-        // long-press marquee — both feed finalizeAreaSelection. So RF's own
-        // drag-select is off (it would double up).
-        selectionOnDrag={false}
+        // DESKTOP select uses React Flow's own drag-select (responsive, additive
+        // with Shift, feeds the align/distribute + bulk-edit toolbars). The custom
+        // floating marquee is reserved for the LASSO tool (freeform + brush-paint
+        // lift) and for TOUCH (long-press marquee). So enable RF drag-select only
+        // for the desktop select tool — the custom path is disabled there.
+        selectionOnDrag={tool === "select" && !WB_TOUCH}
         selectionMode={SelectionMode.Partial}
         // Shift adds to selection, freeing ⌘/Ctrl for the click-to-clone quick action.
         multiSelectionKeyCode="Shift"
