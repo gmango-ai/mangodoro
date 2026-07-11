@@ -505,11 +505,29 @@ function DevicePortalInner() {
 // device is the room's default mic + speakers (DeviceClusterBeacon); a small,
 // clearly-labelled control cluster lets it manage its own mic/camera, the room
 // sound, and this display.
-export default function DevicePortalCall({ roomId, displayName }) {
+// Idle state — the kiosk is awake and announcing its presence (so the hallway /
+// pre-join still show "Room display on"), but it stays OFF the LiveKit call
+// while nobody's in it, to not publish camera/mic 24/7. It connects the moment
+// someone joins.
+function DeviceCallIdle() {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-slate-950 text-slate-500 select-none">
+      <ScanFace className="w-8 h-8 opacity-40" />
+      <p className="text-sm">Ready when you are</p>
+      <p className="text-[11px] text-slate-600">The display joins the call when someone drops in.</p>
+    </div>
+  );
+}
+
+export default function DevicePortalCall({ roomId, displayName, active = true }) {
   const [token, setToken] = useState(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    // Only mint a token + connect while `active` (someone's in the call). When
+    // idle, tear the token down so the LiveKitRoom below unmounts and the media
+    // connection closes — the resource saving.
+    if (!active) { setToken(null); setFailed(false); return undefined; }
     if (!roomId || !LIVEKIT_URL) { setFailed(true); return undefined; }
     let cancelled = false;
     setToken(null);
@@ -525,8 +543,9 @@ export default function DevicePortalCall({ roomId, displayName }) {
         .catch(() => { if (!cancelled) setFailed(true); });
     }, connectDelayFor(room));
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [roomId, displayName]);
+  }, [roomId, displayName, active]);
 
+  if (!active) return <DeviceCallIdle />;
   if (failed || !token) return null;
 
   return (

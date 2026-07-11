@@ -248,13 +248,26 @@ export default function DeviceKioskPage({ session }) {
   // publishes to LiveKit but was otherwise invisible until you joined. Only while
   // awake (roomId → null when asleep drops it from presence). Marked isDevice so
   // it's surfaced separately and never counted as a person "in call".
-  useRoomCallPresence({
+  // The kiosk stays ON the call-presence channel while awake (so the pre-join /
+  // hallway badges see "Room display on"), but only CONNECTS the LiveKit media
+  // when a human is actually in the call — no publishing camera/mic 24/7.
+  const callPresence = useRoomCallPresence({
     roomId: asleep ? null : roomId,
     userId,
     displayName: `${room?.name || deviceName} display`,
     mode: "join",
     isDevice: true,
   });
+  // isAnyoneInCall is humans-only (excludes this device). Linger ~20s after the
+  // last person leaves before disconnecting, so a brief drop/rejoin doesn't churn
+  // the LiveKit connection (which LiveKit Cloud rate-limits).
+  const rawInCall = callPresence.isAnyoneInCall;
+  const [someoneInCall, setSomeoneInCall] = useState(false);
+  useEffect(() => {
+    if (rawInCall) { setSomeoneInCall(true); return undefined; }
+    const t = setTimeout(() => setSomeoneInCall(false), 20000);
+    return () => clearTimeout(t);
+  }, [rawInCall]);
 
   // Announce this display org-wide (rooms.team_id == the device's org) so the
   // hallway floor plan can badge which rooms have a live display — one shared
@@ -410,8 +423,9 @@ export default function DeviceKioskPage({ session }) {
     participants,
     presenceById,
     meetings,
+    someoneInCall,
     whiteboardId: sess?.whiteboard_id || null,
-  }), [room, roomId, userId, deviceName, sess, participants, presenceById, meetings]);
+  }), [room, roomId, userId, deviceName, sess, participants, presenceById, meetings, someoneInCall]);
 
   const unpair = async () => { await supabase.auth.signOut(); };
 

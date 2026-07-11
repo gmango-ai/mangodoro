@@ -175,7 +175,11 @@ export const DEVICE_PANELS = {
     min: 280,
     // key by room.id so a room switch cleanly remounts the call (fresh LiveKit
     // connection to the new room) rather than trying to reuse the old one.
-    render: ({ room, displayName }) => <DevicePortalCall key={room.id} roomId={room.id} displayName={displayName} />,
+    // active = a human is in the call; the portal stays idle (no LiveKit media)
+    // until then, so the kiosk doesn't publish 24/7.
+    render: ({ room, displayName, someoneInCall }) => (
+      <DevicePortalCall key={room.id} roomId={room.id} displayName={displayName} active={!!someoneInCall} />
+    ),
   },
   timer: {
     id: "timer",

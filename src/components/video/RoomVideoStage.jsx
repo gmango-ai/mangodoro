@@ -564,7 +564,10 @@ function GreenRoom({ displayName, othersInCall, participants, deviceOnline, onJo
       >
         <LogIn className="w-4 h-4" /> {roomLive ? "Join call" : "Start call"}
       </button>
-      {roomLive && (
+      {/* Watch only when there's a live human call to watch. A display-on-only
+          room has no media until someone joins (the kiosk stays idle to save
+          resources), so you Join to wake it rather than Watch nothing. */}
+      {othersInCall && (
         <button
           type="button"
           onClick={onWatch}
