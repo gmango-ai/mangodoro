@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Video, MessageSquare, PenLine, Timer, Users, CalendarClock, MapPin,
+  Video, MessageSquare, PenLine, Timer, Users, CalendarClock, MapPin, Newspaper,
   Sun, Moon, CloudSun, CloudMoon, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning,
 } from "lucide-react";
 import RoomChatPanel from "../../RoomChatPanel";
 import RoomWhiteboardPanel from "./RoomWhiteboardPanel";
 import DevicePortalCall from "../../video/DevicePortalCall";
 import UserAvatar from "../../UserAvatar";
+import { supabase } from "../../../supabase";
 import { formatClock } from "../../../lib/utils";
 import { useVisibilityPausedInterval } from "../../../hooks/useVisibilityPausedInterval";
 import { availabilityDot, availabilityLabel } from "../../../lib/presence";
@@ -330,6 +331,91 @@ function DeviceWeatherPanel() {
   );
 }
 
+// Public-screen news ticker. Headlines come from the `news-feed` edge function
+// (server-side RSS proxy — browsers can't fetch feeds). The operator picks a
+// preset feed (persisted per-device); the track holds the headlines twice and
+// CSS-scrolls left seamlessly, pausing on hover.
+const NEWS_KEY = "ql_device_news";
+const NEWS_FEEDS = [
+  { key: "world", label: "World" },
+  { key: "business", label: "Business" },
+  { key: "tech", label: "Tech" },
+  { key: "science", label: "Science" },
+];
+function loadNewsKey() {
+  try { return JSON.parse(localStorage.getItem(NEWS_KEY) || "null")?.key || "world"; }
+  catch { return "world"; }
+}
+
+function DeviceNewsPanel() {
+  const [feedKey, setFeedKey] = useState(loadNewsKey);
+  const [items, setItems] = useState([]);
+  const [source, setSource] = useState("");
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("news-feed", { body: { key: feedKey } });
+        if (!alive) return;
+        setItems(data?.items || []);
+        setSource(data?.source || "");
+        setErr(!!error || !data?.items?.length);
+      } catch { if (alive) setErr(true); }
+    };
+    load();
+    const id = setInterval(load, 12 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [feedKey]);
+
+  const pick = (k) => {
+    setFeedKey(k);
+    try { localStorage.setItem(NEWS_KEY, JSON.stringify({ key: k })); } catch { /* */ }
+  };
+
+  // Scroll speed scales with total headline length so a long feed isn't a blur.
+  const totalChars = items.reduce((n, it) => n + (it.title?.length || 0) + 6, 0);
+  const duration = Math.max(30, Math.round(totalChars / 6));
+
+  return (
+    <div className="w-full h-full bg-slate-950 text-white flex items-center overflow-hidden">
+      <span className="shrink-0 inline-flex items-center gap-1.5 self-stretch px-3 bg-white/[0.06] text-[var(--color-accent)]">
+        <Newspaper className="w-4 h-4" />
+        <span className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">{source || "News"}</span>
+      </span>
+      <div className="relative flex-1 min-w-0 overflow-hidden">
+        {items.length === 0 ? (
+          <span className="pl-3 text-[12px] text-slate-500">
+            {err ? "News unavailable — deploy the news-feed function." : "Loading headlines…"}
+          </span>
+        ) : (
+          <div className="mango-ticker-track" style={{ animationDuration: `${duration}s` }}>
+            {[0, 1].map((dup) => (
+              <span key={dup} className="inline-flex items-center" aria-hidden={dup === 1}>
+                {items.map((it, i) => (
+                  <span key={`${dup}-${i}`} className="inline-flex items-center text-[13px] text-white/85">
+                    <span className="mx-4 w-1 h-1 rounded-full bg-[var(--color-accent)] shrink-0" />
+                    {it.title}
+                  </span>
+                ))}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <select
+        value={feedKey}
+        onChange={(e) => pick(e.target.value)}
+        title="News feed"
+        className="shrink-0 mx-2 bg-transparent text-[11px] text-white/50 hover:text-white/90 outline-none cursor-pointer"
+      >
+        {NEWS_FEEDS.map((f) => <option key={f.key} value={f.key} className="text-slate-900">{f.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
 export const DEVICE_PANELS = {
   video: {
     id: "video",
@@ -371,6 +457,13 @@ export const DEVICE_PANELS = {
     icon: CloudSun,
     min: 200,
     render: () => <DeviceWeatherPanel />,
+  },
+  news: {
+    id: "news",
+    title: "News",
+    icon: Newspaper,
+    min: 240,
+    render: () => <DeviceNewsPanel />,
   },
   chat: {
     id: "chat",

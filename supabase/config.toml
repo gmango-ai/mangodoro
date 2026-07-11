@@ -443,3 +443,6 @@ verify_jwt = true
 
 [functions.device-pair]
 verify_jwt = false
+
+[functions.news-feed]
+verify_jwt = true
