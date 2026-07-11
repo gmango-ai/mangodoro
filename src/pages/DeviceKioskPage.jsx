@@ -126,6 +126,7 @@ export default function DeviceKioskPage({ session }) {
   const [room, setRoom] = useState(null);
   const [sess, setSess] = useState(null);
   const [participants, setParticipants] = useState([]);
+  const [presenceById, setPresenceById] = useState(() => new Map()); // room occupants' live status
   const [rooms, setRooms] = useState([]); // org rooms readable here (>1 ⇒ movable)
   const [arranging, setArranging] = useState(false);
 
@@ -232,14 +233,33 @@ export default function DeviceKioskPage({ session }) {
         setParticipants([]);
       }
     };
+
+    // Live status for the room's occupants. RLS ("device reads its room
+    // presence") scopes this to users whose location_room_id is this device's
+    // room, so an unfiltered select returns exactly the room's people — merged
+    // by user_id into the "Who's here" roster. A full refetch on any change
+    // reconciles arrivals/departures (a "left" update re-points location away
+    // and RLS then hides it, so we lean on the refetch + poll, not the event).
+    const loadPresence = async () => {
+      const { data } = await supabase
+        .from("user_presence")
+        .select("user_id, availability, activity_label, activity_private, override_availability, override_expires_at, invisible");
+      if (!alive) return;
+      const m = new Map();
+      for (const row of data || []) m.set(row.user_id, row);
+      setPresenceById(m);
+    };
+
     loadSession();
+    loadPresence();
 
     const ch = supabase
       .channel(`kiosk:${roomId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "sync_sessions", filter: `room_id=eq.${roomId}` }, loadSession)
       .on("postgres_changes", { event: "*", schema: "public", table: "sync_session_participants" }, loadSession)
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_presence", filter: `location_room_id=eq.${roomId}` }, loadPresence)
       .subscribe();
-    const poll = setInterval(loadSession, 30000); // self-heal if a realtime event is missed
+    const poll = setInterval(() => { loadSession(); loadPresence(); }, 30000); // self-heal if a realtime event is missed
     return () => { alive = false; supabase.removeChannel(ch); clearInterval(poll); };
   }, [roomId, asleep]);
 
@@ -263,8 +283,9 @@ export default function DeviceKioskPage({ session }) {
     dark: true,
     sess,
     participants,
+    presenceById,
     whiteboardId: sess?.whiteboard_id || null,
-  }), [room, roomId, userId, deviceName, sess, participants]);
+  }), [room, roomId, userId, deviceName, sess, participants, presenceById]);
 
   const unpair = async () => { await supabase.auth.signOut(); };
 
