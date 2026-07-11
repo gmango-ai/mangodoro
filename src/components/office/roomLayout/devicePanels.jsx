@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Video, MessageSquare, PenLine, Timer, Users } from "lucide-react";
+import { Video, MessageSquare, PenLine, Timer, Users, CalendarClock } from "lucide-react";
 import RoomChatPanel from "../../RoomChatPanel";
 import RoomWhiteboardPanel from "./RoomWhiteboardPanel";
 import DevicePortalCall from "../../video/DevicePortalCall";
@@ -121,6 +121,52 @@ function DevicePresencePanel({ participants, presenceById }) {
   );
 }
 
+// Compact "when" for a meeting on a glanceable display: the clock time, plus a
+// relative hint while it's close ("now" / "in 8 min" / "in progress"), and the
+// weekday prefix once it's not today.
+export function fmtMeetingWhen(startsAt) {
+  const d = new Date(startsAt);
+  const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const mu = (d.getTime() - Date.now()) / 60000;
+  if (mu <= -1) return `${t} · in progress`;
+  if (mu < 1) return `${t} · now`;
+  if (mu < 60) return `${t} · in ${Math.round(mu)} min`;
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay ? t : `${d.toLocaleDateString([], { weekday: "short" })} ${t}`;
+}
+
+// The room's upcoming meetings as a layout tile (device parity with the member
+// "Meetings" view). Reads scheduled_meetings for this room (RLS-scoped); an
+// imminent meeting is accented, matching the page-level alert.
+function DeviceMeetingsPanel({ meetings }) {
+  const now = Date.now();
+  const list = (meetings || []).filter((m) => new Date(m.ends_at).getTime() > now);
+  return (
+    <div className="w-full h-full bg-slate-950 text-white p-4 overflow-auto">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-3">Meetings</div>
+      {list.length === 0 ? (
+        <p className="text-slate-500 text-sm">No meetings scheduled for this room.</p>
+      ) : (
+        <ul className="flex flex-col gap-2.5">
+          {list.map((m) => {
+            const mu = (new Date(m.starts_at).getTime() - now) / 60000;
+            const soon = mu <= 10 && mu >= -2;
+            return (
+              <li key={m.id} className="flex items-start gap-3 min-w-0">
+                <span className={`mt-1 shrink-0 w-2 h-2 rounded-full ${soon ? "bg-[var(--color-accent)]" : "bg-white/25"}`} />
+                <span className="min-w-0 flex flex-col leading-tight">
+                  <span className="text-[13px] font-medium text-white/90 truncate">{m.title || "Meeting"}</span>
+                  <span className={`text-[11px] truncate ${soon ? "text-[var(--color-accent)]" : "text-white/55"}`}>{fmtMeetingWhen(m.starts_at)}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export const DEVICE_PANELS = {
   video: {
     id: "video",
@@ -144,6 +190,13 @@ export const DEVICE_PANELS = {
     icon: Users,
     min: 180,
     render: ({ participants, presenceById }) => <DevicePresencePanel participants={participants} presenceById={presenceById} />,
+  },
+  meetings: {
+    id: "meetings",
+    title: "Meetings",
+    icon: CalendarClock,
+    min: 200,
+    render: ({ meetings }) => <DeviceMeetingsPanel meetings={meetings} />,
   },
   chat: {
     id: "chat",

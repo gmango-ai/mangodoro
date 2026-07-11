@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, DoorOpen, Power, Moon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, DoorOpen, Power, Moon, CalendarClock } from "lucide-react";
 import { supabase } from "../supabase";
 import { applyAccent } from "../lib/accent";
+import { playNotify, uiSoundsEnabled } from "../lib/uiSounds";
 import { currentDeviceRoom, setDeviceRoom, currentDeviceSleep, deviceSetSleep } from "../lib/orgDevices";
 import { isAsleep, nextWakeAt, nextSleepAt, clockLabel } from "../lib/deviceSchedule";
 import LogoMark from "../components/LogoMark";
@@ -27,6 +28,87 @@ function WallClock() {
       </div>
       <div className="text-[10px] uppercase tracking-wider text-white/55 mt-0.5">
         {clock.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
+      </div>
+    </div>
+  );
+}
+
+// Page-level imminent-meeting alert. A wall display's edge over a personal
+// notification: the whole room gets nudged at once. Shows a prominent banner
+// while the room's next meeting is inside the lead window (until a beat after it
+// starts) and chimes as it crosses the 5-min / 1-min / start marks so a
+// heads-down room looks up. The chime reuses the app's notification cue (which
+// auto-unlocks on the first pointer/keydown — a paired display gets that at
+// pairing / tap-to-wake) and honours the per-device UI-sound toggle. Crossing
+// detection (prev vs now) fires each mark exactly once and never retro-fires a
+// mark already past when the kiosk mounts.
+const MEETING_CHIME_MARKS = [5, 1, 0]; // minutes before start
+const BANNER_LEAD_MIN = 10; // show the banner this far ahead
+const BANNER_TRAIL_MIN = 2; // keep it up this long after start
+
+function minsUntil(iso, nowMs) {
+  return (new Date(iso).getTime() - nowMs) / 60000;
+}
+
+function MeetingAlert({ meetings }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const prevRef = useRef(new Map()); // meetingId -> last minutes-until (for crossings)
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const upcoming = useMemo(
+    () => (meetings || [])
+      .filter((m) => new Date(m.ends_at).getTime() > nowMs)
+      .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()),
+    [meetings, nowMs],
+  );
+
+  // Chime on threshold crossings since the last tick (seed on first sight → no
+  // chime for a meeting already mid-window when the kiosk loads).
+  useEffect(() => {
+    const soundsOn = uiSoundsEnabled();
+    for (const m of upcoming) {
+      const mu = minsUntil(m.starts_at, nowMs);
+      const prev = prevRef.current.get(m.id);
+      if (soundsOn && prev != null) {
+        for (const mark of MEETING_CHIME_MARKS) {
+          if (prev > mark && mu <= mark) { playNotify(); break; }
+        }
+      }
+      prevRef.current.set(m.id, mu);
+    }
+  }, [nowMs, upcoming]);
+
+  const banner = upcoming.find((m) => {
+    const mu = minsUntil(m.starts_at, nowMs);
+    return mu <= BANNER_LEAD_MIN && mu >= -BANNER_TRAIL_MIN;
+  });
+  if (!banner) return null;
+  const mu = minsUntil(banner.starts_at, nowMs);
+  const label = mu <= 0 ? "Starting now" : mu < 1 ? "Starting in under a minute" : `Starting in ${Math.round(mu)} min`;
+  const urgent = mu <= 1;
+
+  return (
+    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+      <div
+        className={`flex items-center gap-3 rounded-2xl px-5 py-3 shadow-2xl ring-1 backdrop-blur bg-slate-900/85 ${
+          urgent ? "ring-[var(--color-accent)] animate-pulse" : "ring-white/15"
+        }`}
+      >
+        <span
+          className="shrink-0 grid place-items-center w-9 h-9 rounded-full text-slate-900"
+          style={{ background: "var(--color-accent)" }}
+        >
+          <CalendarClock className="w-5 h-5" />
+        </span>
+        <span className="flex flex-col leading-tight min-w-0">
+          <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-accent)" }}>
+            {label}
+          </span>
+          <span className="text-[15px] font-semibold text-white truncate max-w-[46vw]">{banner.title || "Meeting"}</span>
+        </span>
       </div>
     </div>
   );
@@ -127,6 +209,7 @@ export default function DeviceKioskPage({ session }) {
   const [sess, setSess] = useState(null);
   const [participants, setParticipants] = useState([]);
   const [presenceById, setPresenceById] = useState(() => new Map()); // room occupants' live status
+  const [meetings, setMeetings] = useState([]); // this room's upcoming scheduled meetings
   const [rooms, setRooms] = useState([]); // org rooms readable here (>1 ⇒ movable)
   const [arranging, setArranging] = useState(false);
 
@@ -250,16 +333,33 @@ export default function DeviceKioskPage({ session }) {
       setPresenceById(m);
     };
 
+    // This room's upcoming meetings (RLS "device reads its room meetings" scopes
+    // to room_id = the device's room). Include ones that started up to 30 min ago
+    // so an in-progress meeting still shows; drop long-past rows.
+    const loadMeetings = async () => {
+      const since = new Date(Date.now() - 30 * 60000).toISOString();
+      const { data } = await supabase
+        .from("scheduled_meetings")
+        .select("id, title, starts_at, ends_at, room_id")
+        .eq("room_id", roomId)
+        .gte("starts_at", since)
+        .order("starts_at", { ascending: true })
+        .limit(8);
+      if (alive) setMeetings(data || []);
+    };
+
     loadSession();
     loadPresence();
+    loadMeetings();
 
     const ch = supabase
       .channel(`kiosk:${roomId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "sync_sessions", filter: `room_id=eq.${roomId}` }, loadSession)
       .on("postgres_changes", { event: "*", schema: "public", table: "sync_session_participants" }, loadSession)
       .on("postgres_changes", { event: "*", schema: "public", table: "user_presence", filter: `location_room_id=eq.${roomId}` }, loadPresence)
+      .on("postgres_changes", { event: "*", schema: "public", table: "scheduled_meetings", filter: `room_id=eq.${roomId}` }, loadMeetings)
       .subscribe();
-    const poll = setInterval(() => { loadSession(); loadPresence(); }, 30000); // self-heal if a realtime event is missed
+    const poll = setInterval(() => { loadSession(); loadPresence(); loadMeetings(); }, 30000); // self-heal if a realtime event is missed
     return () => { alive = false; supabase.removeChannel(ch); clearInterval(poll); };
   }, [roomId, asleep]);
 
@@ -284,8 +384,9 @@ export default function DeviceKioskPage({ session }) {
     sess,
     participants,
     presenceById,
+    meetings,
     whiteboardId: sess?.whiteboard_id || null,
-  }), [room, roomId, userId, deviceName, sess, participants, presenceById]);
+  }), [room, roomId, userId, deviceName, sess, participants, presenceById, meetings]);
 
   const unpair = async () => { await supabase.auth.signOut(); };
 
@@ -355,6 +456,8 @@ export default function DeviceKioskPage({ session }) {
           </button>
         </div>
       </header>
+
+      <MeetingAlert meetings={meetings} />
 
       <div className="flex-1 min-h-0 p-3 overflow-hidden">
         <RoomLayout
