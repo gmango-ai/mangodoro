@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Video, MessageSquare, PenLine, Timer, Users, CalendarClock } from "lucide-react";
 import RoomChatPanel from "../../RoomChatPanel";
 import RoomWhiteboardPanel from "./RoomWhiteboardPanel";
@@ -6,7 +6,8 @@ import DevicePortalCall from "../../video/DevicePortalCall";
 import UserAvatar from "../../UserAvatar";
 import { formatClock } from "../../../lib/utils";
 import { useVisibilityPausedInterval } from "../../../hooks/useVisibilityPausedInterval";
-import { availabilityRing, availabilityDot, availabilityLabel, normAvailability } from "../../../lib/presence";
+import { availabilityDot, availabilityLabel } from "../../../lib/presence";
+import { mergeOfficePresence } from "../../../lib/officePresence";
 
 // The KIOSK panel registry — the device-side counterpart to panels.jsx
 // (ROOM_PANELS). Same shape ({ id, title, icon, min, render(ctx) }) so it drops
@@ -63,59 +64,81 @@ export function DeviceTimerPanel({ sess }) {
   );
 }
 
-// The status a room occupant shows: their manual override (while unexpired),
-// else the resolved user_presence.availability; invisible reads as offline (as
-// on the member surfaces). Falls back to "online" when there's no snapshot yet
-// for a present participant. Mirrors the display logic in officePresence, kept
-// deliberately small since the kiosk reads only its own room's rows (RLS).
-function effectiveAvailability(row) {
-  if (!row) return "online";
-  if (row.invisible) return "offline";
-  const now = Date.now();
-  if (row.override_availability && (!row.override_expires_at || new Date(row.override_expires_at).getTime() > now)) {
-    return normAvailability(row.override_availability);
-  }
-  return normAvailability(row.availability);
-}
+// Full-org roster for the wall display: EVERYONE grouped by where they are —
+// this room first, then other rooms, the hallway, away, offline. Reads the
+// device_team_roster RPC (org-wide identity + status + location) and reuses the
+// same mergeOfficePresence liveness the member surfaces use (no realtime roster
+// on a device, so liveness is heartbeat-only). Replaces the old room-only
+// "Who's here" list.
+function DeviceTeamRoster({ roster, currentRoomId }) {
+  const { people, roomNameById } = useMemo(() => {
+    const rows = roster || [];
+    const identity = {};
+    const names = {};
+    for (const r of rows) {
+      identity[r.user_id] = { name: r.display_name, avatar: r.avatar_url };
+      if (r.location_room_id && r.room_name) names[r.location_room_id] = r.room_name;
+    }
+    return { people: mergeOfficePresence(rows, [], identity), roomNameById: names };
+  }, [roster]);
 
-// "Who's here" — the room's people with LIVE status. Each session participant
-// (which carries the name + avatar the device is allowed to read) is joined to
-// its user_presence row (readable now that the device has a room-scoped SELECT
-// policy) so the wall display shows the same 7-state availability rings/labels
-// the members see, not just a flat avatar list.
-function DevicePresencePanel({ participants, presenceById }) {
-  const list = participants || [];
-  const byId = presenceById && typeof presenceById.get === "function" ? presenceById : null;
+  const groups = useMemo(() => {
+    const roomsG = new Map();
+    const around = [], awayList = [], offline = [];
+    for (const p of people) {
+      if (p.locationKind === "room" && p.locationRoomId) {
+        if (!roomsG.has(p.locationRoomId)) roomsG.set(p.locationRoomId, []);
+        roomsG.get(p.locationRoomId).push(p);
+        continue;
+      }
+      if (!p.online) { (p.availability === "offline" ? offline : awayList).push(p); continue; }
+      around.push(p);
+    }
+    const byName = (a, b) => (a.name || "").localeCompare(b.name || "");
+    const roomEntries = [...roomsG.entries()];
+    const out = [];
+    const cur = currentRoomId ? roomEntries.find(([rid]) => rid === currentRoomId) : null;
+    if (cur) out.push({ key: `room:${cur[0]}`, label: "In this room", people: cur[1].sort(byName), highlight: true });
+    roomEntries.filter(([rid]) => rid !== currentRoomId)
+      .sort((a, b) => (roomNameById[a[0]] || "").localeCompare(roomNameById[b[0]] || ""))
+      .forEach(([rid, list]) => out.push({ key: `room:${rid}`, label: roomNameById[rid] || "A room", people: list.sort(byName) }));
+    if (around.length) out.push({ key: "around", label: "In the hallway", people: around.sort(byName) });
+    if (awayList.length) out.push({ key: "away", label: "Away", people: awayList.sort(byName) });
+    if (offline.length) out.push({ key: "offline", label: "Offline", people: offline.sort(byName), muted: true });
+    return out;
+  }, [people, roomNameById, currentRoomId]);
+
   return (
     <div className="w-full h-full bg-slate-950 text-white p-4 overflow-auto">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60 mb-3">
-        {list.length} here
-      </div>
-      {list.length === 0 ? (
-        <p className="text-slate-500 text-sm">No one's in the session yet.</p>
+      {people.length === 0 ? (
+        <p className="text-slate-500 text-sm">No teammates yet.</p>
       ) : (
-        <ul className="flex flex-col gap-2.5">
-          {list.map((p) => {
-            const row = byId ? byId.get(p.user_id) : null;
-            const av = effectiveAvailability(row);
-            const activity = row && !row.activity_private && row.activity_label ? row.activity_label : null;
-            const status = availabilityLabel(av);
-            return (
-              <li key={p.user_id} className="flex items-center gap-3 min-w-0">
-                <span className={`relative inline-flex shrink-0 rounded-full ring-2 ring-offset-2 ring-offset-slate-950 ${availabilityRing(av)}`}>
-                  <UserAvatar url={p.avatar_url || ""} name={p.display_name || "Member"} size={40} />
-                  <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-slate-950 ${availabilityDot(av)}`} />
-                </span>
-                <span className="min-w-0 flex flex-col leading-tight">
-                  <span className="text-[13px] font-medium text-white/90 truncate">{p.display_name || "Member"}</span>
-                  <span className="text-[11px] text-white/55 truncate">
-                    {activity ? `${status} · ${activity}` : status}
-                  </span>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="space-y-3">
+          {groups.map((g) => (
+            <div key={g.key}>
+              <div className={`text-[10px] font-semibold uppercase tracking-wider mb-1.5 ${g.highlight ? "text-[var(--color-accent)]" : "text-white/45"}`}>
+                {g.label} <span className="tabular-nums opacity-70">{g.people.length}</span>
+              </div>
+              <ul className="space-y-1.5">
+                {g.people.map((p) => {
+                  const activity = p.online && p.activity?.label ? p.activity.label : null;
+                  return (
+                    <li key={p.userId} className="flex items-center gap-2.5 min-w-0">
+                      <span className="relative shrink-0">
+                        <UserAvatar url={p.avatar} name={p.name || "Member"} size={30} />
+                        <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-slate-950 ${availabilityDot(p.availability)}`} />
+                      </span>
+                      <span className="min-w-0 flex flex-col leading-tight">
+                        <span className={`text-[12px] font-medium truncate ${g.muted || !p.online ? "text-white/45" : "text-white/90"}`}>{p.name || "Member"}</span>
+                        <span className="text-[10px] text-white/50 truncate">{activity || availabilityLabel(p.availability)}</span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -190,10 +213,10 @@ export const DEVICE_PANELS = {
   },
   presence: {
     id: "presence",
-    title: "Who's here",
+    title: "Team",
     icon: Users,
-    min: 180,
-    render: ({ participants, presenceById }) => <DevicePresencePanel participants={participants} presenceById={presenceById} />,
+    min: 200,
+    render: ({ roster, currentRoomId }) => <DeviceTeamRoster roster={roster} currentRoomId={currentRoomId} />,
   },
   meetings: {
     id: "meetings",

@@ -212,6 +212,7 @@ export default function DeviceKioskPage({ session }) {
   const [participants, setParticipants] = useState([]);
   const [presenceById, setPresenceById] = useState(() => new Map()); // room occupants' live status
   const [meetings, setMeetings] = useState([]); // this room's upcoming scheduled meetings
+  const [roster, setRoster] = useState([]); // whole-org roster (identity + status + location)
   const [rooms, setRooms] = useState([]); // org rooms readable here (>1 ⇒ movable)
   // Locked = presentation mode: hide the per-panel top bars + arranging controls
   // for a clean wall display. Persisted so a paired kiosk stays locked.
@@ -395,9 +396,18 @@ export default function DeviceKioskPage({ session }) {
       if (alive) setMeetings(data || []);
     };
 
+    // Whole-org roster (everyone's identity + status + location) via the
+    // device_team_roster RPC. Org-wide presence isn't RLS-subscribable for a
+    // device, so this is poll-only (the RPC bypasses RLS server-side).
+    const loadRoster = async () => {
+      const { data } = await supabase.rpc("device_team_roster");
+      if (alive) setRoster(data || []);
+    };
+
     loadSession();
     loadPresence();
     loadMeetings();
+    loadRoster();
 
     const ch = supabase
       .channel(`kiosk:${roomId}`)
@@ -406,7 +416,7 @@ export default function DeviceKioskPage({ session }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "user_presence", filter: `location_room_id=eq.${roomId}` }, loadPresence)
       .on("postgres_changes", { event: "*", schema: "public", table: "scheduled_meetings", filter: `room_id=eq.${roomId}` }, loadMeetings)
       .subscribe();
-    const poll = setInterval(() => { loadSession(); loadPresence(); loadMeetings(); }, 30000); // self-heal if a realtime event is missed
+    const poll = setInterval(() => { loadSession(); loadPresence(); loadMeetings(); loadRoster(); }, 30000); // self-heal if a realtime event is missed
     return () => { alive = false; supabase.removeChannel(ch); clearInterval(poll); };
   }, [roomId, asleep]);
 
@@ -434,9 +444,11 @@ export default function DeviceKioskPage({ session }) {
     participants,
     presenceById,
     meetings,
+    roster,
+    currentRoomId: roomId,
     someoneInCall,
     whiteboardId: sess?.whiteboard_id || null,
-  }), [room, roomId, userId, deviceName, sess, participants, presenceById, meetings, someoneInCall]);
+  }), [room, roomId, userId, deviceName, sess, participants, presenceById, meetings, roster, someoneInCall]);
 
   const unpair = async () => { await supabase.auth.signOut(); };
 
