@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, DoorOpen, Power, Moon, CalendarClock } from "lucide-react";
+import { ChevronDown, DoorOpen, Power, Moon, CalendarClock, Lock, LockOpen } from "lucide-react";
 import { supabase } from "../supabase";
 import { applyAccent } from "../lib/accent";
 import { playNotify, uiSoundsEnabled } from "../lib/uiSounds";
@@ -213,7 +213,16 @@ export default function DeviceKioskPage({ session }) {
   const [presenceById, setPresenceById] = useState(() => new Map()); // room occupants' live status
   const [meetings, setMeetings] = useState([]); // this room's upcoming scheduled meetings
   const [rooms, setRooms] = useState([]); // org rooms readable here (>1 ⇒ movable)
-  const [arranging, setArranging] = useState(false);
+  // Locked = presentation mode: hide the per-panel top bars + arranging controls
+  // for a clean wall display. Persisted so a paired kiosk stays locked.
+  const [locked, setLocked] = useState(() => {
+    try { return localStorage.getItem("ql_device_locked") === "1"; } catch { return false; }
+  });
+  const toggleLocked = () => setLocked((v) => {
+    const next = !v;
+    try { localStorage.setItem("ql_device_locked", next ? "1" : "0"); } catch { /* */ }
+    return next;
+  });
 
   // Sleep schedule + manual override. `asleep` is re-derived on a tick so the
   // kiosk auto-sleeps/wakes at the schedule boundaries without a reload. Until
@@ -410,7 +419,9 @@ export default function DeviceKioskPage({ session }) {
     });
 
   const activePanels = panelsIn(tree);
-  const quickPanels = DEVICE_PANEL_IDS.map((id) => ({ id, title: DEVICE_PANELS[id].title, Icon: DEVICE_PANELS[id].icon }));
+  // Every panel type, for the "Add to view" menu (rooms-style) — replaces the
+  // old quick-toggle buttons.
+  const addPanels = DEVICE_PANEL_IDS.map((id) => ({ id, title: DEVICE_PANELS[id].title, Icon: DEVICE_PANELS[id].icon }));
 
   // Memoized so the per-second WallClock tick (separate component) never churns
   // the layout — ctx identity changes only on real room/session/participant data.
@@ -467,20 +478,31 @@ export default function DeviceKioskPage({ session }) {
           )}
         </span>
         <div className="flex items-center gap-3 shrink-0">
-          <RoomSwitcher currentRoomId={roomId} currentName={room?.name} rooms={rooms} onSwitch={handleSwitch} />
-          <LayoutBar
-            presetId={presetId}
-            onApply={applyPreset}
-            onReset={reset}
-            accent="var(--color-accent)"
-            dark
-            arranging={arranging}
-            onToggleArrange={() => setArranging((v) => !v)}
-            panels={quickPanels}
-            activePanels={activePanels}
-            onTogglePanel={togglePanel}
-            presets={DEVICE_PRESETS}
-          />
+          {!locked && <RoomSwitcher currentRoomId={roomId} currentName={room?.name} rooms={rooms} onSwitch={handleSwitch} />}
+          {/* Arranging controls only while UNLOCKED: an "Add to view" menu
+              (rooms-style) instead of the old quick-toggle buttons; drag a
+              panel's header to move it. */}
+          {!locked && (
+            <LayoutBar
+              addMenu
+              addPanels={addPanels}
+              activePanels={activePanels}
+              onTogglePanel={togglePanel}
+              onReset={reset}
+              accent="var(--color-accent)"
+              dark
+            />
+          )}
+          <button
+            type="button"
+            onClick={toggleLocked}
+            title={locked ? "Unlock the layout (show panel bars + controls)" : "Lock the layout (hide panel bars for a clean display)"}
+            aria-pressed={locked}
+            className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-semibold text-white/80 transition-colors"
+          >
+            {locked ? <LockOpen className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+            <span className="hidden lg:inline">{locked ? "Unlock" : "Lock"}</span>
+          </button>
           <WallClock />
           <button
             type="button"
@@ -503,8 +525,9 @@ export default function DeviceKioskPage({ session }) {
           tree={tree}
           ctx={ctx}
           panels={DEVICE_PANELS}
+          dark
+          locked={locked}
           onRatioChange={setRatio}
-          arranging={arranging}
           onMove={movePanel}
           onAddAt={addPanelAt}
           onClose={closePanel}

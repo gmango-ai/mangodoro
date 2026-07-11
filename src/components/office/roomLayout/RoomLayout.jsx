@@ -113,9 +113,11 @@ function PanelHeader({ dark, icon: Icon, title, narrow, maximized, draggable, on
 // above the fixed video host). In it you can: drag a tile onto another's
 // edge to split / center to swap; drag a tile into the toolbox to remove
 // it; or drag a panel out of the toolbox onto a tile edge to add it.
-export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioChange, arranging, onMove, onAddAt, onClose }) {
+export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioChange, arranging, onMove, onAddAt, onClose, dark: darkProp, locked = false }) {
   const { theme } = useTheme();
-  const dark = theme === "dark";
+  // Explicit `dark` wins (the kiosk is always dark but doesn't drive ThemeContext,
+  // which otherwise left the tile chrome rendering light on a dark display).
+  const dark = darkProp ?? (theme === "dark");
   const containerRef = useRef(null);
   const toolboxRef = useRef(null);
   const [rect, setRect] = useState({ top: 0, left: 0, w: 0, h: 0 });
@@ -295,18 +297,22 @@ export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioCha
               transition: animate ? TILE_TRANSITION : "none",
             }}
           >
-            <PanelHeader
-              dark={dark}
-              icon={Icon}
-              title={panel?.title || l.panel}
-              narrow={narrow}
-              maximized={isMax}
-              draggable={!maximizedPanel}
-              onDragStart={(e) => startTileDrag(l.panel, e)}
-              onToggleMax={() => setMaximized(isMax ? null : l.panel)}
-              onClose={canClose ? () => { if (isMax) setMaximized(null); onClose?.(l.panel); } : undefined}
-              extra={panel?.headerActions ? panel.headerActions(ctx) : null}
-            />
+            {/* Locked (kiosk display mode): drop the tile chrome for a clean,
+                full-bleed view — no header, drag handle, or window controls. */}
+            {!locked && (
+              <PanelHeader
+                dark={dark}
+                icon={Icon}
+                title={panel?.title || l.panel}
+                narrow={narrow}
+                maximized={isMax}
+                draggable={!maximizedPanel}
+                onDragStart={(e) => startTileDrag(l.panel, e)}
+                onToggleMax={() => setMaximized(isMax ? null : l.panel)}
+                onClose={canClose ? () => { if (isMax) setMaximized(null); onClose?.(l.panel); } : undefined}
+                extra={panel?.headerActions ? panel.headerActions(ctx) : null}
+              />
+            )}
             <div className="relative flex-1 min-h-0">
               {panel ? panel.render(ctx) : null}
             </div>
@@ -317,7 +323,7 @@ export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioCha
       {/* Resize handles — available in normal AND arrange mode. They sit in
           the gaps between tiles; the arrange overlay passes pointer events
           through there, so dragging a divider still resizes while arranging. */}
-      {!maximizedPanel && dividers.map((d) => {
+      {!maximizedPanel && !locked && dividers.map((d) => {
         const horiz = d.dir === "row";
         return (
           <div
