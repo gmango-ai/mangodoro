@@ -47,6 +47,7 @@ export default function OfficeLayoutEditor({
   sessionByRoomId,
   lockedRoomIds,
   lockedReasonFor,
+  displayRoomIds,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -228,6 +229,7 @@ export default function OfficeLayoutEditor({
               onOpenRoom={onOpenRoom}
               locked={isLocked}
               lockedReason={isLocked ? lockedReasonFor?.(room) : undefined}
+              displayOn={displayRoomIds?.has?.(room.id) || false}
               canResizeTo={(x, y, w, h) =>
                 !hasCollision(room.id, { x, y, w, h })
               }
@@ -290,7 +292,7 @@ function GridBackdrop({ columns, rows, dark }) {
 function LayoutTile({
   room, readOnly, cellWidth, rowHeight, gap, vibe, busy,
   activeSession, onJoinRoom, onOpenRoom, onResize, canResizeTo,
-  locked, lockedReason,
+  locked, lockedReason, displayOn,
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: room.id,
@@ -390,6 +392,7 @@ function LayoutTile({
           onOpen={onOpenRoom}
           locked={locked}
           lockedReason={lockedReason}
+          displayOn={displayOn}
         />
       </div>
       {!readOnly && (

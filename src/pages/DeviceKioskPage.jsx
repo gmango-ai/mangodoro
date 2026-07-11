@@ -13,6 +13,7 @@ import { DEVICE_PANELS, DEVICE_PANEL_IDS } from "../components/office/roomLayout
 import { DEVICE_PRESETS, DEVICE_DEFAULT_PRESET } from "../components/office/roomLayout/devicePresets";
 import { panelsIn } from "../components/office/roomLayout/layoutTree";
 import { useRoomCallPresence } from "../components/video/useRoomCallPresence";
+import { useAnnounceDisplay } from "../hooks/useOfficeDisplays";
 
 // Self-ticking wall clock — its own component so the per-second tick re-renders
 // only this, not the whole kiosk (which would churn the video/whiteboard panels).
@@ -255,6 +256,16 @@ export default function DeviceKioskPage({ session }) {
     isDevice: true,
   });
 
+  // Announce this display org-wide (rooms.team_id == the device's org) so the
+  // hallway floor plan can badge which rooms have a live display — one shared
+  // channel, no per-room subscriptions. Only while awake.
+  useAnnounceDisplay({
+    orgId: room?.team_id,
+    roomId,
+    deviceKey: userId,
+    enabled: !asleep,
+  });
+
   const goOffline = async () => {
     const until = nextWakeAt(sched);
     setSched((s) => ({ ...(s || {}), asleep_until: until.toISOString(), awake_until: null }));
@@ -300,7 +311,7 @@ export default function DeviceKioskPage({ session }) {
     if (!roomId) return undefined;
     let alive = true;
 
-    supabase.from("rooms").select("id, name").eq("id", roomId).maybeSingle()
+    supabase.from("rooms").select("id, name, team_id").eq("id", roomId).maybeSingle()
       .then(({ data }) => { if (alive) setRoom(data); });
 
     // Asleep → don't subscribe or poll the session (and the call is unmounted

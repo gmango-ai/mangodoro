@@ -5,7 +5,7 @@ import { useApp } from "../../context/AppContext";
 import { useClockedIn } from "../../hooks/useClockedIn";
 import {
   Users, Timer, Pencil, Search, LayoutGrid, List as ListIcon,
-  Hash, Briefcase, MessageSquare, Lock, LockOpen, X,
+  Hash, Briefcase, MessageSquare, Lock, LockOpen, X, MonitorPlay,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import OfficeLayoutEditor from "../OfficeLayoutEditor";
@@ -14,6 +14,7 @@ import TeamStatusRoster from "./TeamStatusRoster";
 import UserAvatar from "../UserAvatar";
 import { availabilityRing, shownAvailability } from "../../lib/presence";
 import { usePresenceById } from "../../hooks/usePresenceById";
+import { useOfficeDisplays } from "../../hooks/useOfficeDisplays";
 
 const KIND_ICON = {
   general: Hash,
@@ -58,11 +59,13 @@ export default function HallwayView({
   busy, onEnterRoom, onEditOffice, lockedRooms,
 }) {
   const { theme } = useTheme();
-  const { orgTeams, teamMembers = [] } = useTeam();
+  const { orgTeams, teamMembers = [], activeTeamId } = useTeam();
   const { session } = useApp();
   const clocked = useClockedIn();
   const dark = theme === "dark";
   const sessionCount = [...(sessionByRoomId?.values() || [])].length;
+  // Rooms with a live kiosk/room-display, from one org-wide presence channel.
+  const displayRoomIds = useOfficeDisplays(activeTeamId);
 
   // "In the office" = people in rooms PLUS clocked-in teammates standing in
   // the hallway (working/in-office even when remote, no overlap since hallway
@@ -262,6 +265,7 @@ export default function HallwayView({
             sessionByRoomId={sessionByRoomId}
             lockedRoomIds={lockedRoomIds}
             lockedReasonFor={lockedReasonFor}
+            displayRoomIds={displayRoomIds}
           />
         ) : (
           <ListView
@@ -269,6 +273,7 @@ export default function HallwayView({
             sessionByRoomId={sessionByRoomId}
             lockedRoomIds={lockedRoomIds}
             lockedReasonFor={lockedReasonFor}
+            displayRoomIds={displayRoomIds}
             onEnterRoom={onEnterRoom}
             dark={dark}
           />
@@ -299,7 +304,7 @@ export default function HallwayView({
 //
 // Locked rooms render with the same dim+lock affordance as in the
 // floor view so the gating cue stays consistent across views.
-function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, onEnterRoom, dark }) {
+function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, displayRoomIds, onEnterRoom, dark }) {
   const presenceById = usePresenceById();
   if (!grouped.length) {
     return (
@@ -328,6 +333,7 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                 const session = sessionByRoomId?.get(room.id) || null;
                 const occupants = session?.occupants || [];
                 const locked = lockedRoomIds?.has(room.id) || false;
+                const displayOn = displayRoomIds?.has?.(room.id) || false;
                 // Private rooms: dynamic lock — open while empty, locked once occupied.
                 const RoomIcon = room.kind === "private"
                   ? (occupants.length > 0 ? Lock : LockOpen)
@@ -393,6 +399,12 @@ function ListView({ grouped, sessionByRoomId, lockedRoomIds, lockedReasonFor, on
                           </span>
                         )}
                       </span>
+                      {displayOn && (
+                        <MonitorPlay
+                          className="w-3.5 h-3.5 shrink-0 text-emerald-500"
+                          title="A room display is live in here"
+                        />
+                      )}
                       {locked ? (
                         <Lock className="w-3 h-3 shrink-0 opacity-60" />
                       ) : null}
