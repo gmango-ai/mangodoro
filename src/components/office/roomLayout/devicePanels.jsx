@@ -7,6 +7,7 @@ import RoomChatPanel from "../../RoomChatPanel";
 import RoomWhiteboardPanel from "./RoomWhiteboardPanel";
 import DevicePortalCall from "../../video/DevicePortalCall";
 import UserAvatar from "../../UserAvatar";
+import Modal from "../../Modal";
 import { supabase } from "../../../supabase";
 import { formatClock } from "../../../lib/utils";
 import { useVisibilityPausedInterval } from "../../../hooks/useVisibilityPausedInterval";
@@ -331,38 +332,34 @@ function DeviceWeatherPanel() {
   );
 }
 
-// Public-screen news ticker. Headlines come from the `news-feed` edge function
-// (server-side RSS proxy — browsers can't fetch feeds). Runs ONE scrolling line
-// per selected source (the track holds the headlines twice → seamless -50%
-// loop, pausing on hover). Sources are picked per-device via a small gear.
-const NEWS_KEY = "ql_device_news";
-const NEWS_SOURCES_FALLBACK = [
-  { key: "world", label: "World" }, { key: "us", label: "US" },
-  { key: "business", label: "Business" }, { key: "tech", label: "Tech" },
-  { key: "science", label: "Science" }, { key: "health", label: "Health" },
-  { key: "sports", label: "Sports" }, { key: "culture", label: "Culture" },
-];
-const NEWS_DEFAULT_KEYS = ["world", "business", "tech", "science"];
-function loadNewsKeys() {
+// Public-screen TICKER: a scrolling line per selected feed. Lines can be org
+// GOALS (device_org_goals RPC) or any news source (news-feed edge function —
+// server-side RSS proxy, browsers can't fetch feeds). Each line's track holds
+// its items twice → a seamless -50% loop, pausing on hover. Lines are chosen in
+// a modal, persisted per-device.
+const TICKER_KEY = "ql_device_ticker";
+const DEFAULT_LINES = ["goals", "bbc-world", "hn"];
+function loadLines() {
   try {
-    const v = JSON.parse(localStorage.getItem(NEWS_KEY) || "null");
-    return Array.isArray(v?.keys) && v.keys.length ? v.keys : NEWS_DEFAULT_KEYS;
-  } catch { return NEWS_DEFAULT_KEYS; }
+    const v = JSON.parse(localStorage.getItem(TICKER_KEY) || "null");
+    return Array.isArray(v?.lines) && v.lines.length ? v.lines : DEFAULT_LINES;
+  } catch { return DEFAULT_LINES; }
 }
+function saveLines(lines) { try { localStorage.setItem(TICKER_KEY, JSON.stringify({ lines })); } catch { /* */ } }
 
-// One scrolling headline line for a single source.
-function TickerLine({ source, items }) {
+// One scrolling line. `items` = [{ title, tag? }]; tag is a dim suffix (e.g. a
+// goal's owner). Duration scales with content so a long line isn't a blur.
+function TickerLine({ label, items }) {
   const totalChars = items.reduce((n, it) => n + (it.title?.length || 0) + 6, 0);
   const duration = Math.max(24, Math.round(totalChars / 7));
   return (
     <div className="flex items-center border-b border-white/[0.06] last:border-b-0 overflow-hidden" style={{ flex: "1 1 0", minHeight: 0 }}>
-      <span className="shrink-0 self-stretch inline-flex items-center gap-1.5 px-2.5 w-[96px] bg-white/[0.05] text-[var(--color-accent)]">
-        <Newspaper className="w-3 h-3 shrink-0" />
-        <span className="text-[9px] font-bold uppercase tracking-wider truncate">{source}</span>
+      <span className="shrink-0 self-stretch inline-flex items-center px-2.5 w-[104px] bg-white/[0.05] text-[var(--color-accent)]">
+        <span className="text-[9px] font-bold uppercase tracking-wider truncate">{label}</span>
       </span>
       <div className="relative flex-1 min-w-0 overflow-hidden">
         {items.length === 0 ? (
-          <span className="pl-3 text-[11px] text-slate-600">No headlines</span>
+          <span className="pl-3 text-[11px] text-slate-600">—</span>
         ) : (
           <div className="mango-ticker-track" style={{ animationDuration: `${duration}s` }}>
             {[0, 1].map((dup) => (
@@ -371,6 +368,7 @@ function TickerLine({ source, items }) {
                   <span key={`${dup}-${i}`} className="inline-flex items-center text-[12px] text-white/80">
                     <span className="mx-4 w-1 h-1 rounded-full bg-[var(--color-accent)] shrink-0" />
                     {it.title}
+                    {it.tag && <span className="ml-1.5 text-[10px] text-white/40">— {it.tag}</span>}
                   </span>
                 ))}
               </span>
@@ -382,75 +380,117 @@ function TickerLine({ source, items }) {
   );
 }
 
-function DeviceNewsPanel() {
-  const [keys, setKeys] = useState(loadNewsKeys);
-  const [feeds, setFeeds] = useState([]);
-  const [available, setAvailable] = useState(NEWS_SOURCES_FALLBACK);
-  const [err, setErr] = useState(false);
+function TickerToggle({ label, on, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
+        on ? "bg-[var(--color-accent)]/15 text-white ring-1 ring-[var(--color-accent)]/40" : "bg-white/5 text-white/70 hover:bg-white/10"
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      {on && <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-accent)]" />}
+    </button>
+  );
+}
+
+function DeviceTickerPanel() {
+  const [lines, setLines] = useState(loadLines);
+  const [newsByKey, setNewsByKey] = useState({});
+  const [available, setAvailable] = useState([]); // [{ key, name, category }]
+  const [goals, setGoals] = useState([]);
   const [picking, setPicking] = useState(false);
 
-  const sig = keys.join(",");
+  const newsKeys = lines.filter((l) => l !== "goals");
+  const wantGoals = lines.includes("goals");
+  const newsSig = newsKeys.join(",");
+
   useEffect(() => {
     let alive = true;
     const load = async () => {
       try {
-        const { data, error } = await supabase.functions.invoke("news-feed", { body: { keys: sig.split(",") } });
+        const { data } = await supabase.functions.invoke("news-feed", { body: { keys: newsKeys } });
         if (!alive) return;
-        setFeeds(data?.feeds || []);
-        if (data?.available?.length) setAvailable(data.available.map((a) => ({ key: a.key, label: a.name })));
-        setErr(!!error || !data?.feeds?.length);
-      } catch { if (alive) setErr(true); }
+        const map = {};
+        for (const f of data?.feeds || []) map[f.key] = f;
+        setNewsByKey(map);
+        if (data?.available?.length) setAvailable(data.available);
+      } catch { /* leave as-is */ }
     };
     load();
     const id = setInterval(load, 12 * 60 * 1000);
     return () => { alive = false; clearInterval(id); };
-  }, [sig]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newsSig]);
 
-  const toggle = (k) => {
-    setKeys((cur) => {
-      const next = cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k];
-      const final = next.length ? next : ["world"]; // keep at least one line
-      try { localStorage.setItem(NEWS_KEY, JSON.stringify({ keys: final })); } catch { /* */ }
+  useEffect(() => {
+    if (!wantGoals) { setGoals([]); return undefined; }
+    let alive = true;
+    const load = async () => {
+      const { data } = await supabase.rpc("device_org_goals");
+      if (alive) setGoals(data || []);
+    };
+    load();
+    const id = setInterval(load, 5 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [wantGoals]);
+
+  const toggle = (id) => {
+    setLines((cur) => {
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      const final = next.length ? next : ["goals"];
+      saveLines(final);
       return final;
     });
   };
 
+  const goalItems = goals.map((g) => ({ title: g.body, tag: g.owner_name || null }));
+  const cats = [...new Set(available.map((a) => a.category))];
+
   return (
     <div className="relative w-full h-full bg-slate-950 text-white flex flex-col overflow-hidden">
-      {feeds.length === 0 ? (
-        <div className="flex-1 flex items-center pl-3 text-[12px] text-slate-500">
-          {err ? "News unavailable." : "Loading headlines…"}
-        </div>
+      {lines.length === 0 ? (
+        <div className="flex-1 flex items-center pl-3 text-[12px] text-slate-500">Add lines with the gear.</div>
       ) : (
-        feeds.map((f) => <TickerLine key={f.key} source={f.source} items={f.items} />)
+        lines.map((l) => {
+          if (l === "goals") return <TickerLine key="goals" label="Goals" items={goalItems} />;
+          const f = newsByKey[l];
+          const label = f?.source || available.find((a) => a.key === l)?.name || l;
+          return <TickerLine key={l} label={label} items={f?.items || []} />;
+        })
       )}
       <button
         type="button"
-        onClick={() => setPicking((v) => !v)}
-        title="Choose news sources"
+        onClick={() => setPicking(true)}
+        title="Configure ticker"
         className="absolute top-1 right-1 z-20 p-1 rounded-md text-white/25 hover:text-white/80 bg-slate-950/70"
       >
         <Settings2 className="w-3.5 h-3.5" />
       </button>
-      {picking && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setPicking(false)} />
-          <div className="absolute top-8 right-1 z-30 w-40 p-1.5 rounded-lg bg-slate-900 ring-1 ring-white/10 shadow-2xl">
-            <div className="text-[9px] font-bold uppercase tracking-wider text-white/40 px-1.5 pb-1">News sources</div>
-            {available.map((s) => (
-              <button
-                key={s.key}
-                type="button"
-                onClick={() => toggle(s.key)}
-                className="w-full flex items-center justify-between px-1.5 py-1 rounded text-[12px] text-white/80 hover:bg-white/10"
-              >
-                {s.label}
-                {keys.includes(s.key) && <Check className="w-3.5 h-3.5 text-[var(--color-accent)]" />}
-              </button>
-            ))}
+      <Modal open={picking} onClose={() => setPicking(false)} overlayClassName="z-[300] bg-black/60">
+        <div onClick={(e) => e.stopPropagation()} className="w-[min(92vw,440px)] max-h-[82vh] overflow-auto rounded-2xl bg-slate-900 ring-1 ring-white/10 shadow-2xl p-4 text-white dark">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold">Ticker lines</h3>
+            <button type="button" onClick={() => setPicking(false)} className="text-[12px] font-semibold text-[var(--color-accent)]">Done</button>
           </div>
-        </>
-      )}
+          <p className="text-[10px] font-bold uppercase tracking-wider text-white/40 mb-1.5">Updates</p>
+          <div className="grid grid-cols-2 gap-1.5 mb-3">
+            <TickerToggle label="Goals" on={lines.includes("goals")} onClick={() => toggle("goals")} />
+          </div>
+          {cats.map((cat) => (
+            <div key={cat} className="mb-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/40 mb-1.5">{cat}</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {available.filter((a) => a.category === cat).map((a) => (
+                  <TickerToggle key={a.key} label={a.name} on={lines.includes(a.key)} onClick={() => toggle(a.key)} />
+                ))}
+              </div>
+            </div>
+          ))}
+          {cats.length === 0 && <p className="text-[11px] text-white/40">Loading sources…</p>}
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -499,12 +539,12 @@ export const DEVICE_PANELS = {
   },
   news: {
     id: "news",
-    title: "News",
+    title: "Ticker",
     icon: Newspaper,
-    // Low min so it can be a thin full-width banner (a line per source) across
-    // the bottom via the outer-edge stretch.
+    // Low min so it can be a thin full-width banner (a line per feed — goals +
+    // news) across the bottom via the outer-edge stretch.
     min: 96,
-    render: () => <DeviceNewsPanel />,
+    render: () => <DeviceTickerPanel />,
   },
   chat: {
     id: "chat",

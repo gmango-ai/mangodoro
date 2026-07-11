@@ -1,8 +1,7 @@
-// news-feed: server-side RSS/Atom proxy for the kiosk news ticker. Browsers
-// can't fetch feeds directly (CORS), so the kiosk calls this instead. Only
-// PRESET feed keys are allowed (no arbitrary URLs → no SSRF). Returns headlines
-// for one or MANY feeds at once (the ticker runs a line per source). Auth'd
-// (verify_jwt) so only signed-in clients / devices call it.
+// news-feed: server-side RSS/Atom proxy for the kiosk ticker. Browsers can't
+// fetch feeds directly (CORS), so the kiosk calls this instead. PRESET feeds
+// only (no arbitrary URLs → no SSRF). Returns headlines for one or MANY feeds
+// at once (the ticker runs a line per source). Auth'd (verify_jwt).
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,15 +9,25 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-const FEEDS: Record<string, { url: string; name: string }> = {
-  world:    { url: "https://feeds.bbci.co.uk/news/world/rss.xml", name: "World" },
-  us:       { url: "https://feeds.bbci.co.uk/news/us_and_canada/rss.xml", name: "US" },
-  business: { url: "https://feeds.bbci.co.uk/news/business/rss.xml", name: "Business" },
-  tech:     { url: "https://hnrss.org/frontpage", name: "Tech" },
-  science:  { url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", name: "Science" },
-  health:   { url: "https://feeds.bbci.co.uk/news/health/rss.xml", name: "Health" },
-  sports:   { url: "https://feeds.bbci.co.uk/sport/rss.xml", name: "Sports" },
-  culture:  { url: "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", name: "Culture" },
+// key → { url, name, category }. Multiple sources per category.
+const FEEDS: Record<string, { url: string; name: string; category: string }> = {
+  "bbc-world":    { url: "https://feeds.bbci.co.uk/news/world/rss.xml", name: "BBC World", category: "World" },
+  "aljazeera":    { url: "https://www.aljazeera.com/xml/rss/all.xml", name: "Al Jazeera", category: "World" },
+  "npr-world":    { url: "https://feeds.npr.org/1004/rss.xml", name: "NPR World", category: "World" },
+  "bbc-us":       { url: "https://feeds.bbci.co.uk/news/us_and_canada/rss.xml", name: "BBC US", category: "US" },
+  "npr-national": { url: "https://feeds.npr.org/1003/rss.xml", name: "NPR National", category: "US" },
+  "bbc-business": { url: "https://feeds.bbci.co.uk/news/business/rss.xml", name: "BBC Business", category: "Business" },
+  "npr-business": { url: "https://feeds.npr.org/1006/rss.xml", name: "NPR Business", category: "Business" },
+  "hn":           { url: "https://hnrss.org/frontpage", name: "Hacker News", category: "Tech" },
+  "verge":        { url: "https://www.theverge.com/rss/index.xml", name: "The Verge", category: "Tech" },
+  "ars":          { url: "https://feeds.arstechnica.com/arstechnica/index", name: "Ars Technica", category: "Tech" },
+  "techcrunch":   { url: "https://techcrunch.com/feed/", name: "TechCrunch", category: "Tech" },
+  "bbc-science":  { url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", name: "BBC Science", category: "Science" },
+  "npr-science":  { url: "https://feeds.npr.org/1007/rss.xml", name: "NPR Science", category: "Science" },
+  "bbc-health":   { url: "https://feeds.bbci.co.uk/news/health/rss.xml", name: "BBC Health", category: "Health" },
+  "bbc-sport":    { url: "https://feeds.bbci.co.uk/sport/rss.xml", name: "BBC Sport", category: "Sports" },
+  "espn":         { url: "https://www.espn.com/espn/rss/news", name: "ESPN", category: "Sports" },
+  "bbc-culture":  { url: "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", name: "BBC Culture", category: "Culture" },
 };
 
 function json(status: number, body: unknown): Response {
@@ -28,7 +37,6 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-// Unwrap CDATA, decode the common entities, and strip any stray tags.
 function clean(s: string): string {
   return s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
@@ -40,7 +48,6 @@ function clean(s: string): string {
     .trim();
 }
 
-// Loose RSS (<item>) + Atom (<entry>) parse — just titles + links.
 function parseFeed(xml: string): { title: string; link: string }[] {
   const items: { title: string; link: string }[] = [];
   const chunks = xml.split(/<(?:item|entry)[\s>]/i).slice(1);
@@ -51,7 +58,7 @@ function parseFeed(xml: string): { title: string; link: string }[] {
     const l = c.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
     if (l && clean(l[1])) link = clean(l[1]);
     else {
-      const a = c.match(/<link[^>]*href=["']([^"']+)["']/i); // Atom
+      const a = c.match(/<link[^>]*href=["']([^"']+)["']/i);
       if (a) link = a[1];
     }
     if (title) items.push({ title, link });
@@ -85,12 +92,12 @@ Deno.serve(async (req) => {
       const q = new URL(req.url).searchParams.get("keys") || new URL(req.url).searchParams.get("key");
       if (q) keys = q.split(",");
     }
-    // Only known keys; default to a sensible spread.
     keys = keys.filter((k) => FEEDS[k]);
-    if (!keys.length) keys = ["world", "business", "tech", "science"];
+    if (!keys.length) keys = ["bbc-world", "bbc-business", "hn", "bbc-science"];
 
     const feeds = (await Promise.all(keys.slice(0, 8).map(fetchFeed))).filter(Boolean);
-    return json(200, { feeds, available: Object.entries(FEEDS).map(([key, f]) => ({ key, name: f.name })) });
+    const available = Object.entries(FEEDS).map(([key, f]) => ({ key, name: f.name, category: f.category }));
+    return json(200, { feeds, available });
   } catch (e) {
     return json(500, { error: String(e) });
   }
