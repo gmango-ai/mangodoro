@@ -154,6 +154,36 @@ export function movePanelInTree(tree, dragged, target, zone) {
   return splitLeafAt(without, tp, dragged, zone);
 }
 
+// Wrap the WHOLE layout in a full-span banner on `side` — a root-level split, so
+// the panel stretches across the entire top/bottom (col) or the full height on
+// the left/right (row), instead of only splitting one tile. Banner gets ~26%.
+function wrapRoot(tree, node, side) {
+  switch (side) {
+    case "top": return split("col", node, tree, 0.26);
+    case "bottom": return split("col", tree, node, 0.74);
+    case "left": return split("row", node, tree, 0.26);
+    case "right": return split("row", tree, node, 0.74);
+    default: return tree;
+  }
+}
+
+// Add a hidden panel as a full-span banner on `side` (root-level). No-op if
+// already shown.
+export function addPanelAtRoot(tree, panel, side) {
+  if (!tree) return leaf(panel);
+  if (findPath(tree, panel)) return tree;
+  return wrapRoot(tree, leaf(panel), side);
+}
+
+// Move an existing panel out of its spot into a full-span root banner on `side`.
+export function movePanelToRoot(tree, dragged, side) {
+  const path = findPath(tree, dragged);
+  if (!path) return tree;
+  const without = removeAt(tree, path);
+  if (!without) return tree; // it was the only panel — nothing to span over
+  return wrapRoot(without, leaf(dragged), side);
+}
+
 // ── Hide/show position memory ────────────────────────────────
 // Toggling a panel off then on should put it back where it was. We capture
 // its spot on remove (placementOf) and rebuild it on re-add (restorePlacement);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PRESETS, DEFAULT_PRESET } from "./presets";
-import { leaf, split, setRatioAt, sanitize, movePanelInTree, addPanelToTree, addPanelAtTree, removeAt, findPath, panelsIn, placementOf, restorePlacement } from "./layoutTree";
+import { leaf, split, setRatioAt, sanitize, movePanelInTree, addPanelToTree, addPanelAtTree, addPanelAtRoot, movePanelToRoot, removeAt, findPath, panelsIn, placementOf, restorePlacement } from "./layoutTree";
 
 // Where a quick-added panel prefers to enter, given what's already shown.
 // Whiteboard is the big canvas (left, larger share); chat hugs the right;
@@ -101,6 +101,14 @@ export function useRoomLayout(roomId, available, opts = {}) {
   const addPanelAt = useCallback((panel, target, side) => {
     setState((s) => ({ ...s, tree: addPanelAtTree(s.tree, panel, target, side), presetId: "custom" }));
   }, []);
+  // Full-span root banners — stretch a panel across the whole top/bottom (or the
+  // full height left/right) instead of splitting one tile.
+  const moveToRoot = useCallback((panel, side) => {
+    setState((s) => ({ ...s, tree: movePanelToRoot(s.tree, panel, side), presetId: "custom" }));
+  }, []);
+  const addAtRoot = useCallback((panel, side) => {
+    setState((s) => ({ ...s, tree: addPanelAtRoot(s.tree, panel, side), presetId: "custom" }));
+  }, []);
   const closePanel = useCallback((panel) => {
     setState((s) => {
       if (panelsIn(s.tree).length <= 1) return s; // never close the last tile
@@ -128,5 +136,5 @@ export function useRoomLayout(roomId, available, opts = {}) {
     });
   }, []);
 
-  return { tree: state.tree, presetId: state.presetId, applyPreset, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel, togglePanel };
+  return { tree: state.tree, presetId: state.presetId, applyPreset, reset, setRatio, movePanel, addPanel, addPanelAt, moveToRoot, addAtRoot, closePanel, togglePanel };
 }

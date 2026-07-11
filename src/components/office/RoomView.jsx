@@ -69,7 +69,7 @@ export default function RoomView({
 
   // Modular panel layout (per-user, per-room). Replaces the old fixed
   // view modes — see ./roomLayout. Panels = video, chat, whiteboard.
-  const { tree, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
+  const { tree, reset, setRatio, movePanel, addPanel, addPanelAt, moveToRoot, addAtRoot, closePanel, togglePanel } = useRoomLayout(room?.id, PANEL_IDS);
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
   // Access code for a code-gated room — fetched only for managers (RLS on
@@ -434,6 +434,8 @@ export default function RoomView({
           arranging={false}
           onMove={movePanel}
           onAddAt={addPanelAt}
+          onMoveToRoot={moveToRoot}
+          onAddAtRoot={addAtRoot}
           onClose={handleClosePanel}
         />
       </div>

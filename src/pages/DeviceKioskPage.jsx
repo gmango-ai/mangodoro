@@ -421,7 +421,7 @@ export default function DeviceKioskPage({ session }) {
   }, [roomId, asleep]);
 
   // Device-local modular layout (own preset set + storage key prefix).
-  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, closePanel, togglePanel } =
+  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, moveToRoot, addAtRoot, closePanel, togglePanel } =
     useRoomLayout(roomId, DEVICE_PANEL_IDS, {
       presets: DEVICE_PRESETS,
       defaultPreset: DEVICE_DEFAULT_PRESET,
@@ -542,6 +542,8 @@ export default function DeviceKioskPage({ session }) {
           onRatioChange={setRatio}
           onMove={movePanel}
           onAddAt={addPanelAt}
+          onMoveToRoot={moveToRoot}
+          onAddAtRoot={addAtRoot}
           onClose={closePanel}
         />
       </div>
