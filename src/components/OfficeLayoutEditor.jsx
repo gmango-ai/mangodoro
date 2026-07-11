@@ -48,14 +48,14 @@ export default function OfficeLayoutEditor({
   lockedRoomIds,
   lockedReasonFor,
   displayRoomIds,
+  fitHeight = false,
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
 
   const gridRef = useRef(null);
-  const [cellWidth, setCellWidth] = useState(80);
-  // Cells are square: row height === cell width.
-  const cellHeight = Math.min(cellWidth, MAX_CELL);
+  const wrapperRef = useRef(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
 
   // Optimistic overrides so a drag/resize feels instant before the
   // RPC round-trip + realtime echo land.
@@ -65,19 +65,20 @@ export default function OfficeLayoutEditor({
     return o ? { ...room, layout_x: o.x, layout_y: o.y, layout_w: o.w, layout_h: o.h } : room;
   }, [overrides]);
 
-  // Compute cell width from container size so the snap math is honest.
+  // Measure the available box. fitHeight (hallway floor plan) measures the
+  // WRAPPER (a fixed viewport slot) so we can clamp cells by height too and the
+  // whole office fits on screen; otherwise measure the grid's own width for the
+  // usual fill-width behaviour.
   useEffect(() => {
-    if (!gridRef.current) return;
-    const el = gridRef.current;
-    const update = () => {
-      const w = el.clientWidth;
-      setCellWidth((w - GAP * (COLUMNS - 1)) / COLUMNS);
-    };
+    const el = fitHeight ? wrapperRef.current : gridRef.current;
+    if (!el) return undefined;
+    const update = () => setBox({ w: el.clientWidth, h: el.clientHeight });
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    window.addEventListener("resize", update);
+    return () => { ro.disconnect(); window.removeEventListener("resize", update); };
+  }, [fitHeight]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -95,6 +96,17 @@ export default function OfficeLayoutEditor({
     }
     return Math.max(4, max + 1); // always leave one empty row at the bottom
   }, [rooms, applyOverride]);
+
+  // Cell size from the measured box. fitHeight clamps by height (and MAX_CELL)
+  // so the grid never scrolls — it then uses fixed-px columns and centers.
+  // Non-fit fills the width exactly as before.
+  const widthCell = (box.w - GAP * (COLUMNS - 1)) / COLUMNS;
+  const heightCell = fitHeight && box.h > 0 ? (box.h - GAP * (totalRowsNeeded - 1)) / totalRowsNeeded : Infinity;
+  const cellWidth = fitHeight
+    ? Math.max(24, Math.min(widthCell || 80, heightCell, MAX_CELL))
+    : (widthCell > 0 ? widthCell : 80);
+  // Cells are square: row height === cell width (capped at MAX_CELL).
+  const cellHeight = Math.min(cellWidth, MAX_CELL);
 
   async function persistLayout(roomId, x, y, w, h) {
     setOverrides((prev) => ({ ...prev, [roomId]: { x, y, w, h } }));
@@ -193,6 +205,7 @@ export default function OfficeLayoutEditor({
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <div ref={wrapperRef} className={fitHeight ? "w-full h-full flex items-start justify-center overflow-hidden" : ""}>
       <div
         ref={gridRef}
         className={`relative rounded-xl border p-2 ${
@@ -200,7 +213,7 @@ export default function OfficeLayoutEditor({
         }`}
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${COLUMNS}, minmax(0, 1fr))`,
+          gridTemplateColumns: fitHeight ? `repeat(${COLUMNS}, ${cellWidth}px)` : `repeat(${COLUMNS}, minmax(0, 1fr))`,
           gridAutoRows: `${cellHeight}px`,
           gap: `${GAP}px`,
         }}
@@ -240,6 +253,7 @@ export default function OfficeLayoutEditor({
             />
           );
         })}
+      </div>
       </div>
     </DndContext>
   );

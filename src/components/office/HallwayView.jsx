@@ -242,56 +242,65 @@ export default function HallwayView({
           </div>
         )}
 
-      <div className="mt-5">
-        {mergedRooms.length === 0 ? (
-          <div className={`text-center py-12 rounded-2xl border border-dashed ${
-            dark ? "border-[var(--color-border)] text-slate-400" : "border-slate-300 text-slate-500"
-          }`}>
-            <p className="text-sm">No rooms yet.</p>
-            {canEdit && (
-              <Button onClick={onEditOffice} className="mt-3" size="sm">
-                <Pencil className="w-3.5 h-3.5 mr-1" /> Set up the office
-              </Button>
-            )}
-          </div>
-        ) : viewMode === "floor" ? (
-          <OfficeLayoutEditor
-            rooms={mergedRooms}
-            readOnly
-            vibe={activeTeam?.office_vibe || "quiet"}
-            busy={busy}
-            onOpenRoom={(room) => onEnterRoom?.(room.id)}
-            onJoinRoom={(room) => onEnterRoom?.(room.id)}
-            sessionByRoomId={sessionByRoomId}
-            lockedRoomIds={lockedRoomIds}
-            lockedReasonFor={lockedReasonFor}
-            displayRoomIds={displayRoomIds}
-          />
-        ) : (
-          <ListView
-            grouped={groupedByKind}
-            sessionByRoomId={sessionByRoomId}
-            lockedRoomIds={lockedRoomIds}
-            lockedReasonFor={lockedReasonFor}
-            displayRoomIds={displayRoomIds}
-            onEnterRoom={onEnterRoom}
-            dark={dark}
-          />
-        )}
-      </div>
-
-      {/* Whole-team status list — who's in which room, who's around, who's
-          offline. Reads the same single source as the in-room roster. */}
-      <div className={`mt-6 rounded-2xl border p-4 ${
-        dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-white"
-      }`}>
-        <div className="flex items-center gap-1.5 mb-3">
-          <Users className="w-3.5 h-3.5 text-[var(--color-accent)]" />
-          <h2 className={`text-[11px] font-bold uppercase tracking-wider ${dark ? "text-slate-300" : "text-slate-600"}`}>
-            Team status
-          </h2>
+      {/* Floor plan (scaled to fit the whole office on screen) with the team
+          status list alongside it, so a glance answers "the office at a glance"
+          + "who's where" without scrolling. Stacks on small screens. */}
+      <div
+        className="mt-5 flex flex-col lg:flex-row gap-4"
+        style={{ height: "calc(100dvh - 14rem)", minHeight: 380 }}
+      >
+        <div className="flex-1 min-w-0 min-h-0 overflow-auto">
+          {mergedRooms.length === 0 ? (
+            <div className={`text-center py-12 rounded-2xl border border-dashed ${
+              dark ? "border-[var(--color-border)] text-slate-400" : "border-slate-300 text-slate-500"
+            }`}>
+              <p className="text-sm">No rooms yet.</p>
+              {canEdit && (
+                <Button onClick={onEditOffice} className="mt-3" size="sm">
+                  <Pencil className="w-3.5 h-3.5 mr-1" /> Set up the office
+                </Button>
+              )}
+            </div>
+          ) : viewMode === "floor" ? (
+            <OfficeLayoutEditor
+              rooms={mergedRooms}
+              readOnly
+              fitHeight
+              vibe={activeTeam?.office_vibe || "quiet"}
+              busy={busy}
+              onOpenRoom={(room) => onEnterRoom?.(room.id)}
+              onJoinRoom={(room) => onEnterRoom?.(room.id)}
+              sessionByRoomId={sessionByRoomId}
+              lockedRoomIds={lockedRoomIds}
+              lockedReasonFor={lockedReasonFor}
+              displayRoomIds={displayRoomIds}
+            />
+          ) : (
+            <ListView
+              grouped={groupedByKind}
+              sessionByRoomId={sessionByRoomId}
+              lockedRoomIds={lockedRoomIds}
+              lockedReasonFor={lockedReasonFor}
+              displayRoomIds={displayRoomIds}
+              onEnterRoom={onEnterRoom}
+              dark={dark}
+            />
+          )}
         </div>
-        <TeamStatusRoster dark={dark} />
+
+        {/* Whole-team status list — who's in which room, who's around, who's
+            offline. Reads the same single source as the in-room roster. */}
+        <aside className={`w-full lg:w-72 shrink-0 min-h-0 overflow-auto rounded-2xl border p-4 ${
+          dark ? "border-[var(--color-border)] bg-[var(--color-surface)]" : "border-slate-200 bg-white"
+        }`}>
+          <div className="flex items-center gap-1.5 mb-3">
+            <Users className="w-3.5 h-3.5 text-[var(--color-accent)]" />
+            <h2 className={`text-[11px] font-bold uppercase tracking-wider ${dark ? "text-slate-300" : "text-slate-600"}`}>
+              Team status
+            </h2>
+          </div>
+          <TeamStatusRoster dark={dark} />
+        </aside>
       </div>
     </div>
   );
