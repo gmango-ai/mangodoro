@@ -7,11 +7,62 @@
 // for useTeam/pin/hand-raise context; callers pass what they've resolved as
 // props (e.g. the member call resolves the profile photo from its roster and
 // passes `avatarSrc`; the kiosk has no roster and passes null → initials).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ParticipantTile, useIsSpeaking, useConnectionQualityIndicator } from "@livekit/components-react";
 import { Track, ConnectionQuality } from "livekit-client";
 import { MicOff } from "lucide-react";
 import { bestGrid } from "./layoutSolver";
+
+// Pick object-fit from the incoming video's NATIVE size vs the tile's box, so we
+// respect the source and avoid cropping/stretching:
+//   • cover   — box aspect ≈ native aspect (fills, negligible crop). The clean
+//               grid case (a 16:9 webcam in a 16:9 cell).
+//   • contain — cover would crop more than `threshold` of the frame (a portrait
+//               phone camera, an ultrawide or portrait screen share, a 4:3 cam).
+//               Shows the FULL frame, letterboxed — never cropped, never stretched.
+// Reads the real <video> LiveKit renders inside the tile (videoWidth/videoHeight,
+// the convention used elsewhere in this codebase), re-evaluating when the box
+// resizes, when the stream's intrinsic size becomes known/changes, and when the
+// video element itself is added/removed (camera toggling). Defaults to cover when
+// there's no video yet (a camera-off tile is covered by the avatar anyway).
+export function useAutoObjectFit(boxRef, threshold = 0.12) {
+  const [fit, setFit] = useState("cover");
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return undefined;
+    let video = null;
+    const evaluate = () => {
+      const vw = video?.videoWidth || 0;
+      const vh = video?.videoHeight || 0;
+      const bw = box.clientWidth || 0;
+      const bh = box.clientHeight || 0;
+      if (!vw || !vh || !bw || !bh) { setFit("cover"); return; }
+      const nativeAR = vw / vh;
+      const boxAR = bw / bh;
+      // Fraction of the frame still visible under object-cover; the rest is cropped.
+      const visible = Math.min(nativeAR, boxAR) / Math.max(nativeAR, boxAR);
+      setFit(1 - visible > threshold ? "contain" : "cover");
+    };
+    const attach = (v) => {
+      if (v === video) return;
+      if (video) { video.removeEventListener("loadedmetadata", evaluate); video.removeEventListener("resize", evaluate); }
+      video = v || null;
+      if (video) { video.addEventListener("loadedmetadata", evaluate); video.addEventListener("resize", evaluate); }
+      evaluate();
+    };
+    attach(box.querySelector("video"));
+    const mo = new MutationObserver(() => attach(box.querySelector("video")));
+    mo.observe(box, { childList: true, subtree: true });
+    const ro = new ResizeObserver(evaluate);
+    ro.observe(box);
+    return () => {
+      mo.disconnect();
+      ro.disconnect();
+      if (video) { video.removeEventListener("loadedmetadata", evaluate); video.removeEventListener("resize", evaluate); }
+    };
+  }, [boxRef, threshold]);
+  return fit;
+}
 
 // Stable per-track key: identity + source. Identical on both surfaces so they
 // address tiles the same way (focus keys, dedupe, ranking).
@@ -183,8 +234,13 @@ export function KioskParticipantTile({ trackRef }) {
   const camOff = trackRef?.source === Track.Source.Camera && (!trackRef?.publication || trackRef.publication.isMuted);
   const micOff = !!participant && participant.isMicrophoneEnabled === false;
   const dispName = participant?.name || participant?.identity || "Guest";
+  const boxRef = useRef(null);
+  const fit = useAutoObjectFit(boxRef);
   return (
-    <div className="group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07]">
+    <div
+      ref={boxRef}
+      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${fit === "contain" ? "[&_video]:!object-contain" : ""}`}
+    >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
       <TileNamePill dispName={dispName} isLocal={participant?.isLocal} micOff={micOff} weak={weak} lost={lost} />
       {camOff && <CameraOffAvatar participant={participant} avatarSrc={null} dispName={dispName} />}

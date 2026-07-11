@@ -25,17 +25,21 @@ const EASE = "cubic-bezier(.22,.61,.36,1)";
 // screen-shares, resizes and speaker switches GLIDE instead of snapping. A tile
 // stays mounted across layout changes (stable React key), so its <video> never
 // re-attaches.
-export default function AdaptiveStage({ tiles, focusKey = null, focusKeys = null, gap = 8, aspect = 16 / 9, durationMs = 320 }) {
+export default function AdaptiveStage({ tiles, focusKey = null, focusKeys = null, gap = 8, aspect = 16 / 9, ratios = null, durationMs = 320 }) {
   const ref = useRef(null);
   const { w, h } = useSize(ref);
   const keys = tiles.map((t) => t.key);
   const keySig = keys.join("|");
   const focusSig = focusKeys && focusKeys.length ? focusKeys.join("|") : focusKey || "";
+  // Only the focus aspect affects the solve, but a small signature over the whole
+  // ratio map keeps the memo honest without re-solving on unrelated renders (the
+  // parent rebuilds the Map each render).
+  const ratioSig = ratios ? [...ratios].map(([k, v]) => `${k}=${(v || 0).toFixed(3)}`).join(",") : "";
   const rects = useMemo(
-    () => solveLayout({ tiles: keys, focusKey, focusKeys, width: w, height: h, gap, aspect }),
-    // keySig/focusSig capture membership/order without re-running on unrelated renders.
+    () => solveLayout({ tiles: keys, focusKey, focusKeys, width: w, height: h, gap, aspect, ratios }),
+    // keySig/focusSig/ratioSig capture membership/order/aspect without re-running on unrelated renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [keySig, focusSig, w, h, gap, aspect],
+    [keySig, focusSig, ratioSig, w, h, gap, aspect],
   );
 
   return (

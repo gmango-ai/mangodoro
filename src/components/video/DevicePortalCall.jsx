@@ -249,12 +249,22 @@ function PortalStage({ layoutMode = "grid", followSpeaker = true }) {
     }
   }
 
+  // Native aspect per track (from the published video dimensions) so the solver
+  // can shape the big focus tile — e.g. an ultrawide or portrait screen share —
+  // to its real proportions instead of cropping it to the box.
+  const ratios = new Map();
+  for (const t of stageTiles) {
+    const d = t?.publication?.dimensions;
+    if (d?.width && d?.height) ratios.set(refKey(t), d.width / d.height);
+  }
+
   return (
     <div ref={rootRef} className="relative w-full h-full flex flex-col">
       <div className="relative flex-1 min-h-0">
         <AdaptiveStage
           tiles={stageTiles.map((t) => ({ key: refKey(t), content: <KioskParticipantTile trackRef={t} /> }))}
           focusKey={focus ? refKey(focus) : null}
+          ratios={ratios}
           gap={12}
         />
       </div>

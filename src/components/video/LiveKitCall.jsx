@@ -44,7 +44,7 @@ import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
 import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
 import { useSquishedLayout } from "./useSquishedLayout";
-import { refKey, avatarGradient, getInitials, CameraOffAvatar, SpeakingRing, TileNamePill, rankTiles, capFor, AudienceRow } from "./tileChrome";
+import { refKey, avatarGradient, getInitials, CameraOffAvatar, SpeakingRing, TileNamePill, rankTiles, capFor, AudienceRow, useAutoObjectFit } from "./tileChrome";
 
 // LiveKit's client logs at "info" by default, which floods the console with
 // per-connection play-by-play (signal connecting, connection state changes,
@@ -1778,9 +1778,18 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
         : role?.isAudioSink
           ? "Room speaker"
           : "In room";
+  // Auto object-fit from the incoming video's native size: contain (show the full
+  // frame) when cover would crop it, else cover. The explicit "Fit video" toggle
+  // still forces contain. Skip the auto call on a 90/270-rotated local camera —
+  // its videoWidth/Height is pre-rotation, so the comparison would be inverted;
+  // that path stays cover (rotate + fill) as before.
+  const boxRef = useRef(null);
+  const autoFit = useAutoObjectFit(boxRef);
+  const containVideo = fit === "contain" || (rot % 180 === 0 && autoFit === "contain");
   return (
     <div
-      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""} ${rotCls} ${fit === "contain" ? "[&_video]:!object-contain" : ""}`}
+      ref={boxRef}
+      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""} ${rotCls} ${containVideo ? "[&_video]:!object-contain" : ""}`}
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
 
@@ -2107,6 +2116,15 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
     }
   }
 
+  // Native aspect per shown track so the solver can size a single big focus tile
+  // (screen share / spotlight) to its real proportions instead of cropping it to
+  // the box. Only a lone focus uses it; harmless for the rest.
+  const ratios = new Map();
+  for (const t of stageTiles) {
+    const d = t?.publication?.dimensions;
+    if (d?.width && d?.height) ratios.set(refKey(t), d.width / d.height);
+  }
+
   return (
     <PinControlContext.Provider value={pinControl}>
       <div ref={rootRef} className="relative flex-1 min-h-0 flex flex-col">
@@ -2115,6 +2133,7 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
             tiles={stageTiles.map((t) => ({ key: refKey(t), content: <ClusterParticipantTile trackRef={t} /> }))}
             focusKey={stageFocusKey}
             focusKeys={stageFocusKeys}
+            ratios={ratios}
             // Portrait stage (phone held upright) → taller 3:4 tiles so faces
             // fill more of the frame vertically; landscape keeps 16:9. Tracks
             // live via the stage's own width/height, so a device rotation (or
