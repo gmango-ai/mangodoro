@@ -1,7 +1,8 @@
 // news-feed: server-side RSS/Atom proxy for the kiosk news ticker. Browsers
 // can't fetch feeds directly (CORS), so the kiosk calls this instead. Only
-// PRESET feed keys are allowed (no arbitrary URLs → no SSRF). Returns recent
-// headlines. Auth'd (verify_jwt) so only signed-in clients / devices call it.
+// PRESET feed keys are allowed (no arbitrary URLs → no SSRF). Returns headlines
+// for one or MANY feeds at once (the ticker runs a line per source). Auth'd
+// (verify_jwt) so only signed-in clients / devices call it.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,10 +11,14 @@ const corsHeaders = {
 };
 
 const FEEDS: Record<string, { url: string; name: string }> = {
-  world:    { url: "https://feeds.bbci.co.uk/news/world/rss.xml", name: "BBC World" },
-  business: { url: "https://feeds.bbci.co.uk/news/business/rss.xml", name: "BBC Business" },
-  tech:     { url: "https://hnrss.org/frontpage", name: "Hacker News" },
-  science:  { url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", name: "BBC Science" },
+  world:    { url: "https://feeds.bbci.co.uk/news/world/rss.xml", name: "World" },
+  us:       { url: "https://feeds.bbci.co.uk/news/us_and_canada/rss.xml", name: "US" },
+  business: { url: "https://feeds.bbci.co.uk/news/business/rss.xml", name: "Business" },
+  tech:     { url: "https://hnrss.org/frontpage", name: "Tech" },
+  science:  { url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", name: "Science" },
+  health:   { url: "https://feeds.bbci.co.uk/news/health/rss.xml", name: "Health" },
+  sports:   { url: "https://feeds.bbci.co.uk/sport/rss.xml", name: "Sports" },
+  culture:  { url: "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", name: "Culture" },
 };
 
 function json(status: number, body: unknown): Response {
@@ -55,20 +60,37 @@ function parseFeed(xml: string): { title: string; link: string }[] {
   return items;
 }
 
+async function fetchFeed(k: string) {
+  const f = FEEDS[k];
+  if (!f) return null;
+  try {
+    const res = await fetch(f.url, { headers: { "User-Agent": "Mangodoro-Kiosk/1.0" } });
+    if (!res.ok) return { key: k, source: f.name, items: [] };
+    return { key: k, source: f.name, items: parseFeed(await res.text()) };
+  } catch {
+    return { key: k, source: f.name, items: [] };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const url = new URL(req.url);
-    let key = url.searchParams.get("key") || "world";
+    let keys: string[] = [];
     if (req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-      if (body?.key) key = String(body.key);
+      if (Array.isArray(body?.keys)) keys = body.keys.map(String);
+      else if (body?.key) keys = [String(body.key)];
     }
-    const feed = FEEDS[key] || FEEDS.world;
-    const res = await fetch(feed.url, { headers: { "User-Agent": "Mangodoro-Kiosk/1.0" } });
-    if (!res.ok) return json(502, { error: "feed fetch failed", status: res.status });
-    const items = parseFeed(await res.text());
-    return json(200, { source: feed.name, key, items });
+    if (!keys.length) {
+      const q = new URL(req.url).searchParams.get("keys") || new URL(req.url).searchParams.get("key");
+      if (q) keys = q.split(",");
+    }
+    // Only known keys; default to a sensible spread.
+    keys = keys.filter((k) => FEEDS[k]);
+    if (!keys.length) keys = ["world", "business", "tech", "science"];
+
+    const feeds = (await Promise.all(keys.slice(0, 8).map(fetchFeed))).filter(Boolean);
+    return json(200, { feeds, available: Object.entries(FEEDS).map(([key, f]) => ({ key, name: f.name })) });
   } catch (e) {
     return json(500, { error: String(e) });
   }

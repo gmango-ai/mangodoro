@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Video, MessageSquare, PenLine, Timer, Users, CalendarClock, MapPin, Newspaper,
+  Video, MessageSquare, PenLine, Timer, Users, CalendarClock, MapPin, Newspaper, Settings2, Check,
   Sun, Moon, CloudSun, CloudMoon, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning,
 } from "lucide-react";
 import RoomChatPanel from "../../RoomChatPanel";
@@ -332,69 +332,43 @@ function DeviceWeatherPanel() {
 }
 
 // Public-screen news ticker. Headlines come from the `news-feed` edge function
-// (server-side RSS proxy — browsers can't fetch feeds). The operator picks a
-// preset feed (persisted per-device); the track holds the headlines twice and
-// CSS-scrolls left seamlessly, pausing on hover.
+// (server-side RSS proxy — browsers can't fetch feeds). Runs ONE scrolling line
+// per selected source (the track holds the headlines twice → seamless -50%
+// loop, pausing on hover). Sources are picked per-device via a small gear.
 const NEWS_KEY = "ql_device_news";
-const NEWS_FEEDS = [
-  { key: "world", label: "World" },
-  { key: "business", label: "Business" },
-  { key: "tech", label: "Tech" },
-  { key: "science", label: "Science" },
+const NEWS_SOURCES_FALLBACK = [
+  { key: "world", label: "World" }, { key: "us", label: "US" },
+  { key: "business", label: "Business" }, { key: "tech", label: "Tech" },
+  { key: "science", label: "Science" }, { key: "health", label: "Health" },
+  { key: "sports", label: "Sports" }, { key: "culture", label: "Culture" },
 ];
-function loadNewsKey() {
-  try { return JSON.parse(localStorage.getItem(NEWS_KEY) || "null")?.key || "world"; }
-  catch { return "world"; }
+const NEWS_DEFAULT_KEYS = ["world", "business", "tech", "science"];
+function loadNewsKeys() {
+  try {
+    const v = JSON.parse(localStorage.getItem(NEWS_KEY) || "null");
+    return Array.isArray(v?.keys) && v.keys.length ? v.keys : NEWS_DEFAULT_KEYS;
+  } catch { return NEWS_DEFAULT_KEYS; }
 }
 
-function DeviceNewsPanel() {
-  const [feedKey, setFeedKey] = useState(loadNewsKey);
-  const [items, setItems] = useState([]);
-  const [source, setSource] = useState("");
-  const [err, setErr] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      try {
-        const { data, error } = await supabase.functions.invoke("news-feed", { body: { key: feedKey } });
-        if (!alive) return;
-        setItems(data?.items || []);
-        setSource(data?.source || "");
-        setErr(!!error || !data?.items?.length);
-      } catch { if (alive) setErr(true); }
-    };
-    load();
-    const id = setInterval(load, 12 * 60 * 1000);
-    return () => { alive = false; clearInterval(id); };
-  }, [feedKey]);
-
-  const pick = (k) => {
-    setFeedKey(k);
-    try { localStorage.setItem(NEWS_KEY, JSON.stringify({ key: k })); } catch { /* */ }
-  };
-
-  // Scroll speed scales with total headline length so a long feed isn't a blur.
+// One scrolling headline line for a single source.
+function TickerLine({ source, items }) {
   const totalChars = items.reduce((n, it) => n + (it.title?.length || 0) + 6, 0);
-  const duration = Math.max(30, Math.round(totalChars / 6));
-
+  const duration = Math.max(24, Math.round(totalChars / 7));
   return (
-    <div className="w-full h-full bg-slate-950 text-white flex items-center overflow-hidden">
-      <span className="shrink-0 inline-flex items-center gap-1.5 self-stretch px-3 bg-white/[0.06] text-[var(--color-accent)]">
-        <Newspaper className="w-4 h-4" />
-        <span className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">{source || "News"}</span>
+    <div className="flex items-center border-b border-white/[0.06] last:border-b-0 overflow-hidden" style={{ flex: "1 1 0", minHeight: 0 }}>
+      <span className="shrink-0 self-stretch inline-flex items-center gap-1.5 px-2.5 w-[96px] bg-white/[0.05] text-[var(--color-accent)]">
+        <Newspaper className="w-3 h-3 shrink-0" />
+        <span className="text-[9px] font-bold uppercase tracking-wider truncate">{source}</span>
       </span>
       <div className="relative flex-1 min-w-0 overflow-hidden">
         {items.length === 0 ? (
-          <span className="pl-3 text-[12px] text-slate-500">
-            {err ? "News unavailable — deploy the news-feed function." : "Loading headlines…"}
-          </span>
+          <span className="pl-3 text-[11px] text-slate-600">No headlines</span>
         ) : (
           <div className="mango-ticker-track" style={{ animationDuration: `${duration}s` }}>
             {[0, 1].map((dup) => (
               <span key={dup} className="inline-flex items-center" aria-hidden={dup === 1}>
                 {items.map((it, i) => (
-                  <span key={`${dup}-${i}`} className="inline-flex items-center text-[13px] text-white/85">
+                  <span key={`${dup}-${i}`} className="inline-flex items-center text-[12px] text-white/80">
                     <span className="mx-4 w-1 h-1 rounded-full bg-[var(--color-accent)] shrink-0" />
                     {it.title}
                   </span>
@@ -404,14 +378,79 @@ function DeviceNewsPanel() {
           </div>
         )}
       </div>
-      <select
-        value={feedKey}
-        onChange={(e) => pick(e.target.value)}
-        title="News feed"
-        className="shrink-0 mx-2 bg-transparent text-[11px] text-white/50 hover:text-white/90 outline-none cursor-pointer"
+    </div>
+  );
+}
+
+function DeviceNewsPanel() {
+  const [keys, setKeys] = useState(loadNewsKeys);
+  const [feeds, setFeeds] = useState([]);
+  const [available, setAvailable] = useState(NEWS_SOURCES_FALLBACK);
+  const [err, setErr] = useState(false);
+  const [picking, setPicking] = useState(false);
+
+  const sig = keys.join(",");
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("news-feed", { body: { keys: sig.split(",") } });
+        if (!alive) return;
+        setFeeds(data?.feeds || []);
+        if (data?.available?.length) setAvailable(data.available.map((a) => ({ key: a.key, label: a.name })));
+        setErr(!!error || !data?.feeds?.length);
+      } catch { if (alive) setErr(true); }
+    };
+    load();
+    const id = setInterval(load, 12 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [sig]);
+
+  const toggle = (k) => {
+    setKeys((cur) => {
+      const next = cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k];
+      const final = next.length ? next : ["world"]; // keep at least one line
+      try { localStorage.setItem(NEWS_KEY, JSON.stringify({ keys: final })); } catch { /* */ }
+      return final;
+    });
+  };
+
+  return (
+    <div className="relative w-full h-full bg-slate-950 text-white flex flex-col overflow-hidden">
+      {feeds.length === 0 ? (
+        <div className="flex-1 flex items-center pl-3 text-[12px] text-slate-500">
+          {err ? "News unavailable." : "Loading headlines…"}
+        </div>
+      ) : (
+        feeds.map((f) => <TickerLine key={f.key} source={f.source} items={f.items} />)
+      )}
+      <button
+        type="button"
+        onClick={() => setPicking((v) => !v)}
+        title="Choose news sources"
+        className="absolute top-1 right-1 z-20 p-1 rounded-md text-white/25 hover:text-white/80 bg-slate-950/70"
       >
-        {NEWS_FEEDS.map((f) => <option key={f.key} value={f.key} className="text-slate-900">{f.label}</option>)}
-      </select>
+        <Settings2 className="w-3.5 h-3.5" />
+      </button>
+      {picking && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setPicking(false)} />
+          <div className="absolute top-8 right-1 z-30 w-40 p-1.5 rounded-lg bg-slate-900 ring-1 ring-white/10 shadow-2xl">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-white/40 px-1.5 pb-1">News sources</div>
+            {available.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => toggle(s.key)}
+                className="w-full flex items-center justify-between px-1.5 py-1 rounded text-[12px] text-white/80 hover:bg-white/10"
+              >
+                {s.label}
+                {keys.includes(s.key) && <Check className="w-3.5 h-3.5 text-[var(--color-accent)]" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -462,7 +501,9 @@ export const DEVICE_PANELS = {
     id: "news",
     title: "News",
     icon: Newspaper,
-    min: 240,
+    // Low min so it can be a thin full-width banner (a line per source) across
+    // the bottom via the outer-edge stretch.
+    min: 96,
     render: () => <DeviceNewsPanel />,
   },
   chat: {
