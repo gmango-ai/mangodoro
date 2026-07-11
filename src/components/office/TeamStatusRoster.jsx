@@ -66,16 +66,20 @@ export default function TeamStatusRoster({ dark }) {
     const awayList = []; // heartbeat stopped < 12h
     const offline = []; // absent ≥ 12h (or appearing offline)
     for (const p of people) {
+      // WHERE takes precedence over online/offline: someone in a room shows in
+      // that room even while offline (they're still "in there," just not live),
+      // so the roster answers "who's in this room" completely. Only people with
+      // no room fall into hallway (online) / away / offline.
+      if (p.locationKind === "room" && p.locationRoomId) {
+        if (!roomsG.has(p.locationRoomId)) roomsG.set(p.locationRoomId, []);
+        roomsG.get(p.locationRoomId).push(p);
+        continue;
+      }
       if (!p.online) {
         (p.availability === "offline" ? offline : awayList).push(p);
         continue;
       }
-      if (p.locationKind === "room" && p.locationRoomId) {
-        if (!roomsG.has(p.locationRoomId)) roomsG.set(p.locationRoomId, []);
-        roomsG.get(p.locationRoomId).push(p);
-      } else {
-        around.push(p);
-      }
+      around.push(p);
     }
     const byName = (a, b) => (a.name || "").localeCompare(b.name || "");
     const out = [];
@@ -138,7 +142,7 @@ export default function TeamStatusRoster({ dark }) {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className={`block text-[11px] font-medium truncate ${
-                    g.muted ? (dark ? "text-slate-500" : "text-slate-400") : dark ? "text-slate-200" : "text-slate-700"
+                    g.muted || !p.online ? (dark ? "text-slate-500" : "text-slate-400") : dark ? "text-slate-200" : "text-slate-700"
                   }`}>
                     {p.name || "Member"}{p.userId === userId ? " (you)" : ""}
                   </span>

@@ -72,14 +72,19 @@ export function mergeOfficePresence(rows = [], online = [], identity = {}, now =
       // Absent: away for the first 12h, then offline. (Invisible collapses
       // straight to offline — age is irrelevant when hiding.)
       const availability = r.invisible ? "offline" : age < OFFLINE_AFTER_MS ? "away" : "offline";
+      // Keep their LAST KNOWN room so someone who closed the app while in a room
+      // still reads as "in that room (offline)" rather than vanishing into the
+      // Offline bucket — the resolver only clears location_room_id when you
+      // actually leave the room. Invisible hides location too.
+      const inRoom = !r.invisible && r.location_kind === "room" && !!r.location_room_id;
       byId.set(r.user_id, {
         userId: r.user_id,
         online: false,
         availability,
         activity: null,
         message: null,
-        locationKind: "none",
-        locationRoomId: null,
+        locationKind: inRoom ? "room" : "none",
+        locationRoomId: inRoom ? r.location_room_id : null,
         since: r.since,
         name: nameOf(r.user_id),
         avatar: avatarOf(r.user_id),

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useTeam } from "../context/TeamContext";
 import { useSyncSession } from "../context/SyncSessionContext";
@@ -28,6 +29,7 @@ export function useResolvedSelf() {
   const { activeTeamId, rooms } = useTeam();
   const { syncSession } = useSyncSession();
   const pomodoro = usePomodoro();
+  const { pathname } = useLocation();
 
   // Heartbeat so time-based transitions (idle, override expiry) surface, plus an
   // immediate re-read when the manual override, pin, or network state changes.
@@ -48,7 +50,13 @@ export function useResolvedSelf() {
     };
   }, []);
 
-  const room = syncSession?.room_id ? rooms?.find((r) => r.id === syncSession.room_id) : null;
+  // Your presence location = the room you're IN: the sync-session room if you're
+  // in one, else the room you're actively VIEWING (the /office/r/:id RoomView).
+  // Without the viewed-room fallback, opening a room without starting its timer
+  // left you stuck "in the hallway" even though you're standing in the room.
+  const viewedRoomId = (/^\/office\/r\/([^/?#]+)/.exec(pathname || "") || [])[1] || null;
+  const sessionRoom = syncSession?.room_id ? rooms?.find((r) => r.id === syncSession.room_id) : null;
+  const room = sessionRoom || (viewedRoomId ? rooms?.find((r) => r.id === viewedRoomId) : null) || null;
   const now = Date.now();
   // Real liveness: network down → offline. (Tab-close / sleep can't be reported
   // by a dead client — the server sweep handles those in P3.) `navigator.onLine`
