@@ -12,6 +12,7 @@ import { useRoomLayout } from "../components/office/roomLayout/useRoomLayout";
 import { DEVICE_PANELS, DEVICE_PANEL_IDS } from "../components/office/roomLayout/devicePanels";
 import { DEVICE_PRESETS, DEVICE_DEFAULT_PRESET } from "../components/office/roomLayout/devicePresets";
 import { panelsIn } from "../components/office/roomLayout/layoutTree";
+import { useRoomCallPresence } from "../components/video/useRoomCallPresence";
 
 // Self-ticking wall clock — its own component so the per-second tick re-renders
 // only this, not the whole kiosk (which would churn the video/whiteboard panels).
@@ -240,6 +241,19 @@ export default function DeviceKioskPage({ session }) {
   // Hold the portal off until the schedule is known: a device that should be
   // asleep would otherwise mount the call + subscriptions for the fetch window.
   const asleep = !schedLoaded || isAsleep(sched);
+
+  // Broadcast this display's presence on the room's call-presence channel so a
+  // member sees "Room display on" in the pre-join, before joining — the kiosk
+  // publishes to LiveKit but was otherwise invisible until you joined. Only while
+  // awake (roomId → null when asleep drops it from presence). Marked isDevice so
+  // it's surfaced separately and never counted as a person "in call".
+  useRoomCallPresence({
+    roomId: asleep ? null : roomId,
+    userId,
+    displayName: `${room?.name || deviceName} display`,
+    mode: "join",
+    isDevice: true,
+  });
 
   const goOffline = async () => {
     const until = nextWakeAt(sched);
