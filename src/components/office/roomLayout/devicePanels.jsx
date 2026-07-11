@@ -1,5 +1,8 @@
-import { useMemo, useState } from "react";
-import { Video, MessageSquare, PenLine, Timer, Users, CalendarClock } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Video, MessageSquare, PenLine, Timer, Users, CalendarClock, MapPin,
+  Sun, Moon, CloudSun, CloudMoon, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning,
+} from "lucide-react";
 import RoomChatPanel from "../../RoomChatPanel";
 import RoomWhiteboardPanel from "./RoomWhiteboardPanel";
 import DevicePortalCall from "../../video/DevicePortalCall";
@@ -8,6 +11,7 @@ import { formatClock } from "../../../lib/utils";
 import { useVisibilityPausedInterval } from "../../../hooks/useVisibilityPausedInterval";
 import { availabilityDot, availabilityLabel } from "../../../lib/presence";
 import { mergeOfficePresence } from "../../../lib/officePresence";
+import { geocodeCity, fetchWeather, weatherInfo } from "../../../lib/weather";
 
 // The KIOSK panel registry — the device-side counterpart to panels.jsx
 // (ROOM_PANELS). Same shape ({ id, title, icon, min, render(ctx) }) so it drops
@@ -190,6 +194,142 @@ function DeviceMeetingsPanel({ meetings }) {
   );
 }
 
+// Per-device weather location + unit (localStorage — the kiosk has no DB write).
+const WEATHER_KEY = "ql_device_weather";
+function loadWeatherLoc() {
+  try { const v = JSON.parse(localStorage.getItem(WEATHER_KEY) || "null"); return v && v.lat != null ? v : null; }
+  catch { return null; }
+}
+function saveWeatherLoc(loc) {
+  try { localStorage.setItem(WEATHER_KEY, JSON.stringify(loc)); } catch { /* */ }
+}
+const WEATHER_ICONS = {
+  "clear-day": Sun, "clear-night": Moon, "partly-day": CloudSun, "partly-night": CloudMoon,
+  cloudy: Cloud, fog: CloudFog, drizzle: CloudDrizzle, rain: CloudRain, snow: CloudSnow, storm: CloudLightning,
+};
+
+// Public-screen weather via Open-Meteo (keyless). The operator sets a city once
+// (geocoded + stored per-device); the panel then shows current conditions + a
+// short forecast, refreshed every 20 min.
+function DeviceWeatherPanel() {
+  const [loc, setLoc] = useState(loadWeatherLoc);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(false);
+  const [editing, setEditing] = useState(() => !loadWeatherLoc());
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!loc) { setData(null); return undefined; }
+    let alive = true;
+    const load = async () => {
+      try { const w = await fetchWeather(loc.lat, loc.lon, loc.unit || "fahrenheit"); if (alive) { setData(w); setErr(false); } }
+      catch { if (alive) setErr(true); }
+    };
+    load();
+    const id = setInterval(load, 20 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, [loc]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!query.trim() || busy) return;
+    setBusy(true); setErr(false);
+    try {
+      const hit = await geocodeCity(query);
+      if (!hit) { setErr(true); }
+      else {
+        const next = { ...hit, unit: loc?.unit || "fahrenheit" };
+        setLoc(next); saveWeatherLoc(next); setEditing(false); setQuery("");
+      }
+    } catch { setErr(true); }
+    setBusy(false);
+  };
+  const toggleUnit = () => {
+    if (!loc) return;
+    const next = { ...loc, unit: (loc.unit || "fahrenheit") === "fahrenheit" ? "celsius" : "fahrenheit" };
+    setLoc(next); saveWeatherLoc(next);
+  };
+
+  if (editing || !loc) {
+    return (
+      <div className="w-full h-full bg-slate-950 text-white p-4 flex flex-col justify-center gap-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Weather</div>
+        <form onSubmit={submit} className="flex flex-col gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Enter a city…"
+            className="w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40"
+          />
+          <div className="flex items-center gap-2">
+            <button type="submit" disabled={busy} className="px-3 py-1.5 rounded-lg text-white text-[12px] font-semibold disabled:opacity-50" style={{ background: "var(--color-accent)" }}>
+              {busy ? "Finding…" : "Set location"}
+            </button>
+            {loc && <button type="button" onClick={() => setEditing(false)} className="px-3 py-1.5 rounded-lg text-white/60 text-[12px] hover:text-white/90">Cancel</button>}
+          </div>
+          {err && <p className="text-[11px] text-rose-400">Couldn't find that place — try another city.</p>}
+        </form>
+      </div>
+    );
+  }
+
+  const cur = data?.current;
+  const info = cur ? weatherInfo(cur.weather_code, cur.is_day) : null;
+  const Icon = info ? (WEATHER_ICONS[info.kind] || Cloud) : Cloud;
+  const unitF = (loc.unit || "fahrenheit") === "fahrenheit";
+  const daily = data?.daily;
+  return (
+    <div className="w-full h-full bg-slate-950 text-white p-4 flex flex-col overflow-hidden" style={{ containerType: "size" }}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-white/60 truncate min-w-0">
+          <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{loc.name}</span>
+        </span>
+        <span className="flex items-center gap-1.5 shrink-0">
+          <button type="button" onClick={toggleUnit} className="text-[10px] font-bold text-white/45 hover:text-white/90 tabular-nums">{unitF ? "°F" : "°C"}</button>
+          <button type="button" onClick={() => setEditing(true)} title="Change location" className="text-white/40 hover:text-white/90"><PenLine className="w-3.5 h-3.5" /></button>
+        </span>
+      </div>
+      {!data ? (
+        <p className="text-slate-500 text-sm">{err ? "Weather unavailable." : "Loading…"}</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-3">
+            <Icon className="w-14 h-14 shrink-0" style={{ color: "var(--color-accent)" }} />
+            <div className="flex flex-col leading-none min-w-0">
+              <span className="font-bold tabular-nums" style={{ fontSize: "min(16cqw, 46px)", fontFamily: "'Parkinsans', sans-serif" }}>
+                {Math.round(cur.temperature_2m)}°
+              </span>
+              <span className="text-[12px] text-white/70 mt-1 truncate">{info.label}</span>
+            </div>
+          </div>
+          <div className="text-[11px] text-white/45 mt-1.5">
+            Feels {Math.round(cur.apparent_temperature)}° · Wind {Math.round(cur.wind_speed_10m)} {unitF ? "mph" : "km/h"}
+          </div>
+          {daily?.time?.length > 1 && (
+            <div className="mt-auto pt-3 flex items-stretch gap-2">
+              {daily.time.slice(1, 4).map((t, i) => {
+                const di = weatherInfo(daily.weather_code[i + 1], 1);
+                const DIcon = WEATHER_ICONS[di.kind] || Cloud;
+                const day = new Date(`${t}T00:00`).toLocaleDateString([], { weekday: "short" });
+                return (
+                  <div key={t} className="flex-1 flex flex-col items-center gap-1 rounded-lg bg-white/5 py-2">
+                    <span className="text-[10px] text-white/45">{day}</span>
+                    <DIcon className="w-5 h-5 text-white/70" />
+                    <span className="text-[11px] tabular-nums text-white/80">
+                      {Math.round(daily.temperature_2m_max[i + 1])}°<span className="text-white/40"> {Math.round(daily.temperature_2m_min[i + 1])}°</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export const DEVICE_PANELS = {
   video: {
     id: "video",
@@ -224,6 +364,13 @@ export const DEVICE_PANELS = {
     icon: CalendarClock,
     min: 200,
     render: ({ meetings }) => <DeviceMeetingsPanel meetings={meetings} />,
+  },
+  weather: {
+    id: "weather",
+    title: "Weather",
+    icon: CloudSun,
+    min: 200,
+    render: () => <DeviceWeatherPanel />,
   },
   chat: {
     id: "chat",
