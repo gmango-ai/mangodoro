@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, DoorOpen, Power, Moon, CalendarClock, Lock, LockOpen } from "lucide-react";
+import { ChevronDown, DoorOpen, Power, Moon, CalendarClock, Lock, LockOpen, LayoutTemplate, Trash2 } from "lucide-react";
 import { supabase } from "../supabase";
 import { applyAccent } from "../lib/accent";
 import { playNotify, uiSoundsEnabled } from "../lib/uiSounds";
@@ -112,6 +112,67 @@ function MeetingAlert({ meetings }) {
           <span className="text-[15px] font-semibold text-white truncate max-w-[46vw]">{banner.title || "Meeting"}</span>
         </span>
       </div>
+    </div>
+  );
+}
+
+// Save / apply / delete named layouts (per-device). Save the current arrangement
+// under a name, then switch between them — useful for a kiosk that shows
+// different things at different times (a "meeting" layout vs an "ambient" one).
+function LayoutsMenu({ layouts, onApply, onSave, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const save = () => { const n = name.trim(); if (!n) return; onSave(n); setName(""); };
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="Saved layouts"
+        className="inline-flex items-center gap-1.5 px-2.5 h-8 rounded-full bg-white/10 hover:bg-white/15 text-[12px] font-semibold text-white/80 transition-colors"
+      >
+        <LayoutTemplate className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Layouts</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-9 z-40 w-60 p-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl">
+            <div className="px-1 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/45">Saved layouts</div>
+            {layouts.length === 0 ? (
+              <p className="px-1 py-1 text-[12px] text-white/40">None saved yet.</p>
+            ) : (
+              <ul className="mb-1">
+                {layouts.map((n) => (
+                  <li key={n} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => { onApply(n); setOpen(false); }}
+                      className="flex-1 min-w-0 text-left px-2 py-1.5 rounded-lg text-[12px] text-white/85 hover:bg-white/10 truncate"
+                    >
+                      {n}
+                    </button>
+                    <button type="button" onClick={() => onDelete(n)} title={`Delete "${n}"`} className="p-1 rounded text-white/30 hover:text-rose-400">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="h-px bg-white/10 my-1" />
+            <form onSubmit={(e) => { e.preventDefault(); save(); }} className="flex items-center gap-1.5 px-1 pt-1">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Save current as…"
+                className="flex-1 min-w-0 rounded-md bg-white/10 px-2 py-1.5 text-[12px] text-white outline-none placeholder:text-white/35"
+              />
+              <button type="submit" disabled={!name.trim()} className="px-2 py-1.5 rounded-md text-[12px] font-semibold text-white disabled:opacity-40" style={{ background: "var(--color-accent)" }}>
+                Save
+              </button>
+            </form>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -421,7 +482,8 @@ export default function DeviceKioskPage({ session }) {
   }, [roomId, asleep]);
 
   // Device-local modular layout (own preset set + storage key prefix).
-  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, moveToRoot, addAtRoot, closePanel, togglePanel } =
+  const { tree, presetId, applyPreset, reset, setRatio, movePanel, addPanelAt, moveToRoot, addAtRoot, closePanel, togglePanel,
+    savedLayouts, saveLayout, applyLayout, deleteLayout } =
     useRoomLayout(roomId, DEVICE_PANEL_IDS, {
       presets: DEVICE_PRESETS,
       defaultPreset: DEVICE_DEFAULT_PRESET,
@@ -504,6 +566,9 @@ export default function DeviceKioskPage({ session }) {
               accent="var(--color-accent)"
               dark
             />
+          )}
+          {!locked && (
+            <LayoutsMenu layouts={savedLayouts} onApply={applyLayout} onSave={saveLayout} onDelete={deleteLayout} />
           )}
           <button
             type="button"
