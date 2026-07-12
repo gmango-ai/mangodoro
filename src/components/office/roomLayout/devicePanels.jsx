@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Video, MessageSquare, PenLine, Timer, Users, CalendarClock, MapPin, Newspaper, Settings2, Check,
+  Video, MessageSquare, PenLine, Timer, Users, CalendarClock, MapPin, Newspaper, Settings2, Check, Trash2, Plus,
+  Target, Globe, Flag, Briefcase, Cpu, FlaskConical, HeartPulse, Trophy, Clapperboard,
   Sun, Moon, CloudSun, CloudMoon, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, CloudLightning,
 } from "lucide-react";
 import RoomChatPanel from "../../RoomChatPanel";
@@ -25,6 +26,32 @@ import { geocodeCity, fetchWeather, weatherInfo } from "../../../lib/weather";
 // ctx = { room, userId, displayName, dark, sess, participants, whiteboardId }.
 
 const MODE_LABEL = { work: "Focus", shortBreak: "Short break", longBreak: "Long break" };
+
+// A panel's settings gear, placed in the tile HEADER (via the panel's
+// `headerActions`) rather than overlaying the content. The header chrome and the
+// panel body are rendered separately by RoomLayout, so the gear opens the body's
+// config modal through a window event the body listens for (usePanelConfig).
+function HeaderGear({ event, title = "Settings" }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={() => window.dispatchEvent(new CustomEvent(event))}
+      className="p-1 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/10 transition-colors"
+    >
+      <Settings2 className="w-3.5 h-3.5" />
+    </button>
+  );
+}
+function usePanelConfig(event, onOpen) {
+  const ref = useRef(onOpen);
+  ref.current = onOpen;
+  useEffect(() => {
+    const h = () => ref.current();
+    window.addEventListener(event, h);
+    return () => window.removeEventListener(event, h);
+  }, [event]);
+}
 
 // Self-ticking so the layout doesn't have to re-render every second — the panel
 // owns its countdown from the session's ends_at (running) or remaining_seconds.
@@ -196,101 +223,34 @@ function DeviceMeetingsPanel({ meetings }) {
   );
 }
 
-// Per-device weather location + unit (localStorage — the kiosk has no DB write).
+// Per-device weather: one or MANY locations (localStorage). Config (add/remove
+// cities, unit) is a modal opened from the header gear (mango:cfg:weather).
 const WEATHER_KEY = "ql_device_weather";
-function loadWeatherLoc() {
-  try { const v = JSON.parse(localStorage.getItem(WEATHER_KEY) || "null"); return v && v.lat != null ? v : null; }
-  catch { return null; }
+function loadWeather() {
+  try {
+    const v = JSON.parse(localStorage.getItem(WEATHER_KEY) || "null");
+    if (v?.locations) return { locations: v.locations, unit: v.unit || "fahrenheit" };
+    if (v?.lat != null) return { locations: [{ lat: v.lat, lon: v.lon, name: v.name }], unit: v.unit || "fahrenheit" }; // migrate old single
+    return { locations: [], unit: "fahrenheit" };
+  } catch { return { locations: [], unit: "fahrenheit" }; }
 }
-function saveWeatherLoc(loc) {
-  try { localStorage.setItem(WEATHER_KEY, JSON.stringify(loc)); } catch { /* */ }
-}
+function saveWeather(cfg) { try { localStorage.setItem(WEATHER_KEY, JSON.stringify(cfg)); } catch { /* */ } }
+const locKey = (l) => `${l.lat},${l.lon}`;
 const WEATHER_ICONS = {
   "clear-day": Sun, "clear-night": Moon, "partly-day": CloudSun, "partly-night": CloudMoon,
   cloudy: Cloud, fog: CloudFog, drizzle: CloudDrizzle, rain: CloudRain, snow: CloudSnow, storm: CloudLightning,
 };
 
-// Public-screen weather via Open-Meteo (keyless). The operator sets a city once
-// (geocoded + stored per-device); the panel then shows current conditions + a
-// short forecast, refreshed every 20 min.
-function DeviceWeatherPanel() {
-  const [loc, setLoc] = useState(loadWeatherLoc);
-  const [data, setData] = useState(null);
-  const [err, setErr] = useState(false);
-  const [editing, setEditing] = useState(() => !loadWeatherLoc());
-  const [query, setQuery] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!loc) { setData(null); return undefined; }
-    let alive = true;
-    const load = async () => {
-      try { const w = await fetchWeather(loc.lat, loc.lon, loc.unit || "fahrenheit"); if (alive) { setData(w); setErr(false); } }
-      catch { if (alive) setErr(true); }
-    };
-    load();
-    const id = setInterval(load, 20 * 60 * 1000);
-    return () => { alive = false; clearInterval(id); };
-  }, [loc]);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!query.trim() || busy) return;
-    setBusy(true); setErr(false);
-    try {
-      const hit = await geocodeCity(query);
-      if (!hit) { setErr(true); }
-      else {
-        const next = { ...hit, unit: loc?.unit || "fahrenheit" };
-        setLoc(next); saveWeatherLoc(next); setEditing(false); setQuery("");
-      }
-    } catch { setErr(true); }
-    setBusy(false);
-  };
-  const toggleUnit = () => {
-    if (!loc) return;
-    const next = { ...loc, unit: (loc.unit || "fahrenheit") === "fahrenheit" ? "celsius" : "fahrenheit" };
-    setLoc(next); saveWeatherLoc(next);
-  };
-
-  if (editing || !loc) {
-    return (
-      <div className="w-full h-full bg-slate-950 text-white p-4 flex flex-col justify-center gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Weather</div>
-        <form onSubmit={submit} className="flex flex-col gap-2">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Enter a city…"
-            className="w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40"
-          />
-          <div className="flex items-center gap-2">
-            <button type="submit" disabled={busy} className="px-3 py-1.5 rounded-lg text-white text-[12px] font-semibold disabled:opacity-50" style={{ background: "var(--color-accent)" }}>
-              {busy ? "Finding…" : "Set location"}
-            </button>
-            {loc && <button type="button" onClick={() => setEditing(false)} className="px-3 py-1.5 rounded-lg text-white/60 text-[12px] hover:text-white/90">Cancel</button>}
-          </div>
-          {err && <p className="text-[11px] text-rose-400">Couldn't find that place — try another city.</p>}
-        </form>
-      </div>
-    );
-  }
-
+// Detailed single-location view: big temp + condition + feels/wind + a 3-day.
+function SingleWeather({ loc, data, unitF, err }) {
   const cur = data?.current;
   const info = cur ? weatherInfo(cur.weather_code, cur.is_day) : null;
   const Icon = info ? (WEATHER_ICONS[info.kind] || Cloud) : Cloud;
-  const unitF = (loc.unit || "fahrenheit") === "fahrenheit";
   const daily = data?.daily;
   return (
-    <div className="w-full h-full bg-slate-950 text-white p-4 flex flex-col overflow-hidden" style={{ containerType: "size" }}>
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-white/60 truncate min-w-0">
-          <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{loc.name}</span>
-        </span>
-        <span className="flex items-center gap-1.5 shrink-0">
-          <button type="button" onClick={toggleUnit} className="text-[10px] font-bold text-white/45 hover:text-white/90 tabular-nums">{unitF ? "°F" : "°C"}</button>
-          <button type="button" onClick={() => setEditing(true)} title="Change location" className="text-white/40 hover:text-white/90"><PenLine className="w-3.5 h-3.5" /></button>
-        </span>
+    <div className="w-full h-full flex flex-col overflow-hidden" style={{ containerType: "size" }}>
+      <div className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-white/60 truncate min-w-0 mb-2">
+        <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{loc.name}</span>
       </div>
       {!data ? (
         <p className="text-slate-500 text-sm">{err ? "Weather unavailable." : "Loading…"}</p>
@@ -332,45 +292,181 @@ function DeviceWeatherPanel() {
   );
 }
 
-// Public-screen TICKER: a scrolling line per selected feed. Lines can be org
-// GOALS (device_org_goals RPC) or any news source (news-feed edge function —
-// server-side RSS proxy, browsers can't fetch feeds). Each line's track holds
-// its items twice → a seamless -50% loop, pausing on hover. Lines are chosen in
-// a modal, persisted per-device.
-const TICKER_KEY = "ql_device_ticker";
-const DEFAULT_LINES = ["goals", "bbc-world", "hn"];
-function loadLines() {
-  try {
-    const v = JSON.parse(localStorage.getItem(TICKER_KEY) || "null");
-    return Array.isArray(v?.lines) && v.lines.length ? v.lines : DEFAULT_LINES;
-  } catch { return DEFAULT_LINES; }
+// Compact card for one location in the multi-city grid.
+function WeatherCard({ loc, data }) {
+  const cur = data?.current;
+  const info = cur ? weatherInfo(cur.weather_code, cur.is_day) : null;
+  const Icon = info ? (WEATHER_ICONS[info.kind] || Cloud) : Cloud;
+  const daily = data?.daily;
+  return (
+    <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-3 py-2">
+      <Icon className="w-9 h-9 shrink-0" style={{ color: "var(--color-accent)" }} />
+      <div className="min-w-0 flex-1">
+        <div className="text-[11px] text-white/55 truncate">{loc.name}</div>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-2xl font-bold tabular-nums leading-none">{cur ? Math.round(cur.temperature_2m) : "—"}°</span>
+          <span className="text-[11px] text-white/50 truncate">{info?.label || ""}</span>
+        </div>
+      </div>
+      {daily && (
+        <div className="text-[11px] tabular-nums text-white/60 shrink-0">
+          {Math.round(daily.temperature_2m_max[0])}°<span className="text-white/35"> {Math.round(daily.temperature_2m_min[0])}°</span>
+        </div>
+      )}
+    </div>
+  );
 }
-function saveLines(lines) { try { localStorage.setItem(TICKER_KEY, JSON.stringify({ lines })); } catch { /* */ } }
 
-// One scrolling line. `items` = [{ title, tag? }]; tag is a dim suffix (e.g. a
-// goal's owner). Duration scales with content so a long line isn't a blur.
-function TickerLine({ label, items }) {
-  const totalChars = items.reduce((n, it) => n + (it.title?.length || 0) + 6, 0);
-  const duration = Math.max(24, Math.round(totalChars / 7));
+// Public-screen weather via Open-Meteo (keyless). One or many cities; config
+// (add/remove, unit) opens from the header gear.
+function DeviceWeatherPanel() {
+  const [cfg, setCfg] = useState(loadWeather);
+  const [wx, setWx] = useState({});
+  const [config, setConfig] = useState(() => loadWeather().locations.length === 0);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(false);
+
+  usePanelConfig("mango:cfg:weather", () => setConfig(true));
+
+  const { locations, unit } = cfg;
+  const unitF = unit === "fahrenheit";
+  const sig = locations.map(locKey).join("|") + ":" + unit;
+
+  useEffect(() => {
+    if (!locations.length) { setWx({}); return undefined; }
+    let alive = true;
+    const load = async () => {
+      const results = {};
+      await Promise.all(locations.map(async (l) => {
+        try { results[locKey(l)] = await fetchWeather(l.lat, l.lon, unit); } catch { /* */ }
+      }));
+      if (alive) setWx(results);
+    };
+    load();
+    const id = setInterval(load, 20 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+
+  const addCity = async (e) => {
+    e.preventDefault();
+    if (!query.trim() || busy) return;
+    setBusy(true); setErr(false);
+    try {
+      const hit = await geocodeCity(query);
+      if (!hit) setErr(true);
+      else { setCfg((c) => { const next = { ...c, locations: [...c.locations, hit] }; saveWeather(next); return next; }); setQuery(""); }
+    } catch { setErr(true); }
+    setBusy(false);
+  };
+  const removeCity = (i) => setCfg((c) => { const next = { ...c, locations: c.locations.filter((_, j) => j !== i) }; saveWeather(next); return next; });
+  const setUnit = (u) => setCfg((c) => { const next = { ...c, unit: u }; saveWeather(next); return next; });
+
+  return (
+    <div className="w-full h-full bg-slate-950 text-white p-3 overflow-auto">
+      {locations.length === 0 ? (
+        <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
+          <MapPin className="w-6 h-6 text-white/25" />
+          <p className="text-sm text-white/55">No locations yet.</p>
+          <button type="button" onClick={() => setConfig(true)} className="text-[12px] font-semibold text-[var(--color-accent)]">Add a city</button>
+        </div>
+      ) : locations.length === 1 ? (
+        <SingleWeather loc={locations[0]} data={wx[locKey(locations[0])]} unitF={unitF} err={err} />
+      ) : (
+        <div className="grid grid-cols-1 gap-2">
+          {locations.map((l) => <WeatherCard key={locKey(l)} loc={l} data={wx[locKey(l)]} />)}
+        </div>
+      )}
+      <Modal open={config} onClose={() => setConfig(false)} overlayClassName="z-[300] bg-black/60">
+        <div onClick={(e) => e.stopPropagation()} className="w-[min(92vw,400px)] rounded-2xl bg-slate-900 ring-1 ring-white/10 shadow-2xl p-4 text-white">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold">Weather</h3>
+            <button type="button" onClick={() => setConfig(false)} className="text-[12px] font-semibold text-[var(--color-accent)]">Done</button>
+          </div>
+          <div className="rounded-xl bg-white/[0.03] p-2.5 mb-3">
+            <SegChoice label="Units" value={unit} onChange={setUnit} options={[{ value: "fahrenheit", label: "°F" }, { value: "celsius", label: "°C" }]} />
+          </div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-white/40 mb-1.5">Locations</p>
+          {locations.length > 0 && (
+            <ul className="mb-2">
+              {locations.map((l, i) => (
+                <li key={locKey(l)} className="flex items-center gap-1">
+                  <span className="flex-1 truncate text-[12px] text-white/85 px-1 py-1.5">{l.name}</span>
+                  <button type="button" onClick={() => removeCity(i)} title="Remove" className="p-1 rounded text-white/30 hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form onSubmit={addCity} className="flex items-center gap-1.5">
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Add a city…" className="flex-1 min-w-0 rounded-md bg-white/10 px-2 py-1.5 text-[12px] text-white outline-none placeholder:text-white/35" />
+            <button type="submit" disabled={busy} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[12px] font-semibold text-white disabled:opacity-40" style={{ background: "var(--color-accent)" }}>
+              <Plus className="w-3.5 h-3.5" /> {busy ? "…" : "Add"}
+            </button>
+          </form>
+          {err && <p className="text-[11px] text-rose-400 mt-1.5">Couldn't find that city — try another.</p>}
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// Public-screen TICKER: a fixed number of scrolling lines (not one per source).
+// Headlines from every selected feed — org GOALS (device_org_goals RPC) + news
+// (news-feed edge fn, server-side RSS proxy) — are interleaved and spread across
+// the lines, each prefixed with its source (category ICON + name). Line count,
+// speed, text size, and sources are set in a modal, persisted per-device. Each
+// line's track holds its items twice → a seamless -50% loop, pausing on hover.
+const TICKER_KEY = "ql_device_ticker";
+const TICKER_DEFAULTS = { lines: ["goals", "bbc-world", "hn"], rows: 3, speed: "normal", size: "md" };
+function loadCfg() {
+  try {
+    const v = JSON.parse(localStorage.getItem(TICKER_KEY) || "null") || {};
+    return {
+      lines: Array.isArray(v.lines) && v.lines.length ? v.lines : TICKER_DEFAULTS.lines,
+      rows: [1, 2, 3, 4, 5].includes(v.rows) ? v.rows : TICKER_DEFAULTS.rows,
+      speed: ["slow", "normal", "fast"].includes(v.speed) ? v.speed : TICKER_DEFAULTS.speed,
+      size: ["sm", "md", "lg"].includes(v.size) ? v.size : TICKER_DEFAULTS.size,
+    };
+  } catch { return { ...TICKER_DEFAULTS }; }
+}
+function saveCfg(cfg) { try { localStorage.setItem(TICKER_KEY, JSON.stringify(cfg)); } catch { /* */ } }
+
+const SPEED_FACTOR = { slow: 1.7, normal: 1, fast: 0.55 };
+const SIZE_CLASS = { sm: "text-[11px]", md: "text-[13px]", lg: "text-[15px]" };
+const CATEGORY_ICON = {
+  goals: Target, World: Globe, US: Flag, Business: Briefcase, Tech: Cpu,
+  Science: FlaskConical, Health: HeartPulse, Sports: Trophy, Culture: Clapperboard,
+};
+
+// One scrolling row. `items` = [{ source, category, title }]; the source shows
+// inline (category icon + name) before each headline. Duration scales with
+// content length × the speed factor.
+function TickerRow({ items, speedFactor, sizeClass }) {
+  const totalChars = items.reduce((n, it) => n + (it.source?.length || 0) + (it.title?.length || 0) + 8, 0);
+  const duration = Math.max(18, Math.round((totalChars / 7) * speedFactor));
   return (
     <div className="flex items-center border-b border-white/[0.06] last:border-b-0 overflow-hidden" style={{ flex: "1 1 0", minHeight: 0 }}>
-      <span className="shrink-0 self-stretch inline-flex items-center px-2.5 w-[104px] bg-white/[0.05] text-[var(--color-accent)]">
-        <span className="text-[9px] font-bold uppercase tracking-wider truncate">{label}</span>
-      </span>
       <div className="relative flex-1 min-w-0 overflow-hidden">
         {items.length === 0 ? (
-          <span className="pl-3 text-[11px] text-slate-600">—</span>
+          <span className={`pl-3 text-slate-600 ${sizeClass}`}>—</span>
         ) : (
           <div className="mango-ticker-track" style={{ animationDuration: `${duration}s` }}>
             {[0, 1].map((dup) => (
               <span key={dup} className="inline-flex items-center" aria-hidden={dup === 1}>
-                {items.map((it, i) => (
-                  <span key={`${dup}-${i}`} className="inline-flex items-center text-[12px] text-white/80">
-                    <span className="mx-4 w-1 h-1 rounded-full bg-[var(--color-accent)] shrink-0" />
-                    {it.title}
-                    {it.tag && <span className="ml-1.5 text-[10px] text-white/40">— {it.tag}</span>}
-                  </span>
-                ))}
+                {items.map((it, i) => {
+                  const Icon = CATEGORY_ICON[it.category] || Newspaper;
+                  return (
+                    <span key={`${dup}-${i}`} className={`inline-flex items-center ${sizeClass} text-white/80`}>
+                      <span className="ml-5 mr-1.5 inline-flex items-center gap-1 text-[var(--color-accent)] font-semibold">
+                        <Icon className="w-[1.1em] h-[1.1em] shrink-0" />
+                        <span className="uppercase tracking-wide text-[0.82em] whitespace-nowrap">{it.source}</span>
+                      </span>
+                      <span className="mr-2 text-white/25">·</span>
+                      <span className="whitespace-nowrap">{it.title}</span>
+                    </span>
+                  );
+                })}
               </span>
             ))}
           </div>
@@ -395,13 +491,39 @@ function TickerToggle({ label, on, onClick }) {
   );
 }
 
+// Small segmented control (line count / speed / text size).
+function SegChoice({ label, value, options, onChange }) {
+  return (
+    <div className="flex items-center justify-between gap-2 mb-2 last:mb-0">
+      <span className="text-[11px] text-white/60">{label}</span>
+      <div className="inline-flex p-0.5 rounded-lg bg-white/5">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${
+              value === o.value ? "bg-[var(--color-accent)] text-white" : "text-white/55 hover:text-white/90"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DeviceTickerPanel() {
-  const [lines, setLines] = useState(loadLines);
+  const [cfg, setCfg] = useState(loadCfg);
   const [newsByKey, setNewsByKey] = useState({});
   const [available, setAvailable] = useState([]); // [{ key, name, category }]
   const [goals, setGoals] = useState([]);
   const [picking, setPicking] = useState(false);
 
+  usePanelConfig("mango:cfg:ticker", () => setPicking(true));
+
+  const { lines, rows, speed, size } = cfg;
   const newsKeys = lines.filter((l) => l !== "goals");
   const wantGoals = lines.includes("goals");
   const newsSig = newsKeys.join(",");
@@ -410,7 +532,7 @@ function DeviceTickerPanel() {
     let alive = true;
     const load = async () => {
       try {
-        const { data } = await supabase.functions.invoke("news-feed", { body: { keys: newsKeys } });
+        const { data } = await supabase.functions.invoke("news-feed", { body: { keys: newsSig ? newsSig.split(",") : [] } });
         if (!alive) return;
         const map = {};
         for (const f of data?.feeds || []) map[f.key] = f;
@@ -421,7 +543,6 @@ function DeviceTickerPanel() {
     load();
     const id = setInterval(load, 12 * 60 * 1000);
     return () => { alive = false; clearInterval(id); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newsSig]);
 
   useEffect(() => {
@@ -436,43 +557,60 @@ function DeviceTickerPanel() {
     return () => { alive = false; clearInterval(id); };
   }, [wantGoals]);
 
+  const update = (patch) => setCfg((c) => { const next = { ...c, ...patch }; saveCfg(next); return next; });
   const toggle = (id) => {
-    setLines((cur) => {
-      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
-      const final = next.length ? next : ["goals"];
-      saveLines(final);
-      return final;
-    });
+    const next = lines.includes(id) ? lines.filter((x) => x !== id) : [...lines, id];
+    update({ lines: next.length ? next : lines });
   };
 
-  const goalItems = goals.map((g) => ({ title: g.body, tag: g.owner_name || null }));
+  const catByKey = useMemo(() => Object.fromEntries(available.map((a) => [a.key, a.category])), [available]);
+
+  // Interleave every selected feed's items (round-robin so no source dominates),
+  // then spread that pool across the fixed rows.
+  const rowItems = useMemo(() => {
+    const feeds = [];
+    if (wantGoals) feeds.push({ source: "Goals", category: "goals", items: goals.map((g) => ({ title: g.body })) });
+    for (const k of newsSig ? newsSig.split(",") : []) {
+      const f = newsByKey[k];
+      if (f?.items?.length) feeds.push({ source: f.source, category: catByKey[k] || "News", items: f.items });
+    }
+    const pooled = [];
+    const max = Math.max(0, ...feeds.map((f) => f.items.length));
+    for (let i = 0; i < max; i++) {
+      for (const f of feeds) if (f.items[i]) pooled.push({ source: f.source, category: f.category, title: f.items[i].title });
+    }
+    const buckets = Array.from({ length: rows }, () => []);
+    pooled.forEach((it, i) => buckets[i % rows].push(it));
+    return buckets;
+  }, [newsByKey, goals, catByKey, rows, newsSig, wantGoals]);
+
   const cats = [...new Set(available.map((a) => a.category))];
+  const speedFactor = SPEED_FACTOR[speed] || 1;
+  const sizeClass = SIZE_CLASS[size] || SIZE_CLASS.md;
+  const hasAny = rowItems.some((b) => b.length);
 
   return (
     <div className="relative w-full h-full bg-slate-950 text-white flex flex-col overflow-hidden">
-      {lines.length === 0 ? (
-        <div className="flex-1 flex items-center pl-3 text-[12px] text-slate-500">Add lines with the gear.</div>
+      {!hasAny ? (
+        <div className="flex-1 flex items-center pl-3 text-[12px] text-slate-500">
+          {lines.length === 0 ? "Add sources with the gear." : "Loading…"}
+        </div>
       ) : (
-        lines.map((l) => {
-          if (l === "goals") return <TickerLine key="goals" label="Goals" items={goalItems} />;
-          const f = newsByKey[l];
-          const label = f?.source || available.find((a) => a.key === l)?.name || l;
-          return <TickerLine key={l} label={label} items={f?.items || []} />;
-        })
+        rowItems.map((items, i) => <TickerRow key={i} items={items} speedFactor={speedFactor} sizeClass={sizeClass} />)
       )}
-      <button
-        type="button"
-        onClick={() => setPicking(true)}
-        title="Configure ticker"
-        className="absolute top-1 right-1 z-20 p-1 rounded-md text-white/25 hover:text-white/80 bg-slate-950/70"
-      >
-        <Settings2 className="w-3.5 h-3.5" />
-      </button>
       <Modal open={picking} onClose={() => setPicking(false)} overlayClassName="z-[300] bg-black/60">
         <div onClick={(e) => e.stopPropagation()} className="w-[min(92vw,440px)] max-h-[82vh] overflow-auto rounded-2xl bg-slate-900 ring-1 ring-white/10 shadow-2xl p-4 text-white dark">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Ticker lines</h3>
+            <h3 className="text-sm font-semibold">Ticker</h3>
             <button type="button" onClick={() => setPicking(false)} className="text-[12px] font-semibold text-[var(--color-accent)]">Done</button>
+          </div>
+          <div className="rounded-xl bg-white/[0.03] p-2.5 mb-3">
+            <SegChoice label="Lines" value={rows} onChange={(v) => update({ rows: v })}
+              options={[1, 2, 3, 4, 5].map((n) => ({ value: n, label: String(n) }))} />
+            <SegChoice label="Speed" value={speed} onChange={(v) => update({ speed: v })}
+              options={[{ value: "slow", label: "Slow" }, { value: "normal", label: "Normal" }, { value: "fast", label: "Fast" }]} />
+            <SegChoice label="Text size" value={size} onChange={(v) => update({ size: v })}
+              options={[{ value: "sm", label: "S" }, { value: "md", label: "M" }, { value: "lg", label: "L" }]} />
           </div>
           <p className="text-[10px] font-bold uppercase tracking-wider text-white/40 mb-1.5">Updates</p>
           <div className="grid grid-cols-2 gap-1.5 mb-3">
@@ -535,6 +673,7 @@ export const DEVICE_PANELS = {
     title: "Weather",
     icon: CloudSun,
     min: 200,
+    headerActions: () => <HeaderGear event="mango:cfg:weather" title="Weather settings" />,
     render: () => <DeviceWeatherPanel />,
   },
   news: {
@@ -544,6 +683,7 @@ export const DEVICE_PANELS = {
     // Low min so it can be a thin full-width banner (a line per feed — goals +
     // news) across the bottom via the outer-edge stretch.
     min: 96,
+    headerActions: () => <HeaderGear event="mango:cfg:ticker" title="Ticker settings" />,
     render: () => <DeviceTickerPanel />,
   },
   chat: {
