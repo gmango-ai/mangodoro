@@ -4,6 +4,37 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-14
+
+### New & improved
+
+- feat(kiosk): ticker fixed-lines + inline sources/icons; settings in headers; multi-city weather
+- feat(kiosk): save & switch named layouts
+- feat(kiosk): unified Ticker (goals + news), modal picker, more sources
+- feat(kiosk): multi-line news ticker — a scrolling line per source
+- feat(office): drop a panel at the outer edge to stretch it full-span
+- feat(kiosk): news ticker (server-side RSS proxy)
+- feat(kiosk): weather panel (Open-Meteo, keyless)
+- feat(office): hallway floor plan scales to fit + team list to the side
+- feat(kiosk): full team roster (everyone's location) replaces "Who's here"
+- feat(kiosk): dark tile chrome, Add menu + Lock (hide bars), drop quick toggles
+- feat(kiosk): only connect the LiveKit call when a human is in it
+- feat(office): badge rooms with a live display on the hallway floor plan
+- feat(rooms): show "Room display on" in the pre-join when a kiosk is live
+- feat(kiosk): room meetings view + imminent-meeting alert with chime
+- feat(kiosk): status-aware "Who's here" roster on the device display
+- feat(video): respect incoming video native size to avoid crop/stretch
+- chore(db): repair migration history — align local files to applied remote stamps
+- feat(db): device kiosk SELECT on user_presence for its room's occupants
+
+### Fixes
+
+- Guard presence listeners before subscribe in useOfficeDisplays
+- Show connecting/error UI, fix display badge subscribe, fix roster room highlight
+- (video): grid highlights the speaker without reshuffling tiles
+- (presence): roster shows your room when viewing it + keeps in-room offline people
+- (video): kiosk tile parity via shared tileChrome (camera-off avatar, grid default, overflow)
+
 ## 2026-07-10
 
 ### New & improved
