@@ -72,7 +72,20 @@ describe("mergeOfficePresence", () => {
     const [m] = merge([row({ last_seen_at: ago(2 * HOUR) })], []);
     expect(m.online).toBe(false);
     expect(m.availability).toBe("away");
-    expect(m.locationRoomId).toBeNull(); // a stale room shouldn't show once absent
+    expect(m.locationRoomId).toBe("r"); // still "in" their room, just not live
+  });
+
+  it("keeps the room of an absent person (so they show 'in room, offline')", () => {
+    const [m] = merge([row({ last_seen_at: ago(13 * HOUR) })], []);
+    expect(m.availability).toBe("offline");
+    expect(m.locationKind).toBe("room");
+    expect(m.locationRoomId).toBe("r");
+  });
+
+  it("hides the room of an absent INVISIBLE person", () => {
+    const [m] = merge([row({ last_seen_at: ago(2 * HOUR), invisible: true })], []);
+    expect(m.locationKind).toBe("none");
+    expect(m.locationRoomId).toBeNull();
   });
 
   it("shows OFFLINE only after 12h absent", () => {
@@ -103,13 +116,13 @@ describe("mergeOfficePresence", () => {
     expect(merge([row()], [live()])).toHaveLength(1);
   });
 
-  it("uses identity for name/avatar of an absent person and hides their stale room", () => {
+  it("uses identity for name/avatar of an absent person and keeps their room", () => {
     const [m] = merge([row({ last_seen_at: ago(2 * HOUR) })], [], { u: { name: "Ida", avatar: "i.png" } });
     expect(m.online).toBe(false);
     expect(m.availability).toBe("away");
     expect(m.name).toBe("Ida");
     expect(m.avatar).toBe("i.png");
-    expect(m.locationRoomId).toBeNull();
+    expect(m.locationRoomId).toBe("r");
   });
 
   it("includes identity members never seen at all, as offline", () => {

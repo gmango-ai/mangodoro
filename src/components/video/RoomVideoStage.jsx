@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles, Volume2, VolumeX, Users, ChevronDown, Check } from "lucide-react";
+import { Video, VideoOff, Mic, MicOff, Settings, Eye, LogIn, ArrowLeft, X, Sparkles, Volume2, VolumeX, Users, ChevronDown, Check, MonitorPlay } from "lucide-react";
 import { usePreviewTracks, usePersistentUserChoices } from "@livekit/components-react";
 import "@livekit/components-styles";
 import { useTheme } from "../../context/ThemeContext";
@@ -391,7 +391,10 @@ function logPreviewError(e) {
 // recreating it per render is what made it flash black↔feed. Collapses to a
 // minimal card (avatar + Join) when the tile is squished. Device + toggle
 // choices persist (one-tap rejoin) and become the `choices` we hand to the call.
-function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, onBack, dark }) {
+function GreenRoom({ displayName, othersInCall, participants, deviceOnline, onJoin, onWatch, onBack, dark }) {
+  // The room is "live" — worth joining/watching — if a person OR a physical room
+  // display is already there, even when no human has joined the call yet.
+  const roomLive = othersInCall || deviceOnline;
   const {
     userChoices,
     saveAudioInputEnabled,
@@ -559,8 +562,11 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
         onClick={join}
         className="flex-1 inline-flex items-center justify-center gap-1.5 h-11 rounded-full bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white font-semibold shadow-lg"
       >
-        <LogIn className="w-4 h-4" /> {othersInCall ? "Join call" : "Start call"}
+        <LogIn className="w-4 h-4" /> {roomLive ? "Join call" : "Start call"}
       </button>
+      {/* Watch only when there's a live human call to watch. A display-on-only
+          room has no media until someone joins (the kiosk stays idle to save
+          resources), so you Join to wake it rather than Watch nothing. */}
       {othersInCall && (
         <button
           type="button"
@@ -594,7 +600,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-4 text-center">
           <UserAvatar url="" name={displayName} size={56} />
           <div className="text-white font-semibold text-sm">
-            {othersInCall ? `${participants?.length || ""} in call` : "Start the call"}
+            {othersInCall ? `${participants?.length || ""} in call` : deviceOnline ? "Room display live" : "Start the call"}
           </div>
           <div className="flex items-center gap-2">{micGroup}{camGroup}{inRoomBtn}</div>
           <div className="w-full max-w-[280px]">{joinRow}</div>
@@ -626,19 +632,32 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
             )}
           </div>
 
-          {othersInCall && (
-            <div className="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/45 backdrop-blur-sm text-white text-[11px] font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              {(participants?.length || 0) > 0 && (
-                <div className="flex -space-x-1.5">
-                  {(participants || []).slice(0, 3).map((p) => (
-                    <span key={p.user_id} className="ring-2 ring-black/40 rounded-full">
-                      <UserAvatar url="" name={p.display_name || "Member"} size={18} />
-                    </span>
-                  ))}
+          {roomLive && (
+            <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-1">
+              {othersInCall && (
+                <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/45 backdrop-blur-sm text-white text-[11px] font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  {(participants?.length || 0) > 0 && (
+                    <div className="flex -space-x-1.5">
+                      {(participants || []).slice(0, 3).map((p) => (
+                        <span key={p.user_id} className="ring-2 ring-black/40 rounded-full">
+                          <UserAvatar url="" name={p.display_name || "Member"} size={18} />
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {participants?.length || ""} in call
                 </div>
               )}
-              {participants?.length || ""} in call
+              {deviceOnline && (
+                <div
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-black/45 backdrop-blur-sm text-white text-[11px] font-semibold"
+                  title="A physical room display is live in this room — join to appear on it"
+                >
+                  <MonitorPlay className="w-3.5 h-3.5 text-emerald-300" />
+                  Room display on
+                </div>
+              )}
             </div>
           )}
 
@@ -667,7 +686,7 @@ function GreenRoom({ displayName, othersInCall, participants, onJoin, onWatch, o
 // the webcam); turning it on shows your processed self-view as the PiP so you can
 // check yourself before joining. Join upgrades spectate→publish in place with
 // these AV + background choices.
-function SpectatePreJoin({ displayName, participants = [], listen, onToggleListen, onJoin, onLeave }) {
+function SpectatePreJoin({ displayName, participants = [], deviceOnline, listen, onToggleListen, onJoin, onLeave }) {
   const {
     userChoices, saveAudioInputEnabled, saveVideoInputEnabled,
     saveAudioInputDeviceId, saveVideoInputDeviceId,
@@ -737,7 +756,7 @@ function SpectatePreJoin({ displayName, participants = [], listen, onToggleListe
       {/* "You're watching" pill, top-left, over the live call. */}
       <div className="absolute top-3 left-3 z-40 inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-black/55 backdrop-blur text-white text-[11px] font-semibold pointer-events-none">
         <Eye className="w-3.5 h-3.5 opacity-80" />
-        Watching{participants.length ? ` · ${participants.length} in call` : ""}
+        Watching{participants.length ? ` · ${participants.length} in call` : deviceOnline ? " · room display on" : ""}
       </div>
 
       {/* Optional self-preview PiP (only when you turn your camera on to check
@@ -865,6 +884,7 @@ export default function RoomVideoStage({ roomId, displayName }) {
     mode: inCall && !spectating ? "join" : "observe",
   });
   const othersInCall = observed.isAnyoneInCall;
+  const deviceOnline = observed.deviceOnline;
 
   const join = (choices) => startCall(roomId, displayName, { mode: "join", choices });
   const watch = () => startCall(roomId, displayName, { mode: "spectate" });
@@ -890,8 +910,9 @@ export default function RoomVideoStage({ roomId, displayName }) {
         <div ref={stageRef} className="absolute inset-0" />
         {spectating && (
           <SpectatePreJoin
+            deviceOnline={observed.deviceOnline}
             displayName={displayName}
-            participants={observed.participants}
+            participants={observed.humans}
             listen={call?.listen === true}
             onToggleListen={() => updateCall({ listen: !(call?.listen === true) })}
             onJoin={(choices) => updateCall({ mode: "join", choices })}
@@ -917,7 +938,8 @@ export default function RoomVideoStage({ roomId, displayName }) {
     <GreenRoom
       displayName={displayName}
       othersInCall={othersInCall}
-      participants={observed.participants}
+      participants={observed.humans}
+      deviceOnline={deviceOnline}
       onJoin={(choices) => join(choices)}
       onWatch={watch}
       onBack={null}

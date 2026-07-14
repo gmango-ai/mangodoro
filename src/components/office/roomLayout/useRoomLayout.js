@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PRESETS, DEFAULT_PRESET } from "./presets";
-import { leaf, split, setRatioAt, sanitize, movePanelInTree, addPanelToTree, addPanelAtTree, removeAt, findPath, panelsIn, placementOf, restorePlacement } from "./layoutTree";
+import { leaf, split, setRatioAt, sanitize, movePanelInTree, addPanelToTree, addPanelAtTree, addPanelAtRoot, movePanelToRoot, removeAt, findPath, panelsIn, placementOf, restorePlacement } from "./layoutTree";
 
 // Where a quick-added panel prefers to enter, given what's already shown.
 // Whiteboard is the big canvas (left, larger share); chat hugs the right;
@@ -80,6 +80,38 @@ export function useRoomLayout(roomId, available, opts = {}) {
     } catch { /* */ }
   }, [roomId, keyPrefix, state]);
 
+  // ── Saved (named) layouts ────────────────────────────────────
+  // Reusable arrangements the user names + switches between, stored per-device
+  // (not per-room, so a saved layout applies to any room). { name: tree }.
+  const savedKey = `${keyPrefix}:saved`;
+  const [saved, setSaved] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(savedKey) || "{}") || {}; } catch { return {}; }
+  });
+  useEffect(() => {
+    try { setSaved(JSON.parse(localStorage.getItem(savedKey) || "{}") || {}); } catch { setSaved({}); }
+  }, [savedKey]);
+  const persistSaved = (next) => { try { localStorage.setItem(savedKey, JSON.stringify(next)); } catch { /* */ } };
+  // Latest tree without adding it to the save callback's deps.
+  const treeRef = useRef(state.tree);
+  treeRef.current = state.tree;
+
+  const saveLayout = useCallback((name) => {
+    const nm = (name || "").trim();
+    if (!nm) return;
+    setSaved((prev) => { const next = { ...prev, [nm]: treeRef.current }; persistSaved(next); return next; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey]);
+  const applyLayout = useCallback((name) => {
+    const t = saved[name];
+    if (!t) return;
+    const clean = sanitize(t, availRef.current);
+    if (clean) setState((s) => ({ ...s, tree: clean, presetId: "custom" }));
+  }, [saved]);
+  const deleteLayout = useCallback((name) => {
+    setSaved((prev) => { const next = { ...prev }; delete next[name]; persistSaved(next); return next; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey]);
+
   // Remember a panel's current spot before it leaves the tree, so toggling
   // it back on can restore that position.
   const remember = (s, panel) => {
@@ -100,6 +132,14 @@ export function useRoomLayout(roomId, available, opts = {}) {
   }, []);
   const addPanelAt = useCallback((panel, target, side) => {
     setState((s) => ({ ...s, tree: addPanelAtTree(s.tree, panel, target, side), presetId: "custom" }));
+  }, []);
+  // Full-span root banners — stretch a panel across the whole top/bottom (or the
+  // full height left/right) instead of splitting one tile.
+  const moveToRoot = useCallback((panel, side) => {
+    setState((s) => ({ ...s, tree: movePanelToRoot(s.tree, panel, side), presetId: "custom" }));
+  }, []);
+  const addAtRoot = useCallback((panel, side) => {
+    setState((s) => ({ ...s, tree: addPanelAtRoot(s.tree, panel, side), presetId: "custom" }));
   }, []);
   const closePanel = useCallback((panel) => {
     setState((s) => {
@@ -128,5 +168,9 @@ export function useRoomLayout(roomId, available, opts = {}) {
     });
   }, []);
 
-  return { tree: state.tree, presetId: state.presetId, applyPreset, reset, setRatio, movePanel, addPanel, addPanelAt, closePanel, togglePanel };
+  return {
+    tree: state.tree, presetId: state.presetId, applyPreset, reset, setRatio,
+    movePanel, addPanel, addPanelAt, moveToRoot, addAtRoot, closePanel, togglePanel,
+    savedLayouts: Object.keys(saved), saveLayout, applyLayout, deleteLayout,
+  };
 }

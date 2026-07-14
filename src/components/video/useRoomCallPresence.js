@@ -9,12 +9,17 @@ import { supabase } from "../../supabase";
 //
 // Mode:
 //   "observe" → subscribe + read only; don't track presence
-//   "join"    → also broadcast my presence ({ user_id, display_name })
+//   "join"    → also broadcast my presence ({ user_id, display_name, is_device })
 //
 // Two clients: an "observer" sees who's in the call before they
 // click Join. Once they click and the VideoCall component mounts,
 // we flip to "join" mode so others see us.
-export function useRoomCallPresence({ roomId, userId, displayName, mode = "observe" }) {
+//
+// `isDevice` marks a kiosk/room-display's presence so a member can tell — from
+// the pre-join, before connecting — that a physical display is live in the room
+// (the kiosk publishes to LiveKit but a member only discovers it after joining).
+// Devices are surfaced separately (deviceOnline) and kept OUT of the human count.
+export function useRoomCallPresence({ roomId, userId, displayName, mode = "observe", isDevice = false }) {
   const [participants, setParticipants] = useState([]);
 
   useEffect(() => {
@@ -63,6 +68,7 @@ export function useRoomCallPresence({ roomId, userId, displayName, mode = "obser
         await channel.track({
           user_id: userId,
           display_name: displayName || "",
+          is_device: isDevice,
         });
       }
     });
@@ -70,17 +76,21 @@ export function useRoomCallPresence({ roomId, userId, displayName, mode = "obser
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [roomId, userId, mode, displayName]);
+  }, [roomId, userId, mode, displayName, isDevice]);
 
-  const isAnyoneInCall = participants.length > 0;
+  // People vs devices: the human count/avatars drive "N in call"; a live kiosk is
+  // reported separately (deviceOnline) so it never inflates the human count.
+  const humans = useMemo(() => participants.filter((p) => !p.is_device), [participants]);
+  const deviceOnline = useMemo(() => participants.some((p) => p.is_device), [participants]);
+  const isAnyoneInCall = humans.length > 0;
   const amIInCall = useMemo(
     () => participants.some((p) => p.user_id === userId),
     [participants, userId]
   );
   const others = useMemo(
-    () => participants.filter((p) => p.user_id !== userId),
-    [participants, userId]
+    () => humans.filter((p) => p.user_id !== userId),
+    [humans, userId]
   );
 
-  return { participants, isAnyoneInCall, amIInCall, others };
+  return { participants, humans, deviceOnline, isAnyoneInCall, amIInCall, others };
 }

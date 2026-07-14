@@ -745,6 +745,14 @@ html.electron-popover body::before {
 .call-hand-wave { animation: call-hand-wave 2.4s ease-in-out infinite; transform-origin: 65% 80%; }
 @media (prefers-reduced-motion: reduce) { .call-hand-wave { animation: none; } }
 
+/* Kiosk news ticker — the track holds the headlines TWICE, so translating it
+   left by half its width scrolls seamlessly. Duration is set inline per content
+   length. Pauses on hover so an operator can read a headline. */
+@keyframes mango-ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.mango-ticker-track { display: inline-flex; white-space: nowrap; animation: mango-ticker linear infinite; }
+.mango-ticker-track:hover { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .mango-ticker-track { animation: none; } }
+
 /* The device-chooser caret next to mic/camera → a slim, secondary control that
    tucks against its button instead of reading as a third equal circle. */
 [data-lk-theme] .lk-caret-btn {

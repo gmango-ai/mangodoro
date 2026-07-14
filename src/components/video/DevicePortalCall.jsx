@@ -1,7 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import {
   LiveKitRoom,
-  ParticipantTile,
   RoomAudioRenderer,
   useTracks,
   useRoomContext,
@@ -62,25 +61,43 @@ import AdaptiveStage from "./AdaptiveStage";
 import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
 import { useGlobalPin } from "./useGlobalPin";
 import { useFullscreen } from "./useFullscreen";
+import { refKey, KioskParticipantTile, rankTiles, capFor, AudienceRow } from "./tileChrome";
 
-const refKey = (t) => (t ? `${t.participant?.identity || ""}:${t.source}` : "");
+// Track the stage's own size so a big call can spill its overflow into the
+// audience row (same threshold logic the member grid uses).
+function useStageSize(ref) {
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const apply = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return size;
+}
 
-// Kiosk display layouts. "auto" keeps the adaptive behaviour (even grid for a
-// small call, else a spotlight + filmstrip); "grid" forces equal tiles; and
-// "spotlight" shows only the focused tile (no filmstrip) for a single big face
-// on the wall. Persisted per device so a paired display keeps its choice.
-const PORTAL_LAYOUTS = ["auto", "grid", "spotlight"];
+// Kiosk display layouts. "grid" (the default for a wall display) shows everyone
+// in an even grid — a screen share or a pin still promotes a focus, and the
+// speaking ring marks who's talking so grid stays glanceable. "spotlight" shows
+// only the focused tile (the active speaker when Follow is on) for a single big
+// face. "auto" keeps the adaptive middle ground (even grid for a small call,
+// else focus + filmstrip). Persisted per device so a paired display keeps its
+// choice; the order below is also the tap-to-cycle order.
+const PORTAL_LAYOUTS = ["grid", "spotlight", "auto"];
 const PORTAL_LAYOUT_META = {
-  auto: { label: "Auto", Icon: Presentation },
   grid: { label: "Grid", Icon: LayoutGrid },
   spotlight: { label: "Spotlight", Icon: Focus },
+  auto: { label: "Auto", Icon: Presentation },
 };
 function loadDevLayout(storageKey) {
   try {
     const v = localStorage.getItem(storageKey);
-    return PORTAL_LAYOUTS.includes(v) ? v : "auto";
+    return PORTAL_LAYOUTS.includes(v) ? v : "grid";
   } catch {
-    return "auto";
+    return "grid";
   }
 }
 
@@ -148,7 +165,7 @@ function useDeviceRoles() {
 // cameras or a screen share, it switches to a spotlight (the screen share, else
 // the active speaker, else the first person) with the rest in a filmstrip — the
 // glanceable "who's talking" framing you want on a big communal display.
-function PortalStage({ layoutMode = "auto", followSpeaker = true }) {
+function PortalStage({ layoutMode = "grid", followSpeaker = true }) {
   const { localParticipant } = useLocalParticipant();
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], { onlySubscribed: false });
   const screens = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }], { onlySubscribed: false });
@@ -156,6 +173,8 @@ function PortalStage({ layoutMode = "auto", followSpeaker = true }) {
   // Follow the same admin "pin for everyone" the member call obeys, so a pinned
   // presenter shows on the wall display too.
   const globalPinId = useGlobalPin();
+  const rootRef = useRef(null);
+  const { w, h } = useStageSize(rootRef);
 
   // The kiosk publishes the room's mic, so its own mic keeps it in the active-
   // speaker list (room noise + the call audio echoing back through the speakers).
@@ -195,22 +214,61 @@ function PortalStage({ layoutMode = "auto", followSpeaker = true }) {
     }
   }
 
-  // Spotlight shows ONLY the focused tile (no filmstrip); the others keep their
-  // filmstrip alongside the focus.
+  // Order the tiles so the ones that matter stay visible when the grid is full:
+  // screen shares / pins first, then the active speaker, then cameras-on, then
+  // cameras-off. When "Follow" is off we keep it fully static (no speaker
+  // promotion) so the wall framing doesn't jump around on its own.
+  const rankOpts = {
+    featuredId: followSpeaker ? featuredId : null,
+    speaking: followSpeaker ? remoteSpeaking : [],
+    globalPinId,
+    pinnedTrackKey: null,
+  };
+
+  // Spotlight shows ONLY the focused tile; a filmstrip focus keeps the rest
+  // alongside; a pure grid (no focus) spills its overflow into the audience row
+  // once there are more faces than fit at a comfortable size — so a big call on
+  // the wall degrades gracefully instead of shrinking every tile to a postage
+  // stamp.
   const spotlightOnly = layoutMode === "spotlight" && !!focus;
-  const ordered = spotlightOnly
-    ? [focus]
-    : focus
-      ? [focus, ...cameras.filter((t) => t !== focus)]
-      : cameras;
+  const AUDIENCE_H = 80;
+  let stageTiles;
+  let audienceTiles = [];
+  if (spotlightOnly) {
+    stageTiles = [focus];
+  } else if (focus) {
+    stageTiles = [focus, ...rankTiles(cameras.filter((t) => t !== focus), rankOpts)];
+  } else {
+    const ordered = rankTiles(cameras, rankOpts);
+    if (ordered.length > capFor(w, h)) {
+      const cap = capFor(w, h - AUDIENCE_H);
+      stageTiles = ordered.slice(0, cap);
+      audienceTiles = ordered.slice(cap);
+    } else {
+      stageTiles = ordered;
+    }
+  }
+
+  // Native aspect per track (from the published video dimensions) so the solver
+  // can shape the big focus tile — e.g. an ultrawide or portrait screen share —
+  // to its real proportions instead of cropping it to the box.
+  const ratios = new Map();
+  for (const t of stageTiles) {
+    const d = t?.publication?.dimensions;
+    if (d?.width && d?.height) ratios.set(refKey(t), d.width / d.height);
+  }
 
   return (
-    <div className="relative w-full h-full">
-      <AdaptiveStage
-        tiles={ordered.map((t) => ({ key: refKey(t), content: <ParticipantTile trackRef={t} /> }))}
-        focusKey={focus ? refKey(focus) : null}
-        gap={12}
-      />
+    <div ref={rootRef} className="relative w-full h-full flex flex-col">
+      <div className="relative flex-1 min-h-0">
+        <AdaptiveStage
+          tiles={stageTiles.map((t) => ({ key: refKey(t), content: <KioskParticipantTile trackRef={t} /> }))}
+          focusKey={focus ? refKey(focus) : null}
+          ratios={ratios}
+          gap={12}
+        />
+      </div>
+      {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
     </div>
   );
 }
@@ -447,11 +505,29 @@ function DevicePortalInner() {
 // device is the room's default mic + speakers (DeviceClusterBeacon); a small,
 // clearly-labelled control cluster lets it manage its own mic/camera, the room
 // sound, and this display.
-export default function DevicePortalCall({ roomId, displayName }) {
+// Idle state — the kiosk is awake and announcing its presence (so the hallway /
+// pre-join still show "Room display on"), but it stays OFF the LiveKit call
+// while nobody's in it, to not publish camera/mic 24/7. It connects the moment
+// someone joins.
+function DeviceCallIdle() {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-slate-950 text-slate-500 select-none">
+      <ScanFace className="w-8 h-8 opacity-40" />
+      <p className="text-sm">Ready when you are</p>
+      <p className="text-[11px] text-slate-600">The display joins the call when someone drops in.</p>
+    </div>
+  );
+}
+
+export default function DevicePortalCall({ roomId, displayName, active = true }) {
   const [token, setToken] = useState(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    // Only mint a token + connect while `active` (someone's in the call). When
+    // idle, tear the token down so the LiveKitRoom below unmounts and the media
+    // connection closes — the resource saving.
+    if (!active) { setToken(null); setFailed(false); return undefined; }
     if (!roomId || !LIVEKIT_URL) { setFailed(true); return undefined; }
     let cancelled = false;
     setToken(null);
@@ -467,9 +543,15 @@ export default function DevicePortalCall({ roomId, displayName }) {
         .catch(() => { if (!cancelled) setFailed(true); });
     }, connectDelayFor(room));
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [roomId, displayName]);
+  }, [roomId, displayName, active]);
 
-  if (failed || !token) return null;
+  if (!active) return <DeviceCallIdle />;
+  if (failed || !token) return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-slate-950 text-slate-500 select-none">
+      <ScanFace className="w-8 h-8 opacity-40" />
+      <p className="text-sm">{failed ? "Could not connect" : "Connecting\u2026"}</p>
+    </div>
+  );
 
   return (
     <div data-lk-theme="default" className="w-full h-full bg-slate-900">

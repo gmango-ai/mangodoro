@@ -113,9 +113,11 @@ function PanelHeader({ dark, icon: Icon, title, narrow, maximized, draggable, on
 // above the fixed video host). In it you can: drag a tile onto another's
 // edge to split / center to swap; drag a tile into the toolbox to remove
 // it; or drag a panel out of the toolbox onto a tile edge to add it.
-export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioChange, arranging, onMove, onAddAt, onClose }) {
+export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioChange, arranging, onMove, onAddAt, onMoveToRoot, onAddAtRoot, onClose, dark: darkProp, locked = false }) {
   const { theme } = useTheme();
-  const dark = theme === "dark";
+  // Explicit `dark` wins (the kiosk is always dark but doesn't drive ThemeContext,
+  // which otherwise left the tile chrome rendering light on a dark display).
+  const dark = darkProp ?? (theme === "dark");
   const containerRef = useRef(null);
   const toolboxRef = useRef(null);
   const [rect, setRect] = useState({ top: 0, left: 0, w: 0, h: 0 });
@@ -231,6 +233,20 @@ export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioCha
           return;
         }
       }
+      // Near the OUTER edge of the whole layout → a full-span root banner
+      // (stretch across the entire top/bottom or the full-height left/right),
+      // as long as there's more than one tile to span over.
+      const M = 24;
+      if (leavesRef.current.length > 1) {
+        const nl = px < M, nr = px > c.width - M, nt = py < M, nb = py > c.height - M;
+        if (nl || nr || nt || nb) {
+          const dl = nl ? px : Infinity, dr = nr ? c.width - px : Infinity, dt = nt ? py : Infinity, db = nb ? c.height - py : Infinity;
+          const m = Math.min(dl, dr, dt, db);
+          const side = m === dt ? "top" : m === db ? "bottom" : m === dl ? "left" : "right";
+          setDrop({ kind: "root", side });
+          return;
+        }
+      }
       const hit = leavesRef.current.find((l) => hits(l.rect, px, py));
       if (!hit || (!moving.fromToolbox && hit.panel === moving.panel)) { setDrop(null); return; }
       const zone = moving.fromToolbox ? edgeFor(hit.rect, px, py) : zoneFor(hit.rect, px, py);
@@ -239,7 +255,9 @@ export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioCha
     const onUp = () => {
       const d = dropRef.current;
       if (d) {
-        if (d.kind === "toolbox" && !moving.fromToolbox) onClose?.(moving.panel);
+        if (d.kind === "root" && moving.fromToolbox) onAddAtRoot?.(moving.panel, d.side);
+        else if (d.kind === "root") onMoveToRoot?.(moving.panel, d.side);
+        else if (d.kind === "toolbox" && !moving.fromToolbox) onClose?.(moving.panel);
         else if (d.kind === "tile" && moving.fromToolbox) onAddAt?.(moving.panel, d.panel, d.zone);
         else if (d.kind === "tile") onMove?.(moving.panel, d.panel, d.zone);
       }
@@ -255,7 +273,7 @@ export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioCha
       window.removeEventListener("pointercancel", onUp);
       document.body.style.userSelect = "";
     };
-  }, [moving, onMove, onAddAt, onClose]);
+  }, [moving, onMove, onAddAt, onMoveToRoot, onAddAtRoot, onClose]);
 
   const startTileDrag = (panel, e) => {
     e.preventDefault();
@@ -295,18 +313,22 @@ export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioCha
               transition: animate ? TILE_TRANSITION : "none",
             }}
           >
-            <PanelHeader
-              dark={dark}
-              icon={Icon}
-              title={panel?.title || l.panel}
-              narrow={narrow}
-              maximized={isMax}
-              draggable={!maximizedPanel}
-              onDragStart={(e) => startTileDrag(l.panel, e)}
-              onToggleMax={() => setMaximized(isMax ? null : l.panel)}
-              onClose={canClose ? () => { if (isMax) setMaximized(null); onClose?.(l.panel); } : undefined}
-              extra={panel?.headerActions ? panel.headerActions(ctx) : null}
-            />
+            {/* Locked (kiosk display mode): drop the tile chrome for a clean,
+                full-bleed view — no header, drag handle, or window controls. */}
+            {!locked && (
+              <PanelHeader
+                dark={dark}
+                icon={Icon}
+                title={panel?.title || l.panel}
+                narrow={narrow}
+                maximized={isMax}
+                draggable={!maximizedPanel}
+                onDragStart={(e) => startTileDrag(l.panel, e)}
+                onToggleMax={() => setMaximized(isMax ? null : l.panel)}
+                onClose={canClose ? () => { if (isMax) setMaximized(null); onClose?.(l.panel); } : undefined}
+                extra={panel?.headerActions ? panel.headerActions(ctx) : null}
+              />
+            )}
             <div className="relative flex-1 min-h-0">
               {panel ? panel.render(ctx) : null}
             </div>
@@ -317,7 +339,7 @@ export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioCha
       {/* Resize handles — available in normal AND arrange mode. They sit in
           the gaps between tiles; the arrange overlay passes pointer events
           through there, so dragging a divider still resizes while arranging. */}
-      {!maximizedPanel && dividers.map((d) => {
+      {!maximizedPanel && !locked && dividers.map((d) => {
         const horiz = d.dir === "row";
         return (
           <div
@@ -489,6 +511,29 @@ export default function RoomLayout({ tree, ctx, panels = ROOM_PANELS, onRatioCha
           className="fixed z-[100]"
           style={{ top: rect.top, left: rect.left, width: rect.w, height: rect.h, pointerEvents: "none" }}
         >
+          {/* Full-span root banner hint — a bar across the whole edge. */}
+          {moving && drop?.kind === "root" && (() => {
+            const t = 0.26;
+            const r =
+              drop.side === "top" ? { x: 0, y: 0, w: rect.w, h: rect.h * t } :
+              drop.side === "bottom" ? { x: 0, y: rect.h * (1 - t), w: rect.w, h: rect.h * t } :
+              drop.side === "left" ? { x: 0, y: 0, w: rect.w * t, h: rect.h } :
+              { x: rect.w * (1 - t), y: 0, w: rect.w * t, h: rect.h };
+            return (
+              <div
+                className="absolute rounded-xl border-2 border-dashed flex items-center justify-center"
+                style={{
+                  left: r.x, top: r.y, width: r.w, height: r.h,
+                  background: "color-mix(in srgb, var(--color-accent) 22%, transparent)",
+                  borderColor: "var(--color-accent)", pointerEvents: "none",
+                }}
+              >
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider text-white" style={{ background: "var(--color-accent)" }}>
+                  Stretch across {drop.side}
+                </span>
+              </div>
+            );
+          })()}
           {moving && dropTarget && (() => {
             const full = drop.zone === "center";
             const r = full ? dropTarget.rect : zoneRect(dropTarget.rect, drop.zone);

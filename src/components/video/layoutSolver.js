@@ -93,7 +93,7 @@ function layoutStrip(keys, ox, oy, w, h, gap, aspect, vertical, out) {
   }
 }
 
-export function solveLayout({ tiles, focusKey, focusKeys, width, height, gap = 8, aspect = 16 / 9 }) {
+export function solveLayout({ tiles, focusKey, focusKeys, width, height, gap = 8, aspect = 16 / 9, ratios = null }) {
   const out = new Map();
   const keys = tiles || [];
   if (!width || !height || keys.length === 0) return out;
@@ -108,10 +108,20 @@ export function solveLayout({ tiles, focusKey, focusKeys, width, height, gap = 8
     return out;
   }
 
-  // Fill a box with the focus tile(s): a single focus fills it exactly (content
-  // object-fits, no letterbox bars); two+ share it as an even aspect grid.
+  // Place the single focus tile at the video's NATIVE aspect, fit inside its box
+  // and centered — so a portrait phone / ultrawide-or-portrait screen share is
+  // shown whole, never cropped or stretched. Falls back to filling the box when
+  // the source aspect isn't known yet (then the tile's object-fit keeps it
+  // uncropped). Two foci still share the box as an even grid.
+  const fitFocus = (key, ox, oy, w, h) => {
+    const ar = ratios && ratios.get(key);
+    if (!ar || ar <= 0) { out.set(key, { x: ox, y: oy, w, h }); return; }
+    let tw = w, th = w / ar;
+    if (th > h) { th = h; tw = h * ar; }
+    out.set(key, { x: ox + (w - tw) / 2, y: oy + (h - th) / 2, w: tw, h: th });
+  };
   const placeFoci = (ox, oy, w, h) => {
-    if (foci.length === 1) out.set(foci[0], { x: ox, y: oy, w, h });
+    if (foci.length === 1) fitFocus(foci[0], ox, oy, w, h);
     else layoutGrid(foci, ox, oy, w, h, gap, aspect, out);
   };
 

@@ -8,6 +8,7 @@ export const PREF = {
   bgCustom: "ql_lk_bg_custom",
   noise: "ql_lk_noise",
   layout: "ql_lk_layout",
+  gridSort: "ql_lk_grid_sort", // grid resting order: "join" (arrival) | "name" (A–Z)
   autoMic: "ql_lk_automic",
   ptt: "ql_lk_ptt",
   speaker: "ql_lk_speaker", // saved audio-output deviceId (applied on call connect)

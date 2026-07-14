@@ -4,7 +4,7 @@ import { useTeam } from "../context/TeamContext";
 import UserAvatar from "./UserAvatar";
 import { availabilityDot, availabilityRing, shownAvailability } from "../lib/presence";
 import { usePresenceById } from "../hooks/usePresenceById";
-import { Briefcase, MessageSquare, Lock, LockOpen, Crown, Hash, Star } from "lucide-react";
+import { Briefcase, MessageSquare, Lock, LockOpen, Crown, Hash, Star, MonitorPlay } from "lucide-react";
 
 const KIND_ICON = {
   department: Briefcase,
@@ -72,7 +72,7 @@ function OccupantAvatar({ occupant, isLeader, userTeams, size = 28, presenceById
   );
 }
 
-export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size: sizeOverride, onOpen, locked = false, lockedReason }) {
+export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size: sizeOverride, onOpen, locked = false, lockedReason, displayOn = false }) {
   const { theme } = useTheme();
   const { teamsByUserId, restrictedRoomIds } = useTeam();
   const dark = theme === "dark";
@@ -176,6 +176,11 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
         style={tintStyle}
       >
         {LockBadge}
+        {displayOn && (
+          <span className="absolute top-1 left-1 text-emerald-500" title="A room display is live in here">
+            <MonitorPlay className="w-3 h-3" />
+          </span>
+        )}
         <div className="p-1.5 rounded-lg mb-1 bg-[var(--color-accent-light)] text-[var(--color-accent)]">
           <Icon className="w-3.5 h-3.5" />
         </div>
@@ -258,18 +263,29 @@ export default function RoomTile({ room, activeSession, vibe, busy, onJoin, size
             )}
           </p>
         </div>
-        {/* Top-right status. Mirror Huly's video-icon-when-in-session
-            convention; here it's the pomodoro timer icon. */}
-        {isOccupied && (
-          <span
-            className={`shrink-0 inline-flex items-center gap-0.5 text-[10px] font-bold ${
-              "text-[var(--color-accent)]"
-            }`}
-            title={`${modeLabel(activeSession.mode)} · ${timeLeft(activeSession)}`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
-            {timeLeft(activeSession)}
-          </span>
+        {/* Top-right status — a live-display badge and/or the pomodoro timer.
+            The display badge means a physical room display is streaming this
+            room right now (join to appear on it). */}
+        {(displayOn || isOccupied) && (
+          <div className="shrink-0 inline-flex items-center gap-1.5">
+            {displayOn && (
+              <span
+                className="inline-flex items-center text-emerald-500"
+                title="A room display is live in here — join to appear on it"
+              >
+                <MonitorPlay className="w-3.5 h-3.5" />
+              </span>
+            )}
+            {isOccupied && (
+              <span
+                className="inline-flex items-center gap-0.5 text-[10px] font-bold text-[var(--color-accent)]"
+                title={`${modeLabel(activeSession.mode)} · ${timeLeft(activeSession)}`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
+                {timeLeft(activeSession)}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
