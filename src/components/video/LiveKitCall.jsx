@@ -20,7 +20,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, ChevronUp, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, RotateCw, MoreHorizontal } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, ChevronUp, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, RotateCw, MoreHorizontal, Clock, ArrowDownAZ } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
@@ -44,7 +44,7 @@ import { createVoiceDetector } from "./autoMic";
 import AdaptiveStage from "./AdaptiveStage";
 import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
 import { useSquishedLayout } from "./useSquishedLayout";
-import { refKey, avatarGradient, getInitials, CameraOffAvatar, SpeakingRing, TileNamePill, rankTiles, capFor, AudienceRow, useAutoObjectFit } from "./tileChrome";
+import { refKey, avatarGradient, getInitials, CameraOffAvatar, SpeakingRing, TileNamePill, orderTilesStable, surfaceOverflowSpeakers, capFor, AudienceRow, useAutoObjectFit } from "./tileChrome";
 
 // LiveKit's client logs at "info" by default, which floods the console with
 // per-connection play-by-play (signal connecting, connection state changes,
@@ -1104,7 +1104,7 @@ function MicButton({ micMuted, deafened, onToggleMic }) {
 
 // Layout-mode picker (grid / presenter / spotlight). A small popover keyed off
 // the current mode's icon, replacing the old grid↔speaker toggle.
-function LayoutMenu({ mode, onSet, ignoreSelf, onToggleIgnoreSelf }) {
+function LayoutMenu({ mode, onSet, ignoreSelf, onToggleIgnoreSelf, gridSort, onSetGridSort }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -1185,6 +1185,32 @@ function LayoutMenu({ mode, onSet, ignoreSelf, onToggleIgnoreSelf }) {
               );
             })}
           </div>
+          {mode === "grid" && (
+            <>
+              <div className="my-1 border-t border-white/10" />
+              <div className="call-menu-label">Sort grid by</div>
+              {[
+                { id: "join", label: "Join time", Icon: Clock },
+                { id: "name", label: "Name (A–Z)", Icon: ArrowDownAZ },
+              ].map((it) => {
+                const sel = (gridSort || "join") === it.id;
+                return (
+                  <button
+                    key={it.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={sel}
+                    onClick={() => onSetGridSort?.(it.id)}
+                    className="call-menu-item"
+                  >
+                    <it.Icon className="w-4 h-4 opacity-70 shrink-0" />
+                    <span className="flex-1 truncate">{it.label}</span>
+                    {sel && <Check className="w-4 h-4 text-[var(--color-accent)] shrink-0" />}
+                  </button>
+                );
+              })}
+            </>
+          )}
           <div className="my-1 border-t border-white/10" />
           <SettingRow
             icon={UserX}
@@ -1251,6 +1277,7 @@ function CallControlBar({
   publish, tight, emote,
   layoutMode, onSetLayout,
   ignoreSelf, onToggleIgnoreSelf,
+  gridSort, onSetGridSort,
   bg, onChangeBg, customBg, onUploadBg,
   noiseEnabled, onToggleNoise,
   autoMic, onToggleAutoMic,
@@ -1340,7 +1367,7 @@ function CallControlBar({
       </button>
 
       {/* Layout picker (viewing — available whether or not you publish). */}
-      <LayoutMenu mode={layoutMode} onSet={onSetLayout} ignoreSelf={ignoreSelf} onToggleIgnoreSelf={onToggleIgnoreSelf} />
+      <LayoutMenu mode={layoutMode} onSet={onSetLayout} ignoreSelf={ignoreSelf} onToggleIgnoreSelf={onToggleIgnoreSelf} gridSort={gridSort} onSetGridSort={onSetGridSort} />
 
       {/* People / moderation roster. A badge surfaces raised hands when closed. */}
       <span className="relative inline-flex">
@@ -1978,7 +2005,7 @@ function FloatingSelfView({ trackRef, onDock }) {
 // not layout shape). A squished tile collapses to spotlight. Clicking a tile's
 // focus button pins it (LiveKit's LayoutContextProvider wires that into
 // ParticipantTile for free).
-function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, roomId, peopleOpen, onClosePeople }) {
+function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, gridSort, roomId, peopleOpen, onClosePeople }) {
   const tracks = useTracks(
     [
       { source: Track.Source.Camera, withPlaceholder: true },
@@ -2037,12 +2064,6 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   const forcedFocus = (pinned && pinned[0]) || globalPinTrack || screenTrack || null;
   const focusTrack = forcedFocus || speakerTrack || autoFocusFallback || null;
   const pinnedTrackKey = pinned?.[0] ? refKey(pinned[0]) : null;
-  const rankOpts = {
-    featuredId: featuredSpeakerForStage,
-    speaking,
-    globalPinId,
-    pinnedTrackKey,
-  };
 
   // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
   const squished = useSquishedLayout(w, h);
@@ -2084,7 +2105,8 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
   // focus + filmstrip; spotlight = focus only (or, when pinned, pin + live
   // speaker as two big tiles). In GRID mode, once there are more people than fit
   // at a comfortable size, the extras spill into the audience row (avatar chips)
-  // — rankTiles keeps screen shares, pins, and speakers visible in the grid cap.
+  // — the grid keeps a stable order (screen shares/pins first) and only surfaces
+  // an off-screen speaker; it never reshuffles the tiles already on screen.
   let stageTiles;
   let stageFocusKey = null;
   let stageFocusKeys = null;
@@ -2106,11 +2128,24 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, ro
     stageTiles = baseTiles;
     stageFocusKey = refKey(focusTrack);
   } else {
-    const ordered = rankTiles(baseTiles, rankOpts);
+    // Grid: a STABLE order that never reshuffles when someone talks — speaking
+    // only lights the tile's edge (SpeakingRing). Pins and screen shares still
+    // float to the front; everyone else follows the user's sort choice.
+    const ordered = orderTilesStable(baseTiles, { globalPinId, pinnedTrackKey, sortBy: gridSort });
     if (ordered.length > capFor(w, h)) {
       const cap = capFor(w, h - AUDIENCE_H);
-      stageTiles = ordered.slice(0, cap);
-      audienceTiles = ordered.slice(cap);
+      // The visible grid stays put, but a talking person who spilled into the
+      // audience row may pop into the grid (taking a quiet tile's slot) so you
+      // can still see who's speaking. The audience row keeps its stable order.
+      const visible = surfaceOverflowSpeakers(ordered.slice(0, cap), ordered.slice(cap), {
+        speakingIds: new Set(speaking.map((p) => p.identity)),
+        featuredId: featuredSpeakerForStage,
+        globalPinId,
+        pinnedTrackKey,
+      });
+      const visibleKeys = new Set(visible.map(refKey));
+      stageTiles = visible;
+      audienceTiles = ordered.filter((t) => !visibleKeys.has(refKey(t)));
     } else {
       stageTiles = ordered;
     }
@@ -2253,6 +2288,9 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
   // "Don't spotlight me" — exclude yourself from the featured-speaker view so you
   // never spotlight your own tile to yourself. Opt-in (default off).
   const [spotlightIgnoreSelf, setSpotlightIgnoreSelf] = useState(() => loadPref(PREF.spotlightIgnoreSelf, "0") === "1");
+  // Grid resting order (never reshuffled by who's talking): "join" (arrival) or
+  // "name" (A–Z). Persisted per device; default arrival order.
+  const [gridSort, setGridSort] = useState(() => (loadPref(PREF.gridSort, "join") === "name" ? "name" : "join"));
   // Background effect descriptor: "none" | "blur:<radius>" | "image:<id|custom>".
   const [bg, setBg] = useState(() => loadPref(PREF.bg, "none"));
   const [customBg, setCustomBg] = useState(() => loadPref(PREF.bgCustom, "") || null);
@@ -2294,6 +2332,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
 
   useEffect(() => savePref(PREF.layout, layoutMode), [layoutMode]);
   useEffect(() => savePref(PREF.spotlightIgnoreSelf, spotlightIgnoreSelf ? "1" : "0"), [spotlightIgnoreSelf]);
+  useEffect(() => savePref(PREF.gridSort, gridSort), [gridSort]);
   useEffect(() => savePref(PREF.bg, bg), [bg]);
   useEffect(() => savePref(PREF.noise, noiseEnabled ? "1" : "0"), [noiseEnabled]);
   useEffect(() => savePref(PREF.autoMic, autoMic ? "1" : "0"), [autoMic]);
@@ -2397,6 +2436,7 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
             onJoinIn={onJoinIn}
             layoutMode={layoutMode}
             spotlightIgnoreSelf={spotlightIgnoreSelf}
+            gridSort={gridSort}
             roomId={roomId}
             peopleOpen={peopleOpen}
             onClosePeople={() => setPeopleOpen(false)}
@@ -2453,6 +2493,8 @@ function ConferenceLayout({ compact, publish, onJoinIn, emote, roomId, micMuted,
               onSetLayout={setLayoutMode}
               ignoreSelf={spotlightIgnoreSelf}
               onToggleIgnoreSelf={() => setSpotlightIgnoreSelf((v) => !v)}
+              gridSort={gridSort}
+              onSetGridSort={setGridSort}
               bg={bg}
               onChangeBg={setBg}
               customBg={customBg}

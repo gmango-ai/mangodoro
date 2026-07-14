@@ -187,6 +187,68 @@ export function rankTiles(tracks, { featuredId, speaking, globalPinId, pinnedTra
     .map((x) => x.t);
 }
 
+// Grid order that NEVER depends on who's talking — so tiles don't jump around
+// when someone speaks. Speaking only lights the tile's edge (SpeakingRing), it
+// never moves anyone. Screen shares and pins still float to the front (those are
+// explicit, deliberate actions); everyone else is sorted by the caller's key —
+// "name" (A–Z) or "join" (arrival order) — with a final identity tiebreak so the
+// order is fully deterministic and never jitters between renders.
+export function orderTilesStable(tracks, { globalPinId, pinnedTrackKey, sortBy = "join" } = {}) {
+  const tier = (t) => {
+    if (t.source === Track.Source.ScreenShare) return 0;
+    const id = t.participant?.identity;
+    if (globalPinId && id === globalPinId) return 1;
+    if (pinnedTrackKey && refKey(t) === pinnedTrackKey) return 2;
+    const camOn = !!t.publication && !t.publication.isMuted;
+    return camOn ? 3 : 4;
+  };
+  const nameOf = (t) => (t.participant?.name || t.participant?.identity || "").toLowerCase();
+  const joinOf = (t) => t.participant?.joinedAt?.getTime?.() ?? 0;
+  const idOf = (t) => t.participant?.identity || "";
+  return tracks.slice().sort((a, b) => {
+    const dt = tier(a) - tier(b);
+    if (dt) return dt;
+    const primary = sortBy === "name"
+      ? nameOf(a).localeCompare(nameOf(b))
+      : joinOf(a) - joinOf(b);
+    return primary || idOf(a).localeCompare(idOf(b));
+  });
+}
+
+// Big grid: keep the visible tiles exactly where they are, but let a talking
+// person who spilled into the audience row pop INTO the grid by taking the slot
+// of a quiet (non-pinned, non-speaking) visible tile. Every other visible tile
+// stays put — the ONLY movement is surfacing an off-screen speaker. Returns a
+// new visible array (same length); the caller derives the audience row from
+// whatever's left so it keeps its stable order.
+export function surfaceOverflowSpeakers(visible, overflow, { speakingIds, featuredId, globalPinId, pinnedTrackKey } = {}) {
+  const speaks = (t) => {
+    const id = t.participant?.identity;
+    return !!id && (id === featuredId || (speakingIds && speakingIds.has(id)));
+  };
+  const surfacers = overflow.filter(speaks);
+  if (surfacers.length === 0) return visible;
+  const isProtected = (t) => {
+    if (t.source === Track.Source.ScreenShare) return true;
+    const id = t.participant?.identity;
+    if (globalPinId && id === globalPinId) return true;
+    if (pinnedTrackKey && refKey(t) === pinnedTrackKey) return true;
+    return false;
+  };
+  const next = visible.slice();
+  for (const s of surfacers) {
+    // Bump the LAST quiet, unprotected visible tile → the speaker lands in that
+    // slot (near the end of the grid), leaving every other tile in place.
+    let slot = -1;
+    for (let i = next.length - 1; i >= 0; i--) {
+      if (!isProtected(next[i]) && !speaks(next[i])) { slot = i; break; }
+    }
+    if (slot === -1) break; // grid is all pins/speakers — leave this one below
+    next[slot] = s;
+  }
+  return next;
+}
+
 // One overflow person — initials avatar with a speaking pulse. Speaking promotes
 // them back into the grid (rankTiles), so the pulse here is the "they're talking,
 // watch them pop up" cue.
