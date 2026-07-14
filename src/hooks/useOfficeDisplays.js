@@ -23,15 +23,15 @@ export function useOfficeDisplays(orgId) {
       }
       setRoomIds(s);
     };
-    channel.on("presence", { event: "sync" }, refresh);
-    channel.on("presence", { event: "join" }, refresh);
-    channel.on("presence", { event: "leave" }, refresh);
-    const alreadyLive = channel.state === "joined" || channel.state === "joining";
-    if (alreadyLive) {
+    if (channel.state === "joined" || channel.state === "joining") {
       refresh();
-    } else {
-      channel.subscribe();
+      return () => { /* prior cycle owns it */ };
     }
+    channel
+      .on("presence", { event: "sync" }, refresh)
+      .on("presence", { event: "join" }, refresh)
+      .on("presence", { event: "leave" }, refresh)
+      .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [orgId]);
   return roomIds;
