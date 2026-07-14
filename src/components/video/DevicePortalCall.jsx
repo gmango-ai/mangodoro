@@ -61,7 +61,7 @@ import AdaptiveStage from "./AdaptiveStage";
 import { useFeaturedSpeaker } from "./useFeaturedSpeaker";
 import { useGlobalPin } from "./useGlobalPin";
 import { useFullscreen } from "./useFullscreen";
-import { refKey, KioskParticipantTile, rankTiles, capFor, AudienceRow } from "./tileChrome";
+import { refKey, KioskParticipantTile, orderTilesStable, surfaceOverflowSpeakers, capFor, AudienceRow } from "./tileChrome";
 
 // Track the stage's own size so a big call can spill its overflow into the
 // audience row (same threshold logic the member grid uses).
@@ -214,16 +214,13 @@ function PortalStage({ layoutMode = "grid", followSpeaker = true }) {
     }
   }
 
-  // Order the tiles so the ones that matter stay visible when the grid is full:
-  // screen shares / pins first, then the active speaker, then cameras-on, then
-  // cameras-off. When "Follow" is off we keep it fully static (no speaker
-  // promotion) so the wall framing doesn't jump around on its own.
-  const rankOpts = {
-    featuredId: followSpeaker ? featuredId : null,
-    speaking: followSpeaker ? remoteSpeaking : [],
-    globalPinId,
-    pinnedTrackKey: null,
-  };
+  // The grid/filmstrip order NEVER reshuffles when someone talks — speaking only
+  // lights the tile's edge (KioskParticipantTile's speaking ring). Screen shares
+  // and pins still lead; everyone else holds a stable arrival order. "Follow
+  // active speaker" no longer reorders the grid — it only lets the spotlight tile
+  // chase the talker (above) and, in a full call, surfaces an off-screen speaker
+  // into the grid. With Follow off, the wall stays fully static.
+  const stableOpts = { globalPinId, pinnedTrackKey: null, sortBy: "join" };
 
   // Spotlight shows ONLY the focused tile; a filmstrip focus keeps the rest
   // alongside; a pure grid (no focus) spills its overflow into the audience row
@@ -237,13 +234,25 @@ function PortalStage({ layoutMode = "grid", followSpeaker = true }) {
   if (spotlightOnly) {
     stageTiles = [focus];
   } else if (focus) {
-    stageTiles = [focus, ...rankTiles(cameras.filter((t) => t !== focus), rankOpts)];
+    stageTiles = [focus, ...orderTilesStable(cameras.filter((t) => t !== focus), stableOpts)];
   } else {
-    const ordered = rankTiles(cameras, rankOpts);
+    const ordered = orderTilesStable(cameras, stableOpts);
     if (ordered.length > capFor(w, h)) {
       const cap = capFor(w, h - AUDIENCE_H);
-      stageTiles = ordered.slice(0, cap);
-      audienceTiles = ordered.slice(cap);
+      // Keep the visible grid put; only when Follow is on may a talking off-screen
+      // person pop into the grid (taking a quiet tile's slot). The audience row
+      // keeps its stable order.
+      const visible = followSpeaker
+        ? surfaceOverflowSpeakers(ordered.slice(0, cap), ordered.slice(cap), {
+            speakingIds: new Set(remoteSpeaking.map((p) => p.identity)),
+            featuredId,
+            globalPinId,
+            pinnedTrackKey: null,
+          })
+        : ordered.slice(0, cap);
+      const visibleKeys = new Set(visible.map(refKey));
+      stageTiles = visible;
+      audienceTiles = ordered.filter((t) => !visibleKeys.has(refKey(t)));
     } else {
       stageTiles = ordered;
     }
