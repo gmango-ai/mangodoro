@@ -81,6 +81,35 @@ export function logCallEvent(event, detail) {
   }
 }
 
+// Audio-path breadcrumb — for chasing "the call went silent" bugs (remote mic +
+// shared / screen-share audio). The usual culprits are DOM re-parenting pausing
+// the <audio> elements (PiP / Document-PiP pop-out moves the whole call host,
+// and moving a media element — audio included — pauses it), the follower audio
+// gate unsubscribing, or a bad output-sink selection. Prefixed `[audio]` so it
+// reads alongside `[call]` / `[livekit-diag]`.
+
+// Snapshot the play state of the <audio> elements under a host node. `paused`
+// (or `muted`) > 0 while the call is live and the participant is subscribed is
+// the signature of a silent call — the stream is arriving but not being heard.
+export function audioMediaSnapshot(host) {
+  const els = host && host.querySelectorAll ? [...host.querySelectorAll("audio")] : [];
+  return {
+    audio: els.length,
+    paused: els.filter((e) => e.paused).length,
+    muted: els.filter((e) => e.muted).length,
+    silent: els.filter((e) => e.volume === 0).length,
+    noStream: els.filter((e) => !e.srcObject && !e.src).length,
+  };
+}
+
+export function logAudioEvent(event, detail) {
+  try {
+    console.info(`[audio] ${event}`, detail ?? "");
+  } catch {
+    /* console unavailable — ignore */
+  }
+}
+
 // Build the full disconnect report: the reason + how long we lasted + the
 // lead-up timeline + the environment at drop time. Returned (not logged) so the
 // caller decides verbosity and can forward it to analytics.

@@ -6,7 +6,32 @@ import { useVideoCall } from "../../context/VideoCallContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
 import { useTheme } from "../../context/ThemeContext";
 import { cloneDocStyles, copyRootCustomProps } from "../pomodoro/PomodoroPipParts";
+import { audioMediaSnapshot, logAudioEvent } from "./livekitDiagnostics";
 import VideoCall from "./VideoCall";
+
+// Re-parenting the call host — between the page stage, the floating PiP, and the
+// Document-PiP window — pauses its media elements. Crucially that includes the
+// RoomAudioRenderer's <audio> (remote mic + shared/screen-share audio), not just
+// <video>: moving ANY media element across documents (or, for video, even
+// between parents) stops playback. Resume ALL of them, or a popped-out user goes
+// silent while still subscribed. Logs a before/after snapshot so a stuck-silent
+// call is visible in the console.
+function resumeHostMedia(host, where) {
+  if (!host) return;
+  const before = audioMediaSnapshot(host);
+  try {
+    host.querySelectorAll("video, audio").forEach((el) => {
+      const p = el.play?.();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    });
+  } catch {
+    /* */
+  }
+  if (before.audio > 0) {
+    // Report after a tick so play() has had a chance to take effect.
+    setTimeout(() => logAudioEvent(where, { before, after: audioMediaSnapshot(host) }), 300);
+  }
+}
 
 // Persistent container for the active room call. Lives at the AppLayout level so
 // it never unmounts when the user navigates — the LiveKit connection stays up.
@@ -126,7 +151,9 @@ export default function PersistentVideoCall() {
       host.style.cssText = IS_TOUCH ? PIP_HIDDEN_CSS : PIP_CSS;
       document.body.appendChild(host);
     }
-    try { host.querySelectorAll("video").forEach((v) => v.play?.().catch(() => {})); } catch { /* */ }
+    // Resume BOTH video and audio — a re-parent (incl. returning from a Document
+    // PiP pop-out) pauses the <audio> too, which would leave the call silent.
+    resumeHostMedia(host, "reparent");
     return undefined;
   }, [stageEl, call, poppedOut, maximized]);
 
@@ -152,8 +179,9 @@ export default function PersistentVideoCall() {
       b.style.background = "#0f172a";
       host.style.cssText = "position:absolute;inset:0;";
       b.appendChild(host);
-      // Moving a <video> across documents can pause it — nudge them back to play.
-      try { host.querySelectorAll("video").forEach((v) => v.play?.().catch(() => {})); } catch { /* */ }
+      // Moving media across documents pauses it — nudge BOTH video AND audio back
+      // to play, or the pop-out is silent even though remote audio is subscribed.
+      resumeHostMedia(host, "popout");
       setPoppedOut(true);
       pipWin.addEventListener("pagehide", () => {
         pipWinRef.current = null;
