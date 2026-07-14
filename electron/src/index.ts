@@ -1,3 +1,5 @@
+import * as path from 'path';
+
 import type { CapacitorElectronConfig } from '@capacitor-community/electron';
 import { getCapacitorElectronConfig, setupElectronDeepLinking } from '@capacitor-community/electron';
 import type { BrowserWindow, MenuItemConstructorOptions } from 'electron';
@@ -9,7 +11,7 @@ import { autoUpdater } from 'electron-updater';
 import { ElectronCapacitorApp, setupContentSecurityPolicy, setupReloadWatcher } from './setup';
 import { getInstalledTray, installPomodoroTray } from './pomodoroTray';
 import { installPomodoroPopover, getPopoverWindow } from './pomodoroPopover';
-import { installOAuthHandler } from './oauthFlow';
+import { installOAuthHandler, handleOAuthDeepLink } from './oauthFlow';
 import { installTimerBridge, waitForMainTimerHandlerReady } from './timerBridge';
 import { installAuthBridge } from './authBridge';
 
@@ -29,6 +31,57 @@ const capacitorFileConfig: CapacitorElectronConfig = getCapacitorElectronConfig(
 // Initialize our app. You can pass menu templates into the app here.
 // const myCapacitorApp = new ElectronCapacitorApp(capacitorFileConfig);
 const myCapacitorApp = new ElectronCapacitorApp(capacitorFileConfig, trayMenuTemplate, appMenuBarMenuTemplate);
+
+// ── System-browser OAuth deep-link routing ──────────────────────────────────
+// Login happens in the user's default browser (see oauthFlow.ts). Supabase
+// redirects the browser back to `mangodoro://auth/callback?code=…`; the OS hands
+// that URL to this app, and we feed it to handleOAuthDeepLink() to finish
+// sign-in. This is the same scheme iOS/Android already register.
+const NATIVE_SCHEME = 'mangodoro';
+
+// A protocol activation on Windows/Linux arrives as a *second* app launch — the
+// single-instance lock forwards its argv to the running instance (see
+// 'second-instance' below) instead of starting a duplicate.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+// Register this app as the handler for `mangodoro://`. In dev (unpackaged) the
+// path/args must be spelled out so the OS can relaunch the right process.
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(NATIVE_SCHEME, process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient(NATIVE_SCHEME);
+}
+
+function focusMainWindow(): void {
+  const win = myCapacitorApp.getMainWindow?.();
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+}
+
+function consumeOAuthDeepLink(url?: string | null): void {
+  if (!url) return;
+  if (handleOAuthDeepLink(url)) focusMainWindow();
+}
+
+// macOS delivers the deep link via open-url (can fire before the app is ready).
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  consumeOAuthDeepLink(url);
+});
+
+// Windows/Linux deliver it in the second instance's argv.
+app.on('second-instance', (_event, argv) => {
+  consumeOAuthDeepLink(argv.find((arg) => arg.startsWith(`${NATIVE_SCHEME}://`)));
+  focusMainWindow();
+});
 
 // If deeplinking is enabled then we will set it up here.
 if (capacitorFileConfig.electron?.deepLinkingEnabled) {
@@ -67,8 +120,9 @@ function waitForRendererReady(win: BrowserWindow, timeoutMs = 3000): Promise<voi
   });
 }
 
-// Run Application
-(async () => {
+// Run Application (only in the primary instance — a second launch from a
+// `mangodoro://` activation has already forwarded its URL and is quitting).
+if (gotSingleInstanceLock) (async () => {
   // Wait for electron app to be ready.
   await app.whenReady();
   // Security - Set Content-Security-Policy based on whether or not we are in dev mode.
