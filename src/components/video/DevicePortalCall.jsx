@@ -546,7 +546,12 @@ export default function DevicePortalCall({ roomId, displayName, active = true })
   }, [roomId, displayName, active]);
 
   if (!active) return <DeviceCallIdle />;
-  if (failed || !token) return null;
+  if (failed || !token) return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-slate-950 text-slate-500 select-none">
+      <ScanFace className="w-8 h-8 opacity-40" />
+      <p className="text-sm">{failed ? "Could not connect" : "Connecting\u2026"}</p>
+    </div>
+  );
 
   return (
     <div data-lk-theme="default" className="w-full h-full bg-slate-900">

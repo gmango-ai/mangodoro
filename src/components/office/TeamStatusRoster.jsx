@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { useApp } from "../../context/AppContext";
 import { useTeam } from "../../context/TeamContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
@@ -35,8 +36,10 @@ export default function TeamStatusRoster({ dark }) {
   const { session } = useApp();
   const { teamMembers, rooms } = useTeam();
   const { syncSession } = useSyncSession();
+  const { pathname } = useLocation();
   const userId = session?.user?.id;
-  const currentRoomId = syncSession?.room_id || null;
+  const viewedRoomId = (/^\/office\/r\/([^/?#]+)/.exec(pathname || "") || [])[1] || null;
+  const currentRoomId = syncSession?.room_id || viewedRoomId || null;
 
   // Identity for everyone (so offline teammates still show a name/avatar and the
   // whole team is listed, not just who's been seen recently).

@@ -15,9 +15,6 @@ export function useOfficeDisplays(orgId) {
   useEffect(() => {
     if (!orgId) { setRoomIds(new Set()); return undefined; }
     const channel = supabase.channel(`office-displays:${orgId}`);
-    // Same channel-reuse guard as useRoomCallPresence: a leftover joined channel
-    // (StrictMode double-mount) can't take new listeners after subscribe().
-    if (channel.state === "joined" || channel.state === "joining") return () => {};
     const refresh = () => {
       const state = channel.presenceState();
       const s = new Set();
@@ -29,7 +26,12 @@ export function useOfficeDisplays(orgId) {
     channel.on("presence", { event: "sync" }, refresh);
     channel.on("presence", { event: "join" }, refresh);
     channel.on("presence", { event: "leave" }, refresh);
-    channel.subscribe();
+    const alreadyLive = channel.state === "joined" || channel.state === "joining";
+    if (alreadyLive) {
+      refresh();
+    } else {
+      channel.subscribe();
+    }
     return () => { supabase.removeChannel(channel); };
   }, [orgId]);
   return roomIds;
