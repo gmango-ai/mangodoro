@@ -455,6 +455,36 @@ function PublishController({ publish, choices, micMuted }) {
     return () => room.off(RoomEvent.Connected, applyMic);
   }, [localParticipant, room, publish, micMuted, cluster, isMicSource, inRoom, choices?.audioDeviceId, entryHoldPending]);
 
+  // Hard follower mic-lock — the backstop for "my mic played through the room".
+  // The gate above is REACTIVE: it recomputes wantAudio when its inputs change,
+  // which leaves a race window where the mic can go live out from under it — an
+  // unmute landing a tick before the cluster/role state re-resolves, a role flip
+  // mid-unmute, or a LiveKit attribute resync. This enforces the invariant
+  // directly at the track: while you're a FOLLOWER (in the room's shared audio
+  // but not its mic source) your mic must NEVER transmit, so if it ever becomes
+  // live — from any path — mute it again immediately. Inactive the instant you
+  // legitimately hold the mic (isMicSource), so it never fights a real take-over.
+  useEffect(() => {
+    const follower = !!cluster && !isMicSource;
+    if (!follower || !localParticipant || !room) return undefined;
+    const enforce = () => {
+      const pub = localParticipant.getTrackPublication?.(Track.Source.Microphone);
+      const live = localParticipant.isMicrophoneEnabled || (pub && pub.isMuted === false);
+      if (!live) return;
+      logAudioEvent("follower-mic-lock", { micSourceId, note: "re-muted a follower's live mic" });
+      localParticipant.setMicrophoneEnabled(false).catch(() => {});
+    };
+    enforce();
+    // Re-check whenever a local track publishes or any track unmutes (muting our
+    // own mic emits TrackMuted, not TrackUnmuted, so this can't loop).
+    room.on(RoomEvent.LocalTrackPublished, enforce);
+    room.on(RoomEvent.TrackUnmuted, enforce);
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, enforce);
+      room.off(RoomEvent.TrackUnmuted, enforce);
+    };
+  }, [cluster, isMicSource, localParticipant, room, micSourceId]);
+
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
   // picked a mic; run once per activation.
