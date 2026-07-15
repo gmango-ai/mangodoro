@@ -33,7 +33,7 @@ import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "..
 import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { PREF, loadPref, savePref } from "./callPrefs";
 import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt, connectCooldownMs, noteConnectFailure } from "./livekitConnect";
-import { diagReset, diagRecord, diagReport, diagEnv } from "./livekitDiagnostics";
+import { diagReset, diagRecord, diagReport, diagEnv, logAudioEvent } from "./livekitDiagnostics";
 import { useFullscreen } from "./useFullscreen";
 import { useGlobalPin } from "./useGlobalPin";
 import { useDriveBridge } from "./useDriveBridge";
@@ -345,10 +345,12 @@ function useHandRaiseValue() {
 function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
-  const { cluster, isMicSource, existingCluster, mergeTarget, startRoom, joinRoom } = useRoomCluster();
+  const { cluster, isMicSource, micSourceId, existingCluster, mergeTarget, startRoom, joinRoom } = useRoomCluster();
   const { entryHoldPending } = useRoomEntryHold();
   const bestMicAppliedRef = useRef(false);
   const enteredRef = useRef(false);
+  // Only log the mic-gate decision when it actually changes (see applyMic below).
+  const micGateRef = useRef("");
   const inRoom = !!choices?.inRoom;
   // Sticky "we've actually been in a cluster this call". `inRoom` is a STATIC
   // pre-join intent that stays true after you leave the room's audio (leaveRoom
@@ -433,6 +435,17 @@ function PublishController({ publish, choices, micMuted }) {
       // the same pre-cluster safety window.
       const holdForEntry = entryHoldPending || (inRoom && !clusteredRef.current);
       const wantAudio = publish && !micMuted && (cluster ? isMicSource : !holdForEntry);
+      // Trace WHY the mic is (or isn't) live — the single source of truth for
+      // "my mic played through the room when it shouldn't have". A surprising log
+      // is `wantAudio:true` while you believe you're a muted follower: it'll show
+      // either `inCluster:false` (you never joined the room's shared audio) or
+      // `isMicSource:true` (you hold the room mic — founded it, were auto-promoted,
+      // or Auto-switch-mic claimed it). Logged only when the decision changes.
+      const sig = `${wantAudio}|${!!cluster}|${isMicSource}|${micMuted}|${holdForEntry}`;
+      if (sig !== micGateRef.current) {
+        micGateRef.current = sig;
+        logAudioEvent("mic-gate", { wantAudio, publish, micMuted, inCluster: !!cluster, isMicSource, micSourceId, holdForEntry });
+      }
       localParticipant
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
