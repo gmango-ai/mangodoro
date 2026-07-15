@@ -44,7 +44,7 @@ export default function WidgetSection({
   defaultCollapsed = false,
   // `bare` drops the section card + collapse header and just fills its parent
   // (scrolling) — used when the widget body is hosted as a room-layout tile,
-  // which supplies its own title bar. See roomLayout/viewPanels.
+  // which supplies its own title bar. See lib/widgets/registry (`bare` renderer).
   bare = false,
   children,
 }) {
