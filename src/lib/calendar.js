@@ -334,12 +334,25 @@ export function isLikelyCompanyEvent(raw, { companyDomain, myEmail } = {}) {
   return people.some((e) => emailDomain(e) === companyDomain);
 }
 
-// A raw Google primary event → a company-event candidate. `iCalUID` (NOT the
-// per-calendar `id`) is the stable cross-attendee key we dedupe on, so the same
-// meeting published by three teammates collapses to one shared row.
+// A raw Google primary event → a company-event candidate. The dedupe key is
+// per-OCCURRENCE: `iCalUID` (NOT the per-calendar `id`) collapses the same
+// meeting across every attendee's calendar, but `singleEvents=true` expands a
+// recurring series into instances that ALL share one iCalUID — so we append the
+// occurrence's absolute start (UTC, so it's identical regardless of each
+// attendee's timezone rendering). That keeps every instance a distinct row while
+// still deduping the same instance across teammates (and avoids an upsert batch
+// touching one row twice — Postgres rejects that).
+export function occurrenceKey(raw) {
+  const base = raw.iCalUID || raw.id || "";
+  const startRaw = raw.start?.dateTime || raw.start?.date || null;
+  if (!startRaw) return base;
+  const d = new Date(startRaw);
+  return Number.isNaN(d.getTime()) ? base : `${base}::${d.toISOString()}`;
+}
+
 export function googleRawToCompanyCandidate(raw) {
   return {
-    icalUid: raw.iCalUID || raw.id,
+    icalUid: occurrenceKey(raw),
     googleEventId: raw.id,
     title: raw.summary || "(busy)",
     start: raw.start?.dateTime || raw.start?.date,

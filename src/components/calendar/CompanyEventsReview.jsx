@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Building2, Check, ExternalLink, X, Loader2 } from "lucide-react";
 import Modal from "../Modal";
 import { publishCompanyEvents, loadPublishedIcalUids, unpublishCompanyEvent } from "../../lib/companyEvents";
@@ -23,6 +23,11 @@ export default function CompanyEventsReview({ open, onClose, teamId, userId, com
   const [checked, setChecked] = useState(new Set());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  // AppContext recreates fetchCandidates on every render; read it via a ref so a
+  // background re-render can't re-trigger the fetch effect and wipe the user's
+  // in-progress checkbox selections. The fetch runs only when the modal opens.
+  const fetchRef = useRef(fetchCandidates);
+  fetchRef.current = fetchCandidates;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -32,7 +37,7 @@ export default function CompanyEventsReview({ open, onClose, teamId, userId, com
     const timeMin = now.toISOString();
     const timeMax = new Date(now.getTime() + WINDOW_DAYS * 864e5).toISOString();
     (async () => {
-      const list = await fetchCandidates?.({ timeMin, timeMax });
+      const list = await fetchRef.current?.({ timeMin, timeMax });
       const pub = teamId ? await loadPublishedIcalUids(teamId, timeMin, timeMax) : new Set();
       if (cancelled) return;
       if (list == null) {
@@ -46,7 +51,7 @@ export default function CompanyEventsReview({ open, onClose, teamId, userId, com
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [open, teamId, fetchCandidates]);
+  }, [open, teamId]);
 
   const toggle = (uid) => setChecked((prev) => {
     const n = new Set(prev);

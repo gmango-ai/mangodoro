@@ -12,12 +12,17 @@ export async function publishCompanyEvents(teamId, userId, candidates) {
   if (!teamId || !userId || !Array.isArray(candidates) || !candidates.length) {
     return { error: null, count: 0 };
   }
-  const rows = candidates
-    .map((c) => ({
+  // Dedupe by (ical_uid) within the batch — Postgres rejects an ON CONFLICT
+  // upsert that would touch the same conflict target twice, which happens when
+  // two selected candidates map to the same key. Last one wins.
+  const byKey = new Map();
+  for (const c of candidates) {
+    if (!c?.icalUid || !c?.start) continue;
+    byKey.set(c.icalUid, {
       team_id: teamId,
       ical_uid: c.icalUid,
       title: c.title || "(busy)",
-      starts_at: c.start ? new Date(c.start).toISOString() : null,
+      starts_at: new Date(c.start).toISOString(),
       ends_at: c.end ? new Date(c.end).toISOString() : null,
       all_day: !!c.allDay,
       location: c.location || null,
@@ -27,8 +32,9 @@ export async function publishCompanyEvents(teamId, userId, candidates) {
       payload: c,
       published_by: userId,
       updated_at: new Date().toISOString(),
-    }))
-    .filter((r) => r.ical_uid && r.starts_at);
+    });
+  }
+  const rows = [...byKey.values()];
   if (!rows.length) return { error: null, count: 0 };
   const { error } = await supabase
     .from("google_company_events")
