@@ -22,6 +22,7 @@ const T = {
   ooo:       { label: "Out of office", ...chip("var(--cal-cat-actual, #7F9AA7)") },
   actual:    { label: "Time tracked",  ...chip("var(--cal-cat-actual, #94a3b8)") },
   google:    { label: "Google",        ...chip("var(--cal-cat-google, #4285F4)") },
+  company:   { label: "Company",       ...chip("var(--cal-cat-company, #0891b2)") },
   worklocation:          { label: "Working location", ...chip("var(--cal-cat-actual, #7F9AA7)") },
   worklocation_app:      { label: "Working location", ...chip("var(--cal-cat-actual, #7DB4F8)") },
   worklocation_conflict: { label: "Location conflict", ...chip("var(--cal-cat-due, #FF9F1C)") },
@@ -39,4 +40,5 @@ export const OCEAN_LEGEND = [
   { layer: "availability", label: "Work hours & OOO", solid: T.ooo.solid },
   { layer: "actuals", label: "Time tracked", solid: T.actual.solid },
   { layer: "google", label: "Google Calendar", solid: T.google.solid },
+  { layer: "company", label: "Company (Google)", solid: T.company.solid },
 ];

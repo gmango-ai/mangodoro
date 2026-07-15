@@ -6,7 +6,7 @@ import { supabase } from "../supabase";
 // (row -> FullCalendar event input). The page loads enabled layers for the
 // visible range on `datesSet` and concatenates the mapped events.
 
-export const LAYERS = ["meetings", "tasks", "deadlines", "goals", "availability", "actuals", "google"];
+export const LAYERS = ["meetings", "tasks", "deadlines", "goals", "availability", "actuals", "google", "company"];
 export const LAYER_LABEL = {
   meetings: "Meetings",
   tasks: "Planner tasks",
@@ -15,6 +15,7 @@ export const LAYER_LABEL = {
   availability: "Work hours & OOO",
   actuals: "Time tracked",
   google: "Google Calendar",
+  company: "Company (Google)",
 };
 
 // Event category colors. These are CSS custom properties defined on `.cal-ocean`
@@ -306,6 +307,66 @@ export function googleEventToEvent(g) {
       type: isLocation ? "worklocation" : "google",
       htmlLink: g.htmlLink,
       locationLabel: g.locationLabel,
+    },
+  };
+}
+
+// ── Company events (Google → shared team calendar) ─────────────────────────
+// Company events live mixed into the user's PERSONAL Google calendar, so there's
+// no built-in "this is a company event" flag. We infer a candidate by whether
+// someone OTHER than you, on your company email domain, is involved (organizer
+// or attendee) — self-only personal events (gym, dentist) have no such person,
+// so they stay out. It's a SUGGESTION only: the user confirms before anything is
+// shared to the team (see CompanyEventsReview).
+
+export function emailDomain(email) {
+  const s = String(email || "").toLowerCase().trim();
+  const at = s.lastIndexOf("@");
+  return at >= 0 ? s.slice(at + 1) : "";
+}
+
+export function isLikelyCompanyEvent(raw, { companyDomain, myEmail } = {}) {
+  if (!companyDomain) return false;
+  const my = String(myEmail || "").toLowerCase();
+  const people = [raw.organizer?.email, ...((raw.attendees || []).map((a) => a?.email))]
+    .map((e) => String(e || "").toLowerCase())
+    .filter((e) => e && e !== my);
+  return people.some((e) => emailDomain(e) === companyDomain);
+}
+
+// A raw Google primary event → a company-event candidate. `iCalUID` (NOT the
+// per-calendar `id`) is the stable cross-attendee key we dedupe on, so the same
+// meeting published by three teammates collapses to one shared row.
+export function googleRawToCompanyCandidate(raw) {
+  return {
+    icalUid: raw.iCalUID || raw.id,
+    googleEventId: raw.id,
+    title: raw.summary || "(busy)",
+    start: raw.start?.dateTime || raw.start?.date,
+    end: raw.end?.dateTime || raw.end?.date,
+    allDay: !raw.start?.dateTime,
+    location: raw.location || null,
+    htmlLink: raw.htmlLink || null,
+    organizerEmail: raw.organizer?.email || null,
+  };
+}
+
+// A published company-event DB row → FullCalendar event (visible to the whole team).
+export function companyEventToEvent(row) {
+  return {
+    id: `company:${row.ical_uid}`,
+    title: row.title,
+    start: row.starts_at,
+    end: row.ends_at || undefined,
+    allDay: !!row.all_day,
+    editable: false,
+    classNames: ["cal-company"],
+    extendedProps: {
+      type: "company",
+      htmlLink: row.html_link,
+      location: row.location,
+      organizerEmail: row.organizer_email,
+      icalUid: row.ical_uid,
     },
   };
 }

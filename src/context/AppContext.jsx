@@ -12,6 +12,7 @@ import {
   linkSegmentsToEntry, fetchCurrentTaskSegment,
 } from "../lib/taskSegments";
 import { uploadUserSound, deleteCustomSound } from "../lib/customSound";
+import { emailDomain, isLikelyCompanyEvent, googleRawToCompanyCandidate } from "../lib/calendar";
 
 const AppContext = createContext(null);
 
@@ -1794,6 +1795,41 @@ export function AppProvider({ session, children }) {
     });
   }
 
+  // Company-event candidates: read the user's PRIMARY calendar (where company
+  // events sit mixed with personal ones) and keep only those that look like
+  // company events — someone other than you, on your company email domain, is
+  // involved. A SUGGESTION list for the review UI; nothing is shared until the
+  // user confirms. Returns candidates on success, or null when not connected /
+  // the request failed (so callers can tell empty from error).
+  async function listGoogleCompanyCandidates({ timeMin, timeMax }) {
+    if (!(await ensureGoogleToken())) return null;
+    const myEmail = session?.user?.email || "";
+    const companyDomain = emailDomain(myEmail);
+    if (!companyDomain) return [];
+    const params = new URLSearchParams({
+      timeMin: new Date(timeMin).toISOString(),
+      timeMax: new Date(timeMax).toISOString(),
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+    });
+    let res;
+    try {
+      res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+        headers: { "Authorization": `Bearer ${googleTokenRef.current}` },
+      });
+    } catch { return null; }
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) { setGoogleToken(null); setGoogleTokenExpiry(0); }
+      return null;
+    }
+    const data = await res.json().catch(() => ({}));
+    return (data.items || [])
+      .filter((ev) => ev.status !== "cancelled" && (ev.eventType || "default") === "default")
+      .filter((ev) => isLikelyCompanyEvent(ev, { companyDomain, myEmail }))
+      .map(googleRawToCompanyCandidate);
+  }
+
   // Patch a Google event we created (write-back on reschedule/edit).
   async function updateCalendarEvent(eventId, { start, end, summary, description } = {}) {
     if (!eventId || !(await ensureGoogleToken())) return { error: { message: "not connected" } };
@@ -1907,6 +1943,7 @@ export function AppProvider({ session, children }) {
     connectGoogleSheets: connectGoogle, disconnectGoogleSheets, // back-compat aliases
     exportToGoogleSheets, createCalendarEvent, exportToGoogleDoc,
     listGoogleCalendarEvents, updateCalendarEvent, deleteCalendarEvent,
+    listGoogleCompanyCandidates, companyEmailDomain: emailDomain(session?.user?.email),
     // export/import
     exportAllCSV, exportMonthCSV, exportAllXLSX, exportMonthXLSX,
     importFromLocalStorage, importEntriesFromFile, exportProfile, importProfileFromFile,
