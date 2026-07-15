@@ -111,6 +111,7 @@ export default function CompanyEventsReview({ open, onClose, teamId, userId, isA
     setBusy(false);
     if (error) { setErr(error.message || "Couldn't publish to the team calendar."); return; }
     setPublishedUids((prev) => { const n = new Set(prev); sel.forEach((c) => n.add(c.icalUid)); return n; });
+    setPublisherMap((prev) => { const n = new Map(prev); sel.forEach((c) => n.set(c.icalUid, userId)); return n; });
     onChanged?.();
   };
 
