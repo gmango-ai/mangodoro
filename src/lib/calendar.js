@@ -351,8 +351,14 @@ export function occurrenceKey(raw) {
 }
 
 export function googleRawToCompanyCandidate(raw) {
+  // `recurringEventId` is the master series' id, shared by every expanded
+  // instance — so the review UI can collapse a series to one row (and let the
+  // user drill in to pick specific occurrences). Null for one-off events.
+  const seriesId = raw.recurringEventId || null;
   return {
     icalUid: occurrenceKey(raw),
+    seriesId,
+    recurring: !!seriesId,
     googleEventId: raw.id,
     title: raw.summary || "(busy)",
     start: raw.start?.dateTime || raw.start?.date,
