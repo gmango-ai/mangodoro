@@ -342,12 +342,20 @@ export function isLikelyCompanyEvent(raw, { companyDomain, myEmail } = {}) {
 // attendee's timezone rendering). That keeps every instance a distinct row while
 // still deduping the same instance across teammates (and avoids an upsert batch
 // touching one row twice — Postgres rejects that).
-export function occurrenceKey(raw) {
-  const base = raw.iCalUID || raw.id || "";
-  const startRaw = raw.start?.dateTime || raw.start?.date || null;
-  if (!startRaw) return base;
+function occKey(base, startRaw) {
+  const b = base || "";
+  if (!startRaw) return b;
   const d = new Date(startRaw);
-  return Number.isNaN(d.getTime()) ? base : `${base}::${d.toISOString()}`;
+  return Number.isNaN(d.getTime()) ? b : `${b}::${d.toISOString()}`;
+}
+export function occurrenceKey(raw) {
+  return occKey(raw.iCalUID || raw.id, raw.start?.dateTime || raw.start?.date || null);
+}
+// Same key computed from an already-normalised Google event (the shape
+// listGoogleCalendarEvents returns) — so the personal Google layer can be
+// deduped against the company events that were published from it.
+export function occurrenceKeyOfNormalized(g) {
+  return occKey(g.iCalUID || g.id, g.start || null);
 }
 
 export function googleRawToCompanyCandidate(raw) {

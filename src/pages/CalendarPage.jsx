@@ -18,13 +18,13 @@ import {
   fetchPersonalDueInRange, fetchMyAvailability,
   meetingToEvent, plannerTaskToEvent, taskDueToEvent, personalDueToEvent,
   milestoneToEvent, goalToEvent, goalGridSpan, availabilityToEvents, entryToEvent,
-  googleEventToEvent, companyEventToEvent, profileOooToEvents,
+  googleEventToEvent, companyEventToEvent, occurrenceKeyOfNormalized, profileOooToEvents,
   workLocationEvents, workHoursBackgroundEvents,
   updateMeetingTime, updatePlannerSchedule, updateTaskDue, updatePersonalDue,
   updatePlannerTaskFields, createPlannerTask, fetchOpenPlannerTasks, saveWorkLocationOverrides,
 } from "../lib/calendar";
 import { cacheGoogleEvents, loadGoogleCache } from "../lib/googleCache";
-import { loadCompanyEvents } from "../lib/companyEvents";
+import { loadCompanyEvents, loadPublishedIcalUids } from "../lib/companyEvents";
 import CompanyEventsReview from "../components/calendar/CompanyEventsReview";
 import Modal from "../components/Modal";
 import { oceanType, OCEAN_LEGEND } from "../components/calendar/oceanTheme";
@@ -261,33 +261,41 @@ export default function CalendarPage() {
       }
       if (layers.has("actuals")) (entries || []).filter((e) => e.date >= startStr && e.date < endStr).forEach((e) => collected.push(entryToEvent(e)));
       if (layers.has("google")) {
-        // Route both live and cached Google events through the same handler.
-        const handleGoogle = (g) => {
-          if (!g) return;
-          if (g.eventType === "workingLocation") {
-            const ds = g.allDay && typeof g.start === "string" && g.start.length === 10 ? g.start : toDateStr(new Date(g.start));
-            gLoc.set(ds, g.locationLabel || g.title);
-          } else {
-            collected.push(googleEventToEvent(g));
-          }
-        };
         const gStart = startDate.toISOString(), gEnd = endDate.toISOString();
-        if (googleToken) {
-          // Connected: fetch live. A real array (even empty) = success → refresh
-          // the cache. null = the token desynced mid-request → fall back to cache
-          // so events don't vanish (and don't clobber the cache with nothing).
-          jobs.push(Promise.resolve(gcalRef.current?.({ timeMin: gStart, timeMax: gEnd })).then((list) => {
-            if (Array.isArray(list)) {
-              list.forEach(handleGoogle);
-              cacheGoogleEvents(userId, list, gStart, gEnd);
+        // A Google event already shared to the team as a company event must NOT
+        // also render as a personal Google event (it'd show twice). Load the
+        // published company keys for the window and skip any match.
+        const companyKeysP = (layers.has("company") && activeTeamId)
+          ? loadPublishedIcalUids(activeTeamId, gStart, gEnd)
+          : Promise.resolve(new Set());
+        jobs.push(companyKeysP.then((companyKeys) => {
+          // Route both live and cached Google events through the same handler.
+          const handleGoogle = (g) => {
+            if (!g) return;
+            if (companyKeys.size && companyKeys.has(occurrenceKeyOfNormalized(g))) return; // shown as a company event
+            if (g.eventType === "workingLocation") {
+              const ds = g.allDay && typeof g.start === "string" && g.start.length === 10 ? g.start : toDateStr(new Date(g.start));
+              gLoc.set(ds, g.locationLabel || g.title);
             } else {
-              return loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle));
+              collected.push(googleEventToEvent(g));
             }
-          }));
-        } else {
+          };
+          if (googleToken) {
+            // Connected: fetch live. A real array (even empty) = success → refresh
+            // the cache. null = the token desynced mid-request → fall back to cache
+            // so events don't vanish (and don't clobber the cache with nothing).
+            return Promise.resolve(gcalRef.current?.({ timeMin: gStart, timeMax: gEnd })).then((list) => {
+              if (Array.isArray(list)) {
+                list.forEach(handleGoogle);
+                cacheGoogleEvents(userId, list, gStart, gEnd);
+              } else {
+                return loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle));
+              }
+            });
+          }
           // Disconnected: show the last events we cached while connected.
-          jobs.push(loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle)));
-        }
+          return loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle));
+        }));
       }
     } else {
       if (layers.has("deadlines") && activeTeamId) jobs.push(listMilestonesInRange(activeTeamId, startStr, endStr).then(({ data }) => (data || []).filter((m) => m.scope === "team").forEach((m) => collected.push(milestoneToEvent(m)))));

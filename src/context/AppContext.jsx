@@ -1784,6 +1784,7 @@ export function AppProvider({ session, children }) {
       }
       return {
         id: ev.id,
+        iCalUID: ev.iCalUID, // lets the calendar dedupe vs published company events
         title: ev.summary || locationLabel || "(busy)",
         start: ev.start?.dateTime || ev.start?.date,
         end: ev.end?.dateTime || ev.end?.date,
