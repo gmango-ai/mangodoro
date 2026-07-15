@@ -71,6 +71,23 @@ export async function loadPublishedIcalUids(teamId, startIso, endIso) {
   return new Set((data || []).map((r) => r.ical_uid));
 }
 
+// The team's next few shared company events (for the office "Upcoming meetings"
+// widget). Mirrors listUpcomingMeetings' 30-min grace so an in-progress one
+// still shows. These are external Google events — no room to join.
+export async function listUpcomingCompanyEvents(teamId, limit = 6) {
+  if (!teamId) return { data: [] };
+  const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("google_company_events")
+    .select("ical_uid, title, starts_at, ends_at, location, html_link, organizer_email")
+    .eq("team_id", teamId)
+    .gte("starts_at", since)
+    .order("starts_at", { ascending: true })
+    .limit(limit);
+  if (error) { console.warn("listUpcomingCompanyEvents:", error.message); return { data: [] }; }
+  return { data: data || [] };
+}
+
 // Pull a shared company event back off the team calendar.
 export async function unpublishCompanyEvent(teamId, icalUid) {
   if (!teamId || !icalUid) return { error: null };
