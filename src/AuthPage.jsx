@@ -67,7 +67,8 @@ export default function AuthPage() {
             }
           }
         } catch (e) {
-          if (!String(e?.message).includes("closed before completion")) {
+          const msg = String(e?.message ?? "");
+          if (!msg.includes("closed before completion") && !msg.includes("OAuth restarted")) {
             setError(e?.message || "Sign-in failed");
           }
           setLoading(false);

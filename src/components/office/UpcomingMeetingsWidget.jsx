@@ -33,9 +33,13 @@ export default function UpcomingMeetingsWidget({ dark, bare = false }) {
       listUpcomingMeetings(activeTeamId),
       listUpcomingCompanyEvents(activeTeamId),
     ]);
+    // Cap each source at half the display limit so neither type can crowd out
+    // the other. Room meetings in particular must stay visible since they carry
+    // the one-tap Join action.
+    const half = 3;
     const merged = [
-      ...(meetings.data || []).map((m) => ({ ...m, kind: "meeting" })),
-      ...(company.data || []).map((c) => ({ id: `company:${c.ical_uid}`, kind: "company", title: c.title, starts_at: c.starts_at, location: c.location, join_url: c.payload?.joinUrl || c.html_link })),
+      ...(meetings.data || []).slice(0, half).map((m) => ({ ...m, kind: "meeting" })),
+      ...(company.data || []).slice(0, half).map((c) => ({ id: `company:${c.ical_uid}`, kind: "company", title: c.title, starts_at: c.starts_at, location: c.location, join_url: c.payload?.joinUrl || c.html_link })),
     ].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)).slice(0, 6);
     setRows(merged);
     setLoaded(true);
