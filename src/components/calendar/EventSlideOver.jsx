@@ -15,7 +15,7 @@ function fmtWhen(start, end, allDay) {
   return { day, time: e && !Number.isNaN(e.getTime()) ? `${t(s)} – ${t(e)}` : t(s) };
 }
 
-export default function EventSlideOver({ ev, rooms, onClose, onEditMeeting, onEditTask, onEditMilestone, onGo, onDelete }) {
+export default function EventSlideOver({ ev, rooms, onClose, onEditMeeting, onEditTask, onEditMilestone, onGo, onDelete, onRemoveCompany }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -101,9 +101,14 @@ export default function EventSlideOver({ ev, rooms, onClose, onEditMeeting, onEd
               <Target className="w-4 h-4" /> Open goals
             </button>
           )}
-          {p.type === "google" && p.htmlLink && (
+          {(p.type === "google" || p.type === "company") && p.htmlLink && (
             <button type="button" className="cal-ocean__btn cal-ocean__btn--primary" onClick={() => window.open(p.htmlLink, "_blank")}>
               <ExternalLink className="w-4 h-4" /> Open in Google
+            </button>
+          )}
+          {p.type === "company" && onRemoveCompany && (
+            <button type="button" className="cal-ocean__btn cal-ocean__btn--ghost" onClick={() => onRemoveCompany({ icalUid: p.icalUid, title: cleanTitle })}>
+              <Trash2 className="w-4 h-4" /> Remove
             </button>
           )}
           {p.type === "milestone" && onDelete && (

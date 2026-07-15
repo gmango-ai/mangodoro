@@ -26,6 +26,7 @@ import {
 import { cacheGoogleEvents, loadGoogleCache } from "../lib/googleCache";
 import { loadCompanyEvents, loadPublishedIcalUids } from "../lib/companyEvents";
 import CompanyEventsReview from "../components/calendar/CompanyEventsReview";
+import RemoveCompanyEventDialog from "../components/calendar/RemoveCompanyEventDialog";
 import Modal from "../components/Modal";
 import { oceanType, OCEAN_LEGEND } from "../components/calendar/oceanTheme";
 import MiniMonth from "../components/calendar/MiniMonth";
@@ -146,6 +147,7 @@ export default function CalendarPage() {
   const [subCounts, setSubCounts] = useState({});
   const [locConflict, setLocConflict] = useState(null); // { app, google, date }
   const [companyReviewOpen, setCompanyReviewOpen] = useState(false);
+  const [removeCompany, setRemoveCompany] = useState(null); // { icalUid, title }
   const [expanded, setExpanded] = useState(false);
   // On narrow screens (≤1180px) the left rail is CSS-hidden; this reveals it as
   // an overlay drawer so its filters / mini-month / scope switch stay reachable
@@ -830,6 +832,7 @@ export default function CalendarPage() {
           onEditMeeting={(row) => { setDetailEvent(null); setMeetingModal({ meeting: row }); }}
           onEditMilestone={(row) => { setDetailEvent(null); setMilestoneModal({ milestone: row }); }}
           onEditTask={(row, kind) => { setDetailEvent(null); setTaskEdit({ task: row, kind }); }}
+          onRemoveCompany={({ icalUid, title }) => { setDetailEvent(null); setRemoveCompany({ icalUid, title }); }}
         />
       )}
       {newSlot && (
@@ -864,6 +867,16 @@ export default function CalendarPage() {
         fetchCandidates={listGoogleCompanyCandidates}
         onChanged={reload}
       />
+      {removeCompany && (
+        <RemoveCompanyEventDialog
+          open
+          teamId={activeTeamId}
+          icalUid={removeCompany.icalUid}
+          title={removeCompany.title}
+          onClose={() => setRemoveCompany(null)}
+          onRemoved={reload}
+        />
+      )}
     </div>
   );
 }

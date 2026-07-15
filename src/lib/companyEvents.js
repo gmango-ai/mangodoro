@@ -1,4 +1,5 @@
 import { supabase } from "../supabase";
+import { seriesBaseOf } from "./calendar";
 
 // Persistence for company events surfaced from a user's Google Calendar and
 // confirmed for the whole team. Stored team-scoped (RLS: any team member reads;
@@ -88,6 +89,21 @@ export async function listUpcomingCompanyEvents(teamId, limit = 6) {
   return { data: data || [] };
 }
 
+// All shared occurrences of the series a given occurrence belongs to (recurring
+// events share one iCalUID prefix). Used by the remove-one/all/selection dialog.
+export async function loadCompanySeries(teamId, icalUid) {
+  if (!teamId || !icalUid) return [];
+  const base = seriesBaseOf(icalUid);
+  const { data, error } = await supabase
+    .from("google_company_events")
+    .select("ical_uid, title, starts_at, all_day")
+    .eq("team_id", teamId)
+    .like("ical_uid", `${base}::%`)
+    .order("starts_at", { ascending: true });
+  if (error) { console.warn("loadCompanySeries:", error.message); return []; }
+  return data || [];
+}
+
 // Pull a shared company event back off the team calendar.
 export async function unpublishCompanyEvent(teamId, icalUid) {
   if (!teamId || !icalUid) return { error: null };
@@ -97,5 +113,17 @@ export async function unpublishCompanyEvent(teamId, icalUid) {
     .eq("team_id", teamId)
     .eq("ical_uid", icalUid);
   if (error) console.warn("unpublishCompanyEvent:", error.message);
+  return { error };
+}
+
+// Remove a set of occurrences at once (all-in-series, or a hand-picked selection).
+export async function unpublishCompanyEventsByKeys(teamId, keys) {
+  if (!teamId || !Array.isArray(keys) || !keys.length) return { error: null };
+  const { error } = await supabase
+    .from("google_company_events")
+    .delete()
+    .eq("team_id", teamId)
+    .in("ical_uid", keys);
+  if (error) console.warn("unpublishCompanyEventsByKeys:", error.message);
   return { error };
 }

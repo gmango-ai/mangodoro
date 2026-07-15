@@ -357,6 +357,14 @@ export function occurrenceKey(raw) {
 export function occurrenceKeyOfNormalized(g) {
   return occKey(g.iCalUID || g.id, g.start || null);
 }
+// The series identity of an occurrence key: everything before the "::<start>"
+// suffix (the shared iCalUID). All occurrences of a recurring series share it,
+// so it groups a series for bulk remove. One-off events → their own key.
+export function seriesBaseOf(icalUid) {
+  const s = String(icalUid || "");
+  const i = s.lastIndexOf("::");
+  return i >= 0 ? s.slice(0, i) : s;
+}
 
 export function googleRawToCompanyCandidate(raw) {
   // `recurringEventId` is the master series' id, shared by every expanded
