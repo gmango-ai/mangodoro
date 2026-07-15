@@ -4,6 +4,30 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-15
+
+### New & improved
+
+- feat(calendar): company events live on the Team tab; Join goes to the event
+- feat(calendar): remove company events with one/all/selection for recurring
+- feat(office): show company events in the Upcoming meetings widget
+- feat(calendar): collapse recurring company events to one expandable row
+- feat(calendar): import & separate company events from Google → team calendar
+- diag(video): log the room-mic gate decision to trace mic-leak reports
+- test(video): grid order ignores speaking; overflow-surfacing keeps positions
+- feat(electron): sign in via the system browser, not an embedded popup
+
+### Fixes
+
+- Update publisherMap after publishing events so canRemove works immediately
+- OAuth restart error silenced, company event remove permission check, widget meeting fairness
+- (calendar): don't show a published company event twice on personal view
+- (calendar): company-event upsert conflict + review state wiped on rerender
+- (video): hard-lock a follower's mic so it can't leak into the room
+- (video): keep call audio playing through PiP / pop-out re-parenting
+- (office): render the "Add to view" menu in a portal so it's never hidden
+- (kiosk): grid highlights the speaker without reshuffling tiles
+
 ## 2026-07-14
 
 ### New & improved
