@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarDays, Video, Building2, ExternalLink } from "lucide-react";
+import { CalendarDays, Video, Building2 } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
 import { listUpcomingMeetings } from "../../lib/scheduledMeetings";
 import { listUpcomingCompanyEvents } from "../../lib/companyEvents";
@@ -35,7 +35,7 @@ export default function UpcomingMeetingsWidget({ dark, bare = false }) {
     ]);
     const merged = [
       ...(meetings.data || []).map((m) => ({ ...m, kind: "meeting" })),
-      ...(company.data || []).map((c) => ({ id: `company:${c.ical_uid}`, kind: "company", title: c.title, starts_at: c.starts_at, html_link: c.html_link, location: c.location })),
+      ...(company.data || []).map((c) => ({ id: `company:${c.ical_uid}`, kind: "company", title: c.title, starts_at: c.starts_at, location: c.location, join_url: c.payload?.joinUrl || c.html_link })),
     ].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)).slice(0, 6);
     setRows(merged);
     setLoaded(true);
@@ -65,23 +65,13 @@ export default function UpcomingMeetingsWidget({ dark, bare = false }) {
                     {fmtWhen(m.starts_at)} · {isCompany ? (m.location || "Company") : roomName(m.room_id)}
                   </p>
                 </div>
-                {isCompany ? (
-                  m.html_link ? (
-                    <a
-                      href={m.html_link}
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Open in Google Calendar"
-                      className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors ${dark ? "bg-white/5 text-slate-300 hover:bg-white/10" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                    >
-                      <ExternalLink className="w-3 h-3" /> Open
-                    </a>
-                  ) : null
-                ) : (
+                {(isCompany ? m.join_url : m.room_id) && (
                   <button
                     type="button"
-                    onClick={() => navigate(`/office/r/${m.room_id}`)}
-                    title="Join the room"
+                    // Company events live outside Mangodoro (a Meet/other link or the
+                    // Google event) → open there; room meetings jump into the room.
+                    onClick={() => (isCompany ? window.open(m.join_url, "_blank") : navigate(`/office/r/${m.room_id}`))}
+                    title={isCompany ? "Join / open the event" : "Join the room"}
                     className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
                       soon ? "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]" : dark ? "bg-white/5 text-slate-300 hover:bg-white/10" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                     }`}

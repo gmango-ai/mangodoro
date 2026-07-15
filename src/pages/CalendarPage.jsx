@@ -18,13 +18,13 @@ import {
   fetchPersonalDueInRange, fetchMyAvailability,
   meetingToEvent, plannerTaskToEvent, taskDueToEvent, personalDueToEvent,
   milestoneToEvent, goalToEvent, goalGridSpan, availabilityToEvents, entryToEvent,
-  googleEventToEvent, companyEventToEvent, occurrenceKeyOfNormalized, profileOooToEvents,
+  googleEventToEvent, companyEventToEvent, profileOooToEvents,
   workLocationEvents, workHoursBackgroundEvents,
   updateMeetingTime, updatePlannerSchedule, updateTaskDue, updatePersonalDue,
   updatePlannerTaskFields, createPlannerTask, fetchOpenPlannerTasks, saveWorkLocationOverrides,
 } from "../lib/calendar";
 import { cacheGoogleEvents, loadGoogleCache } from "../lib/googleCache";
-import { loadCompanyEvents, loadPublishedIcalUids } from "../lib/companyEvents";
+import { loadCompanyEvents } from "../lib/companyEvents";
 import CompanyEventsReview from "../components/calendar/CompanyEventsReview";
 import RemoveCompanyEventDialog from "../components/calendar/RemoveCompanyEventDialog";
 import Modal from "../components/Modal";
@@ -45,6 +45,9 @@ const LS_LAYERS = "cal_layers";
 const LS_SCOPE = "cal_scope";
 const LS_WEEKSTART = "cal_weekstart";
 const PERSONAL_ONLY = new Set(["tasks", "actuals", "google"]);
+// Company events are a TEAM-tab thing (the personal tab already shows them as
+// ordinary Google events) — so the "company" layer only appears in team scope.
+const TEAM_ONLY = new Set(["company"]);
 // Day reading order (lower = higher). CONTEXT band on top (OOO, goals, work
 // location), then the "meat" — meetings + deadlines by priority — then tasks.
 const RANK = {
@@ -209,9 +212,9 @@ export default function CalendarPage() {
       jobs.push(fetchMeetingsInRange(activeTeamId, startDate.toISOString(), endDate.toISOString())
         .then(({ data }) => (data || []).forEach((m) => collected.push(meetingToEvent(m)))));
     }
-    // Company events pulled from Google + confirmed for the team — shared, so
-    // they show in BOTH personal and team scope (not gated by the !team branch).
-    if (layers.has("company") && activeTeamId) {
+    // Company events (Google → confirmed for the team) live on the TEAM tab only
+    // — the personal tab already shows these as ordinary Google events.
+    if (team && layers.has("company") && activeTeamId) {
       jobs.push(loadCompanyEvents(activeTeamId, startDate.toISOString(), endDate.toISOString())
         .then((rows) => (rows || []).forEach((r) => collected.push(companyEventToEvent(r)))));
     }
@@ -263,41 +266,34 @@ export default function CalendarPage() {
       }
       if (layers.has("actuals")) (entries || []).filter((e) => e.date >= startStr && e.date < endStr).forEach((e) => collected.push(entryToEvent(e)));
       if (layers.has("google")) {
-        const gStart = startDate.toISOString(), gEnd = endDate.toISOString();
-        // A Google event already shared to the team as a company event must NOT
-        // also render as a personal Google event (it'd show twice). Load the
-        // published company keys for the window and skip any match.
-        const companyKeysP = (layers.has("company") && activeTeamId)
-          ? loadPublishedIcalUids(activeTeamId, gStart, gEnd)
-          : Promise.resolve(new Set());
-        jobs.push(companyKeysP.then((companyKeys) => {
-          // Route both live and cached Google events through the same handler.
-          const handleGoogle = (g) => {
-            if (!g) return;
-            if (companyKeys.size && companyKeys.has(occurrenceKeyOfNormalized(g))) return; // shown as a company event
-            if (g.eventType === "workingLocation") {
-              const ds = g.allDay && typeof g.start === "string" && g.start.length === 10 ? g.start : toDateStr(new Date(g.start));
-              gLoc.set(ds, g.locationLabel || g.title);
-            } else {
-              collected.push(googleEventToEvent(g));
-            }
-          };
-          if (googleToken) {
-            // Connected: fetch live. A real array (even empty) = success → refresh
-            // the cache. null = the token desynced mid-request → fall back to cache
-            // so events don't vanish (and don't clobber the cache with nothing).
-            return Promise.resolve(gcalRef.current?.({ timeMin: gStart, timeMax: gEnd })).then((list) => {
-              if (Array.isArray(list)) {
-                list.forEach(handleGoogle);
-                cacheGoogleEvents(userId, list, gStart, gEnd);
-              } else {
-                return loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle));
-              }
-            });
+        // Personal Google events (company events live on the Team tab's own
+        // "company" layer, so there's no double here to dedupe).
+        const handleGoogle = (g) => {
+          if (!g) return;
+          if (g.eventType === "workingLocation") {
+            const ds = g.allDay && typeof g.start === "string" && g.start.length === 10 ? g.start : toDateStr(new Date(g.start));
+            gLoc.set(ds, g.locationLabel || g.title);
+          } else {
+            collected.push(googleEventToEvent(g));
           }
+        };
+        const gStart = startDate.toISOString(), gEnd = endDate.toISOString();
+        if (googleToken) {
+          // Connected: fetch live. A real array (even empty) = success → refresh
+          // the cache. null = the token desynced mid-request → fall back to cache
+          // so events don't vanish (and don't clobber the cache with nothing).
+          jobs.push(Promise.resolve(gcalRef.current?.({ timeMin: gStart, timeMax: gEnd })).then((list) => {
+            if (Array.isArray(list)) {
+              list.forEach(handleGoogle);
+              cacheGoogleEvents(userId, list, gStart, gEnd);
+            } else {
+              return loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle));
+            }
+          }));
+        } else {
           // Disconnected: show the last events we cached while connected.
-          return loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle));
-        }));
+          jobs.push(loadGoogleCache(gStart, gEnd).then((cached) => cached.forEach(handleGoogle)));
+        }
       }
     } else {
       if (layers.has("deadlines") && activeTeamId) jobs.push(listMilestonesInRange(activeTeamId, startStr, endStr).then(({ data }) => (data || []).filter((m) => m.scope === "team").forEach((m) => collected.push(milestoneToEvent(m)))));
@@ -424,7 +420,7 @@ export default function CalendarPage() {
   }, [allGoals]);
 
   const scopes = [{ id: "personal", icon: User, label: "Mine" }, { id: "team", icon: Users, label: "Team" }];
-  const visibleLegend = OCEAN_LEGEND.filter((l) => scope === "personal" || !PERSONAL_ONLY.has(l.layer));
+  const visibleLegend = OCEAN_LEGEND.filter((l) => (scope === "personal" ? !TEAM_ONLY.has(l.layer) : !PERSONAL_ONLY.has(l.layer)));
 
   const chipContent = (arg) => {
     if (arg.event.display === "background") return undefined; // OOO/work-hours shading
@@ -580,9 +576,6 @@ export default function CalendarPage() {
                       Show Google events
                     </button>
                   )}
-                  <button type="button" onClick={() => { if (!enabledLayers.has("company")) toggleLayer("company"); setCompanyReviewOpen(true); }} className="cal-ocean__new" style={{ width: "100%", marginTop: 8, justifyContent: "center", fontSize: 12 }}>
-                    Review company events →
-                  </button>
                 </>
               ) : (
                 <>
@@ -593,6 +586,24 @@ export default function CalendarPage() {
                     Connect Google Calendar
                   </button>
                 </>
+              )}
+            </div>
+          )}
+
+          {scope === "team" && (
+            <div className="cal-ocean__card">
+              <div className="cal-ocean__eyebrow">Company events</div>
+              <p style={{ fontSize: 11.5, color: "var(--o-ink-500)", margin: "0 0 8px", lineHeight: 1.4 }}>
+                Pull company events from your Google Calendar into the shared team calendar.
+              </p>
+              {googleConnected ? (
+                <button type="button" onClick={() => { if (!enabledLayers.has("company")) toggleLayer("company"); setCompanyReviewOpen(true); }} className="cal-ocean__new" style={{ width: "100%", justifyContent: "center", fontSize: 12 }}>
+                  Select company events →
+                </button>
+              ) : (
+                <button type="button" onClick={() => connectGoogle()} className="cal-ocean__new" style={{ width: "100%", justifyContent: "center" }}>
+                  Connect Google Calendar
+                </button>
               )}
             </div>
           )}

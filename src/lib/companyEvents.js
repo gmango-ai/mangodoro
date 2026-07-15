@@ -50,7 +50,7 @@ export async function loadCompanyEvents(teamId, startIso, endIso) {
   if (!teamId) return [];
   const { data, error } = await supabase
     .from("google_company_events")
-    .select("ical_uid,title,starts_at,ends_at,all_day,location,html_link,organizer_email")
+    .select("ical_uid,title,starts_at,ends_at,all_day,location,html_link,organizer_email,payload")
     .eq("team_id", teamId)
     .gte("starts_at", startIso)
     .lt("starts_at", endIso);
@@ -80,7 +80,7 @@ export async function listUpcomingCompanyEvents(teamId, limit = 6) {
   const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("google_company_events")
-    .select("ical_uid, title, starts_at, ends_at, location, html_link, organizer_email")
+    .select("ical_uid, title, starts_at, ends_at, location, html_link, organizer_email, payload")
     .eq("team_id", teamId)
     .gte("starts_at", since)
     .order("starts_at", { ascending: true })

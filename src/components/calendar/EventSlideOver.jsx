@@ -101,9 +101,14 @@ export default function EventSlideOver({ ev, rooms, onClose, onEditMeeting, onEd
               <Target className="w-4 h-4" /> Open goals
             </button>
           )}
-          {(p.type === "google" || p.type === "company") && p.htmlLink && (
+          {p.type === "google" && p.htmlLink && (
             <button type="button" className="cal-ocean__btn cal-ocean__btn--primary" onClick={() => window.open(p.htmlLink, "_blank")}>
               <ExternalLink className="w-4 h-4" /> Open in Google
+            </button>
+          )}
+          {p.type === "company" && (p.joinUrl || p.htmlLink) && (
+            <button type="button" className="cal-ocean__btn cal-ocean__btn--primary" onClick={() => window.open(p.joinUrl || p.htmlLink, "_blank")}>
+              <Video className="w-4 h-4" /> Join
             </button>
           )}
           {p.type === "company" && onRemoveCompany && (

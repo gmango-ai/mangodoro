@@ -366,6 +366,17 @@ export function seriesBaseOf(icalUid) {
   return i >= 0 ? s.slice(0, i) : s;
 }
 
+// Where "Join" should take you: a live conference link first (Google Meet /
+// other conferenceData), else the location if it's a URL, else null (callers
+// fall back to the Google event page).
+export function joinUrlOf(raw) {
+  if (raw.hangoutLink) return raw.hangoutLink;
+  const ep = (raw.conferenceData?.entryPoints || []).find((e) => e?.uri);
+  if (ep?.uri) return ep.uri;
+  if (raw.location && /^https?:\/\//i.test(raw.location)) return raw.location;
+  return null;
+}
+
 export function googleRawToCompanyCandidate(raw) {
   // `recurringEventId` is the master series' id, shared by every expanded
   // instance — so the review UI can collapse a series to one row (and let the
@@ -382,6 +393,7 @@ export function googleRawToCompanyCandidate(raw) {
     allDay: !raw.start?.dateTime,
     location: raw.location || null,
     htmlLink: raw.htmlLink || null,
+    joinUrl: joinUrlOf(raw),
     organizerEmail: raw.organizer?.email || null,
   };
 }
@@ -399,6 +411,7 @@ export function companyEventToEvent(row) {
     extendedProps: {
       type: "company",
       htmlLink: row.html_link,
+      joinUrl: row.payload?.joinUrl || null,
       location: row.location,
       organizerEmail: row.organizer_email,
       icalUid: row.ical_uid,
