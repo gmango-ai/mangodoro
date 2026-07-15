@@ -6,7 +6,7 @@ import { supabase } from "../supabase";
 // (row -> FullCalendar event input). The page loads enabled layers for the
 // visible range on `datesSet` and concatenates the mapped events.
 
-export const LAYERS = ["meetings", "tasks", "deadlines", "goals", "availability", "actuals", "google"];
+export const LAYERS = ["meetings", "tasks", "deadlines", "goals", "availability", "actuals", "google", "company"];
 export const LAYER_LABEL = {
   meetings: "Meetings",
   tasks: "Planner tasks",
@@ -15,6 +15,7 @@ export const LAYER_LABEL = {
   availability: "Work hours & OOO",
   actuals: "Time tracked",
   google: "Google Calendar",
+  company: "Company (Google)",
 };
 
 // Event category colors. These are CSS custom properties defined on `.cal-ocean`
@@ -306,6 +307,115 @@ export function googleEventToEvent(g) {
       type: isLocation ? "worklocation" : "google",
       htmlLink: g.htmlLink,
       locationLabel: g.locationLabel,
+    },
+  };
+}
+
+// ── Company events (Google → shared team calendar) ─────────────────────────
+// Company events live mixed into the user's PERSONAL Google calendar, so there's
+// no built-in "this is a company event" flag. We infer a candidate by whether
+// someone OTHER than you, on your company email domain, is involved (organizer
+// or attendee) — self-only personal events (gym, dentist) have no such person,
+// so they stay out. It's a SUGGESTION only: the user confirms before anything is
+// shared to the team (see CompanyEventsReview).
+
+export function emailDomain(email) {
+  const s = String(email || "").toLowerCase().trim();
+  const at = s.lastIndexOf("@");
+  return at >= 0 ? s.slice(at + 1) : "";
+}
+
+export function isLikelyCompanyEvent(raw, { companyDomain, myEmail } = {}) {
+  if (!companyDomain) return false;
+  const my = String(myEmail || "").toLowerCase();
+  const people = [raw.organizer?.email, ...((raw.attendees || []).map((a) => a?.email))]
+    .map((e) => String(e || "").toLowerCase())
+    .filter((e) => e && e !== my);
+  return people.some((e) => emailDomain(e) === companyDomain);
+}
+
+// A raw Google primary event → a company-event candidate. The dedupe key is
+// per-OCCURRENCE: `iCalUID` (NOT the per-calendar `id`) collapses the same
+// meeting across every attendee's calendar, but `singleEvents=true` expands a
+// recurring series into instances that ALL share one iCalUID — so we append the
+// occurrence's absolute start (UTC, so it's identical regardless of each
+// attendee's timezone rendering). That keeps every instance a distinct row while
+// still deduping the same instance across teammates (and avoids an upsert batch
+// touching one row twice — Postgres rejects that).
+function occKey(base, startRaw) {
+  const b = base || "";
+  if (!startRaw) return b;
+  const d = new Date(startRaw);
+  return Number.isNaN(d.getTime()) ? b : `${b}::${d.toISOString()}`;
+}
+export function occurrenceKey(raw) {
+  return occKey(raw.iCalUID || raw.id, raw.start?.dateTime || raw.start?.date || null);
+}
+// Same key computed from an already-normalised Google event (the shape
+// listGoogleCalendarEvents returns) — so the personal Google layer can be
+// deduped against the company events that were published from it.
+export function occurrenceKeyOfNormalized(g) {
+  return occKey(g.iCalUID || g.id, g.start || null);
+}
+// The series identity of an occurrence key: everything before the "::<start>"
+// suffix (the shared iCalUID). All occurrences of a recurring series share it,
+// so it groups a series for bulk remove. One-off events → their own key.
+export function seriesBaseOf(icalUid) {
+  const s = String(icalUid || "");
+  const i = s.lastIndexOf("::");
+  return i >= 0 ? s.slice(0, i) : s;
+}
+
+// Where "Join" should take you: a live conference link first (Google Meet /
+// other conferenceData), else the location if it's a URL, else null (callers
+// fall back to the Google event page).
+export function joinUrlOf(raw) {
+  if (raw.hangoutLink) return raw.hangoutLink;
+  const ep = (raw.conferenceData?.entryPoints || []).find((e) => e?.uri);
+  if (ep?.uri) return ep.uri;
+  if (raw.location && /^https?:\/\//i.test(raw.location)) return raw.location;
+  return null;
+}
+
+export function googleRawToCompanyCandidate(raw) {
+  // `recurringEventId` is the master series' id, shared by every expanded
+  // instance — so the review UI can collapse a series to one row (and let the
+  // user drill in to pick specific occurrences). Null for one-off events.
+  const seriesId = raw.recurringEventId || null;
+  return {
+    icalUid: occurrenceKey(raw),
+    seriesId,
+    recurring: !!seriesId,
+    googleEventId: raw.id,
+    title: raw.summary || "(busy)",
+    start: raw.start?.dateTime || raw.start?.date,
+    end: raw.end?.dateTime || raw.end?.date,
+    allDay: !raw.start?.dateTime,
+    location: raw.location || null,
+    htmlLink: raw.htmlLink || null,
+    joinUrl: joinUrlOf(raw),
+    organizerEmail: raw.organizer?.email || null,
+  };
+}
+
+// A published company-event DB row → FullCalendar event (visible to the whole team).
+export function companyEventToEvent(row) {
+  return {
+    id: `company:${row.ical_uid}`,
+    title: row.title,
+    start: row.starts_at,
+    end: row.ends_at || undefined,
+    allDay: !!row.all_day,
+    editable: false,
+    classNames: ["cal-company"],
+    extendedProps: {
+      type: "company",
+      htmlLink: row.html_link,
+      joinUrl: row.payload?.joinUrl || null,
+      location: row.location,
+      organizerEmail: row.organizer_email,
+      icalUid: row.ical_uid,
+      publishedBy: row.published_by,
     },
   };
 }

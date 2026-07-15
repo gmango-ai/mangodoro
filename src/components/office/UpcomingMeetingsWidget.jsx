@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarDays, Video } from "lucide-react";
+import { CalendarDays, Video, Building2 } from "lucide-react";
 import { useTeam } from "../../context/TeamContext";
 import { listUpcomingMeetings } from "../../lib/scheduledMeetings";
+import { listUpcomingCompanyEvents } from "../../lib/companyEvents";
 import WidgetSection from "./WidgetSection";
 
-// Office sidebar widget — the team's next few scheduled meetings with a one-tap
-// Join into the room. Reads scheduled_meetings (team-scoped via RLS).
+// Office sidebar widget — the team's next few scheduled meetings (join into the
+// room) MERGED with shared company events pulled from Google (external — no room
+// to join). Both team-scoped via RLS.
 
 function fmtWhen(iso) {
   const d = new Date(iso);
@@ -27,8 +29,19 @@ export default function UpcomingMeetingsWidget({ dark, bare = false }) {
 
   const reload = useCallback(async () => {
     if (!activeTeamId) { setRows([]); setLoaded(true); return; }
-    const { data } = await listUpcomingMeetings(activeTeamId);
-    setRows(data || []);
+    const [meetings, company] = await Promise.all([
+      listUpcomingMeetings(activeTeamId),
+      listUpcomingCompanyEvents(activeTeamId),
+    ]);
+    // Cap each source at half the display limit so neither type can crowd out
+    // the other. Room meetings in particular must stay visible since they carry
+    // the one-tap Join action.
+    const half = 3;
+    const merged = [
+      ...(meetings.data || []).slice(0, half).map((m) => ({ ...m, kind: "meeting" })),
+      ...(company.data || []).slice(0, half).map((c) => ({ id: `company:${c.ical_uid}`, kind: "company", title: c.title, starts_at: c.starts_at, location: c.location, join_url: c.payload?.joinUrl || c.html_link })),
+    ].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)).slice(0, 6);
+    setRows(merged);
     setLoaded(true);
   }, [activeTeamId]);
 
@@ -46,24 +59,30 @@ export default function UpcomingMeetingsWidget({ dark, bare = false }) {
         <ul className="space-y-1.5">
           {rows.map((m) => {
             const soon = new Date(m.starts_at).getTime() - Date.now() < 10 * 60 * 1000;
+            const isCompany = m.kind === "company";
             return (
               <li key={m.id} className="flex items-center gap-2">
                 <div className="min-w-0 flex-1">
                   <p className={`text-xs font-semibold truncate ${dark ? "text-slate-200" : "text-slate-800"}`}>{m.title}</p>
-                  <p className={`text-[11px] truncate ${dark ? "text-slate-400" : "text-slate-500"}`}>
-                    {fmtWhen(m.starts_at)} · {roomName(m.room_id)}
+                  <p className={`text-[11px] truncate flex items-center gap-1 ${dark ? "text-slate-400" : "text-slate-500"}`}>
+                    {isCompany && <Building2 className="w-3 h-3 shrink-0 text-cyan-500" />}
+                    {fmtWhen(m.starts_at)} · {isCompany ? (m.location || "Company") : roomName(m.room_id)}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/office/r/${m.room_id}`)}
-                  title="Join the room"
-                  className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-                    soon ? "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]" : dark ? "bg-white/5 text-slate-300 hover:bg-white/10" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  }`}
-                >
-                  <Video className="w-3 h-3" /> Join
-                </button>
+                {(isCompany ? m.join_url : m.room_id) && (
+                  <button
+                    type="button"
+                    // Company events live outside Mangodoro (a Meet/other link or the
+                    // Google event) → open there; room meetings jump into the room.
+                    onClick={() => (isCompany ? window.open(m.join_url, "_blank") : navigate(`/office/r/${m.room_id}`))}
+                    title={isCompany ? "Join / open the event" : "Join the room"}
+                    className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                      soon ? "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]" : dark ? "bg-white/5 text-slate-300 hover:bg-white/10" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    <Video className="w-3 h-3" /> Join
+                  </button>
+                )}
               </li>
             );
           })}

@@ -18,12 +18,15 @@ import {
   fetchPersonalDueInRange, fetchMyAvailability,
   meetingToEvent, plannerTaskToEvent, taskDueToEvent, personalDueToEvent,
   milestoneToEvent, goalToEvent, goalGridSpan, availabilityToEvents, entryToEvent,
-  googleEventToEvent, profileOooToEvents,
+  googleEventToEvent, companyEventToEvent, profileOooToEvents,
   workLocationEvents, workHoursBackgroundEvents,
   updateMeetingTime, updatePlannerSchedule, updateTaskDue, updatePersonalDue,
   updatePlannerTaskFields, createPlannerTask, fetchOpenPlannerTasks, saveWorkLocationOverrides,
 } from "../lib/calendar";
 import { cacheGoogleEvents, loadGoogleCache } from "../lib/googleCache";
+import { loadCompanyEvents } from "../lib/companyEvents";
+import CompanyEventsReview from "../components/calendar/CompanyEventsReview";
+import RemoveCompanyEventDialog from "../components/calendar/RemoveCompanyEventDialog";
 import Modal from "../components/Modal";
 import { oceanType, OCEAN_LEGEND } from "../components/calendar/oceanTheme";
 import MiniMonth from "../components/calendar/MiniMonth";
@@ -42,11 +45,14 @@ const LS_LAYERS = "cal_layers";
 const LS_SCOPE = "cal_scope";
 const LS_WEEKSTART = "cal_weekstart";
 const PERSONAL_ONLY = new Set(["tasks", "actuals", "google"]);
+// Company events are a TEAM-tab thing (the personal tab already shows them as
+// ordinary Google events) — so the "company" layer only appears in team scope.
+const TEAM_ONLY = new Set(["company"]);
 // Day reading order (lower = higher). CONTEXT band on top (OOO, goals, work
 // location), then the "meat" — meetings + deadlines by priority — then tasks.
 const RANK = {
   ooo: 0.0, goal: 0.1, worklocation_conflict: 0.15, worklocation_app: 0.2, worklocation: 0.25,
-  task_due: 1.0, ptask_due: 1.0, milestone: 1.2, google: 1.4,
+  task_due: 1.0, ptask_due: 1.0, milestone: 1.2, google: 1.4, company: 1.1,
   task: 3.0, actual: 4.0,
 };
 const CTX_TYPES = new Set(["worklocation_app", "worklocation", "worklocation_conflict", "ooo", "goal"]);
@@ -112,8 +118,8 @@ function loadEnabledLayers() {
 }
 
 export default function CalendarPage() {
-  const { session, entries, googleToken, googleTokenExpiry, connectGoogle, listGoogleCalendarEvents, updateCalendarEvent } = useApp();
-  const { activeTeamId, rooms, teamMembers, myOrgTeamIds } = useTeam();
+  const { session, entries, googleToken, googleTokenExpiry, connectGoogle, listGoogleCalendarEvents, updateCalendarEvent, listGoogleCompanyCandidates, companyEmailDomain } = useApp();
+  const { activeTeamId, rooms, teamMembers, myOrgTeamIds, isAdmin } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -143,6 +149,8 @@ export default function CalendarPage() {
   /** plannerTaskId -> { done, total, pct } for subtask surfacing on chips + cards. */
   const [subCounts, setSubCounts] = useState({});
   const [locConflict, setLocConflict] = useState(null); // { app, google, date }
+  const [companyReviewOpen, setCompanyReviewOpen] = useState(false);
+  const [removeCompany, setRemoveCompany] = useState(null); // { icalUid, title }
   const [expanded, setExpanded] = useState(false);
   // On narrow screens (≤1180px) the left rail is CSS-hidden; this reveals it as
   // an overlay drawer so its filters / mini-month / scope switch stay reachable
@@ -204,6 +212,12 @@ export default function CalendarPage() {
       jobs.push(fetchMeetingsInRange(activeTeamId, startDate.toISOString(), endDate.toISOString())
         .then(({ data }) => (data || []).forEach((m) => collected.push(meetingToEvent(m)))));
     }
+    // Company events (Google → confirmed for the team) live on the TEAM tab only
+    // — the personal tab already shows these as ordinary Google events.
+    if (team && layers.has("company") && activeTeamId) {
+      jobs.push(loadCompanyEvents(activeTeamId, startDate.toISOString(), endDate.toISOString())
+        .then((rows) => (rows || []).forEach((r) => collected.push(companyEventToEvent(r)))));
+    }
     if (layers.has("goals") && activeTeamId) {
       jobs.push(listTeamGoals(activeTeamId).then(({ data }) => {
         const scoped = (data || []).filter((g) => goalVisibleToViewer(g, userId, orgTeamsRef.current));
@@ -252,7 +266,8 @@ export default function CalendarPage() {
       }
       if (layers.has("actuals")) (entries || []).filter((e) => e.date >= startStr && e.date < endStr).forEach((e) => collected.push(entryToEvent(e)));
       if (layers.has("google")) {
-        // Route both live and cached Google events through the same handler.
+        // Personal Google events (company events live on the Team tab's own
+        // "company" layer, so there's no double here to dedupe).
         const handleGoogle = (g) => {
           if (!g) return;
           if (g.eventType === "workingLocation") {
@@ -405,7 +420,7 @@ export default function CalendarPage() {
   }, [allGoals]);
 
   const scopes = [{ id: "personal", icon: User, label: "Mine" }, { id: "team", icon: Users, label: "Team" }];
-  const visibleLegend = OCEAN_LEGEND.filter((l) => scope === "personal" || !PERSONAL_ONLY.has(l.layer));
+  const visibleLegend = OCEAN_LEGEND.filter((l) => (scope === "personal" ? !TEAM_ONLY.has(l.layer) : !PERSONAL_ONLY.has(l.layer)));
 
   const chipContent = (arg) => {
     if (arg.event.display === "background") return undefined; // OOO/work-hours shading
@@ -571,6 +586,24 @@ export default function CalendarPage() {
                     Connect Google Calendar
                   </button>
                 </>
+              )}
+            </div>
+          )}
+
+          {scope === "team" && (
+            <div className="cal-ocean__card">
+              <div className="cal-ocean__eyebrow">Company events</div>
+              <p style={{ fontSize: 11.5, color: "var(--o-ink-500)", margin: "0 0 8px", lineHeight: 1.4 }}>
+                Pull company events from your Google Calendar into the shared team calendar.
+              </p>
+              {googleConnected ? (
+                <button type="button" onClick={() => { if (!enabledLayers.has("company")) toggleLayer("company"); setCompanyReviewOpen(true); }} className="cal-ocean__new" style={{ width: "100%", justifyContent: "center", fontSize: 12 }}>
+                  Select company events →
+                </button>
+              ) : (
+                <button type="button" onClick={() => connectGoogle()} className="cal-ocean__new" style={{ width: "100%", justifyContent: "center" }}>
+                  Connect Google Calendar
+                </button>
               )}
             </div>
           )}
@@ -810,6 +843,7 @@ export default function CalendarPage() {
           onEditMeeting={(row) => { setDetailEvent(null); setMeetingModal({ meeting: row }); }}
           onEditMilestone={(row) => { setDetailEvent(null); setMilestoneModal({ milestone: row }); }}
           onEditTask={(row, kind) => { setDetailEvent(null); setTaskEdit({ task: row, kind }); }}
+          onRemoveCompany={(detailEvent?.extendedProps?.publishedBy === userId || isAdmin) ? ({ icalUid, title }) => { setDetailEvent(null); setRemoveCompany({ icalUid, title }); } : undefined}
         />
       )}
       {newSlot && (
@@ -833,6 +867,26 @@ export default function CalendarPage() {
           task={normalizeTask(taskEdit.task, taskEdit.kind)}
           onClose={() => { setTaskEdit(null); reload(); }}
           onDeleted={() => { setTaskEdit(null); reload(); }}
+        />
+      )}
+      <CompanyEventsReview
+        open={companyReviewOpen}
+        onClose={() => setCompanyReviewOpen(false)}
+        teamId={activeTeamId}
+        userId={userId}
+        isAdmin={isAdmin}
+        companyDomain={companyEmailDomain}
+        fetchCandidates={listGoogleCompanyCandidates}
+        onChanged={reload}
+      />
+      {removeCompany && (
+        <RemoveCompanyEventDialog
+          open
+          teamId={activeTeamId}
+          icalUid={removeCompany.icalUid}
+          title={removeCompany.title}
+          onClose={() => setRemoveCompany(null)}
+          onRemoved={reload}
         />
       )}
     </div>

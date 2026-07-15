@@ -41,11 +41,12 @@ export default function AuthPage() {
     }
     if (isMobileApp && data?.url) {
       if (isElectron && window.__electronOAuth) {
-        // Electron path: open the OAuth URL in a child BrowserWindow and
-        // wait for the redirect to the registered native scheme. The
-        // popup never actually navigates to mangodoro:// — main process
-        // intercepts will-navigate / will-redirect and yields the full
-        // callback URL back to us, with the auth code in query or hash.
+        // Electron path: main opens the OAuth URL in the user's DEFAULT
+        // SYSTEM BROWSER, then waits for Supabase to redirect back to the
+        // registered mangodoro:// scheme. The OS routes that deep link into
+        // the app and start() resolves with the full callback URL, with the
+        // auth code in query or hash. (Set MANGODORO_OAUTH_POPUP=1 to use the
+        // legacy embedded popup for dev testing.)
         try {
           const callbackUrl = await window.__electronOAuth.start(
             data.url,
@@ -66,7 +67,8 @@ export default function AuthPage() {
             }
           }
         } catch (e) {
-          if (!String(e?.message).includes("closed before completion")) {
+          const msg = String(e?.message ?? "");
+          if (!msg.includes("closed before completion") && !msg.includes("OAuth restarted")) {
             setError(e?.message || "Sign-in failed");
           }
           setLoading(false);

@@ -33,7 +33,7 @@ import { kickFromCall, muteParticipantTrack, setRoomPin, clearRoomPin } from "..
 import { useRoomCluster, useClusterRoles, ATTR_ROOM_DEVICE } from "./useRoomCluster";
 import { PREF, loadPref, savePref } from "./callPrefs";
 import { LK_ROOM_OPTIONS, LK_CONNECT_OPTIONS, connectDelayFor, markConnectAttempt, connectCooldownMs, noteConnectFailure } from "./livekitConnect";
-import { diagReset, diagRecord, diagReport, diagEnv } from "./livekitDiagnostics";
+import { diagReset, diagRecord, diagReport, diagEnv, logAudioEvent } from "./livekitDiagnostics";
 import { useFullscreen } from "./useFullscreen";
 import { useGlobalPin } from "./useGlobalPin";
 import { useDriveBridge } from "./useDriveBridge";
@@ -345,10 +345,12 @@ function useHandRaiseValue() {
 function PublishController({ publish, choices, micMuted }) {
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
-  const { cluster, isMicSource, existingCluster, mergeTarget, startRoom, joinRoom } = useRoomCluster();
+  const { cluster, isMicSource, micSourceId, existingCluster, mergeTarget, startRoom, joinRoom } = useRoomCluster();
   const { entryHoldPending } = useRoomEntryHold();
   const bestMicAppliedRef = useRef(false);
   const enteredRef = useRef(false);
+  // Only log the mic-gate decision when it actually changes (see applyMic below).
+  const micGateRef = useRef("");
   const inRoom = !!choices?.inRoom;
   // Sticky "we've actually been in a cluster this call". `inRoom` is a STATIC
   // pre-join intent that stays true after you leave the room's audio (leaveRoom
@@ -433,6 +435,17 @@ function PublishController({ publish, choices, micMuted }) {
       // the same pre-cluster safety window.
       const holdForEntry = entryHoldPending || (inRoom && !clusteredRef.current);
       const wantAudio = publish && !micMuted && (cluster ? isMicSource : !holdForEntry);
+      // Trace WHY the mic is (or isn't) live — the single source of truth for
+      // "my mic played through the room when it shouldn't have". A surprising log
+      // is `wantAudio:true` while you believe you're a muted follower: it'll show
+      // either `inCluster:false` (you never joined the room's shared audio) or
+      // `isMicSource:true` (you hold the room mic — founded it, were auto-promoted,
+      // or Auto-switch-mic claimed it). Logged only when the decision changes.
+      const sig = `${wantAudio}|${!!cluster}|${isMicSource}|${micMuted}|${holdForEntry}`;
+      if (sig !== micGateRef.current) {
+        micGateRef.current = sig;
+        logAudioEvent("mic-gate", { wantAudio, publish, micMuted, inCluster: !!cluster, isMicSource, micSourceId, holdForEntry });
+      }
       localParticipant
         .setMicrophoneEnabled(wantAudio, choices?.audioDeviceId ? { deviceId: choices.audioDeviceId } : undefined)
         .catch(() => { /* */ });
@@ -441,6 +454,36 @@ function PublishController({ publish, choices, micMuted }) {
     if (room.state === "connected") applyMic();
     return () => room.off(RoomEvent.Connected, applyMic);
   }, [localParticipant, room, publish, micMuted, cluster, isMicSource, inRoom, choices?.audioDeviceId, entryHoldPending]);
+
+  // Hard follower mic-lock — the backstop for "my mic played through the room".
+  // The gate above is REACTIVE: it recomputes wantAudio when its inputs change,
+  // which leaves a race window where the mic can go live out from under it — an
+  // unmute landing a tick before the cluster/role state re-resolves, a role flip
+  // mid-unmute, or a LiveKit attribute resync. This enforces the invariant
+  // directly at the track: while you're a FOLLOWER (in the room's shared audio
+  // but not its mic source) your mic must NEVER transmit, so if it ever becomes
+  // live — from any path — mute it again immediately. Inactive the instant you
+  // legitimately hold the mic (isMicSource), so it never fights a real take-over.
+  useEffect(() => {
+    const follower = !!cluster && !isMicSource;
+    if (!follower || !localParticipant || !room) return undefined;
+    const enforce = () => {
+      const pub = localParticipant.getTrackPublication?.(Track.Source.Microphone);
+      const live = localParticipant.isMicrophoneEnabled || (pub && pub.isMuted === false);
+      if (!live) return;
+      logAudioEvent("follower-mic-lock", { micSourceId, note: "re-muted a follower's live mic" });
+      localParticipant.setMicrophoneEnabled(false).catch(() => {});
+    };
+    enforce();
+    // Re-check whenever a local track publishes or any track unmutes (muting our
+    // own mic emits TrackMuted, not TrackUnmuted, so this can't loop).
+    room.on(RoomEvent.LocalTrackPublished, enforce);
+    room.on(RoomEvent.TrackUnmuted, enforce);
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, enforce);
+      room.off(RoomEvent.TrackUnmuted, enforce);
+    };
+  }, [cluster, isMicSource, localParticipant, room, micSourceId]);
 
   // When this device becomes the room's mic source, move to the best available
   // mic (a dedicated/USB mic over the built-in). Skip if the user explicitly
