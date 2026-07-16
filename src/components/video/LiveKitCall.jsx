@@ -2117,9 +2117,16 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, gr
   // "room view + who's talking" view. In Spotlight those two are the whole stage;
   // in Presenter everyone else drops into the filmstrip. Only when the speaker is
   // a different track than the pin, and not in the cramped squished case.
+  //
+  // EXCEPTION: a shared screen stays the SOLE focus. Splitting the stage with the
+  // live speaker shrinks the very thing everyone is looking at (and someone
+  // talking — e.g. through a room device's mic — would constantly re-shrink it).
+  // The dual "pin + speaker" view is only for a pinned camera/person.
+  const focusIsScreenShare = forcedFocus?.source === Track.Source.ScreenShare;
   const dualEligible =
     !squished &&
     !!forcedFocus &&
+    !focusIsScreenShare &&
     !!speakerTrack &&
     refKey(forcedFocus) !== refKey(speakerTrack);
   const dualSpotlight = dualEligible && layoutMode === "spotlight";
@@ -2143,6 +2150,12 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, gr
 
   let mode = layoutMode;
   if (squished) mode = "spotlight";
+  // A personal Expand (LiveKit pin — e.g. tapping Expand on the shared screen)
+  // must make that tile FILL, even from Grid. Grid otherwise ignores focus for
+  // sizing, so Expand silently did nothing there and you couldn't force a shared
+  // screen big without first switching layouts. Promote to Presenter: the pinned
+  // tile big + everyone else in the auto column/row filmstrip.
+  else if (mode === "grid" && pinned?.[0]) mode = "presenter";
 
   // Map the resolved mode to the adaptive stage: grid = even tiles; presenter =
   // focus + filmstrip; spotlight = focus only (or, when pinned, pin + live
