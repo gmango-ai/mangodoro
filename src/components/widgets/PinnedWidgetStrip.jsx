@@ -1,5 +1,8 @@
 import { useRef, useState } from "react";
 import { Plus, Check, Pin } from "lucide-react";
+import {
+  DndContext, PointerSensor, useSensor, useSensors, useDraggable, useDroppable, closestCenter,
+} from "@dnd-kit/core";
 import { useApp } from "../../context/AppContext";
 import Popover from "../goals/Popover";
 import { widgetById, chipWidgets, DEFAULT_PINNED } from "../../lib/widgets/registry";
@@ -26,6 +29,10 @@ export default function PinnedWidgetStrip({ dark, ctx = {} }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
+  // 6px activation so a tap still opens a chip's own popover; a drag past that
+  // reorders (same click-vs-drag trick as the widget drawer's list).
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
   const shown = pinned.map((id) => widgetById[id]).filter((w) => canShow(w, ctx));
   const pinnable = chipWidgets.filter((w) => canShow(w, ctx));
 
@@ -34,11 +41,27 @@ export default function PinnedWidgetStrip({ dark, ctx = {} }) {
     mergeWidgetPrefs({ pinned: next });
   };
 
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = pinned.indexOf(active.id);
+    const to = pinned.indexOf(over.id);
+    if (from === -1 || to === -1) return;
+    const next = pinned.slice();
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    mergeWidgetPrefs({ pinned: next });
+  }
+
   return (
     <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-none">
-      {shown.map((w) => (
-        <span key={w.id} className="shrink-0">{w.chip({ dark })}</span>
-      ))}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <div className="flex items-center gap-2">
+          {shown.map((w) => (
+            <SortableChip key={w.id} id={w.id}>{w.chip({ dark })}</SortableChip>
+          ))}
+        </div>
+      </DndContext>
 
       <button
         ref={menuRef}
@@ -82,5 +105,34 @@ export default function PinnedWidgetStrip({ dark, ctx = {} }) {
         </ul>
       </Popover>
     </div>
+  );
+}
+
+// One reorderable chip: the whole pill is the drag handle (these chips have no
+// natural grip), sharing one node as both drag source and drop target. The 6px
+// sensor threshold keeps ordinary taps (which open the chip's popover) working.
+function SortableChip({ id, children }) {
+  const draggable = useDraggable({ id });
+  const droppable = useDroppable({ id });
+  const setRef = (el) => { draggable.setNodeRef(el); droppable.setNodeRef(el); };
+  const style = draggable.transform
+    ? {
+        transform: `translate3d(${draggable.transform.x}px, ${draggable.transform.y}px, 0)`,
+        zIndex: draggable.isDragging ? 30 : "auto",
+        opacity: draggable.isDragging ? 0.9 : 1,
+      }
+    : undefined;
+  return (
+    <span
+      ref={setRef}
+      style={style}
+      {...draggable.listeners}
+      {...draggable.attributes}
+      className={`shrink-0 rounded-full touch-none ${
+        droppable.isOver && !draggable.isDragging ? "ring-2 ring-[var(--color-accent)]" : ""
+      }`}
+    >
+      {children}
+    </span>
   );
 }

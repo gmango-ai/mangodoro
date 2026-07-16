@@ -1,13 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { ClipboardList, Plus, Check, X as XIcon, ChevronRight, ChevronDown, Sparkles, Loader2 } from "lucide-react";
-import { useTeam } from "../../context/TeamContext";
 import { useApp } from "../../context/AppContext";
-import { supabase } from "../../supabase";
-import {
-  listPersonalTasks, addPersonalTask, removePersonalTask,
-} from "../../lib/personalTasks";
+import { getTaskProviders } from "../../lib/tasks/providers";
 import { normalizeTask } from "../../lib/tasks/model";
-import { setTaskStatus } from "../../lib/tasks/mutations";
+import { createTask, setTaskStatus, deleteTask } from "../../lib/tasks/mutations";
 import { StatusControl } from "../tasks/TaskControls";
 import TaskDetailSheet from "../tasks/TaskDetailSheet";
 import {
@@ -16,12 +12,14 @@ import {
 import EmojiTextField from "../EmojiTextField";
 import WidgetSection from "./WidgetSection";
 
-// Simple personal task tracker. A private per-user checklist (scoped to the
-// active team) — add a line, check it off, delete it. Backed by personal_tasks
-// with own-rows-only RLS. Degrades to an empty list if the table isn't there
-// yet (migration pending) rather than throwing.
+// The user's tasks — the SAME source as the /tasks timeline (the task providers,
+// which read planner_tasks today), so the widget and the page never disagree.
+// Add a line, check it off, expand subtasks, open the shared editor for the full
+// row. Reads through getTaskProviders() + writes via the shared task mutations,
+// so a future ClickUp provider flows through here unchanged.
 export default function TasksWidget({ dark }) {
-  const { activeTeamId } = useTeam();
+  const { session } = useApp();
+  const userId = session?.user?.id;
   const [tasks, setTasks] = useState([]);
   const [subsByTask, setSubsByTask] = useState({});
   const [text, setText] = useState("");
@@ -29,26 +27,24 @@ export default function TasksWidget({ dark }) {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
 
-  // Open the shared task editor (due date, deadline, labels — the parity the
-  // inline row doesn't surface) on the full personal_tasks row.
-  const openEditor = useCallback(async (task) => {
-    const { data } = await supabase.from("personal_tasks").select("*").eq("id", task.id).maybeSingle();
-    setEditing(normalizeTask(data || task, "personal"));
-  }, []);
+  // Provider tasks are already normalized (id, title, done, status, kind…) — the
+  // shared editor takes that shape directly, no re-fetch needed.
+  const openEditor = useCallback((task) => setEditing(task), []);
 
   const reload = useCallback(async () => {
-    const { data } = await listPersonalTasks(activeTeamId);
-    const live = (data || []).filter((t) => !t.archived); // archived tasks hidden from the widget
+    if (!userId) { setTasks([]); setSubsByTask({}); setLoaded(true); return; }
+    const lists = await Promise.all(getTaskProviders().map((p) => p.listTasks({ userId })));
+    const live = lists.flat().filter((t) => !t.archived); // archived tasks hidden from the widget
     setTasks(live);
     const ids = live.map((t) => t.id);
     if (ids.length) {
-      const { byPersonal } = await listSubtasks({ personalIds: ids });
-      setSubsByTask(Object.fromEntries(byPersonal));
+      const { byPlanner } = await listSubtasks({ plannerIds: ids });
+      setSubsByTask(Object.fromEntries(byPlanner));
     } else {
       setSubsByTask({});
     }
     setLoaded(true);
-  }, [activeTeamId]);
+  }, [userId]);
   useEffect(() => { reload(); }, [reload]);
 
   const setSubs = (taskId, next) => setSubsByTask((m) => ({ ...m, [taskId]: next }));
@@ -57,35 +53,35 @@ export default function TasksWidget({ dark }) {
     const t = text.trim();
     if (!t || saving) return;
     setSaving(true);
-    const { data, error } = await addPersonalTask({ title: t, teamId: activeTeamId });
+    const { data, error } = await createTask({ userId, title: t });
     setSaving(false);
-    if (!error && data) { setTasks((ts) => [data, ...ts]); setText(""); }
+    if (!error && data) { setTasks((ts) => [normalizeTask(data, "planner"), ...ts]); setText(""); }
   };
 
   const setStatus = async (task, status) => {
     const done = status === "done";
     setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, status, done } : x)));
-    const r = await setTaskStatus({ task: { id: task.id, kind: "personal", done: task.done, status: task.status || (task.done ? "done" : "todo") }, status });
+    const r = await setTaskStatus({ userId, task, status });
     if (r?.error) setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, status: task.status, done: task.done } : x)));
   };
 
   const remove = async (task) => {
     const prev = tasks;
     setTasks((ts) => ts.filter((x) => x.id !== task.id));
-    const { error } = await removePersonalTask(task.id);
+    const { error } = await deleteTask({ task });
     if (error) setTasks(prev);
   };
 
   const addSub = async (task, title) => {
     const existing = subsByTask[task.id] || [];
     const sortOrder = existing.length ? Math.max(...existing.map((s) => s.sort_order)) + 1 : 0;
-    const { data, error } = await addSubtask({ personalTaskId: task.id, title, sortOrder });
+    const { data, error } = await addSubtask({ plannerTaskId: task.id, title, sortOrder });
     if (!error && data) setSubs(task.id, [...existing, data]);
   };
   const addAiSubs = async (task, titles) => {
     const existing = subsByTask[task.id] || [];
     const startOrder = existing.length ? Math.max(...existing.map((s) => s.sort_order)) + 1 : 0;
-    const { data, error } = await addSubtasks({ personalTaskId: task.id, titles, startOrder });
+    const { data, error } = await addSubtasks({ plannerTaskId: task.id, titles, startOrder });
     if (!error && data) setSubs(task.id, [...existing, ...data].sort((a, b) => a.sort_order - b.sort_order));
   };
   const toggleSub = async (task, sub) => {

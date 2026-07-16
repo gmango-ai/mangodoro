@@ -1,23 +1,24 @@
 import { useEffect, useState, useCallback } from "react";
 import { ClipboardList } from "lucide-react";
-import { useTeam } from "../../context/TeamContext";
-import { listPersonalTasks } from "../../lib/personalTasks";
+import { useApp } from "../../context/AppContext";
+import { getTaskProviders } from "../../lib/tasks/providers";
 import TasksWidget from "../office/TasksWidget";
 import WidgetChip from "./WidgetChip";
 
-// Pinned-strip chip for personal tasks: a count of open tasks in the pill, the
-// full tasks card in the popover. The count loads on mount; edits made in the
-// card sync to the DB but the pill count refreshes on next mount (good enough
-// for a glanceable pill).
+// Pinned-strip chip for tasks: a count of open tasks in the pill, the full tasks
+// card in the popover. Same source as the /tasks page (the task providers), so
+// the count matches the page. The count loads on mount; edits in the card sync
+// to the DB and the pill refreshes on next mount (good enough for a pill).
 export default function TasksChip({ dark }) {
-  const { activeTeamId } = useTeam();
+  const { session } = useApp();
+  const userId = session?.user?.id;
   const [openCount, setOpenCount] = useState(0);
 
   const reload = useCallback(async () => {
-    if (!activeTeamId) { setOpenCount(0); return; }
-    const { data } = await listPersonalTasks(activeTeamId);
-    setOpenCount((data || []).filter((t) => !t.done && !t.archived).length);
-  }, [activeTeamId]);
+    if (!userId) { setOpenCount(0); return; }
+    const lists = await Promise.all(getTaskProviders().map((p) => p.listTasks({ userId })));
+    setOpenCount(lists.flat().filter((t) => !t.done && !t.archived).length);
+  }, [userId]);
   useEffect(() => { reload(); }, [reload]);
 
   return (
