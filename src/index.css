@@ -761,6 +761,11 @@ html.electron-popover body::before {
 @keyframes slideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @media (prefers-reduced-motion: reduce) { .mango-ticker-track { animation: none; } }
 
+/* Zoom + pan on a shared-screen tile — the video rides the CSS vars set on the
+   tile box (survives LiveKit re-renders) and is clipped by the box's
+   overflow-hidden. Screen-share tiles only (class applied conditionally). */
+.vid-zoom video { transform: translate(var(--zx, 0), var(--zy, 0)) scale(var(--zs, 1)); transform-origin: center center; }
+
 /* The device-chooser caret next to mic/camera → a slim, secondary control that
    tucks against its button instead of reading as a third equal circle. */
 [data-lk-theme] .lk-caret-btn {
