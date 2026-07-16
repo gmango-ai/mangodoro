@@ -356,6 +356,10 @@ html.electron .ql-drag-region [role="button"] {
 .wb-scroll-x { scrollbar-width: none; }
 .wb-scroll-x::-webkit-scrollbar { display: none; }
 
+/* Generic no-visible-scrollbar utility (e.g. the pinned widget strip in the nav). */
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
 .ql-bottom-nav { display: none; }
 @media (max-width: 1279.98px) {
   html.touch .ql-bottom-nav { display: block; }
@@ -751,6 +755,10 @@ html.electron-popover body::before {
 @keyframes mango-ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 .mango-ticker-track { display: inline-flex; white-space: nowrap; animation: mango-ticker linear infinite; }
 .mango-ticker-track:hover { animation-play-state: paused; }
+
+/* Widget drawer slide-over (left) + its backdrop fade. */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @media (prefers-reduced-motion: reduce) { .mango-ticker-track { animation: none; } }
 
 /* The device-chooser caret next to mic/camera → a slim, secondary control that

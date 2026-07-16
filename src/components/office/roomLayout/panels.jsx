@@ -2,7 +2,7 @@ import { Video, MessageSquare, PenLine } from "lucide-react";
 import RoomChatPanel, { ChatHeaderActions } from "../../RoomChatPanel";
 import RoomVideoStage from "../../video/RoomVideoStage";
 import RoomWhiteboardPanel from "./RoomWhiteboardPanel";
-import { VIEW_PANELS } from "./viewPanels";
+import { widgetTilePanels } from "../../../lib/widgets/registry";
 
 // The room panel registry. Each entry is one thing a room can show.
 // Adding a new feature to a room (e.g. a task viewer) = add an entry here
@@ -42,8 +42,9 @@ export const ROOM_PANELS = {
     ),
   },
   // "Widgets as views" — pomodoro clock, team, focus, world clock, meetings,
-  // goals, big clock. They reuse the sidebar widget bodies (see viewPanels).
-  ...VIEW_PANELS,
+  // goals, big clock. Sourced from the shared widget registry (their `bare`
+  // bodies); the sidebar renders the same widgets as full cards.
+  ...widgetTilePanels,
 };
 
 export const PANEL_IDS = Object.keys(ROOM_PANELS);

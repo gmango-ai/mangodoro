@@ -1,23 +1,17 @@
 import { useState } from "react";
-import { Timer, Users, Globe, CalendarDays, Target, Activity, Clock } from "lucide-react";
 import TeamStatusRoster from "../TeamStatusRoster";
-import WorldClockWidget from "../WorldClockWidget";
-import UpcomingMeetingsWidget from "../UpcomingMeetingsWidget";
-import GoalsWidget from "../GoalsWidget";
-import { DeviceTimerPanel } from "./devicePanels";
 import UserAvatar from "../../UserAvatar";
 import { useTeam } from "../../../context/TeamContext";
 import { useOfficePresence } from "../../../hooks/useOfficePresence";
 import { useVisibilityPausedInterval } from "../../../hooks/useVisibilityPausedInterval";
 import { availabilityDot, availabilityLabel } from "../../../lib/presence";
 
-// Extra room-layout views ("widgets as views"). These reuse the sidebar widget
-// bodies (rendered `bare` — no card chrome, since the tile supplies its own
-// title bar) plus a couple of purpose-built displays. Merged into ROOM_PANELS.
-// render(ctx) receives the room panelCtx: { room, userId, dark, sess, ... }.
+// Purpose-built room-tile views (no matching sidebar card): a big wall clock and
+// a "who's on what" focus roster. The widget registry renders these as the
+// `bare` body of their tiles; the tile supplies its own title bar.
 
 // Big glanceable wall clock + date — for a shared room screen.
-function ClockView({ dark }) {
+export function ClockView({ dark }) {
   const [now, setNow] = useState(() => new Date());
   useVisibilityPausedInterval(() => setNow(new Date()), 1000, { enabled: true });
   return (
@@ -42,7 +36,7 @@ function ClockView({ dark }) {
 }
 
 // "Who's on what" — online teammates and their current focus/activity.
-function FocusView({ dark }) {
+export function FocusView({ dark }) {
   const { teamMembers } = useTeam();
   const identity = {};
   (teamMembers || []).forEach((tm) => {
@@ -80,57 +74,3 @@ function FocusView({ dark }) {
     </div>
   );
 }
-
-export const VIEW_PANELS = {
-  pomodoro: {
-    id: "pomodoro",
-    title: "Pomodoro",
-    icon: Timer,
-    min: 200,
-    render: ({ sess }) => <DeviceTimerPanel sess={sess} />,
-  },
-  team: {
-    id: "team",
-    title: "Team",
-    icon: Users,
-    min: 200,
-    render: ({ dark }) => (
-      <div className="h-full overflow-y-auto p-3"><TeamStatusRoster dark={dark} /></div>
-    ),
-  },
-  focus: {
-    id: "focus",
-    title: "Focus",
-    icon: Activity,
-    min: 200,
-    render: ({ dark }) => <FocusView dark={dark} />,
-  },
-  "world-clock": {
-    id: "world-clock",
-    title: "World clock",
-    icon: Globe,
-    min: 200,
-    render: ({ dark }) => <WorldClockWidget dark={dark} bare />,
-  },
-  meetings: {
-    id: "meetings",
-    title: "Meetings",
-    icon: CalendarDays,
-    min: 220,
-    render: ({ dark }) => <UpcomingMeetingsWidget dark={dark} bare />,
-  },
-  goals: {
-    id: "goals",
-    title: "Goals",
-    icon: Target,
-    min: 200,
-    render: ({ dark }) => <GoalsWidget dark={dark} bare />,
-  },
-  clock: {
-    id: "clock",
-    title: "Clock",
-    icon: Clock,
-    min: 200,
-    render: ({ dark }) => <ClockView dark={dark} />,
-  },
-};

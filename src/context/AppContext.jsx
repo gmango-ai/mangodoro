@@ -1397,6 +1397,22 @@ export function AppProvider({ session, children }) {
   // reachable regardless — this only silences the unprompted nudges.
   const setHintsDisabled = useCallback((val = true) => mergeOnboarding({ hintsDisabled: val }), [mergeOnboarding]);
 
+  // ── Widget preferences (settings.widget_prefs jsonb) ─────────
+  // Widget order + the pinned-strip set live per-account so they follow the
+  // user across devices (replacing per-device localStorage). Same clobber-safe
+  // pattern as onboarding: optimistic shallow-merge locally, then a partial
+  // patch to the widget_prefs_merge RPC so a writer only touches its own keys.
+  const mergeWidgetPrefs = useCallback((patch) => {
+    if (!session?.user?.id) return;
+    setSettings((prev) => {
+      const cur = prev.widget_prefs && typeof prev.widget_prefs === "object" ? prev.widget_prefs : {};
+      return { ...prev, widget_prefs: { ...cur, ...patch } };
+    });
+    supabase.rpc("widget_prefs_merge", { p: patch }).then(({ error }) => {
+      if (error) console.warn("save widget prefs:", error.message);
+    });
+  }, [session?.user?.id]);
+
   // ── Custom sounds (user) ─────────────────────────────────────
   // Stored as a JSONB array on user_settings.custom_sounds. We round-trip
   // the whole list through one upsert per change — small lists, low write
@@ -1889,6 +1905,8 @@ export function AppProvider({ session, children }) {
     setSettings, setHourlyRate, setDailyTarget, setWeeklyTarget, updateSettingsField,
     // onboarding / tutorial state setters (settings.onboarding jsonb)
     markTourComplete, dismissTour, setChecklistItem, setWelcomeDone, setSeenTourMarker, setHintsDisabled,
+    // widget preferences (settings.widget_prefs jsonb) — synced order + pins
+    mergeWidgetPrefs,
     // setters used by the SettingsPage's immediate-save flow
     setTemplates, setProjects,
     setDeepseekKey, setReminderTime, setTimeRounding,
