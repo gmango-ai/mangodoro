@@ -20,7 +20,7 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, ConnectionQuality, setLogLevel } from "livekit-client";
 import "@livekit/components-styles";
-import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, ChevronUp, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, RotateCw, MoreHorizontal, Clock, ArrowDownAZ } from "lucide-react";
+import { Eye, Video, Smile, PhoneOff, LayoutGrid, Presentation, Focus, Waves, ChevronDown, ChevronUp, Check, Plus, Users, UsersRound, Mic, MicOff, UserX, X, Volume2, Speaker, Sparkles, Pin, PinOff, Radio, FlipHorizontal2, PictureInPicture2, Minimize2, Maximize2, Hand, Headphones, HeadphoneOff, Expand, Shrink, RotateCw, MoreHorizontal, Clock, ArrowDownAZ, ZoomIn, ZoomOut } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { useSyncSession } from "../../context/SyncSessionContext";
@@ -1856,12 +1856,95 @@ function ClusterParticipantTile({ trackRef: trackRefProp }) {
   const boxRef = useRef(null);
   const autoFit = useAutoObjectFit(boxRef);
   const containVideo = fit === "contain" || (rot % 180 === 0 && autoFit === "contain");
+
+  // ── Zoom + pan on a shared screen ───────────────────────────────────────────
+  // Get in close to read fine detail on someone's shared screen. Screen shares
+  // only (a camera is never zoomed). +/− steps the scale; when zoomed, drag to
+  // pan. The transform rides on the <video> via CSS vars set on the box (so it
+  // survives LiveKit re-renders) and is clipped by the box's overflow-hidden.
+  const isScreen = trackRef?.source === Track.Source.ScreenShare;
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef(null);
+  const clampPan = useCallback((z, p) => {
+    const el = boxRef.current;
+    if (!el || z <= 1) return { x: 0, y: 0 };
+    const maxX = (el.clientWidth * (z - 1)) / 2;
+    const maxY = (el.clientHeight * (z - 1)) / 2;
+    return { x: Math.max(-maxX, Math.min(maxX, p.x)), y: Math.max(-maxY, Math.min(maxY, p.y)) };
+  }, []);
+  const setZoomLevel = useCallback((z) => {
+    const next = Math.max(1, Math.min(4, Math.round(z * 2) / 2)); // 0.5 steps, 1×–4×
+    setZoom(next);
+    setPan((p) => clampPan(next, next === 1 ? { x: 0, y: 0 } : p));
+  }, [clampPan]);
+  const onPanDown = (e) => {
+    if (!isScreen || zoom <= 1) return;
+    dragRef.current = { sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y };
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* */ }
+  };
+  const onPanMove = (e) => {
+    if (!dragRef.current) return;
+    setPan(clampPan(zoom, {
+      x: dragRef.current.px + (e.clientX - dragRef.current.sx),
+      y: dragRef.current.py + (e.clientY - dragRef.current.sy),
+    }));
+  };
+  const onPanUp = (e) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+  };
+  const zoomed = isScreen && zoom > 1;
+
   return (
     <div
       ref={boxRef}
-      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""} ${rotCls} ${containVideo ? "[&_video]:!object-contain" : ""}`}
+      onPointerDown={onPanDown}
+      onPointerMove={onPanMove}
+      onPointerUp={onPanUp}
+      onPointerCancel={onPanUp}
+      style={zoomed ? { "--zx": `${pan.x}px`, "--zy": `${pan.y}px`, "--zs": zoom } : undefined}
+      className={`group relative flex w-full h-full rounded-xl overflow-hidden ring-1 ring-white/[0.07] ${flip ? "[&_video]:scale-x-[-1]" : ""} ${rotCls} ${containVideo ? "[&_video]:!object-contain" : ""} ${isScreen ? "vid-zoom" : ""} ${zoomed ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       <ParticipantTile trackRef={trackRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }} />
+
+      {/* Zoom controls (bottom-left) for a shared screen — clear of the
+          Expand/Pin controls on the bottom-right. Drag the screen to pan once
+          zoomed. */}
+      {isScreen && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className={`absolute bottom-1.5 left-1.5 z-30 flex items-center gap-1 transition-opacity ${zoomed ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}
+        >
+          <button
+            type="button"
+            onClick={() => setZoomLevel(zoom - 0.5)}
+            disabled={zoom <= 1}
+            title="Zoom out"
+            aria-label="Zoom out"
+            className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-black/55 text-white ring-1 ring-white/15 backdrop-blur-sm transition active:scale-90 disabled:opacity-40 hover:bg-black/75"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          {zoomed && (
+            <span className="px-1.5 h-7 inline-flex items-center rounded-full bg-black/55 text-white text-[11px] font-semibold tabular-nums ring-1 ring-white/15 backdrop-blur-sm">
+              {zoom.toFixed(1)}×
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setZoomLevel(zoom + 0.5)}
+            disabled={zoom >= 4}
+            title="Zoom in"
+            aria-label="Zoom in"
+            className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-black/55 text-white ring-1 ring-white/15 backdrop-blur-sm transition active:scale-90 disabled:opacity-40 hover:bg-black/75"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Hover controls (bottom-right) — on the bottom edge so they never collide
           with the room panel's window controls (maximize/close), which own the
@@ -2042,6 +2125,87 @@ function FloatingSelfView({ trackRef, onDock }) {
   );
 }
 
+// A floating, draggable + resizable strip of participant cameras — the PiP shown
+// over a full-bleed shared screen in "fill screen" (theater) view, so you keep an
+// eye on faces while the screen fills the stage. Drag the body to move; drag the
+// left-edge handle to scale. Width persists per device.
+function FloatingParticipants({ tracks }) {
+  const [pos, setPos] = useState({ right: 14, bottom: 14 });
+  const [width, setWidth] = useState(() => {
+    const v = Number(loadPref(PREF.pipWidth, "320"));
+    return Number.isFinite(v) && v >= 160 ? Math.min(760, v) : 320;
+  });
+  const dragRef = useRef(null);
+  const resizeRef = useRef(null);
+
+  const onMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+    const maxR = Math.max(8, (d.parent?.width || 9999) - d.w - 8);
+    const maxB = Math.max(8, (d.parent?.height || 9999) - d.h - 8);
+    setPos({ right: Math.min(maxR, Math.max(8, d.right - dx)), bottom: Math.min(maxB, Math.max(8, d.bottom - dy)) });
+  };
+  const endDrag = () => { dragRef.current = null; window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", endDrag); };
+  const startDrag = (e) => {
+    if (e.target.closest("button") || e.target.closest("[data-resize]")) return;
+    e.preventDefault();
+    const self = e.currentTarget.getBoundingClientRect();
+    const parent = e.currentTarget.parentElement?.getBoundingClientRect();
+    dragRef.current = { sx: e.clientX, sy: e.clientY, right: pos.right, bottom: pos.bottom, parent, w: self.width, h: self.height };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", endDrag);
+  };
+
+  const onResizeMove = (e) => {
+    const r = resizeRef.current;
+    if (!r) return;
+    // Handle is on the LEFT edge (the PiP is right-anchored) → dragging left grows it.
+    setWidth(Math.min(760, Math.max(160, r.w + (r.sx - e.clientX))));
+  };
+  const endResize = () => {
+    resizeRef.current = null;
+    window.removeEventListener("pointermove", onResizeMove);
+    window.removeEventListener("pointerup", endResize);
+    setWidth((w) => { savePref(PREF.pipWidth, String(Math.round(w))); return w; });
+  };
+  const startResize = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    resizeRef.current = { sx: e.clientX, w: width };
+    window.addEventListener("pointermove", onResizeMove);
+    window.addEventListener("pointerup", endResize);
+  };
+
+  if (!tracks.length) return null;
+  const perTile = Math.max(72, (width - 12) / Math.min(tracks.length, 4)); // up to 4 fit; more scroll
+  return (
+    <div
+      onPointerDown={startDrag}
+      className="absolute z-40 rounded-2xl overflow-hidden ring-1 ring-white/20 shadow-2xl bg-slate-900/70 backdrop-blur-md cursor-grab active:cursor-grabbing"
+      style={{ right: pos.right, bottom: pos.bottom, width, touchAction: "none" }}
+    >
+      <div className="flex gap-1 p-1 overflow-x-auto wb-scroll-x">
+        {tracks.map((t) => (
+          <div key={refKey(t)} className="shrink-0 aspect-video rounded-lg overflow-hidden" style={{ width: perTile }}>
+            <ClusterParticipantTile trackRef={t} />
+          </div>
+        ))}
+      </div>
+      <button
+        data-resize
+        type="button"
+        onPointerDown={startResize}
+        aria-label="Resize participants"
+        title="Drag to resize"
+        className="absolute left-0 top-1/2 -translate-y-1/2 w-3 h-10 flex items-center justify-center cursor-ew-resize text-white/60 hover:text-white"
+      >
+        <span className="w-0.5 h-6 rounded bg-white/50" />
+      </button>
+    </div>
+  );
+}
+
 // The video stage. Switches between layout modes — grid (uniform clamped
 // tiles), presenter (one big focus + a strip of the rest), and spotlight (just
 // the focus). Grid always stays a true grid (screen share / pins reorder tiles,
@@ -2089,6 +2253,9 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, gr
   });
 
   const screenTrack = shown.find((t) => t.source === Track.Source.ScreenShare);
+  // Every shared screen (not just the first) — several people can present at once.
+  const screenTracks = shown.filter((t) => t.source === Track.Source.ScreenShare);
+  const cameraTiles = shown.filter((t) => t.source !== Track.Source.ScreenShare);
   const autoFocusFallback = spotlightIgnoreSelf && localId
     ? shown.find((t) => t.participant?.identity !== localId)
     : shown[0];
@@ -2107,6 +2274,10 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, gr
   const forcedFocus = (pinned && pinned[0]) || globalPinTrack || screenTrack || null;
   const focusTrack = forcedFocus || speakerTrack || autoFocusFallback || null;
   const pinnedTrackKey = pinned?.[0] ? refKey(pinned[0]) : null;
+  // With SEVERAL screens shared and no one singled out (Expand / admin pin), they
+  // ALL take the stage together; Expand one to make just it the focus.
+  const pinnedIsScreen = pinned?.[0]?.source === Track.Source.ScreenShare;
+  const multiScreen = screenTracks.length > 1 && !pinnedIsScreen && !globalPinTrack;
 
   // A squished tile (e.g. a tiny office panel) collapses to just the speaker.
   const squished = useSquishedLayout(w, h);
@@ -2148,14 +2319,21 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, gr
   const floatLocal = float && publish && !!localCamTrack && !localIsBig;
   const baseTiles = floatLocal ? shown.filter((t) => t !== localCamTrack) : shown;
 
+  // "Fill screen" (theater): the shared screen(s) go full-bleed and participants
+  // move into a floating, resizable PiP instead of the filmstrip. Persists per
+  // device; only takes effect while a screen is actually shared.
+  const [theater, setTheaterRaw] = useState(() => loadPref(PREF.theater, "0") === "1");
+  const setTheater = (v) => { setTheaterRaw(v); savePref(PREF.theater, v ? "1" : "0"); };
+  const theaterOn = theater && screenTracks.length > 0 && !squished;
+
   let mode = layoutMode;
   if (squished) mode = "spotlight";
-  // A personal Expand (LiveKit pin — e.g. tapping Expand on the shared screen)
-  // must make that tile FILL, even from Grid. Grid otherwise ignores focus for
-  // sizing, so Expand silently did nothing there and you couldn't force a shared
-  // screen big without first switching layouts. Promote to Presenter: the pinned
-  // tile big + everyone else in the auto column/row filmstrip.
-  else if (mode === "grid" && pinned?.[0]) mode = "presenter";
+  // A shared screen takes CENTER STAGE automatically — even from Grid, and even
+  // before anyone pins it: the whole point of sharing is that everyone looks at
+  // it (Grid otherwise ignores focus for sizing, so a share was just another
+  // equal tile). A personal Expand does the same for any tile. Promote to
+  // Presenter: the focus big + everyone else in the auto column/row filmstrip.
+  else if (mode === "grid" && (screenTrack || pinned?.[0])) mode = "presenter";
 
   // Map the resolved mode to the adaptive stage: grid = even tiles; presenter =
   // focus + filmstrip; spotlight = focus only (or, when pinned, pin + live
@@ -2169,7 +2347,19 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, gr
   let audienceTiles = [];
   const AUDIENCE_H = 80;
   const stageAspect = h > w * 1.1 ? 3 / 4 : 16 / 9;
-  if (dualSpotlight) {
+  if (theaterOn) {
+    // Fill screen: only the shared screen(s) on stage (one fills; several grid);
+    // participant cameras live in the floating PiP (rendered below).
+    stageTiles = screenTracks;
+  } else if (multiScreen && mode === "spotlight") {
+    // Several people presenting → every shared screen fills the stage together
+    // (an even grid of just the screens).
+    stageTiles = screenTracks;
+  } else if (multiScreen) {
+    // Every shared screen big side-by-side, everyone else in the filmstrip.
+    stageTiles = baseTiles;
+    stageFocusKeys = screenTracks.map(refKey);
+  } else if (dualSpotlight) {
     // Two equal big tiles — the pinned view + the live speaker. No focus keys →
     // the adaptive stage lays them out as an even 2-cell grid, nothing else.
     stageTiles = [forcedFocus, speakerTrack];
@@ -2231,6 +2421,23 @@ function Stage({ compact, publish, onJoinIn, layoutMode, spotlightIgnoreSelf, gr
             // app resize) re-solves automatically.
             aspect={stageAspect}
           />
+          {/* "Fill screen" toggle — only while a screen is shared. On: the screen
+              goes full-bleed and the participants move into the floating PiP. */}
+          {screenTracks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTheater(!theater)}
+              title={theaterOn ? "Exit fill screen — put participants back on the stage" : "Fill the screen — participants move to a floating PiP"}
+              aria-pressed={theaterOn}
+              className={`absolute top-2 left-2 z-30 inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-semibold backdrop-blur-sm ring-1 transition-colors ${
+                theaterOn ? "bg-[var(--color-accent)] text-white ring-white/20" : "bg-black/55 text-white ring-white/15 hover:bg-black/75"
+              }`}
+            >
+              {theaterOn ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              {theaterOn ? "Exit fill" : "Fill screen"}
+            </button>
+          )}
+          {theaterOn && cameraTiles.length > 0 && <FloatingParticipants tracks={cameraTiles} />}
         </div>
         {audienceTiles.length > 0 && <AudienceRow tracks={audienceTiles} />}
 
