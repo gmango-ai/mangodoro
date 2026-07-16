@@ -39,8 +39,9 @@ export default function MeetingsChip({ dark }) {
   return (
     <WidgetChip
       icon={CalendarDays}
-      value={next ? timeLabel(next.starts_at) : "—"}
-      title={next ? `Next: ${next.title || "meeting"}` : "Upcoming meetings"}
+      name={next ? (next.title || "Meeting") : "No meetings"}
+      value={next ? timeLabel(next.starts_at) : null}
+      title={next ? `Next: ${next.title || "meeting"} at ${timeLabel(next.starts_at)}` : "Upcoming meetings"}
       dark={dark}
     >
       <UpcomingMeetingsWidget dark={dark} />
