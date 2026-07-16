@@ -9,6 +9,14 @@ import TasksWidget from "../../components/office/TasksWidget";
 import TeamStatusRoster from "../../components/office/TeamStatusRoster";
 import { DeviceTimerPanel } from "../../components/office/roomLayout/devicePanels";
 import { FocusView, ClockView } from "../../components/office/roomLayout/roomViews";
+// Chip (one-line) renderers. The pomodoro / team / world-clock chips reuse the
+// existing bespoke nav gadgets as-is; meetings / goals / tasks are new pills.
+import NavPomodoroClock from "../../components/nav/NavPomodoroClock";
+import WorkingNowBar from "../../components/nav/WorkingNowBar";
+import WorldClockNav from "../../components/WorldClockNav";
+import MeetingsChip from "../../components/widgets/MeetingsChip";
+import GoalsChip from "../../components/widgets/GoalsChip";
+import TasksChip from "../../components/widgets/TasksChip";
 
 // ── Canonical widget registry ─────────────────────────────────────────────
 // The ONE catalog of app widgets. It replaces the two lists that had drifted:
@@ -16,9 +24,10 @@ import { FocusView, ClockView } from "../../components/office/roomLayout/roomVie
 // (roomLayout). Each surface derives what it needs from here, so there's a
 // single place to add a widget.
 //
-// Each entry can render at up to three sizes (chip is added in a later phase):
+// Each entry can render at up to three sizes:
 //   • `card` — the full widget with its own WidgetSection chrome (sidebar / drawer)
 //   • `bare` — chrome-less body for a room BSP tile (the tile draws the header)
+//   • `chip` — a one-line pill for the pinned topbar strip (opens the card on click)
 // A renderer that's absent means the widget doesn't support that size.
 //
 // Two id namespaces are preserved verbatim so existing persisted state keeps
@@ -41,12 +50,14 @@ export const WIDGETS = [
     sidebarId: "pomodoro", tileId: "pomodoro",
     card: ({ dark }) => <PomodoroWidget dark={dark} />,
     bare: ({ sess }) => <DeviceTimerPanel sess={sess} />,
+    chip: () => <NavPomodoroClock />,
   },
   {
     id: "team-status", title: "Team", icon: Users, min: 200, scope: "team",
     sidebarId: "team-status", tileId: "team",
     card: ({ dark }) => <TeamStatusWidget dark={dark} />,
     bare: ({ dark }) => <div className="h-full overflow-y-auto p-3"><TeamStatusRoster dark={dark} /></div>,
+    chip: ({ dark }) => <WorkingNowBar dark={dark} />,
   },
   {
     id: "focus", title: "Focus", icon: Activity, min: 200, scope: "room",
@@ -59,18 +70,21 @@ export const WIDGETS = [
     sidebarId: "world-clock", tileId: "world-clock",
     card: ({ dark }) => <WorldClockWidget dark={dark} />,
     bare: ({ dark }) => <WorldClockWidget dark={dark} bare />,
+    chip: ({ dark }) => <WorldClockNav dark={dark} />,
   },
   {
     id: "upcoming-meetings", title: "Meetings", icon: CalendarDays, min: 220, scope: "team",
     sidebarId: "upcoming-meetings", tileId: "meetings",
     card: ({ dark }) => <UpcomingMeetingsWidget dark={dark} />,
     bare: ({ dark }) => <UpcomingMeetingsWidget dark={dark} bare />,
+    chip: ({ dark }) => <MeetingsChip dark={dark} />,
   },
   {
     id: "goals", title: "Goals", icon: Target, min: 200, scope: "team",
     sidebarId: "goals", tileId: "goals",
     card: ({ dark }) => <GoalsWidget dark={dark} />,
     bare: ({ dark }) => <GoalsWidget dark={dark} bare />,
+    chip: ({ dark }) => <GoalsChip dark={dark} />,
   },
   {
     id: "clock", title: "Clock", icon: Clock, min: 200, scope: "room",
@@ -89,13 +103,26 @@ export const WIDGETS = [
     sidebarId: "tasks", tileId: null,
     card: ({ dark }) => <TasksWidget dark={dark} />,
     bare: null,
+    chip: ({ dark }) => <TasksChip dark={dark} />,
   },
 ];
 
-// Sidebar (card) surface: sidebarId → render(ctx). An id with no entry (stale
-// localStorage from a removed widget) is harmlessly absent.
+// The pinned topbar strip's default set — mirrors the informational gadgets Row 2
+// carried before it became pinnable, so the out-of-the-box strip is unchanged.
+export const DEFAULT_PINNED = ["pomodoro", "team-status", "world-clock"];
+
+// Widgets that can appear in the pinned strip (have a chip renderer), in
+// registry order — powers the "Pin a widget" menu.
+export const chipWidgets = WIDGETS.filter((w) => w.chip);
+
+// Canonical id → entry, for surfaces that resolve pinned ids to their chip.
+export const widgetById = Object.fromEntries(WIDGETS.map((w) => [w.id, w]));
+
+// Sidebar / drawer (card) surface: sidebarId → { scope, render(ctx) }. Scope
+// lets the app-wide drawer hide session/room widgets when not in a room. An id
+// with no entry (stale localStorage from a removed widget) is harmlessly absent.
 export const sidebarWidgetById = Object.fromEntries(
-  WIDGETS.filter((w) => w.sidebarId && w.card).map((w) => [w.sidebarId, w.card]),
+  WIDGETS.filter((w) => w.sidebarId && w.card).map((w) => [w.sidebarId, { scope: w.scope, render: w.card }]),
 );
 
 // Room-tile (bare) surface: tileId → panel entry, in registry order. Shape
