@@ -6,7 +6,7 @@ import { WidgetSectionForceOpen } from "../office/WidgetSection";
 // icon + an optional truncating `name` + a live `value` (+ optional label);
 // click opens a Popover with `children` (typically the widget's full card).
 // Styling matches the existing bespoke chips (WorkingNowBar / WorldClockNav).
-export default function WidgetChip({ icon: Icon, name, value, label, title, dark, popoverWidth = 300, children }) {
+export default function WidgetChip({ icon: Icon, name, value, label, title, dark, popoverWidth = 340, children }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   return (

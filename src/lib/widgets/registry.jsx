@@ -12,8 +12,8 @@ import { FocusView, ClockView } from "../../components/office/roomLayout/roomVie
 // Chip (one-line) renderers. The pomodoro / team / world-clock chips reuse the
 // existing bespoke nav gadgets as-is; meetings / goals / tasks are new pills.
 import NavPomodoroClock from "../../components/nav/NavPomodoroClock";
-import WorkingNowBar from "../../components/nav/WorkingNowBar";
 import WorldClockNav from "../../components/WorldClockNav";
+import TeamChip from "../../components/widgets/TeamChip";
 import MeetingsChip from "../../components/widgets/MeetingsChip";
 import GoalsChip from "../../components/widgets/GoalsChip";
 import TasksChip from "../../components/widgets/TasksChip";
@@ -58,7 +58,7 @@ export const WIDGETS = [
     sidebarId: "team-status", tileId: "team",
     card: ({ dark }) => <TeamStatusWidget dark={dark} />,
     bare: ({ dark }) => <div className="h-full overflow-y-auto p-3"><TeamStatusRoster dark={dark} /></div>,
-    chip: ({ dark }) => <WorkingNowBar dark={dark} />,
+    chip: ({ dark }) => <TeamChip dark={dark} />,
   },
   {
     id: "focus", title: "Focus", icon: Activity, min: 200, scope: "room",
