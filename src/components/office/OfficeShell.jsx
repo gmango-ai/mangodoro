@@ -9,13 +9,12 @@ import { Menu, Lock, Bell, Loader2 } from "lucide-react";
 import { supabase } from "../../supabase";
 import { requestRoomEntry } from "../../lib/rooms";
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
-import WidgetsSidebar from "./WidgetsSidebar";
+import { useWidgetDrawer } from "../../context/WidgetDrawerContext";
 import RoomView from "./RoomView";
 import HallwayView from "./HallwayView";
 import OfficeOverlay from "./OfficeOverlay";
 
 const LAST_ROOM_KEY = "ql_office_last_room";
-const SIDEBAR_OPEN_KEY = "ql_office_widgets_open";
 
 function lastRoomFor(teamId) {
   if (!teamId) return null;
@@ -35,17 +34,6 @@ function rememberRoomFor(teamId, roomId) {
     parsed[teamId] = roomId;
     localStorage.setItem(LAST_ROOM_KEY, JSON.stringify(parsed));
   } catch { /* storage disabled */ }
-}
-
-function loadSidebarOpen() {
-  try {
-    const stored = localStorage.getItem(SIDEBAR_OPEN_KEY);
-    if (stored === null) return true;
-    return stored !== "false";
-  } catch { return true; }
-}
-function saveSidebarOpen(v) {
-  try { localStorage.setItem(SIDEBAR_OPEN_KEY, v ? "true" : "false"); } catch { /* */ }
 }
 
 // Top-level office layout.
@@ -75,14 +63,10 @@ export default function OfficeShell({
   const { session } = useApp();
   const currentUserId = session?.user?.id;
   const { roomId } = useParams();
-  const [sidebarOpen, setSidebarOpenRaw] = useState(loadSidebarOpen);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
-
-  const setSidebarOpen = (next) => {
-    setSidebarOpenRaw(next);
-    saveSidebarOpen(next);
-  };
+  // The widgets rail is gone — widgets now live in the app-wide slide-over
+  // drawer (shared context). The in-room toggle just opens/closes it.
+  const { open: widgetsOpen, toggle: toggleWidgets } = useWidgetDrawer();
 
   // Resolve the active room from URL. We deliberately do NOT auto-
   // redirect when the URL is bare /office — that path now lands the
@@ -250,8 +234,6 @@ export default function OfficeShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedRoomId]);
 
-  const sidebar = <WidgetsSidebar />;
-
   // ── HALLWAY ── contained, native app page. No widgets rail and no
   // full-bleed shell: the hallway sits in the same centered column on
   // the app's global gradient background as every other page. The rail
@@ -287,35 +269,9 @@ export default function OfficeShell({
     <div className={`relative flex h-[calc(100dvh-var(--nav-h)-var(--top-inset)-var(--bottom-inset))] w-full ${
       dark ? "bg-[var(--color-bg)]" : "bg-slate-50"
     }`}>
-      {/* Desktop widgets sidebar.
-          Width: 18rem (288px) open, 0 closed. min-width pins the open
-          state so flex doesn't squeeze it when the room contents
-          push for more space — keeps the right edge flush with the
-          room view's left edge across viewports. */}
-      <div
-        className={`hidden md:flex shrink-0 h-full overflow-hidden transition-[width] duration-200 ${
-          sidebarOpen ? "w-72 min-w-[18rem]" : "w-0 min-w-0"
-        }`}
-      >
-        {sidebarOpen && sidebar}
-      </div>
-
-      {/* Mobile drawer — absolute (not fixed) so it only covers the room area
-          between the top nav and bottom nav, not the whole viewport. */}
-      {mobileSidebarOpen && (
-        <div
-          className="md:hidden absolute inset-0 z-[150] bg-black/50"
-          onClick={() => setMobileSidebarOpen(false)}
-        >
-          <div
-            className="absolute inset-y-0 left-0 w-72 max-w-[80vw] h-full overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {sidebar}
-          </div>
-        </div>
-      )}
-
+      {/* The widgets rail was retired: widgets are now the app-wide slide-over
+          drawer (WidgetDrawer, mounted in App), reachable here via the room
+          header's widgets toggle and the nav's widgets button. */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Mobile header (widgets drawer toggle + room name) — only for the
             lock gate, which has no header of its own. When RoomView shows, its
@@ -327,7 +283,7 @@ export default function OfficeShell({
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setMobileSidebarOpen(true)}
+              onClick={toggleWidgets}
               className="h-10 w-10 sm:h-8 sm:w-8"
               aria-label="Open widgets"
             >
@@ -358,16 +314,9 @@ export default function OfficeShell({
             busy={busy}
             onJoin={() => onJoin?.(selectedRoom)}
             onStart={() => onStart?.(selectedRoom)}
-            sidebarOpen={sidebarOpen}
-            mobileSidebarOpen={mobileSidebarOpen}
-            // Desktop toggles the inline rail; mobile toggles the drawer overlay.
-            onToggleSidebar={() => {
-              if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
-                setSidebarOpen(!sidebarOpen);
-              } else {
-                setMobileSidebarOpen((open) => !open);
-              }
-            }}
+            sidebarOpen={widgetsOpen}
+            // Opens/closes the app-wide widget drawer (same everywhere now).
+            onToggleSidebar={toggleWidgets}
             onOpenRoomSwitcher={() => setOverlayOpen(true)}
             onLeaveRoom={handleLeaveRoom}
             onEditRoom={onEditRoom}

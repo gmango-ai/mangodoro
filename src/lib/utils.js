@@ -75,6 +75,10 @@ export function normalizeSettings(row) {
     // 20260701150000). Shape: { welcomeDone, completedTours[], dismissedTours[],
     // checklist{}, seenTourMarker }. Defaults to {} for users predating it.
     onboarding: row.onboarding && typeof row.onboarding === "object" ? row.onboarding : {},
+    // Synced widget prefs (order + pinned strip + drawer). Single jsonb blob —
+    // see migration 20260715160000. Without this, pins/order reset on refresh
+    // (the optimistic in-memory write survives, the DB reload dropped them).
+    widget_prefs: row.widget_prefs && typeof row.widget_prefs === "object" ? row.widget_prefs : {},
   };
 }
 

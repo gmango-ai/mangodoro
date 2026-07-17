@@ -5,7 +5,7 @@ import { useTeam } from "../context/TeamContext";
 import { useTheme } from "../context/ThemeContext";
 import { supabase } from "../supabase";
 import { formatDuration } from "../lib/utils";
-import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown, ChevronUp, HelpCircle } from "lucide-react";
+import { Sun, Moon, LogOut, Loader2, Timer, Users, User, Building2, Settings as SettingsIcon, Menu, X, ChevronDown, ChevronUp, HelpCircle, LayoutGrid, Video } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import StatusChip from "./StatusChip";
 import { useResolvedSelf } from "../hooks/useResolvedSelf";
@@ -18,9 +18,8 @@ import NotificationBell from "./notifications/NotificationBell";
 import NavMessages from "./messages/NavMessages";
 import { useSyncSession } from "../context/SyncSessionContext";
 import WorkClockBar from "./nav/WorkClockBar";
-import NavPomodoroClock from "./nav/NavPomodoroClock";
-import WorkingNowBar from "./nav/WorkingNowBar";
-import WorldClockNav from "./WorldClockNav";
+import PinnedWidgetStrip from "./widgets/PinnedWidgetStrip";
+import { useWidgetDrawer } from "../context/WidgetDrawerContext";
 import PomodoroNavButton from "./nav/PomodoroNavButton";
 import { openHelpCenter } from "./tour/HelpCenter";
 
@@ -38,6 +37,7 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
   const { theme, toggleTheme } = useTheme();
   const darkMode = theme === "dark";
   const location = useLocation();
+  const { toggle: toggleWidgets, open: widgetsOpen } = useWidgetDrawer();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Bottom sheet behind the mobile bottom-nav "More" tab (separate from the
   // narrow-desktop hamburger drawer above).
@@ -132,6 +132,25 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
   // — no per-route special-casing needed.
   const showRow2 = row2Open;
 
+  // Widgets-drawer toggle — lives at the START of the pinned strip (row 2), next
+  // to the widgets it opens, rather than in row 1's comms cluster.
+  const widgetsBtn = (
+    <button
+      type="button"
+      onClick={toggleWidgets}
+      title="Widgets"
+      aria-label="Open widgets"
+      aria-pressed={widgetsOpen}
+      className={`shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+        widgetsOpen
+          ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
+          : darkMode ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+      }`}
+    >
+      <LayoutGrid className="w-[18px] h-[18px]" />
+    </button>
+  );
+
   return (
     <>
       <header
@@ -222,7 +241,6 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
                 <NavLink to="/tasks" className={desktopNavLink}>Tasks</NavLink>
                 <NavLink to="/time-tracker" className={desktopNavLink}>Time tracker</NavLink>
                 <NavLink to="/whiteboards" className={desktopNavLink}>Whiteboards</NavLink>
-                <NavLink to="/meetings" className={desktopNavLink}>Meetings</NavLink>
                 <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
               </nav>
 
@@ -264,31 +282,29 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
             </div>
           </div>
 
-          {/* Row 2 (desktop, collapsible) — clock-in balanced under the brand on
-              the left, ambient status on the right. */}
+          {/* Row 2 (desktop, collapsible) — your pinned widget strip on the
+              left, personal ambient controls (clock-in + status) on the right. */}
           {showRow2 && (
             <div className="hidden xl:flex items-center justify-between gap-3 pb-2 -mt-1">
-              <div className="flex items-center gap-3">
-                <NavPomodoroClock />
-                <WorkClockBar dark={darkMode} />
+              <div className="flex items-center gap-2 min-w-0">
+                {widgetsBtn}
+                <PinnedWidgetStrip dark={darkMode} ctx={{ inRoom: location.pathname.startsWith("/office/r/") }} />
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 shrink-0">
+                <WorkClockBar dark={darkMode} />
                 <StatusChip />
-                <WorkingNowBar dark={darkMode} />
-                <WorldClockNav dark={darkMode} />
               </div>
             </div>
           )}
 
-          {/* Row 2 (mobile only, collapsible) — the widgets that expand into
-              pills (clock-in, who's-working, world clock) + a pomodoro
-              quick-open, keeping mobile row 1 uncluttered. Collapsing it
+          {/* Row 2 (mobile only, collapsible) — clock-in + the pinned widget
+              strip (scrollable), keeping mobile row 1 uncluttered. Collapsing it
               shrinks --nav-h so full-height pages reclaim the space. */}
           {showRow2 && (
             <div className="xl:hidden flex items-center gap-2 h-10">
+              {widgetsBtn}
               <WorkClockBar dark={darkMode} />
-              <WorkingNowBar dark={darkMode} />
-              <WorldClockNav dark={darkMode} />
+              <PinnedWidgetStrip dark={darkMode} ctx={{ inRoom: location.pathname.startsWith("/office/r/") }} />
             </div>
           )}
         </div>
@@ -642,6 +658,17 @@ function UserMenu({ dark, settings, todayMins, hasTeamSessions, presenceDot, onT
               Profile
             </NavLink>
           )}
+
+          {/* Meetings */}
+          <NavLink
+            to="/meetings"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className={item}
+          >
+            <Video className="w-4 h-4 opacity-70" />
+            Meetings
+          </NavLink>
 
           {/* Settings */}
           <NavLink

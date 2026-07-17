@@ -17,6 +17,8 @@ export const PREF = {
   spotlightIgnoreSelf: "ql_lk_spot_ignore_self", // don't spotlight yourself to yourself
   fit: "ql_lk_fit",   // "cover" (fill + crop) | "contain" (fit, show whole frame)
   autoRotate: "ql_lk_autorotate", // counter-rotate my self-view to the device
+  theater: "ql_lk_theater",   // "fill screen": shared screen full-bleed + participants in a floating PiP
+  pipWidth: "ql_lk_pip_width", // width (px) of the theater participants PiP strip
 };
 
 export function loadPref(key, fallback) {

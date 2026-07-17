@@ -8,6 +8,12 @@ import { ChevronDown, ChevronRight, GripVertical } from "lucide-react";
 const DragHandleContext = createContext(null);
 export const DragHandleProvider = DragHandleContext.Provider;
 
+// When true (e.g. inside a chip's popover), the section renders ALWAYS EXPANDED
+// with a static header — no collapse toggle, no localStorage — so a popover
+// never inherits (or mutates) the drawer's collapsed state.
+const ForceOpenContext = createContext(false);
+export const WidgetSectionForceOpen = ForceOpenContext.Provider;
+
 const COLLAPSE_KEY_PREFIX = "ql_widget_collapsed_";
 
 function loadCollapsed(id) {
@@ -44,11 +50,12 @@ export default function WidgetSection({
   defaultCollapsed = false,
   // `bare` drops the section card + collapse header and just fills its parent
   // (scrolling) — used when the widget body is hosted as a room-layout tile,
-  // which supplies its own title bar. See roomLayout/viewPanels.
+  // which supplies its own title bar. See lib/widgets/registry (`bare` renderer).
   bare = false,
   children,
 }) {
-  const [collapsed, setCollapsedRaw] = useState(() => {
+  const forceOpen = useContext(ForceOpenContext);
+  const [collapsedRaw, setCollapsedRaw] = useState(() => {
     const stored = (() => {
       try {
         const raw = localStorage.getItem(COLLAPSE_KEY_PREFIX + id);
@@ -57,6 +64,7 @@ export default function WidgetSection({
     })();
     return stored === null ? defaultCollapsed : stored;
   });
+  const collapsed = forceOpen ? false : collapsedRaw;
   const setCollapsed = (v) => { setCollapsedRaw(v); saveCollapsed(id, v); };
 
   const Chevron = collapsed ? ChevronRight : ChevronDown;
@@ -87,21 +95,29 @@ export default function WidgetSection({
               <GripVertical className="w-3 h-3" />
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setCollapsed(!collapsed)}
-            aria-expanded={!collapsed}
-            aria-controls={`widget-body-${id}`}
-            className={`inline-flex items-center gap-1.5 px-1 py-0.5 rounded transition-colors min-w-0 ${
-              dark ? "hover:bg-[var(--color-surface)]/50" : "hover:bg-white/60"
-            }`}
-          >
-            <Chevron className="w-3 h-3 shrink-0" />
-            {Icon && <Icon className="w-3 h-3 shrink-0" />}
-            <span className="text-[10px] font-bold uppercase tracking-wider truncate">
-              {title}
+          {forceOpen ? (
+            // Static header — always expanded (popover context), no toggle.
+            <span className="inline-flex items-center gap-1.5 px-1 py-0.5 min-w-0">
+              {Icon && <Icon className="w-3 h-3 shrink-0" />}
+              <span className="text-[10px] font-bold uppercase tracking-wider truncate">{title}</span>
             </span>
-          </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setCollapsed(!collapsed)}
+              aria-expanded={!collapsed}
+              aria-controls={`widget-body-${id}`}
+              className={`inline-flex items-center gap-1.5 px-1 py-0.5 rounded transition-colors min-w-0 ${
+                dark ? "hover:bg-[var(--color-surface)]/50" : "hover:bg-white/60"
+              }`}
+            >
+              <Chevron className="w-3 h-3 shrink-0" />
+              {Icon && <Icon className="w-3 h-3 shrink-0" />}
+              <span className="text-[10px] font-bold uppercase tracking-wider truncate">
+                {title}
+              </span>
+            </button>
+          )}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </header>

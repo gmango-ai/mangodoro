@@ -1,239 +1,25 @@
 import { useState, useEffect, useCallback } from "react";
-import { ClipboardList, Plus, Check, PenLine, X as XIcon, ChevronRight, ChevronDown, Sparkles, Loader2 } from "lucide-react";
-import {
-  DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors,
-  useDraggable, useDroppable, closestCenter,
-} from "@dnd-kit/core";
-import { useTheme } from "../../context/ThemeContext";
-import { useSyncSession } from "../../context/SyncSessionContext";
-import { useTeam } from "../../context/TeamContext";
+import { ClipboardList, Plus, Check, X as XIcon, ChevronRight, ChevronDown, Sparkles, Loader2 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { Button } from "@/components/ui/button";
-import { unlinkWhiteboardFromSession } from "../../lib/syncSession";
-import {
-  listPersonalTasks, addPersonalTask, removePersonalTask,
-} from "../../lib/personalTasks";
-import { supabase } from "../../supabase";
+import { getTaskProviders } from "../../lib/tasks/providers";
 import { normalizeTask } from "../../lib/tasks/model";
-import { setTaskStatus } from "../../lib/tasks/mutations";
+import { createTask, setTaskStatus, deleteTask } from "../../lib/tasks/mutations";
 import { StatusControl } from "../tasks/TaskControls";
 import TaskDetailSheet from "../tasks/TaskDetailSheet";
 import {
   listSubtasks, addSubtask, addSubtasks, setSubtaskDone, deleteSubtask, subtaskProgress,
 } from "../../lib/subtasks";
-import { useWidgetOrder } from "../../hooks/useWidgetOrder";
 import EmojiTextField from "../EmojiTextField";
-import WhiteboardPicker from "./WhiteboardPicker";
-import PomodoroWidget from "./PomodoroWidget";
-import GoalsWidget from "./GoalsWidget";
-import TeamStatusWidget from "./TeamStatusWidget";
-import WorldClockWidget from "./WorldClockWidget";
-import UpcomingMeetingsWidget from "./UpcomingMeetingsWidget";
-import WidgetSection, { DragHandleProvider } from "./WidgetSection";
+import WidgetSection from "./WidgetSection";
 
-// App-wide widgets sidebar. Each widget is a WidgetSection so it can
-// collapse independently (state persisted per-widget). Widgets can
-// also be reordered by dragging the grip handle in the header —
-// useWidgetOrder persists the user's chosen order across reloads,
-// reconciling against the default list when widgets get added or
-// removed by future PRs.
-export default function WidgetsSidebar() {
-  const { theme } = useTheme();
-  const dark = theme === "dark";
-  const { order, reorder } = useWidgetOrder();
-
-  // 5px activation distance lets the header's collapse-on-click work
-  // without the drag intercepting a click. Tap-and-drag still fires
-  // for any pointer movement past that threshold.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor),
-  );
-
-  function handleDragEnd(event) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    reorder(active.id, over.id);
-  }
-
-  // Lookup table keyed by widget id. Each entry is a render function
-  // so an id with no entry (stale localStorage from a removed widget)
-  // is harmlessly skipped.
-  const widgetById = {
-    pomodoro:     () => <PomodoroWidget dark={dark} />,
-    "team-status": () => <TeamStatusWidget dark={dark} />,
-    "world-clock": () => <WorldClockWidget dark={dark} />,
-    "upcoming-meetings": () => <UpcomingMeetingsWidget dark={dark} />,
-    goals:        () => <GoalsWidget dark={dark} />,
-    whiteboard:   () => <WhiteboardWidget dark={dark} />,
-    tasks:        () => <TasksWidget dark={dark} />,
-  };
-
-  return (
-    <aside
-      className={`flex flex-col h-full border-r min-w-[18rem] ${
-        dark ? "bg-[var(--color-surface)] border-[var(--color-border)]" : "bg-white border-slate-200"
-      }`}
-    >
-      <div className={`px-3 py-3 border-b ${
-        dark ? "border-[var(--color-border)]" : "border-slate-200"
-      }`}>
-        <p className={`text-[10px] font-semibold uppercase tracking-wider ${
-          dark ? "text-slate-500" : "text-slate-400"
-        }`}>
-          Widgets
-        </p>
-      </div>
-
-      {/* closestCenter: rank drop targets by centre distance, NOT overlap area.
-          rectIntersection (the default) ranks by intersecting area, which is
-          dominated by tall (expanded) widgets — so a short collapsed widget
-          could rarely "win" a drop over an open one, making reorders only work
-          between widgets in the same collapsed/expanded state. */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <div className="flex-1 overflow-y-auto p-3 space-y-3">
-          {order.map((id) => {
-            const render = widgetById[id];
-            if (!render) return null;
-            return (
-              <SortableSlot key={id} id={id}>
-                {render()}
-              </SortableSlot>
-            );
-          })}
-        </div>
-      </DndContext>
-    </aside>
-  );
-}
-
-// Per-widget drop target + drag source. The drop ref and drag ref
-// share the same DOM node so a widget can be both grabbed and a
-// landing target. The grip-handle listeners are piped to WidgetSection
-// via DragHandleProvider so widgets don't need to know about DnD.
-function SortableSlot({ id, children }) {
-  const draggable = useDraggable({ id });
-  const droppable = useDroppable({ id });
-
-  function setRef(el) {
-    draggable.setNodeRef(el);
-    droppable.setNodeRef(el);
-  }
-
-  const style = draggable.transform
-    ? {
-        transform: `translate3d(${draggable.transform.x}px, ${draggable.transform.y}px, 0)`,
-        zIndex: draggable.isDragging ? 20 : "auto",
-        opacity: draggable.isDragging ? 0.95 : 1,
-      }
-    : undefined;
-
-  return (
-    <div
-      ref={setRef}
-      style={style}
-      className={`transition-colors ${
-        droppable.isOver && !draggable.isDragging
-          ? "outline outline-2 outline-[var(--color-accent)] rounded-xl"
-          : ""
-      }`}
-    >
-      <DragHandleProvider value={{ listeners: draggable.listeners, attributes: draggable.attributes }}>
-        {children}
-      </DragHandleProvider>
-    </div>
-  );
-}
-
-// Whiteboard link picker. WidgetSection owns the chrome + drag handle.
-// (Replaces the deprecated retro widget — the whiteboard is now what a
-// room attaches for shared work.)
-function WhiteboardWidget({ dark }) {
-  const { syncSession } = useSyncSession();
-  const { rooms, isAdmin, myOrgTeamLeadIds } = useTeam();
+// The user's tasks — the SAME source as the /tasks timeline (the task providers,
+// which read planner_tasks today), so the widget and the page never disagree.
+// Add a line, check it off, expand subtasks, open the shared editor for the full
+// row. Reads through getTaskProviders() + writes via the shared task mutations,
+// so a future ClickUp provider flows through here unchanged.
+export default function TasksWidget({ dark }) {
   const { session } = useApp();
-  const [pickerOpen, setPickerOpen] = useState(false);
-
-  const inSession = !!syncSession;
-  const linkedId = inSession ? (syncSession.whiteboard_id || null) : null;
-  // Anyone in the room may attach/swap the shared whiteboard (a shared surface,
-  // like opening a shared doc) — the server gates on session participation, not
-  // leadership. EXCEPT when a manager has locked the board for this room: then
-  // only managers can change it (server enforces; UI hides the controls).
-  const room = syncSession?.room_id ? rooms?.find((r) => r.id === syncSession.room_id) : null;
-  const locked = room?.whiteboard_locked === true;
-  const gatingTeamIds = (room?.room_teams || []).map((rt) => rt.org_team_id);
-  const canManageRoom = isAdmin
-    || (!!room && room.created_by === session?.user?.id)
-    || gatingTeamIds.some((id) => myOrgTeamLeadIds?.has(id));
-  const canLead = inSession && (!locked || canManageRoom);
-
-  async function unlink() {
-    if (!syncSession?.id) return;
-    await unlinkWhiteboardFromSession(syncSession.id);
-  }
-
-  return (
-    <WidgetSection id="whiteboard" icon={PenLine} title="Whiteboard" dark={dark}>
-      {!inSession && (
-        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-          Join a session to attach a whiteboard everyone can see.
-        </p>
-      )}
-
-      {inSession && !linkedId && canLead && (
-        <Button
-          type="button"
-          onClick={() => setPickerOpen(true)}
-          className="w-full justify-start"
-          size="sm"
-        >
-          <PenLine className="w-3.5 h-3.5 mr-2" />
-          Attach a whiteboard
-        </Button>
-      )}
-
-      {inSession && !linkedId && !canLead && locked && (
-        <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-          A room manager has locked the whiteboard — only they can attach one here.
-        </p>
-      )}
-
-
-      {linkedId && (
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold w-full bg-[var(--color-accent-light)] text-[var(--color-accent)]">
-            <PenLine className="w-3 h-3" />
-            <span className="truncate flex-1">Whiteboard attached</span>
-            {canLead && (
-              <button
-                type="button"
-                onClick={unlink}
-                aria-label="Unlink whiteboard"
-                title="Unlink whiteboard"
-                className="p-0.5 rounded-full hover:bg-[var(--color-accent)]/15"
-              >
-                <XIcon className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-          <p className={`text-[11px] leading-snug ${dark ? "text-slate-500" : "text-slate-500"}`}>
-            Pick a "Whiteboard" layout in the room's layout menu to focus it.
-          </p>
-        </div>
-      )}
-
-      <WhiteboardPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
-    </WidgetSection>
-  );
-}
-
-// Simple personal task tracker. A private per-user checklist (scoped to the
-// active team) — add a line, check it off, delete it. Backed by personal_tasks
-// with own-rows-only RLS. Degrades to an empty list if the table isn't there
-// yet (migration pending) rather than throwing.
-function TasksWidget({ dark }) {
-  const { activeTeamId } = useTeam();
+  const userId = session?.user?.id;
   const [tasks, setTasks] = useState([]);
   const [subsByTask, setSubsByTask] = useState({});
   const [text, setText] = useState("");
@@ -241,26 +27,24 @@ function TasksWidget({ dark }) {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
 
-  // Open the shared task editor (due date, deadline, labels — the parity the
-  // inline row doesn't surface) on the full personal_tasks row.
-  const openEditor = useCallback(async (task) => {
-    const { data } = await supabase.from("personal_tasks").select("*").eq("id", task.id).maybeSingle();
-    setEditing(normalizeTask(data || task, "personal"));
-  }, []);
+  // Provider tasks are already normalized (id, title, done, status, kind…) — the
+  // shared editor takes that shape directly, no re-fetch needed.
+  const openEditor = useCallback((task) => setEditing(task), []);
 
   const reload = useCallback(async () => {
-    const { data } = await listPersonalTasks(activeTeamId);
-    const live = (data || []).filter((t) => !t.archived); // archived tasks hidden from the widget
+    if (!userId) { setTasks([]); setSubsByTask({}); setLoaded(true); return; }
+    const lists = await Promise.all(getTaskProviders().map((p) => p.listTasks({ userId })));
+    const live = lists.flat().filter((t) => !t.archived); // archived tasks hidden from the widget
     setTasks(live);
     const ids = live.map((t) => t.id);
     if (ids.length) {
-      const { byPersonal } = await listSubtasks({ personalIds: ids });
-      setSubsByTask(Object.fromEntries(byPersonal));
+      const { byPlanner } = await listSubtasks({ plannerIds: ids });
+      setSubsByTask(Object.fromEntries(byPlanner));
     } else {
       setSubsByTask({});
     }
     setLoaded(true);
-  }, [activeTeamId]);
+  }, [userId]);
   useEffect(() => { reload(); }, [reload]);
 
   const setSubs = (taskId, next) => setSubsByTask((m) => ({ ...m, [taskId]: next }));
@@ -269,35 +53,35 @@ function TasksWidget({ dark }) {
     const t = text.trim();
     if (!t || saving) return;
     setSaving(true);
-    const { data, error } = await addPersonalTask({ title: t, teamId: activeTeamId });
+    const { data, error } = await createTask({ userId, title: t });
     setSaving(false);
-    if (!error && data) { setTasks((ts) => [data, ...ts]); setText(""); }
+    if (!error && data) { setTasks((ts) => [normalizeTask(data, "planner"), ...ts]); setText(""); }
   };
 
   const setStatus = async (task, status) => {
     const done = status === "done";
     setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, status, done } : x)));
-    const r = await setTaskStatus({ task: { id: task.id, kind: "personal", done: task.done, status: task.status || (task.done ? "done" : "todo") }, status });
+    const r = await setTaskStatus({ userId, task, status });
     if (r?.error) setTasks((ts) => ts.map((x) => (x.id === task.id ? { ...x, status: task.status, done: task.done } : x)));
   };
 
   const remove = async (task) => {
     const prev = tasks;
     setTasks((ts) => ts.filter((x) => x.id !== task.id));
-    const { error } = await removePersonalTask(task.id);
+    const { error } = await deleteTask({ task });
     if (error) setTasks(prev);
   };
 
   const addSub = async (task, title) => {
     const existing = subsByTask[task.id] || [];
     const sortOrder = existing.length ? Math.max(...existing.map((s) => s.sort_order)) + 1 : 0;
-    const { data, error } = await addSubtask({ personalTaskId: task.id, title, sortOrder });
+    const { data, error } = await addSubtask({ plannerTaskId: task.id, title, sortOrder });
     if (!error && data) setSubs(task.id, [...existing, data]);
   };
   const addAiSubs = async (task, titles) => {
     const existing = subsByTask[task.id] || [];
     const startOrder = existing.length ? Math.max(...existing.map((s) => s.sort_order)) + 1 : 0;
-    const { data, error } = await addSubtasks({ personalTaskId: task.id, titles, startOrder });
+    const { data, error } = await addSubtasks({ plannerTaskId: task.id, titles, startOrder });
     if (!error && data) setSubs(task.id, [...existing, ...data].sort((a, b) => a.sort_order - b.sort_order));
   };
   const toggleSub = async (task, sub) => {

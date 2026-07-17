@@ -31,6 +31,8 @@ import ClockOutModal from "./components/ClockOutModal";
 import NotificationToaster from "./components/notifications/NotificationToaster";
 import WhatsNew from "./components/WhatsNew";
 import PersistentVideoCall from "./components/video/PersistentVideoCall";
+import WidgetDrawer from "./components/widgets/WidgetDrawer";
+import { WidgetDrawerProvider } from "./context/WidgetDrawerContext";
 import DriveModeSuggest from "./components/DriveModeSuggest";
 import Nav from "./components/Nav";
 import InvoiceModal from "./components/InvoiceModal";
@@ -361,6 +363,7 @@ function AppLayout({ session }) {
 
         {/* A small right-edge gutter so the fixed pomodoro pull-tab (PomodoroFab,
             docked to the right edge) doesn't sit on top of page content. */}
+        <WidgetDrawerProvider>
         <div className={`relative z-10 min-h-screen ${!isEmbed && !onPomodoroPage ? "xl:pr-2" : ""}`}>
           {!isEmbed && <Nav onOpenPomodoro={() => setShowPomodoro(true)} onPomodoroPage={onPomodoroPage} />}
           {/* Floating pomodoro button (replaces the old nav Pomodoro link + timer
@@ -443,10 +446,12 @@ function AppLayout({ session }) {
               call survives page navigation. Renders as a PiP when no
               page has provided a stageEl via VideoCallContext. */}
           <PersistentVideoCall />
+          {!isEmbed && <WidgetDrawer />}
           {/* Car-Bluetooth detector — offers the /drive takeover when a car's
               hands-free audio device appears. */}
           <DriveModeSuggest />
         </div>
+        </WidgetDrawerProvider>
       </div>
     </div>
   );
