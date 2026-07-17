@@ -1,13 +1,15 @@
 import { Target } from "lucide-react";
 import { useWeekGoals } from "../../hooks/useWeekGoals";
+import { useSyncSession } from "../../context/SyncSessionContext";
 import GoalsWidget from "../office/GoalsWidget";
 import WidgetChip from "./WidgetChip";
 
 // Pinned-strip chip for this week's goals: a count in the pill, the full goals
-// card in the popover. roomId=null → only unrestricted (org/dept/personal)
-// goals surface, which is the right scope for an app-wide nav chip.
+// card in the popover. Scoped to the active session's room so the pill count
+// matches what the embedded GoalsWidget popover shows.
 export default function GoalsChip({ dark }) {
-  const { goals } = useWeekGoals(null);
+    const { syncSession } = useSyncSession();
+    const { goals } = useWeekGoals(syncSession?.room_id || null);
   return (
     <WidgetChip icon={Target} value={goals.length} label="goals" title="Goals this week" dark={dark}>
       {goals.length ? (
