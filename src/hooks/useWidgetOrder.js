@@ -17,6 +17,7 @@ export const DEFAULT_WIDGET_ORDER = [
   "team-status",
   "upcoming-meetings",
   "world-clock",
+  "weather",
   "goals",
   "tasks",
 ];

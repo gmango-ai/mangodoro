@@ -1,9 +1,10 @@
-import { Timer, Users, Activity, Globe, CalendarDays, Target, Clock, ClipboardList } from "lucide-react";
+import { Timer, Users, Activity, Globe, CalendarDays, Target, Clock, Cloud, ClipboardList } from "lucide-react";
 import PomodoroWidget from "../../components/office/PomodoroWidget";
 import TeamStatusWidget from "../../components/office/TeamStatusWidget";
 import WorldClockWidget from "../../components/office/WorldClockWidget";
 import UpcomingMeetingsWidget from "../../components/office/UpcomingMeetingsWidget";
 import GoalsWidget from "../../components/office/GoalsWidget";
+import WeatherWidget from "../../components/office/WeatherWidget";
 import TasksWidget from "../../components/office/TasksWidget";
 import TeamStatusRoster from "../../components/office/TeamStatusRoster";
 import { DeviceTimerPanel } from "../../components/office/roomLayout/devicePanels";
@@ -16,6 +17,7 @@ import WorldClockNav from "../../components/WorldClockNav";
 import MeetingsChip from "../../components/widgets/MeetingsChip";
 import GoalsChip from "../../components/widgets/GoalsChip";
 import TasksChip from "../../components/widgets/TasksChip";
+import WeatherChip from "../../components/widgets/WeatherChip";
 
 // ── Canonical widget registry ─────────────────────────────────────────────
 // The ONE catalog of app widgets. It replaces the two lists that had drifted:
@@ -70,6 +72,13 @@ export const WIDGETS = [
     card: ({ dark }) => <WorldClockWidget dark={dark} />,
     bare: ({ dark }) => <WorldClockWidget dark={dark} bare />,
     chip: ({ dark }) => <WorldClockNav dark={dark} />,
+  },
+  {
+    id: "weather", title: "Weather", icon: Cloud, min: 200, scope: "global",
+    sidebarId: "weather", tileId: null,
+    card: ({ dark }) => <WeatherWidget dark={dark} />,
+    bare: ({ dark }) => <WeatherWidget dark={dark} bare />,
+    chip: ({ dark }) => <WeatherChip dark={dark} />,
   },
   {
     id: "upcoming-meetings", title: "Meetings", icon: CalendarDays, min: 220, scope: "team",

@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import Popover from "../goals/Popover";
+import { WidgetSectionForceOpen } from "../office/WidgetSection";
 
 // Shared nav-strip pill for widget chips that don't already have a bespoke one.
 // icon + an optional truncating `name` + a live `value` (+ optional label);
@@ -28,8 +29,11 @@ export default function WidgetChip({ icon: Icon, name, value, label, title, dark
         {value != null && value !== "" && <span className={`tabular-nums shrink-0 ${name ? "opacity-70" : ""}`}>{value}</span>}
         {label && <span className="hidden sm:inline text-[10px] uppercase tracking-wider opacity-80">{label}</span>}
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={ref} width={popoverWidth} dark={dark}>
-        {children}
+      {/* Generous maxHeight so the popover GROWS to fit the card (Popover still
+          clamps to the space below the anchor); force-open so the card never
+          shows collapsed from the drawer's state. */}
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={ref} width={popoverWidth} maxHeight={640} dark={dark}>
+        <WidgetSectionForceOpen value={true}>{children}</WidgetSectionForceOpen>
       </Popover>
     </>
   );
