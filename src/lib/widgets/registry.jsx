@@ -1,10 +1,9 @@
-import { Timer, Users, Activity, Globe, CalendarDays, Target, Clock, PenLine, ClipboardList } from "lucide-react";
+import { Timer, Users, Activity, Globe, CalendarDays, Target, Clock, ClipboardList } from "lucide-react";
 import PomodoroWidget from "../../components/office/PomodoroWidget";
 import TeamStatusWidget from "../../components/office/TeamStatusWidget";
 import WorldClockWidget from "../../components/office/WorldClockWidget";
 import UpcomingMeetingsWidget from "../../components/office/UpcomingMeetingsWidget";
 import GoalsWidget from "../../components/office/GoalsWidget";
-import WhiteboardWidget from "../../components/office/WhiteboardWidget";
 import TasksWidget from "../../components/office/TasksWidget";
 import TeamStatusRoster from "../../components/office/TeamStatusRoster";
 import { DeviceTimerPanel } from "../../components/office/roomLayout/devicePanels";
@@ -91,12 +90,6 @@ export const WIDGETS = [
     sidebarId: null, tileId: "clock",
     card: null,
     bare: ({ dark }) => <ClockView dark={dark} />,
-  },
-  {
-    id: "whiteboard-link", title: "Whiteboard", icon: PenLine, min: 200, scope: "session",
-    sidebarId: "whiteboard", tileId: null,
-    card: ({ dark }) => <WhiteboardWidget dark={dark} />,
-    bare: null,
   },
   {
     id: "tasks", title: "Tasks", icon: ClipboardList, min: 200, scope: "global",

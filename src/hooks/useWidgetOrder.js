@@ -18,7 +18,6 @@ export const DEFAULT_WIDGET_ORDER = [
   "upcoming-meetings",
   "world-clock",
   "goals",
-  "whiteboard",
   "tasks",
 ];
 

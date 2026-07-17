@@ -132,6 +132,25 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
   // — no per-route special-casing needed.
   const showRow2 = row2Open;
 
+  // Widgets-drawer toggle — lives at the START of the pinned strip (row 2), next
+  // to the widgets it opens, rather than in row 1's comms cluster.
+  const widgetsBtn = (
+    <button
+      type="button"
+      onClick={toggleWidgets}
+      title="Widgets"
+      aria-label="Open widgets"
+      aria-pressed={widgetsOpen}
+      className={`shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+        widgetsOpen
+          ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
+          : darkMode ? "text-slate-400 hover:bg-white/10" : "text-slate-500 hover:bg-slate-100"
+      }`}
+    >
+      <LayoutGrid className="w-[18px] h-[18px]" />
+    </button>
+  );
+
   return (
     <>
       <header
@@ -225,21 +244,6 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
                 <NavLink to="/team" className={desktopNavLink}>Org</NavLink>
               </nav>
 
-              {/* Widgets drawer — app-wide access to the full widget cards. */}
-              <button
-                type="button"
-                onClick={toggleWidgets}
-                title="Widgets"
-                aria-label="Open widgets"
-                aria-pressed={widgetsOpen}
-                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-                  widgetsOpen
-                    ? "bg-[var(--color-accent-light)] text-[var(--color-accent)]"
-                    : darkMode ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                <LayoutGrid className="w-5 h-5" />
-              </button>
               {/* Help stays in row 1 (always visible). */}
               <button
                 type="button"
@@ -282,7 +286,10 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
               left, personal ambient controls (clock-in + status) on the right. */}
           {showRow2 && (
             <div className="hidden xl:flex items-center justify-between gap-3 pb-2 -mt-1">
-              <PinnedWidgetStrip dark={darkMode} ctx={{ inRoom: location.pathname.startsWith("/office/r/") }} />
+              <div className="flex items-center gap-2 min-w-0">
+                {widgetsBtn}
+                <PinnedWidgetStrip dark={darkMode} ctx={{ inRoom: location.pathname.startsWith("/office/r/") }} />
+              </div>
               <div className="flex items-center gap-3 shrink-0">
                 <WorkClockBar dark={darkMode} />
                 <StatusChip />
@@ -295,6 +302,7 @@ export default function Nav({ onOpenPomodoro, onPomodoroPage }) {
               shrinks --nav-h so full-height pages reclaim the space. */}
           {showRow2 && (
             <div className="xl:hidden flex items-center gap-2 h-10">
+              {widgetsBtn}
               <WorkClockBar dark={darkMode} />
               <PinnedWidgetStrip dark={darkMode} ctx={{ inRoom: location.pathname.startsWith("/office/r/") }} />
             </div>
