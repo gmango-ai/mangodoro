@@ -50,7 +50,7 @@ export async function loadCompanyEvents(teamId, startIso, endIso) {
   if (!teamId) return [];
   const { data, error } = await supabase
     .from("google_company_events")
-    .select("ical_uid,title,starts_at,ends_at,all_day,location,html_link,organizer_email,payload")
+    .select("ical_uid,title,starts_at,ends_at,all_day,location,html_link,organizer_email,payload,published_by")
     .eq("team_id", teamId)
     .gte("starts_at", startIso)
     .lt("starts_at", endIso);
@@ -60,16 +60,23 @@ export async function loadCompanyEvents(teamId, startIso, endIso) {
 
 // Which candidate iCalUIDs in a window are already shared — so the review list
 // can badge them instead of offering to publish again.
+// Returns { uids: Set<string>, publisherMap: Map<ical_uid, published_by> } so
+// callers can both detect published events and check who owns each one.
 export async function loadPublishedIcalUids(teamId, startIso, endIso) {
-  if (!teamId) return new Set();
+  if (!teamId) return { uids: new Set(), publisherMap: new Map() };
   const { data, error } = await supabase
     .from("google_company_events")
-    .select("ical_uid")
+    .select("ical_uid, published_by")
     .eq("team_id", teamId)
     .gte("starts_at", startIso)
     .lt("starts_at", endIso);
-  if (error) { console.warn("loadPublishedIcalUids:", error.message); return new Set(); }
-  return new Set((data || []).map((r) => r.ical_uid));
+  if (error) {
+    console.warn("loadPublishedIcalUids:", error.message);
+    return { uids: new Set(), publisherMap: new Map() };
+  }
+  const uids = new Set((data || []).map((r) => r.ical_uid));
+  const publisherMap = new Map((data || []).map((r) => [r.ical_uid, r.published_by]));
+  return { uids, publisherMap };
 }
 
 // The team's next few shared company events (for the office "Upcoming meetings"

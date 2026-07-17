@@ -119,7 +119,7 @@ function loadEnabledLayers() {
 
 export default function CalendarPage() {
   const { session, entries, googleToken, googleTokenExpiry, connectGoogle, listGoogleCalendarEvents, updateCalendarEvent, listGoogleCompanyCandidates, companyEmailDomain } = useApp();
-  const { activeTeamId, rooms, teamMembers, myOrgTeamIds } = useTeam();
+  const { activeTeamId, rooms, teamMembers, myOrgTeamIds, isAdmin } = useTeam();
   const { theme } = useTheme();
   const dark = theme === "dark";
   const navigate = useNavigate();
@@ -843,7 +843,7 @@ export default function CalendarPage() {
           onEditMeeting={(row) => { setDetailEvent(null); setMeetingModal({ meeting: row }); }}
           onEditMilestone={(row) => { setDetailEvent(null); setMilestoneModal({ milestone: row }); }}
           onEditTask={(row, kind) => { setDetailEvent(null); setTaskEdit({ task: row, kind }); }}
-          onRemoveCompany={({ icalUid, title }) => { setDetailEvent(null); setRemoveCompany({ icalUid, title }); }}
+          onRemoveCompany={(detailEvent?.extendedProps?.publishedBy === userId || isAdmin) ? ({ icalUid, title }) => { setDetailEvent(null); setRemoveCompany({ icalUid, title }); } : undefined}
         />
       )}
       {newSlot && (
@@ -874,6 +874,7 @@ export default function CalendarPage() {
         onClose={() => setCompanyReviewOpen(false)}
         teamId={activeTeamId}
         userId={userId}
+        isAdmin={isAdmin}
         companyDomain={companyEmailDomain}
         fetchCandidates={listGoogleCompanyCandidates}
         onChanged={reload}

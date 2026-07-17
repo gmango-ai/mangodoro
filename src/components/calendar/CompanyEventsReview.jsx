@@ -17,10 +17,11 @@ function fmtWhen(c) {
   return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export default function CompanyEventsReview({ open, onClose, teamId, userId, companyDomain, fetchCandidates, onChanged }) {
+export default function CompanyEventsReview({ open, onClose, teamId, userId, isAdmin, companyDomain, fetchCandidates, onChanged }) {
   const [loading, setLoading] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const [publishedUids, setPublishedUids] = useState(new Set());
+  const [publisherMap, setPublisherMap] = useState(new Map());
   const [checked, setChecked] = useState(new Set());
   const [expanded, setExpanded] = useState(new Set()); // series keys drilled open
   const [busy, setBusy] = useState(false);
@@ -40,13 +41,16 @@ export default function CompanyEventsReview({ open, onClose, teamId, userId, com
     const timeMax = new Date(now.getTime() + WINDOW_DAYS * 864e5).toISOString();
     (async () => {
       const list = await fetchRef.current?.({ timeMin, timeMax });
-      const pub = teamId ? await loadPublishedIcalUids(teamId, timeMin, timeMax) : new Set();
+      const { uids: pub, publisherMap: pubMap } = teamId
+        ? await loadPublishedIcalUids(teamId, timeMin, timeMax)
+        : { uids: new Set(), publisherMap: new Map() };
       if (cancelled) return;
       if (list == null) {
         setErr("Couldn't read your Google Calendar. Reconnect Google and try again.");
       } else {
         setCandidates(list);
         setPublishedUids(pub);
+        setPublisherMap(pubMap);
         // Pre-check the suggestions that aren't already shared.
         setChecked(new Set(list.filter((c) => !pub.has(c.icalUid)).map((c) => c.icalUid)));
       }
@@ -107,6 +111,7 @@ export default function CompanyEventsReview({ open, onClose, teamId, userId, com
     setBusy(false);
     if (error) { setErr(error.message || "Couldn't publish to the team calendar."); return; }
     setPublishedUids((prev) => { const n = new Set(prev); sel.forEach((c) => n.add(c.icalUid)); return n; });
+    setPublisherMap((prev) => { const n = new Map(prev); sel.forEach((c) => n.set(c.icalUid, userId)); return n; });
     onChanged?.();
   };
 
@@ -117,6 +122,7 @@ export default function CompanyEventsReview({ open, onClose, teamId, userId, com
     setBusy(false);
     if (error) { setErr(error.message || "Couldn't remove it from the team calendar."); return; }
     setPublishedUids((prev) => { const n = new Set(prev); n.delete(uid); return n; });
+    setPublisherMap((prev) => { const n = new Map(prev); n.delete(uid); return n; });
     setChecked((prev) => { const n = new Set(prev); n.delete(uid); return n; });
     onChanged?.();
   };
@@ -143,6 +149,7 @@ export default function CompanyEventsReview({ open, onClose, teamId, userId, com
   const renderRow = (c, indent = false) => {
     const isPublished = publishedUids.has(c.icalUid);
     const isChecked = isPublished || checked.has(c.icalUid);
+    const canRemove = isPublished && (publisherMap.get(c.icalUid) === userId || isAdmin);
     return (
       <div key={c.icalUid} className={`flex items-center gap-3 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 ${indent ? "pl-11 pr-3" : "px-3"}`}>
         <Box state={isChecked ? "on" : "off"} disabled={isPublished || busy} onClick={() => !isPublished && toggle(c.icalUid)} />
@@ -158,7 +165,12 @@ export default function CompanyEventsReview({ open, onClose, teamId, userId, com
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
         )}
-        {isPublished && (
+        {isPublished && !canRemove && (
+          <span className="shrink-0 text-[11px] font-semibold px-2 py-1 rounded-md text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-900/30 opacity-60">
+            Shared
+          </span>
+        )}
+        {canRemove && (
           <button type="button" disabled={busy} onClick={() => unpublish(c.icalUid)}
             className="shrink-0 text-[11px] font-semibold px-2 py-1 rounded-md text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-900/30 hover:bg-cyan-100">
             Shared · Remove

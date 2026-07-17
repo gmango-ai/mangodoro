@@ -415,6 +415,7 @@ export function companyEventToEvent(row) {
       location: row.location,
       organizerEmail: row.organizer_email,
       icalUid: row.ical_uid,
+      publishedBy: row.published_by,
     },
   };
 }
