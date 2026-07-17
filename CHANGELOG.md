@@ -4,6 +4,26 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-07-17
+
+### New & improved
+
+- feat(widgets): weather widget + chip popovers open/fit instead of inheriting collapse
+- feat(widgets): drop room-only whiteboard widget, move drawer button to row 2, readable goals
+- feat(video): auto-center a shared screen + multi-share, zoom, fill-screen PiP
+- feat(widgets): show the meeting name with the time in the strip chip
+- feat(widgets): pinned topbar strip + app-wide widget drawer
+- feat(widgets): sync widget order + pins to the account
+- refactor(widgets): unify sidebar + room-tile lists into one registry
+
+### Fixes
+
+- Align GoalsChip scope with GoalsWidget using syncSession room id
+- (widgets): team strip chip always shows + wider chip popovers
+- (widgets): denser goals list + meetings chip rolls past started meetings
+- (widgets): task source, meeting next, pin persistence, strip reorder
+- (video): keep a shared screen the focus over active speaker + kiosk
+
 ## 2026-07-15
 
 ### New & improved
