@@ -4,6 +4,12 @@ Notable changes to Mangodoro. Pre-1.0, so grouped by date/area rather than
 semantic versions. Newest first. Each release lists **New & improved** (features
 and changes to features) and **Fixes**.
 
+## 2026-11-02
+
+### New & improved
+
+- DOC(Agents): document PostHog skill refresh via --force
+
 ## 2026-08-10
 
 ### New & improved
